@@ -1,0 +1,12 @@
+# Build output
+/target/
+
+# Portfolio-specific records: the names, paths and state of the projects this tool manages
+# stay off the public repository (planning session 2026-10-31). Tracked files use generic or
+# already-public project names only.
+/private/
+
+# Local editor and OS noise
+.vscode/
+Thumbs.db
+desktop.ini
