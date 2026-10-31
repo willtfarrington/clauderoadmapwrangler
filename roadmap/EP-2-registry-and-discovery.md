@@ -144,3 +144,6 @@ folder alone; EP-0 and EP-1 ran the same way).
 > or machine detail. Found on the way: one repository's `roadmap/README.md` is empty, so a present file is
 > not yet a roadmap; the pickup count was corrected to seventeen folders. No owner tasks; no messages for
 > other projects. Next: EP-3 (Parser A), in a VS Code window opened on this folder alone (D-16).
+> **After the commit (≈ 35 min in all):** `8071475` pushed at 15:59; CI run 41236753774 on windows-latest
+> passed in 2 min 55 s (format, clippy, the same 40 tests, the git-reading one on the shallow checkout
+> included), restoring EP-1's cache through its prefix key since `Cargo.lock` changed.

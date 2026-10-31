@@ -50,7 +50,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
 | EP-1 | [Toolchain bootstrap: Cargo workspace (`core`, `app`, `cli`), pins, cargo gate, LICENSE, README, install script skeleton, private GitHub remote, CI](EP-1-toolchain-bootstrap.md) (D-2, D-14, D-15, D-29) | M | EP-0 | core | ☑ `64d6c6a` |
-| EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☐ |
+| EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☑ `8071475` |
 | EP-3 | Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey (D-9) | M | EP-1 | core | ☐ |
 | EP-4 | Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation (D-9, D-12) | M | EP-3 | core | ☐ |
 | EP-5 | Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
