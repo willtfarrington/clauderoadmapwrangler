@@ -22,3 +22,21 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   ignore already excludes that file. (5) This project's own earlier transcripts (EP-0 … EP-3) were
   re-filed under its own slug on 2026-10-31, so a re-plan's timing pass finds them there. Suggested
   homes: EP-8 for the D-7 and D-16 addenda, EP-11 for the launch itself.
+- [ ] IN-2 (from the owner, environment repository EP-0, 2026-10-31) Follow-ups to IN-1 after the owner
+  moved more of the environment to the machine level. (1) Neighbour folders: the owner now grants the
+  non-data projects to every session through user-level `permissions.additionalDirectories` and keeps a
+  data relationship in the depending project's own `.claude\settings.json`. Claude Code's documentation
+  says a settings-file grant gives file access only, while a folder passed at launch with `--add-dir`
+  also loads its `CLAUDE.md` and `.claude/rules` when `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`
+  is set. So the registry should hold each project's neighbour list and the headless launcher pass it
+  as `--add-dir` with that variable (D-16 "no extra directories" and D-18 revisited, an addendum each).
+  (2) Hooks: the owner runs a stopgap user-level `SessionStart` hook
+  (`~/.claude/hooks/session-start-inbox.ps1`) that prints the project's open inbox lines into the
+  session; EP-12's hook installation replaces it (remove it or chain it). A `UserPromptSubmit` hook that
+  recognises `@<project>` in a prompt and injects that project's rules and next-EP row would give
+  on-demand cross-project context (EP-12 or EP-20 scope; the owner's wish). (3) Every active project
+  now has `roadmap/inbox.md` in the D-13 form, hand-carried, so EP-21's formalise step creates the file
+  only where it is missing and adds the triage line to rule 1. (4) The owner's environment repository
+  (local-only; environment decisions and the shared memory) exists under the data root; the owner
+  adopts it with `crw adopt` (rule 13: the registry is theirs). Suggested homes: EP-8 for the addenda,
+  EP-12 and EP-21 for the rest.
