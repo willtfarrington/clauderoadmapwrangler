@@ -121,4 +121,6 @@ one's (rule 11 and D-16 ask for a window on this folder alone; EP-0 ran the same
 > the way: `WaitForInputIdle` returns before eframe's window exists (the first top-level window had no
 > title), so a smoke check waits for the titled window. No owner tasks; no messages for other projects.
 > Next: EP-2 (registry and discovery), started by hand in a VS Code window opened on this folder alone
-> (D-16).
+> (D-16). **After the commit (≈ 30 min in all):** the private repository was created and `64d6c6a` pushed
+> at 14:29 (`main` tracks `origin/main`); CI run 41229641108 on windows-latest passed in 5 min 11 s with a
+> cold cache (format, clippy, the same 10 tests) and saved the cache for later runs.
