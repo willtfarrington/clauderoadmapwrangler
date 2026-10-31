@@ -1,6 +1,6 @@
 [package]
 name = "crw-cli"
-description = "crw, the console side of clauderoadmapwrangler: doctor, scan, adopt, ignore and set now; inbox send and the hook and status-line relays with their briefs (D-14, D-20)."
+description = "crw, the console side of clauderoadmapwrangler: doctor, scan, adopt, ignore, set and roadmap now; inbox send and the hook and status-line relays with their briefs (D-14, D-20)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

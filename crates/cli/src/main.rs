@@ -1,7 +1,10 @@
 //! `crw`, the console side of clauderoadmapwrangler (D-2, D-14): `doctor` from EP-1; `scan`,
 //! `adopt`, `ignore` and `set` from EP-2, the console side of the registry until the dashboard
-//! (EP-6); `inbox send` and the `hook` and `statusline` relays arrive with their briefs.
+//! (EP-6); `roadmap` from EP-3, the parser's; `inbox send` and the `hook` and `statusline` relays
+//! arrive with their briefs.
 
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use chrono::Utc;
@@ -9,6 +12,7 @@ use crw_core::discovery::{self, Folder, Listing, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::proposal;
 use crw_core::registry::{State, Store};
+use crw_core::roadmap::{self, Size, table};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{files, paths};
 
@@ -23,6 +27,8 @@ commands:
   set <project> state <state>    active, paused, maintenance, done, archived or unformalised
   set <project> priority <1-5>   1 is the highest
   set <project> pinned <yes|no>  pinned projects sort first
+  roadmap <project|folder|file>  print what the parser reads in a roadmap: phases, the next EP,
+                                 its brief notes, counts and problems
   help                           print this text
   --version                      print crw's version
 
@@ -38,6 +44,7 @@ fn main() -> ExitCode {
         ["adopt", folders @ ..] if !folders.is_empty() => adopt(folders),
         ["ignore", folders @ ..] if !folders.is_empty() => ignore(folders),
         ["set", project, field, value] => set(project, field, value),
+        ["roadmap", target] => roadmap(target),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -296,4 +303,114 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
         }
         Err(e) => failed(e),
     }
+}
+
+/// Prints what the parser reads in one roadmap: the phases, the next EP with its row and brief
+/// notes, the counts and the problems. Reads, never writes.
+fn roadmap(target: &str) -> ExitCode {
+    let path = match roadmap_file(target) {
+        Ok(path) => path,
+        Err(e) => return failed(e),
+    };
+    let text = match fs::read_to_string(&path) {
+        Ok(text) => text,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let parsed = table::parse(&text);
+    let counts = parsed.counts();
+
+    println!("crw {} roadmap", env!("CARGO_PKG_VERSION"));
+    println!("  file      {}", path.display());
+    match parsed.profile() {
+        Some(profile) => println!(
+            "  profile   {profile}: {} phases, {} rows",
+            parsed.phases.len(),
+            counts.total
+        ),
+        None => println!("  profile   none: no phase table"),
+    }
+    let stretch = match counts.stretch {
+        0 => String::new(),
+        n => format!(", {n} stretch"),
+    };
+    println!(
+        "  progress  {} of {} done{stretch}",
+        counts.done, counts.total
+    );
+    match parsed.next() {
+        Some(row) => {
+            let size = row.size.map_or("?", Size::as_str);
+            println!("  next      {}  {size}  {}", row.id, row.brief.title);
+            let phase = parsed
+                .phase_of(row.id)
+                .map(|phase| {
+                    let heading = &phase.heading;
+                    format!("phase {}, ", heading.id.as_ref().unwrap_or(&heading.name))
+                })
+                .unwrap_or_default();
+            let depends = match row.depends.text.as_str() {
+                "" => "-",
+                text => text,
+            };
+            println!("            {phase}depends on {depends}, {}", row.done);
+        }
+        None if counts.all_checked() => println!("  next      none: every row is checked"),
+        None => println!("  next      none"),
+    }
+
+    println!("\nphases ({})", parsed.phases.len());
+    for phase in &parsed.phases {
+        let heading = &phase.heading;
+        let phase_counts = phase.counts();
+        let progress = match phase_counts.total {
+            0 => "no rows".to_owned(),
+            total => format!("{} of {total}", phase_counts.done),
+        };
+        let status = heading
+            .status
+            .as_deref()
+            .map(|status| format!("({status})"))
+            .unwrap_or_default();
+        let words = format!("{} {status}", heading.name);
+        let line = format!(
+            "  {:<6} {progress:<9} {}",
+            heading.id.as_deref().unwrap_or("-"),
+            words.trim()
+        );
+        println!("{}", line.trim_end());
+    }
+
+    if let Some(row) = parsed.next() {
+        match parsed.note(row.id) {
+            Some(note) => {
+                println!("\nbrief notes of {} (line {})", row.id, note.line);
+                for line in note.text.lines() {
+                    println!("  {line}");
+                }
+            }
+            None => println!("\nbrief notes of {}: none", row.id),
+        }
+    }
+
+    println!("\nproblems ({})", parsed.problems.len());
+    for problem in &parsed.problems {
+        println!("  {problem}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// A roadmap file as given, a folder's `roadmap\README.md`, or a registered project's.
+fn roadmap_file(target: &str) -> Result<PathBuf, String> {
+    let path = Path::new(target);
+    if path.is_file() {
+        return Ok(path.to_owned());
+    }
+    if path.is_dir() {
+        return Ok(roadmap::readme(path));
+    }
+    let registry = store()?.load().map_err(|e| e.to_string())?.registry;
+    let project = registry
+        .project(target)
+        .ok_or_else(|| format!("{target} is not a file, a folder or a registered project"))?;
+    Ok(roadmap::readme(&project.folder(&registry.data_root())))
 }

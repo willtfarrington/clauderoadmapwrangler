@@ -51,7 +51,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 |---|---|---|---|---|---|
 | EP-1 | [Toolchain bootstrap: Cargo workspace (`core`, `app`, `cli`), pins, cargo gate, LICENSE, README, install script skeleton, private GitHub remote, CI](EP-1-toolchain-bootstrap.md) (D-2, D-14, D-15, D-29) | M | EP-0 | core | ☑ `64d6c6a` |
 | EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☑ `8071475` |
-| EP-3 | Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey (D-9) | M | EP-1 | core | ☐ |
+| EP-3 | [Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey](EP-3-parser-a.md) (D-9) | M | EP-1 | core | ☐ |
 | EP-4 | Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation (D-9, D-12) | M | EP-3 | core | ☐ |
 | EP-5 | Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
 | EP-6 | Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects (D-25) | L | EP-2, EP-4 | core | ☐ |
@@ -120,6 +120,10 @@ only its own files inside a managed project).
   **From EP-2:** fill `proposal::Facts` from the parse — `all_rows_checked` from EP-3's counts and
   `pickup_gate` when the next brief carries a `PICKUP GATE` block — so `crw scan` proposes done or
   maintenance and paused from them as it already does for 60 days without a commit.
+  **From EP-3:** `roadmap::table::parse` takes text, so the snapshot parses `git show
+  HEAD:roadmap/README.md` and the working tree each; `Counts::all_checked` is the `all_rows_checked`
+  fact; a linked row's `brief.link` names its brief file; `roadmap::markdown` drops blockquotes today, so
+  completion notes need a blockquote block there; `crw roadmap` can print both readings.
 - **EP-5.** `core::tasks`: `roadmap/owner-tasks.md` lines `- [ ] OT-n (EP-k, date) text [before EP-m]`,
   tick written back by byte range through pulldown-cmark's offset iterator with an atomic write and a
   `.bak` copy; `roadmap/inbox.md` lines `- [ ] IN-n (from <project> EP-k, date) text [urgent]` with the
@@ -129,7 +133,9 @@ only its own files inside a managed project).
   `> **Handed on.**`, `owner-decisions.md` (`OD-n` rows, `☐ **open — owner only**`), `open-questions.md`
   (`OQ-x` rows), "Open items for the owner" lists, the "Owner actions outside any brief" paragraph split on
   semicolons with its "before EP-n" gates, handoff "Risks / notes" sections; a unified `OwnerItem` with
-  source, text, gate and whether it is tickable.
+  source, text, gate and whether it is tickable. **From EP-3:** `roadmap::markdown` already gives each
+  line its number and byte offset and each list item its continuation lines, which may make
+  pulldown-cmark unnecessary for the tick write-back; `roadmap::ep_ids` reads a `before EP-m` gate.
 - **EP-6.** `crates/app`: eframe with `persistence`; egui_tiles tree — list (left, wide), detail (centre),
   decisions / sessions / chat / usage tiles as placeholders that later EPs fill; the list: one row per
   project (name, state chip, next EP id and one-line summary with size, badges from EP-7 as empty slots,
@@ -146,7 +152,9 @@ only its own files inside a managed project).
   `set_state`), the facts gathered off the UI thread (git one child at a time: about 5 s for 14
   repositories), and a `notify` watcher on the data root's top level that rescans when a folder
   appears or goes (D-7); the fake registry through `registry::Store::new` or `CRW_HOME`, never the
-  owner's (rule 13).
+  owner's (rule 13). **From EP-3:** the tiles read `Roadmap::next`, `note`, `phase_of` and
+  `Phase::counts`; `brief.title` is the row's one-liner and `Note::text` the bullet verbatim;
+  `Roadmap::problems` go in the detail tile.
 - **EP-7.** `core::badges`: stack chips from manifests (`Cargo.toml` → Rust and the GUI family,
   `pyproject.toml` → Python and the version pin, `package.json` → TypeScript/Node and the manager,
   `docker-compose.yml`, `*.ps1` → PowerShell, `index.html` → static site); progress from the parse (done,

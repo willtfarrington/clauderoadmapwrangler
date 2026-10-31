@@ -9,7 +9,8 @@ backup status and history graphs, hosts a chat to Claude Code, ships the roadmap
 ends with a phone view over a Tailscale tailnet.
 
 **Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
-projects with discovery and `crw scan` (EP-2) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+projects with discovery and `crw scan` (EP-2) and the first half of the roadmap parser with `crw roadmap`
+(EP-3) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
@@ -22,6 +23,7 @@ cargo build --release                   # target\release\clauderoadmapwrangler.e
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and a Start-menu entry
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
+target\release\crw.exe roadmap <folder> # what the parser reads: phases, the next EP, its brief notes
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -41,7 +43,7 @@ spend usage.
 
 The tool reads each project's roadmap files in the shape below; this repository's own `roadmap/` folder
 is a complete example. Two older shapes (a five-column table and a "work packet" style) are read through
-format profiles, read-only.
+format profiles, read-only. `crw roadmap <folder>` prints what the parser reads in one roadmap.
 
 - **Phase tables.** `## Phase P1 — <name> (<status>)` headings, each followed by a table with the header
   `| # | Brief | Size | Depends on | Core | Done |`. One row per brief: an `EP-n` id; a one-line summary,

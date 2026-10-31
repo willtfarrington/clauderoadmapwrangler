@@ -19,7 +19,7 @@ pub struct Folder {
     /// A `.git` folder, or a `.git` file (a worktree or a submodule).
     pub git: bool,
     /// The house-style roadmap, `roadmap/README.md`, with something in it; whether it parses is
-    /// the parser's question (EP-3).
+    /// the parser's question (`roadmap::table`).
     pub roadmap: bool,
 }
 
@@ -29,7 +29,7 @@ impl Folder {
         if !path.is_dir() {
             return None;
         }
-        let readme = path.join("roadmap").join("README.md");
+        let readme = crate::roadmap::readme(path);
         Some(Self {
             name: path.file_name()?.to_string_lossy().into_owned(),
             path: path.to_owned(),

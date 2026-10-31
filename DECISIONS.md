@@ -115,6 +115,13 @@ three header variants, two checkbox families, non-numeric row order, implicit in
 edits by concurrent sessions. *Alternatives.* Migrating the three older projects first; supporting the
 house style only with a regex fallback.
 
+> **Addendum (2026-10-31, EP-3).** Columns of a phase table are located by name (`#`, `Brief` or `Packet`,
+> `Size`, `Depends on`, `Core`, `Done` or `Status`), so an added column does not hide a table, and the
+> profile follows from the columns. Only `☑` and `[x]` count as done: a `◐` (done but not landed), `[~]`
+> (in progress) or unknown Done cell is not, so the next EP stops at it and the counts leave it out.
+> Depends-on ids leave out parenthesised annotations and `before` clauses. *Alternatives.* The three header
+> strings only; `◐` counted as done.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
