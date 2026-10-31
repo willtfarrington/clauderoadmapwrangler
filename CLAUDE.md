@@ -30,7 +30,8 @@
    projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen.
 6. **Build and verify:** `cargo test`, `cargo clippy --all-targets --features screenshot`,
    `cargo fmt --check`, then `cargo build --release` with the app closed (a running exe cannot be
-   replaced). `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the shortcut; run it last.
+   replaced). `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
+   the Start-menu entry; run it last. `target\release\crw.exe doctor` prints the tool versions.
 7. **Owner decisions go through `AskUserQuestion`** before an EP is marked done: commits, scope changes,
    anything written into the owner's user settings (hooks, status line) or into another project, anything
    outward-facing (the remote, visibility, the site export), unresolved risks. Routine, reversible

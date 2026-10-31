@@ -1,0 +1,45 @@
+[workspace]
+members = ["crates/core", "crates/app", "crates/cli"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.98"
+license = "MIT"
+repository = "https://github.com/willtfarrington/clauderoadmapwrangler"
+publish = false
+
+# Every crate the plan names, pinned to its exact version at EP-1 (D-15); a member opts in with
+# `workspace = true` when a brief needs it, and `Cargo.lock` pins everything underneath. The egui
+# family (eframe, egui, egui_tiles, egui_extras, egui_plot) and claude-codes move only in a re-plan
+# brief.
+[workspace.dependencies]
+crw-core = { path = "crates/core" }
+
+# The desktop: eframe with saved window state, docked tiles, tables (D-14, D-25).
+eframe = { version = "=0.37.0", features = ["persistence"] }
+egui_extras = "=0.37.0"
+egui_tiles = "=0.18.0"
+
+# The session runner: protocol types behind an adapter, job objects (D-14, D-19).
+claude-codes = "=2.1.316"
+process-wrap = "=10.0.1"
+tokio = "=1.54.1"
+
+# Roadmaps, the registry and the ledger (D-8, D-9, D-11).
+notify = "=8.2.1"
+pulldown-cmark = "=0.13.6"
+rusqlite = { version = "=0.41.1", features = ["bundled"] }
+toml = "=1.1.8"
+
+# The loopback server and the phone pages (D-14, D-28).
+askama = "=0.16.1"
+axum = "=0.8.9"
+
+anyhow = "=1.0.104"
+chrono = "=0.4.45"
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+thiserror = "=2.0.21"
+tracing = "=0.1.44"

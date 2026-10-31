@@ -1,0 +1,17 @@
+[package]
+name = "clauderoadmapwrangler"
+description = "The desktop dashboard and session launcher (D-14, D-25)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Developer aid: with CRW_SCREENSHOT=<file.png> the app shows fake projects, saves a picture of
+# its own frame and exits (CLAUDE.md rule 5). Declared at EP-1 for the gate; the capture is EP-6's.
+screenshot = []
+
+[dependencies]
+eframe.workspace = true

@@ -24,7 +24,8 @@ decisions with the owner (`AskUserQuestion`), appends a `> **Completion note (da
 duration).**` to the brief, appends any owner task to `owner-tasks.md` and any message for another project
 as `> **Handed on (to <project>).**`. Commit, then check the box here with one backticked hash. **The next
 EP is the first unchecked row in table order** (D-9). Depends on lists immediate prerequisites only; the
-order below supplies the rest.
+order below supplies the rest. The schema these files follow, which the parser expects, is described in
+the top-level [`README.md`](../README.md#the-roadmap-house-style) (moved there at EP-1).
 
 **Sizes:** S ≈ 30 min, M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger
 is split at pickup. L is reserved for six engines: the tile shell (EP-6), the session runner (EP-9), the
@@ -152,7 +153,10 @@ only its own files inside a managed project).
 - **EP-8.** Retro (planned vs measured durations per EP), addenda to D-1 … D-30, `README.md` with two
   self-screenshots of fake projects, the public flip: `gh repo edit --visibility public
   --accept-visibility-change-consequences` after the owner's yes, the P2 rows confirmed with pickup notes,
-  `v2-notes.md` grown.
+  `v2-notes.md` grown. Before the flip, a pre-flip audit (added at EP-1 with the owner's yes): `git grep`
+  over every commit for the private project names kept in `private/`, and a re-read of the tracked
+  planning record for personal machine details (it names the `D:` volume's label, the VPN and the
+  account's plan tier); anything found goes to the owner before the flip.
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 

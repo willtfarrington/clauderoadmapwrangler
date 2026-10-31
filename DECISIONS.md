@@ -37,6 +37,13 @@ remote is a backup from the first commit; the licence matches hupsim and mimicwa
 shorter or product-neutral name; public from EP-1; private until v1; local-only like the recent projects;
 Apache-2.0.
 
+> **Addendum (2026-10-31, EP-1).** The short alias is **`crw`**: the console binary `crw.exe` (package
+> `crw-cli`), the library crate `crw-core` and the `CRW_*` environment variables. The desktop shortcut and
+> the Start-menu entry are called **"Roadmap Wrangler"**, the name Windows toasts will carry, which keeps
+> "Claude" out of the display name; both carry the AppUserModelID `willtfarrington.clauderoadmapwrangler`.
+> The app's crate and exe and the window title stay `clauderoadmapwrangler`. *Alternatives.* `crw`
+> everywhere, the shortcuts included; no alias (`clauderoadmapwrangler-cli.exe`).
+
 **D-3 Private data boundary.** The published repository must not describe the projects the tool handles.
 Planning records that name the owner's projects live in the git-ignored `private/` folder; the runtime
 **registry lives under `%APPDATA%\clauderoadmapwrangler`** and the **ledger under `%LOCALAPPDATA%`**, never

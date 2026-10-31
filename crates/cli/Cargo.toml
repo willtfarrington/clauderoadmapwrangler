@@ -1,0 +1,16 @@
+[package]
+name = "crw-cli"
+description = "crw, the console side of clauderoadmapwrangler: doctor now; scan, inbox send and the hook and status-line relays with their briefs (D-14, D-20)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "crw"
+path = "src/main.rs"
+
+[dependencies]
+crw-core.workspace = true

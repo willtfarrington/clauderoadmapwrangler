@@ -1,0 +1,55 @@
+# clauderoadmapwrangler CI (EP-1; D-29): the checks of CLAUDE.md rule 6 on the platform the tool
+# targets.
+#
+# No secrets and a read-only token; the only hosts are GitHub and crates.io (`--locked`, resolved
+# from the committed Cargo.lock). Tests never run the real claude CLI and never spend usage (D-29).
+# Actions are pinned to full commit SHAs. Rust is the exact toolchain the workspace was bootstrapped
+# with (`rust-version` in Cargo.toml is its floor). The release build stays local (rule 6).
+
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  RUST_TOOLCHAIN: 1.98.0
+  CARGO_TERM_COLOR: always
+  # Smaller, faster CI builds: no incremental state, no debug info.
+  CARGO_INCREMENTAL: 0
+  CARGO_PROFILE_DEV_DEBUG: 0
+  CARGO_PROFILE_TEST_DEBUG: 0
+
+jobs:
+  gate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install Rust ${{ env.RUST_TOOLCHAIN }}
+        run: rustup toolchain install ${{ env.RUST_TOOLCHAIN }} --profile minimal --component clippy,rustfmt
+      - name: Use Rust ${{ env.RUST_TOOLCHAIN }}
+        run: rustup default ${{ env.RUST_TOOLCHAIN }}
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-${{ hashFiles('Cargo.lock') }}
+          restore-keys: cargo-${{ runner.os }}-${{ env.RUST_TOOLCHAIN }}-
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --locked --all-targets --features screenshot -- -D warnings
+      - name: Test
+        run: cargo test --locked
