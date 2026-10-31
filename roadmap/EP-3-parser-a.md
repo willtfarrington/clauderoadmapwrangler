@@ -119,7 +119,7 @@ this folder alone; EP-0 to EP-2 ran the same way).
   its brief notes, and every reported problem is a real irregularity of that file.
 - No private project name in the tracked files (`git grep` for the names kept in `private/`).
 
-> **Completion note (2026-10-31; opus/max; ≈ 55 min to the commit).** Executed in one session from 16:04,
+> **Completion note (2026-10-31; opus/max; ≈ 50 min to the commit).** Executed in one session from 16:04,
 > started from another project's window (see the session note). Owner decisions (`AskUserQuestion`, every
 > one the recommended option): **commit**: both commits in the house pattern, pushed to the private
 > remote; **`crw roadmap`**: kept as the parser's console side until the dashboard (EP-6); **`◐` and
@@ -162,3 +162,6 @@ this folder alone; EP-0 to EP-2 ran the same way).
 > moved during the session (one more row and four more ticks between the survey at 16:10 and the check at
 > 16:40), which is what EP-4's snapshot is for. No owner tasks; no messages for other projects. Next: EP-4
 > (Parser B), in a VS Code window opened on this folder alone (D-16).
+> **After the commit (≈ 52 min in all):** `ecca039` pushed at 16:53; CI run 41240973060 on windows-latest
+> passed in 1 min 5 s (format, clippy, the same 70 tests), its cache whole since `Cargo.lock` did not
+> change; with the tick, `crw roadmap .` reads this repository's next EP as EP-4.
