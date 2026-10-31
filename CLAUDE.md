@@ -52,3 +52,10 @@
     EP-16 on, the EPs of this project are launched from the tool (D-5).
 12. **Generic names.** Modules, types, settings keys and file names describe function (registry, parser,
     runner, mailman, meter), never a managed project.
+13. **The registry and the ledger are the owner's records (D-8).** `%APPDATA%\clauderoadmapwrangler\registry.toml`
+    (the owner's since 2026-10-31, EP-2) and `%LOCALAPPDATA%\clauderoadmapwrangler` (the ledger and the
+    copies of the registry and of the workspace file) change only through the tool and only when the owner
+    asks; never reset, regenerate or "clean" them. `crw scan` only reads and may run on them. Tests use
+    temp folders. To try `crw` or the app, set `CRW_HOME=<scratch folder>`: the registry, the ledger and
+    the backups then live there, and a hand-written scratch registry points `data_root` at a scratch data
+    root with synthetic names.

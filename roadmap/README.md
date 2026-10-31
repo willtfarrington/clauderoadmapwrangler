@@ -50,7 +50,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
 | EP-1 | [Toolchain bootstrap: Cargo workspace (`core`, `app`, `cli`), pins, cargo gate, LICENSE, README, install script skeleton, private GitHub remote, CI](EP-1-toolchain-bootstrap.md) (D-2, D-14, D-15, D-29) | M | EP-0 | core | ☑ `64d6c6a` |
-| EP-2 | Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☐ |
+| EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☐ |
 | EP-3 | Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey (D-9) | M | EP-1 | core | ☐ |
 | EP-4 | Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation (D-9, D-12) | M | EP-3 | core | ☐ |
 | EP-5 | Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
@@ -117,6 +117,9 @@ only its own files inside a managed project).
   date)` and `docs/handoffs/EP-N.md` `**Status:** … · **Date:**` lines; **snapshot**: parse `git show
   HEAD:<path>` and the working tree, keep both, mark a project "session in progress" when a brief exists
   without a completion note, a brief is untracked, or the roadmap is dirty; unit tests per profile.
+  **From EP-2:** fill `proposal::Facts` from the parse — `all_rows_checked` from EP-3's counts and
+  `pickup_gate` when the next brief carries a `PICKUP GATE` block — so `crw scan` proposes done or
+  maintenance and paused from them as it already does for 60 days without a commit.
 - **EP-5.** `core::tasks`: `roadmap/owner-tasks.md` lines `- [ ] OT-n (EP-k, date) text [before EP-m]`,
   tick written back by byte range through pulldown-cmark's offset iterator with an atomic write and a
   `.bak` copy; `roadmap/inbox.md` lines `- [ ] IN-n (from <project> EP-k, date) text [urgent]` with the
@@ -138,7 +141,12 @@ only its own files inside a managed project).
   (egui_material_icons 0.9); keys (arrows, Enter, S, A); status bar for notices; a `screenshot` feature:
   with `CRW_SCREENSHOT=<file.png>` the app loads a fixture registry of fake projects, saves its own frame
   and exits (the pattern of the owner's other app; never a screen capture); `CRW_SCREENSHOT_SETUP` for
-  injected keys.
+  injected keys. **From EP-2:** the unadopted group from `discovery::view` with Adopt and Ignore
+  (`discovery::adopt`, `discovery::ignore`), proposal chips with Confirm (`proposal::propose`, then
+  `set_state`), the facts gathered off the UI thread (git one child at a time: about 5 s for 14
+  repositories), and a `notify` watcher on the data root's top level that rescans when a folder
+  appears or goes (D-7); the fake registry through `registry::Store::new` or `CRW_HOME`, never the
+  owner's (rule 13).
 - **EP-7.** `core::badges`: stack chips from manifests (`Cargo.toml` → Rust and the GUI family,
   `pyproject.toml` → Python and the version pin, `package.json` → TypeScript/Node and the manager,
   `docker-compose.yml`, `*.ps1` → PowerShell, `index.html` → static site); progress from the parse (done,

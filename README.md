@@ -8,8 +8,8 @@ cross-project inbox, chains briefs on autopilot within caps, meters the account'
 backup status and history graphs, hosts a chat to Claude Code, ships the roadmap method as a plugin, and
 ends with a phone view over a Tailscale tailnet.
 
-**Status:** early development. The Cargo workspace, `crw doctor` and CI exist (EP-1, 2026-10-31); the
-read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+**Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
+projects with discovery and `crw scan` (EP-2) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
@@ -21,7 +21,15 @@ CLI `gh`, VS Code with the Claude Code extension, and Tailscale.
 cargo build --release                   # target\release\clauderoadmapwrangler.exe and crw.exe
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and a Start-menu entry
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension
+target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 ```
+
+The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
+its ledger and the copies it makes before changing a file in `%LOCALAPPDATA%\clauderoadmapwrangler`;
+nothing is kept in a project. The registry lists the folders of one data root (by default the folder
+that holds this repository); `crw adopt` registers a folder and adds it to the VS Code workspace file,
+`crw ignore` hides one, and `crw set` changes a project's state, priority or pin. Set `CRW_HOME` to a
+scratch folder to try the commands without touching those folders.
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
 desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,

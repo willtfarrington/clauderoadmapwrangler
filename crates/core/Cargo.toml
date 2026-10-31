@@ -9,5 +9,14 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
-# Reads VS Code's list of installed extensions for `doctor`.
+# Dates for backups and the age of a project's last commit.
+chrono.workspace = true
+# The ledger (D-8).
+rusqlite.workspace = true
+# The registry: read strictly through serde, changed in place through toml_edit (D-8).
+serde.workspace = true
+toml.workspace = true
+toml_edit.workspace = true
+# VS Code's list of installed extensions for `doctor`; strings in the workspace file.
 serde_json.workspace = true
+thiserror.workspace = true

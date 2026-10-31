@@ -27,11 +27,13 @@ claude-codes = "=2.1.316"
 process-wrap = "=10.0.1"
 tokio = "=1.54.1"
 
-# Roadmaps, the registry and the ledger (D-8, D-9, D-11).
+# Roadmaps, the registry and the ledger (D-8, D-9, D-11). toml_edit (added at EP-2, the version
+# the GUI family already locked) changes the hand-edited registry without losing its comments.
 notify = "=8.2.1"
 pulldown-cmark = "=0.13.6"
 rusqlite = { version = "=0.41.1", features = ["bundled"] }
 toml = "=1.1.8"
+toml_edit = "=0.25.17"
 
 # The loopback server and the phone pages (D-14, D-28).
 askama = "=0.16.1"
