@@ -42,7 +42,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-0 | [The v1 planning interview: portfolio survey, research pass, domain map, 18 rounds and 72 questions; D-1 … D-30; phases P1 … P5; v2 notes; CLAUDE.md](EP-0-planning-interview.md) | L | — | core | ☐ |
+| EP-0 | [The v1 planning interview: portfolio survey, research pass, domain map, 18 rounds and 72 questions; D-1 … D-30; phases P1 … P5; v2 notes; CLAUDE.md](EP-0-planning-interview.md) | L | — | core | ☑ `c767a00` |
 
 ## Phase P1 — Foundations and the read-only dashboard (planned 2026-10-31)
 
