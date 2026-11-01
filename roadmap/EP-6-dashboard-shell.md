@@ -166,3 +166,7 @@ brief notes (the install script final), to be confirmed at the close. No `roadma
 > repository's new `owner-tasks.md`; no private project name in the tracked or new files. Owner task
 > OT-1 (the window on the real portfolio, before EP-7). No messages for other projects. Next: EP-7
 > (badges), with EP-6's pickup notes in its brief notes and in those of EP-8 and EP-10.
+> **After the commit (≈ 50 min in all):** `1b5bfca` and the record commit `62d2204` pushed together at
+> 21:20 UTC; CI run 41351508475 on windows-latest passed in 2 min 13 s (format, clippy with and
+> without the screenshot feature, the tests without and with it). Because the record commit went out
+> with the work, this line is a third commit, on the owner's yes.
