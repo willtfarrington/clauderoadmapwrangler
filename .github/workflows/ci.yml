@@ -51,5 +51,10 @@ jobs:
         run: cargo fmt --check
       - name: Clippy
         run: cargo clippy --locked --all-targets --features screenshot -- -D warnings
+      # Without the feature too: code only the screenshot feature uses is dead there (EP-6).
+      - name: Clippy without the screenshot feature
+        run: cargo clippy --locked --all-targets -- -D warnings
       - name: Test
         run: cargo test --locked
+      - name: Test with the screenshot feature
+        run: cargo test --locked --features screenshot

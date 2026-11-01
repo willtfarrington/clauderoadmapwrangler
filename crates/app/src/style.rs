@@ -1,0 +1,128 @@
+//! The dashboard's look (D-25): a type scale for a 4K-class display at the system's scaling in
+//! two densities, the state chips' colours, and the Material Symbols icon font.
+
+use crw_core::registry::State;
+use eframe::egui::{self, Color32, FontFamily, FontId, RichText, TextStyle, vec2};
+use serde::{Deserialize, Serialize};
+
+pub use egui_material_icons::icons;
+
+/// How tightly the list packs its rows (D-25).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Density {
+    #[default]
+    Compact,
+    Comfortable,
+}
+
+impl Density {
+    pub fn label(self) -> &'static str {
+        match self {
+            Density::Compact => "Compact",
+            Density::Comfortable => "Comfortable",
+        }
+    }
+
+    /// The body text size, in points; the other styles follow from it.
+    fn body(self) -> f32 {
+        match self {
+            Density::Compact => 14.0,
+            Density::Comfortable => 15.5,
+        }
+    }
+
+    /// The height of one project row in the list.
+    pub fn row_height(self) -> f32 {
+        match self {
+            Density::Compact => 26.0,
+            Density::Comfortable => 34.0,
+        }
+    }
+
+    /// Sets the text styles and the spacing of both themes. egui's defaults (12.5 pt body) are
+    /// sized for a 1080p screen at 100 %; a 4K-class screen at its usual 150 % scaling reads
+    /// better a step larger, with room between the lines.
+    pub fn apply(self, ctx: &egui::Context) {
+        let body = self.body();
+        let gap = match self {
+            Density::Compact => 4.0,
+            Density::Comfortable => 7.0,
+        };
+        ctx.all_styles_mut(|style| {
+            style.text_styles = [
+                (
+                    TextStyle::Heading,
+                    FontId::new(body * 1.4, FontFamily::Proportional),
+                ),
+                (TextStyle::Body, FontId::new(body, FontFamily::Proportional)),
+                (
+                    TextStyle::Monospace,
+                    FontId::new(body * 0.92, FontFamily::Monospace),
+                ),
+                (
+                    TextStyle::Button,
+                    FontId::new(body, FontFamily::Proportional),
+                ),
+                (
+                    TextStyle::Small,
+                    FontId::new(body * 0.84, FontFamily::Proportional),
+                ),
+            ]
+            .into();
+            style.spacing.item_spacing = vec2(8.0, gap);
+            style.spacing.button_padding = vec2(7.0, gap / 2.0 + 1.0);
+            style.spacing.interact_size.y = body + 8.0;
+            style.spacing.menu_margin = egui::Margin::same(8);
+        });
+    }
+}
+
+/// The colour that marks a state (D-6), and the unadopted folders.
+pub fn state_colour(state: Option<State>) -> Color32 {
+    match state {
+        Some(State::Active) => Color32::from_rgb(46, 160, 67),
+        Some(State::Paused) => Color32::from_rgb(210, 153, 34),
+        Some(State::Maintenance) => Color32::from_rgb(56, 132, 214),
+        Some(State::Done) => Color32::from_rgb(120, 130, 140),
+        Some(State::Archived) => Color32::from_rgb(110, 110, 110),
+        Some(State::Unformalised) => Color32::from_rgb(150, 100, 205),
+        None => Color32::from_rgb(225, 110, 40),
+    }
+}
+
+/// A small rounded label on a tint of `colour`, readable in both themes.
+pub fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) -> egui::Response {
+    let dark = ui.visuals().dark_mode;
+    let fill = colour.gamma_multiply(if dark { 0.32 } else { 0.18 });
+    let ink = if dark {
+        colour.lerp_to_gamma(Color32::WHITE, 0.55)
+    } else {
+        colour.lerp_to_gamma(Color32::BLACK, 0.45)
+    };
+    egui::Frame::new()
+        .fill(fill)
+        .corner_radius(7.0)
+        .inner_margin(egui::Margin::symmetric(7, 1))
+        .show(ui, |ui| {
+            ui.label(RichText::new(text).small().color(ink));
+        })
+        .response
+}
+
+/// An icon at the text's size, in the colour given or the text's own.
+pub fn icon(icon: egui_material_icons::MaterialIcon, colour: Option<Color32>) -> RichText {
+    let text = icon.rich_text();
+    match colour {
+        Some(colour) => text.color(colour),
+        None => text,
+    }
+}
+
+/// The amber of warnings and of a session in progress.
+pub fn amber(ui: &egui::Ui) -> Color32 {
+    ui.visuals().warn_fg_color
+}
+
+pub fn red(ui: &egui::Ui) -> Color32 {
+    ui.visuals().error_fg_color
+}

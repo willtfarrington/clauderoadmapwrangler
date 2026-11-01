@@ -48,3 +48,10 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   (the D-16 and D-18 addenda; the registry's neighbour list and the `--add-dir` flag land where the
   re-plan puts them in P2, with pickup notes for EP-9 and EP-10); (2) parked in EP-12's brief notes;
   (3) and (4) parked in EP-21's brief notes.
+- [x] IN-3 (from the owner, crw on PATH, 2026-11-01) Put `crw` on PATH, which belongs to EP-28's
+  install script (`install-shortcut.ps1` final). A shim in `%USERPROFILE%\.local\bin` next to
+  `claude.exe` is the natural form: that folder is already on PATH, so `crw scan`, `crw tasks` and
+  the rest would run from any shell without the `target\release\` prefix. **Triaged at EP-6
+  (2026-11-01):** not dashboard work and not S-sized for EP-6; parked in EP-28's brief notes, where
+  the script picks the shim's form (a `crw.cmd` forwarding to the release exe, or a copy refreshed at
+  each run) and Diagnostics checks that it reaches the current exe.

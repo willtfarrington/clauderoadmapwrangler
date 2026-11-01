@@ -54,7 +54,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-3 | [Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey](EP-3-parser-a.md) (D-9) | M | EP-1 | core | ☑ `ecca039` |
 | EP-4 | [Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation](EP-4-parser-b.md) (D-9, D-12) | M | EP-3 | core | ☑ `9603196` |
 | EP-5 | [Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only](EP-5-owner-tasks-and-inbox.md) (D-10, D-11, D-13) | M | EP-4 | core | ☑ `7bbf169` |
-| EP-6 | Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects (D-25) | L | EP-2, EP-4 | core | ☐ |
+| EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☐ |
 | EP-7 | Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health (D-24, D-25) | M | EP-6 | core | ☐ |
 | EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7 | core | ☐ |
 
@@ -171,7 +171,13 @@ only its own files inside a managed project).
   from `gh run list --limit 1 --json conclusion` for repositories with workflows and a `LICENSE*` file
   check; backup age from the Documents job's settings file and run records (path settings; the job writes
   one archive per unit — read the newest archive's timestamp per project); refresh daily and on demand;
-  results cached in the ledger with their fetch time.
+  results cached in the ledger with their fetch time. **From EP-6:** a row keeps the badges' place
+  between the counts and the session status (`list::Columns`); the hosting sort key and the stack and
+  hosting filters exist, disabled (`SortKey::arrives_at`, the Filters menu); the git pass
+  (`portfolio::Loader::read_git`, one repository after another under one lock) is where the activity
+  and hosting children join, and `ProjectRow::facts.last_commit` already comes from it; F5 is the
+  on-demand refresh; the fake portfolio has no repository, so badge tests make a scratch one as
+  `portfolio`'s git test does.
 - **EP-8.** Retro (planned vs measured durations per EP), addenda to D-1 … D-30, `README.md` with two
   self-screenshots of fake projects, the public flip: `gh repo edit --visibility public
   --accept-visibility-change-consequences` after the owner's yes, the P2 rows confirmed with pickup notes,
@@ -192,7 +198,10 @@ only its own files inside a managed project).
   `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` is set, so the registry should hold each project's
   neighbour list and the headless launcher pass it as `--add-dir` with that variable). The re-plan
   decides whether Adopt's per-project file, the scan listing and the neighbour list are an S row in
-  P2 or done at the re-plan, and writes the pickup notes for EP-9 and EP-10 accordingly.
+  P2 or done at the re-plan, and writes the pickup notes for EP-9 and EP-10 accordingly. **From
+  EP-6:** the README's pictures come from `CRW_SCREENSHOT=<file.png>` with `--features screenshot`
+  over the fake portfolio (`CRW_SCREENSHOT_SETUP`: `light` or `dark`, `select=`, `expand=`,
+  `size=<w>x<h>`; the default window is 1600 × 1000 points, a 2400 × 1500 picture at 150 %).
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 
@@ -247,7 +256,9 @@ contain no real transcript text).
   per-project, first match wins; Headless launch button → EP-9. **From EP-5:** the open owner tasks
   and inbox messages are `snapshot.tasks` and `snapshot.inbox` (`open()`), each with its id, the
   parenthesis's fields and its text as written; the older forms' items (`snapshot.legacy`) are the
-  project session's own reading and need not be in the prompt.
+  project session's own reading and need not be in the prompt. **From EP-6:** the S key and each
+  row's Start button exist and answer `Action::NotYet`; the dialog takes their place, and the
+  selected project is `Board::view.selected`.
 - **EP-11.** Visual launch: build `vscode://anthropic.claude-code/open?prompt=<url-encoded opener>`;
   read `~/.claude/ide/*.lock` to learn the running window's `workspaceFolders`; if the first folder is the
   project, run `Code.exe --open-url "<uri>"`; otherwise open `Code.exe <project folder>` (or a generated
@@ -449,7 +460,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   final (release build, shortcut, Start-menu entry with AppUserModelID, start-at-login entry registered
   through the tool's own `--register-autostart` and removable); single instance by probing `/health` and
   focusing the running window; AV hints when a spawn fails or the exe path changed; start-up reconciliation
-  of session rows against `claude agents --json`.
+  of session rows against `claude agents --json`. **From IN-3 (2026-11-01, triaged at EP-6):** the
+  script also puts `crw` on PATH with a shim in `%USERPROFILE%\.local\bin` beside `claude.exe` (that
+  folder is on PATH already); its form is the brief's choice (a `crw.cmd` that forwards its arguments
+  to `target\release\crw.exe`, or a copy of the exe refreshed at each run), Diagnostics checks that
+  the shim reaches the current exe, and the hook and status-line entries keep the exe's full path.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 

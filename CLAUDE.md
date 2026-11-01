@@ -28,9 +28,10 @@
    against the stub executable replaying recorded stream-json; parser tests use the synthetic fixtures;
    UI checks use the `screenshot` feature (`CRW_SCREENSHOT=<file.png>` saves the app's own frame with fake
    projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen.
-6. **Build and verify:** `cargo test`, `cargo clippy --all-targets --features screenshot`,
-   `cargo fmt --check`, then `cargo build --release` with the app closed (a running exe cannot be
-   replaced). `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
+6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
+   --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
+   (code only the feature uses is dead without it, EP-6), `cargo fmt --check`, then `cargo build
+   --release` with the app closed (a running exe cannot be replaced). `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
    the Start-menu entry; run it last. `target\release\crw.exe doctor` prints the tool versions.
 7. **Owner decisions go through `AskUserQuestion`** before an EP is marked done: commits, scope changes,
    anything written into the owner's user settings (hooks, status line) or into another project, anything

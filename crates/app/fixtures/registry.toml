@@ -1,0 +1,72 @@
+# The registry of a screenshot run (CLAUDE.md rule 5): invented projects only, the folders of
+# crates/app/fixtures/portfolio. The run writes it into its home folder on its first start, with
+# the data root filled in; a later run from the same home starts from what the earlier one changed.
+format = 1
+ignore = ["attic"]
+
+[settings]
+data_root = @DATA_ROOT@
+
+[[project]]
+name = "harbor"
+path = "harbor"
+state = "active"
+priority = 1
+pinned = true
+
+[[project]]
+name = "lantern"
+path = "lantern"
+state = "active"
+priority = 2
+pinned = false
+
+[[project]]
+name = "meadow"
+path = "meadow"
+state = "active"
+priority = 3
+pinned = false
+
+[[project]]
+name = "quarry"
+path = "quarry"
+state = "active"
+priority = 3
+pinned = false
+
+[[project]]
+name = "compass"
+path = "compass"
+state = "paused"
+priority = 3
+pinned = false
+
+[[project]]
+name = "orchard"
+path = "orchard"
+state = "maintenance"
+priority = 4
+pinned = false
+
+[[project]]
+name = "atlas"
+path = "atlas"
+state = "unformalised"
+priority = 4
+pinned = false
+
+[[project]]
+name = "beacon"
+path = "beacon"
+state = "done"
+priority = 5
+pinned = false
+
+# Its folder is gone: the list shows it as missing.
+[[project]]
+name = "tundra"
+path = "tundra"
+state = "archived"
+priority = 5
+pinned = false

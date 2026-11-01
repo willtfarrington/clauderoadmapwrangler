@@ -33,7 +33,9 @@ pub fn backups_dir() -> Option<PathBuf> {
     Some(local_dir()?.join("backups"))
 }
 
-fn home() -> Option<PathBuf> {
+/// `CRW_HOME`, when it is set: the one folder that then holds everything the tool keeps, the
+/// desktop's window state included.
+pub fn home() -> Option<PathBuf> {
     env::var_os(HOME_VAR)
         .filter(|value| !value.is_empty())
         .map(PathBuf::from)

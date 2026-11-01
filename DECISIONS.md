@@ -335,6 +335,16 @@ font, theme System with override, keys (arrows select, Enter opens, S starts, A 
 The owner's egui conventions, carried over. *Alternatives.* Cards first; a table only; a flat list; tabs per
 state; graphs only in the detail tile or a separate window.
 
+> **Addendum (2026-11-01, EP-6).** The list's groups run active, paused, maintenance, unformalised,
+> unadopted folders, done, archived, with done and archived folded at first; inside a group, pinned
+> first, then the sort key — priority (1 first), completion (the most complete first), remaining (the
+> fewest open rows first), last activity (the latest commit first), name — with the projects that lack
+> the key's data last; hosting and usage share wait for EP-7 and EP-18, and a name filter is added.
+> Keys: ↑ ↓ select, → ← expand and fold a row, Enter brings the Detail tile forward. A project's files
+> show at once; git's readings join as a worker thread gets them, one child at a time (D-29). A right
+> click on a row pins it or sets its priority or state (D-6's "by hand"). *Alternatives.* Unadopted
+> folders first; Enter expanding the row; pin, priority and state from `crw set` only.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates
@@ -399,6 +409,13 @@ Diagnostics, reconciliation of running sessions from `claude agents --json` on s
 machine runs two AV products that flag bursts; the owner's other app established the install and
 screenshot patterns. *Alternatives.* A portable exe; a service plus GUI; a log file only; unit tests only;
 an opt-in live smoke test; documented AV exclusions.
+
+> **Addendum (2026-11-01, EP-6).** A screenshot run (`CRW_SCREENSHOT=<file.png>`) keeps its registry,
+> the window state and the backups in its own home (`CRW_HOME`, else a folder beside the picture),
+> reads the tracked fake portfolio in `crates/app/fixtures/portfolio/` and refuses ticks there, so it
+> writes nothing into a project or the owner's files; `CRW_HOME` alone also moves the window state, so
+> a trial never touches the owner's saved layout. *Alternatives.* A scratch copy of the fake projects
+> for each run; screenshots of the real portfolio kept out of git.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

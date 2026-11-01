@@ -1,36 +1,99 @@
-//! clauderoadmapwrangler's desktop window (D-14, D-25). EP-1 opens an empty window; the tile shell,
-//! the project list and the `screenshot` feature's capture arrive at EP-6.
+//! clauderoadmapwrangler's desktop window (D-14, D-25): the docking layout over the portfolio,
+//! read-only but for the writes the tool owns (D-11). EP-6 brought the shell, the project list,
+//! the detail pane and the `screenshot` feature's capture; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod board;
+mod detail;
+mod layout;
+mod list;
+mod markup;
+mod portfolio;
+#[cfg(feature = "screenshot")]
+mod screenshot;
+mod style;
+
+use std::sync::Arc;
+
+use crw_core::paths;
+use crw_core::registry::Store;
 use eframe::egui;
+
+use board::Dashboard;
 
 /// Names the window and eframe's folder in `%APPDATA%`, beside the registry (D-2, D-8).
 const APP_ID: &str = "clauderoadmapwrangler";
 
+/// The window's size on a first launch.
+const DEFAULT_SIZE: [f32; 2] = [1440.0, 900.0];
+
 fn main() -> eframe::Result {
-    let options = eframe::NativeOptions {
+    #[cfg(feature = "screenshot")]
+    let run = screenshot::Run::from_env();
+    #[cfg(feature = "screenshot")]
+    if let Some(run) = &run {
+        return screenshot_run(run);
+    }
+
+    // With CRW_HOME set, eframe's state lives there too, so a trial leaves the owner's layout
+    // alone (rule 13).
+    let persistence_path = paths::home().map(|home| home.join("app.ron"));
+    let options = options(DEFAULT_SIZE, persistence_path, true);
+    eframe::run_native(
+        APP_ID,
+        options,
+        Box::new(|cc| {
+            let store = Store::locate().ok_or("no profile folder: APPDATA is not set")?;
+            let mut dashboard = Dashboard::new(cc, Arc::new(store));
+            if let Some(home) = paths::home() {
+                dashboard.board_mut().home_note =
+                    Some(format!("{}={}", paths::HOME_VAR, home.display()));
+            }
+            Ok(Box::new(dashboard))
+        }),
+    )
+}
+
+fn options(
+    size: [f32; 2],
+    persistence_path: Option<std::path::PathBuf>,
+    persist_window: bool,
+) -> eframe::NativeOptions {
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_ID)
             .with_app_id(APP_ID)
-            .with_inner_size([1280.0, 800.0]),
+            .with_inner_size(size)
+            .with_min_inner_size([900.0, 560.0]),
+        persistence_path,
+        persist_window,
         ..Default::default()
-    };
-    eframe::run_native(APP_ID, options, Box::new(|_cc| Ok(Box::new(Skeleton))))
+    }
 }
 
-/// The window until EP-6 replaces it with the tile shell.
-struct Skeleton;
-
-impl eframe::App for Skeleton {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
-        egui::CentralPanel::default().show(ui, |ui| {
-            ui.heading(APP_ID);
-            ui.label(format!(
-                "Version {}: the workspace skeleton (EP-1). The project list arrives at EP-6.",
-                env!("CARGO_PKG_VERSION")
-            ));
-        });
-    }
+/// The screenshot feature's run (rule 5): the fake portfolio, the window at a fixed size.
+#[cfg(feature = "screenshot")]
+fn screenshot_run(run: &screenshot::Run) -> eframe::Result {
+    let store = match run.store() {
+        Ok(store) => store,
+        Err(e) => {
+            eprintln!(
+                "screenshot: cannot write the registry into {}: {e}",
+                run.home.display()
+            );
+            std::process::exit(1);
+        }
+    };
+    let options = options(run.size(), Some(run.state_file()), false);
+    eframe::run_native(
+        APP_ID,
+        options,
+        Box::new(move |cc| {
+            let mut dashboard = Dashboard::new(cc, Arc::new(store));
+            run.arrange(&mut dashboard, &cc.egui_ctx);
+            Ok(Box::new(dashboard))
+        }),
+    )
 }

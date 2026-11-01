@@ -11,10 +11,11 @@ ends with a phone view over a Tailscale tailnet.
 **Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
 projects with discovery and `crw scan` (EP-2), the roadmap parser with `crw roadmap` (EP-3 the phase
 tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapshot that tells a session in
-progress), and the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
-`crw tasks` and `crw tick` (EP-5) exist; the read-only dashboard arrives at EP-6. The roadmap is
-[`roadmap/README.md`](roadmap/README.md), the decisions [`DECISIONS.md`](DECISIONS.md), the session rules
-[`CLAUDE.md`](CLAUDE.md).
+progress), the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
+`crw tasks` and `crw tick` (EP-5), and the dashboard's shell (EP-6: the docking layout, the project list
+grouped by state, the detail pane, ticks and Adopt from the window) exist; badges arrive at EP-7 and
+sessions in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+[`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
 
@@ -39,6 +40,16 @@ nothing is kept in a project. The registry lists the folders of one data root (b
 that holds this repository); `crw adopt` registers a folder and adds it to the VS Code workspace file,
 `crw ignore` hides one, and `crw set` changes a project's state, priority or pin. Set `CRW_HOME` to a
 scratch folder to try the commands without touching those folders.
+
+The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
+grouped by state, each with its next brief, its progress, what waits on the owner and whether a session
+is in progress; the detail pane shows the selected project's brief notes, owner items, inbox and
+problems. It reads each project's files at once and adds what git says one repository at a time. It
+writes only what the tool owns: the registry (Adopt, Ignore, a confirmed state, pin, priority) and the
+ticks in a project's `owner-tasks.md` and `inbox.md`. Built with `--features screenshot` and run with
+`CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio (`crates/app/fixtures/portfolio`), saves a
+picture of its own window and exits; `CRW_SCREENSHOT_SETUP` arranges the view (see
+`crates/app/src/screenshot.rs`).
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
 desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,

@@ -17,10 +17,14 @@ publish = false
 [workspace.dependencies]
 crw-core = { path = "crates/core" }
 
-# The desktop: eframe with saved window state, docked tiles, tables (D-14, D-25).
+# The desktop: eframe with saved window state, docked tiles, tables (D-14, D-25). The icon font
+# (added at EP-6, the research pass's pick) builds on egui and moves with the family; `image` is
+# the version eframe already locks, for the screenshot feature's PNG.
 eframe = { version = "=0.37.0", features = ["persistence"] }
 egui_extras = "=0.37.0"
+egui_material_icons = "=0.9.0"
 egui_tiles = "=0.18.0"
+image = { version = "=0.25.10", default-features = false, features = ["png"] }
 
 # The session runner: protocol types behind an adapter, job objects (D-14, D-19).
 claude-codes = "=2.1.316"

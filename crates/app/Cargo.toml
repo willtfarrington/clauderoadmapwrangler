@@ -10,8 +10,17 @@ publish.workspace = true
 
 [features]
 # Developer aid: with CRW_SCREENSHOT=<file.png> the app shows fake projects, saves a picture of
-# its own frame and exits (CLAUDE.md rule 5). Declared at EP-1 for the gate; the capture is EP-6's.
-screenshot = []
+# its own frame and exits (CLAUDE.md rule 5; src/screenshot.rs).
+screenshot = ["dep:image"]
 
 [dependencies]
+# The age of a project's last commit, the date of a write's copies.
+chrono.workspace = true
+crw-core.workspace = true
 eframe.workspace = true
+egui_material_icons.workspace = true
+egui_tiles.workspace = true
+image = { workspace = true, optional = true }
+# The data root's top level, watched for folders that appear or go (D-7).
+notify.workspace = true
+serde.workspace = true

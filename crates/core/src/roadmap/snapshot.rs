@@ -309,17 +309,41 @@ pub fn read_tree(folder: &Path) -> Snapshot {
 /// `roadmap/` when the folder is a repository (two git children, spaced).
 pub fn take(folder: &Path) -> Snapshot {
     let mut snapshot = read_tree(folder);
-    if !folder.join(".git").exists() {
-        return snapshot;
+    if let Some(reading) = read_git(folder) {
+        reading.fill(&mut snapshot);
     }
-    snapshot.head = git(folder, &["show", &format!("HEAD:{README_IN_REPO}")])
+    snapshot
+}
+
+/// What git says about a repository's roadmap: the README at `HEAD`, and the status under
+/// `roadmap/`. The dashboard reads it after the working tree, on its own thread (EP-6).
+#[derive(Debug, Clone, Default)]
+pub struct GitReading {
+    pub head: Option<Roadmap>,
+    pub status: Option<GitStatus>,
+}
+
+impl GitReading {
+    /// Puts the reading into a snapshot of the working tree.
+    pub fn fill(self, snapshot: &mut Snapshot) {
+        snapshot.head = self.head;
+        snapshot.git = self.status;
+    }
+}
+
+/// Asks git about `folder` (two children, spaced); `None` when it is not a repository.
+pub fn read_git(folder: &Path) -> Option<GitReading> {
+    if !folder.join(".git").exists() {
+        return None;
+    }
+    let head = git(folder, &["show", &format!("HEAD:{README_IN_REPO}")])
         .ok()
         .map(|text| table::parse(&text));
     thread::sleep(process::SPACING);
-    snapshot.git = git(folder, &["status", "--porcelain", "-z", "--", "roadmap"])
+    let status = git(folder, &["status", "--porcelain", "-z", "--", "roadmap"])
         .ok()
         .map(|text| status_of(&text));
-    snapshot
+    Some(GitReading { head, status })
 }
 
 fn git(folder: &Path, args: &[&str]) -> Result<String, String> {
