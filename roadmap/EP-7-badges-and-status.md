@@ -163,3 +163,7 @@ EP-7`) is ticked in the working tree by the owner.
 > EP-8's audit). Owner task OT-2 (the window on the real portfolio; its first start creates the
 > ledger). No messages for other projects. Next: EP-8 (the P1 re-plan), with EP-7's pickup notes in
 > its brief notes and in those of EP-9, EP-15, EP-17, EP-18, EP-24, EP-27 and EP-28.
+> **After the commit (≈ 60 min in all):** `47a2199` and the record commit `c33cd3c` pushed together
+> at 22:50 UTC; CI run 41359159353 on windows-latest passed in 2 min 20 s (format, clippy with and
+> without the screenshot feature, the tests without and with it, the head check's bare-origin
+> repositories included). This line is a third commit, on the owner's yes, as at EP-5 and EP-6.
