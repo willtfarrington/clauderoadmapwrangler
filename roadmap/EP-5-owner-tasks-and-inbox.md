@@ -187,3 +187,6 @@ of one project's `docs/handoffs/`).** What the readers must cope with:
 > no proposals. No private project name in the tracked files. No owner tasks; no messages for other
 > projects. Next: EP-6 (the dashboard shell), with EP-5's pickup notes in its brief notes and in those
 > of EP-10, EP-20 and EP-21.
+> **After the commit (≈ 35 min in all):** `7bbf169` and the record commit `de2fb12` pushed together at
+> 20:26 UTC; CI run 41346868496 on windows-latest passed in 1 min 27 s (format, clippy, the 114 tests).
+> Because the record commit went out with the work, this line is a third commit, on the owner's yes.
