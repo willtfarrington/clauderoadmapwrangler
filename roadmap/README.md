@@ -55,7 +55,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-4 | [Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation](EP-4-parser-b.md) (D-9, D-12) | M | EP-3 | core | ☑ `9603196` |
 | EP-5 | [Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only](EP-5-owner-tasks-and-inbox.md) (D-10, D-11, D-13) | M | EP-4 | core | ☑ `7bbf169` |
 | EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☑ `1b5bfca` |
-| EP-7 | Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health (D-24, D-25) | M | EP-6 | core | ☐ |
+| EP-7 | [Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health](EP-7-badges-and-status.md) (D-24, D-25) | M | EP-6 | core | ☑ `47a2199` |
 | EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7 | core | ☐ |
 
 Ordering rationale: the dashboard is useful read-only from EP-6 and shows this project's own next EP
