@@ -55,3 +55,19 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   (2026-11-01):** not dashboard work and not S-sized for EP-6; parked in EP-28's brief notes, where
   the script picks the shim's form (a `crw.cmd` forwarding to the release exe, or a copy refreshed at
   each run) and Diagnostics checks that it reaches the current exe.
+- [x] IN-4 (from the owner, list and detail polish, 2026-11-01) Four notes after checking OT-2. (1)
+  Even with the window very wide the badge spacing is cramped (the stack chip is cut off on the right
+  for slightly longer abbreviations), and in general the way the Projects pane's columns share width
+  is clunky. (2) The badges' semantic span is good, but there should be a button that toggles a
+  key/legend explaining what everything means, even though hovering explains each badge. (3) The
+  Detail pane's Status section spells license two ways (also licence), at least for this project.
+  (4) The Status section's subsections (Stack, Activity, …) run from one to four lines each, so a
+  subsection's name, centred against its lines, is hard to follow: at minimum theme-appropriate
+  dividers, line breaks or partial borders between subsections, or else more padding and spacing that
+  stays consistent across window sizes (as with the badges' widths). Anything already slated can be
+  disregarded; the rest goes into still-pending parts of the roadmap. **Triaged at EP-7's close
+  (2026-11-01):** none of it was slated; all four became a new M row, EP-7a, in phase P1 before EP-8
+  (so the README's pictures and the public flip show the polish), with its brief notes from the four
+  points; the owner chose columns sized to their content under a header row, a Legend toggle in the
+  Projects pane's toolbar with the key in the pane, and the spelling license; drag-resizable columns
+  went to the v2 notes.

@@ -56,7 +56,8 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-5 | [Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only](EP-5-owner-tasks-and-inbox.md) (D-10, D-11, D-13) | M | EP-4 | core | ☑ `7bbf169` |
 | EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☑ `1b5bfca` |
 | EP-7 | [Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health](EP-7-badges-and-status.md) (D-24, D-25) | M | EP-6 | core | ☑ `47a2199` |
-| EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7 | core | ☐ |
+| EP-7a | List and detail polish: columns sized to their content under a header row, a toggle for the badges' legend, the Status section laid out by subsection, one spelling of license (D-25) | M | EP-7 | core | ☐ |
+| EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☐ |
 
 Ordering rationale: the dashboard is useful read-only from EP-6 and shows this project's own next EP
 (D-5); the parser (EP-3, EP-4) is the risk and comes before any UI; badges need git and `gh` plumbing that
@@ -178,6 +179,28 @@ only its own files inside a managed project).
   and hosting children join, and `ProjectRow::facts.last_commit` already comes from it; F5 is the
   on-demand refresh; the fake portfolio has no repository, so badge tests make a scratch one as
   `portfolio`'s git test does.
+- **EP-7a.** Added on 2026-11-01 at the owner's request (IN-4, written after OT-2), before the README's
+  pictures and the public flip. (1) **Columns sized to their content** (the owner's choice): the
+  Projects pane measures each column against the widest value the portfolio holds (the name, the
+  state chip with its proposal mark, the next EP and size, the progress pill, the counts, and each of
+  the badge column's own columns: the stack chip, the hosting, the sync, the age with the dirty mark,
+  the CI run with the license warning, the backup), adds padding, and names the columns in a slim
+  header row; the title takes what is left, a wide window shares its spare width instead of packing
+  the badges tight, and a narrow one keeps D-25's give-way order (EP-7 addendum); no chip is clipped
+  (`RS+1`, `PY+2`, `DKR`, `WEB`). Today's fixed widths are `list::{NAME, STATE, NEXT, PROGRESS, ITEMS,
+  FULL, COMPACT}`; a text's width can be measured each frame with the context's fonts (about fifteen
+  rows). Drag-resizable columns stay out (v2 notes). (2) **A legend toggle** (the owner's choice): a
+  Legend button in the Projects pane's toolbar shows or hides a compact key below the list, with
+  every icon and mark of the badges and its meaning, grouped as the badges are (stack, hosting, sync,
+  activity, CI and license, backup), and the row's other marks (the pin, the proposal's bulb, a
+  session in progress, git not asked yet); built from the same definitions as `badges.rs`'s marks so
+  the key cannot drift from the row, its open state saved with the view. (3) **One spelling**: the
+  window's text and `crw`'s output say license (the owner's choice), matching the LICENSE file name;
+  DECISIONS.md keeps its wording. (4) **The Status section by subsection**: each subsection's name
+  aligned with its first line rather than centred against its lines, a theme-coloured divider or
+  partial border between subsections, and the same spacing at every window size and in both themes.
+  Verification: screenshot runs at 1600 × 1000, 2300 × 1000 and a narrow 1100-point window, in both
+  themes, with the legend open and closed, each picture looked at (a `legend` setup flag may help).
 - **EP-8.** Retro (planned vs measured durations per EP), addenda to D-1 … D-30, `README.md` with two
   self-screenshots of fake projects, the public flip: `gh repo edit --visibility public
   --accept-visibility-change-consequences` after the owner's yes, the P2 rows confirmed with pickup notes,
@@ -210,6 +233,8 @@ only its own files inside a managed project).
   (`badges::hosting::Hosting`, `badges::backup::Reading`), probably an M row in P2 or P4. The row's
   full badge form needs a wide window (`size=2300x1000`; at 1600 × 1000 the compact form shows and
   the counts give way), and the setup gained `sort=`, `stack=` and `hosting=` for the pictures.
+  **From IN-4 (2026-11-01):** EP-7a joined P1 at the owner's request, so the plan's totals above
+  (32 briefs, 18 M) are recounted here, and the README's pictures show EP-7a's layout.
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 

@@ -68,3 +68,8 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
 - An opt-in live smoke test against the real CLI with a tiny prompt (rejected: tests spend no usage).
 - Scheduled autopilot windows through the Claude desktop app's machine-local scheduled tasks (observed in
   the docs; not needed while the tool runs at login).
+
+## 9 Views
+
+- Drag-resizable columns in the project list, their widths saved with the layout (the alternative the
+  owner did not pick for EP-7a, which sizes the columns to their content; IN-4, 2026-11-01).
