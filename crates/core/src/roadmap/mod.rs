@@ -1,13 +1,17 @@
 //! A managed project's roadmap files, read in the house style (D-9, D-12) and never written
 //! (D-11). `table` reads the README: phase headings, phase tables, brief notes, the next EP and the
-//! counts (EP-3); briefs, completion notes and decision logs follow (EP-4). The ids, sizes and
-//! reference scanners here are shared by both.
+//! counts (EP-3); `brief` reads the brief files with their front matter, header line and
+//! completion notes, and `snapshot` reads a project whole, at `HEAD` and in the working tree, and
+//! says whether a session is in progress (EP-4; the decision log is `crate::decisions`). The ids,
+//! sizes and reference scanners here are shared by all of them.
 
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-mod markdown;
+pub mod brief;
+pub(crate) mod markdown;
+pub mod snapshot;
 pub mod table;
 
 /// `<folder>\roadmap\README.md`, where the house style keeps a project's roadmap.
@@ -128,6 +132,22 @@ pub fn decisions(text: &str) -> Vec<u32> {
         );
     }
     found
+}
+
+/// The first date written `YYYY-MM-DD` in `text`, as the house style dates its notes and addenda.
+pub fn first_date(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let digits = |range: std::ops::Range<usize>| bytes[range].iter().all(u8::is_ascii_digit);
+    (0..bytes.len().saturating_sub(9)).find_map(|i| {
+        let shaped = digits(i..i + 4)
+            && bytes[i + 4] == b'-'
+            && digits(i + 5..i + 7)
+            && bytes[i + 7] == b'-'
+            && digits(i + 8..i + 10)
+            && !bytes.get(i + 10).is_some_and(u8::is_ascii_digit)
+            && (i == 0 || !bytes[i - 1].is_ascii_digit());
+        shaped.then(|| &text[i..i + 10])
+    })
 }
 
 /// The longest range expanded into single references; a longer one keeps its two ends.
@@ -323,6 +343,29 @@ mod tests {
         // Domain ids, words ending in D and addenda are not decision numbers.
         assert_eq!(decisions("D-PROD-001, CMD-3, AND-4, D-7's addendum"), [7]);
         assert!(decisions("no decisions here").is_empty());
+    }
+
+    #[test]
+    fn finds_the_first_date() {
+        assert_eq!(
+            first_date("Completion note (2026-10-31; opus/max; ≈ 50 min)"),
+            Some("2026-10-31")
+        );
+        assert_eq!(first_date("2026-10-31"), Some("2026-10-31"));
+        assert_eq!(
+            first_date("filled 2026-08-23 after 2026-08-22"),
+            Some("2026-08-23")
+        );
+        for none in [
+            "",
+            "no date",
+            "12026-10-31",
+            "2026-10-311",
+            "2026-1-31",
+            "YYYY-MM-DD",
+        ] {
+            assert_eq!(first_date(none), None, "{none:?}");
+        }
     }
 
     #[test]

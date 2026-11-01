@@ -1,13 +1,14 @@
 //! The Markdown blocks the roadmap parsers look at, read line by line with their line numbers and
 //! byte offsets: ATX headings, pipe tables (a header line, a delimiter row, body lines), list items
-//! with their continuation lines, and paragraphs. Blank lines, fenced code, HTML comments,
-//! blockquotes and thematic breaks are dropped. A table is one whose lines start with `|`, as every
-//! surveyed roadmap writes them; a row is one line.
+//! with their continuation lines, blockquotes (the completion notes and the other labelled blocks
+//! of a brief, EP-4) and paragraphs. Blank lines, fenced code, HTML comments and thematic breaks
+//! are dropped. A table is one whose lines start with `|`, as every surveyed roadmap writes them; a
+//! row is one line.
 
 use std::ops::Range;
 
 #[derive(Debug, Clone, Copy)]
-pub(super) struct Line<'a> {
+pub(crate) struct Line<'a> {
     pub number: usize,
     /// Where the line starts in the whole text.
     pub start: usize,
@@ -16,7 +17,7 @@ pub(super) struct Line<'a> {
 }
 
 /// The lines of `text`, after a byte-order mark.
-pub(super) fn lines(text: &str) -> Vec<Line<'_>> {
+pub(crate) fn lines(text: &str) -> Vec<Line<'_>> {
     let mut start = if text.starts_with('\u{feff}') {
         '\u{feff}'.len_utf8()
     } else {
@@ -35,7 +36,7 @@ pub(super) fn lines(text: &str) -> Vec<Line<'_>> {
 }
 
 #[derive(Debug)]
-pub(super) enum Block<'a> {
+pub(crate) enum Block<'a> {
     Heading {
         level: usize,
         text: &'a str,
@@ -51,19 +52,37 @@ pub(super) enum Block<'a> {
         lines: Vec<Line<'a>>,
         indent: usize,
     },
+    /// A blockquote: its lines as written (see [`quoted`] for a line without its marker).
+    Quote {
+        lines: Vec<Line<'a>>,
+    },
     Paragraph {
         lines: Vec<Line<'a>>,
     },
 }
 
-pub(super) fn blocks<'a>(lines: &[Line<'a>]) -> Vec<Block<'a>> {
+pub(crate) fn blocks<'a>(lines: &[Line<'a>]) -> Vec<Block<'a>> {
     let mut found = Vec::new();
     let mut i = 0;
     while i < lines.len() {
         let line = lines[i];
         let text = line.text;
-        if blank(text) || quote(text) || rule(text) {
+        if blank(text) || rule(text) {
             i += 1;
+        } else if quote(text) {
+            let mut end = i + 1;
+            while end < lines.len() {
+                let next = lines[end].text;
+                if quote(next) || (!blank(next) && !starts_block(lines, end)) {
+                    end += 1;
+                } else {
+                    break;
+                }
+            }
+            found.push(Block::Quote {
+                lines: lines[i..end].to_vec(),
+            });
+            i = end;
         } else if let Some(fence) = fence(text) {
             i = after_fence(lines, i, fence);
         } else if opens_comment(text) {
@@ -154,7 +173,7 @@ fn indentation(text: &str) -> usize {
 }
 
 /// `text` without up to `indent` columns of leading whitespace.
-pub(super) fn dedent(text: &str, indent: usize) -> &str {
+pub(crate) fn dedent(text: &str, indent: usize) -> &str {
     let mut width = 0;
     for (i, c) in text.char_indices() {
         if width >= indent {
@@ -237,6 +256,15 @@ fn quote(text: &str) -> bool {
     unindented(text).is_some_and(|text| text.starts_with('>'))
 }
 
+/// A blockquote's line without its `>` marker and the one space after it; a lazy continuation
+/// line (no marker) as written. A nested quote keeps its inner marker.
+pub(crate) fn quoted(text: &str) -> &str {
+    match unindented(text).and_then(|text| text.strip_prefix('>')) {
+        Some(rest) => rest.strip_prefix(' ').unwrap_or(rest),
+        None => text.trim_start(),
+    }
+}
+
 /// A thematic break: three or more of one of `-`, `*`, `_`, with spaces only between.
 fn rule(text: &str) -> bool {
     let Some(text) = unindented(text) else {
@@ -270,7 +298,7 @@ fn item(text: &str) -> Option<usize> {
 }
 
 /// A line that starts with `|`, at most three spaces in.
-pub(super) fn pipe(text: &str) -> bool {
+pub(crate) fn pipe(text: &str) -> bool {
     unindented(text).is_some_and(|text| text.starts_with('|'))
 }
 
@@ -293,7 +321,7 @@ fn delimiter(text: &str) -> bool {
 
 /// The cells of a table line, trimmed, with their byte ranges in the line: split at each `|`
 /// that no backslash escapes, without the empty pieces outside a leading and a trailing pipe.
-pub(super) fn cells(text: &str) -> Vec<(&str, Range<usize>)> {
+pub(crate) fn cells(text: &str) -> Vec<(&str, Range<usize>)> {
     let mut pipes = Vec::new();
     let mut escaped = false;
     for (i, b) in text.bytes().enumerate() {
@@ -331,7 +359,7 @@ pub(super) fn cells(text: &str) -> Vec<(&str, Range<usize>)> {
         .collect()
 }
 
-pub(super) fn cell_texts(text: &str) -> Vec<&str> {
+pub(crate) fn cell_texts(text: &str) -> Vec<&str> {
     cells(text).into_iter().map(|(cell, _)| cell).collect()
 }
 
@@ -370,7 +398,11 @@ Some text
 - next
 ***
 > quoted
+> **Label.** more
+lazy line
 plain
+
+> second
 ";
         let lines = lines(text);
         let kinds: Vec<String> = blocks(&lines)
@@ -385,6 +417,10 @@ plain
                         lines.len()
                     )
                 }
+                Block::Quote { lines } => {
+                    let texts: Vec<&str> = lines.iter().map(|line| quoted(line.text)).collect();
+                    format!("quote @{} {}", lines[0].number, texts.join(" / "))
+                }
                 Block::Paragraph { lines } => {
                     format!("paragraph @{} {} lines", lines[0].number, lines.len())
                 }
@@ -398,9 +434,13 @@ plain
                 "table @4 1",
                 "item @7 4 lines, indent 2",
                 "item @11 1 lines, indent 2",
-                "paragraph @14 1 lines",
+                "quote @13 quoted / **Label.** more / lazy line / plain",
+                "quote @18 second",
             ]
         );
+        assert_eq!(quoted(">no space"), "no space");
+        assert_eq!(quoted("  > two in"), "two in");
+        assert_eq!(quoted("> > nested"), "> nested");
         assert_eq!(dedent("    indented", 2), "  indented");
         assert_eq!(dedent("\tx", 2), "x");
         assert_eq!(dedent("lazy", 2), "lazy");

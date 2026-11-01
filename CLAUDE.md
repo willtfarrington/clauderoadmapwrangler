@@ -47,9 +47,12 @@
     version lives in `core` and is raised only by a brief that needs a newer flag; features are detected
     from `claude --version` and the `system/init` capabilities, never assumed. The tool never passes
     `--bare` and removes `ANTHROPIC_API_KEY` from every child environment.
-11. **Sessions for this project run with cwd = this folder** (open VS Code on `clauderoadmapwrangler`
-    alone, not on the DATA workspace, so transcripts and memory file under this project; D-16). From
-    EP-16 on, the EPs of this project are launched from the tool (D-5).
+11. **Sessions for this project run with cwd = this folder**, started from
+    `DATA\clauderoadmapwrangler.code-workspace` (the owner's single-folder workspace file since 2026-10-31,
+    IN-1), so transcripts and memory file under this project (D-16); the other projects' roadmaps are
+    reachable read-only through `permissions.additionalDirectories` in the untracked
+    `.claude\settings.local.json` (rule 4). From EP-16 on, the EPs of this project are launched from the
+    tool (D-5).
 12. **Generic names.** Modules, types, settings keys and file names describe function (registry, parser,
     runner, mailman, meter), never a managed project.
 13. **The registry and the ledger are the owner's records (D-8).** `%APPDATA%\clauderoadmapwrangler\registry.toml`

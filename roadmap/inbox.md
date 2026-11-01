@@ -6,7 +6,7 @@ brief notes of a named later EP or propose a new row in the right phase, confirm
 owner through `AskUserQuestion`; or decline with a reason. Write the disposition on the message's line
 and tick its box. Until EP-20 delivers messages, the owner carries them here by hand.
 
-- [ ] IN-1 (from the owner, workspace split, 2026-10-31) The owner replaced the one multi-root VS Code
+- [x] IN-1 (from the owner, workspace split, 2026-10-31) The owner replaced the one multi-root VS Code
   workspace over the data root with **one single-folder `<name>.code-workspace` per project, beside the
   project folders** (the one non-project folder got a file too). Claude Code sessions start only from
   those files, so cwd, transcripts and auto-memory belong to the project they work on, which is what
@@ -21,8 +21,13 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   `.claude\settings.local.json` (the data root; rule 4 keeps them read-only); the owner's user-level git
   ignore already excludes that file. (5) This project's own earlier transcripts (EP-0 … EP-3) were
   re-filed under its own slug on 2026-10-31, so a re-plan's timing pass finds them there. Suggested
-  homes: EP-8 for the D-7 and D-16 addenda, EP-11 for the launch itself.
-- [ ] IN-2 (from the owner, environment repository EP-0, 2026-10-31) Follow-ups to IN-1 after the owner
+  homes: EP-8 for the D-7 and D-16 addenda, EP-11 for the launch itself. **Triaged at EP-4
+  (2026-10-31):** none of it S-sized for a parser brief; (1) parked in EP-11's brief notes; (2) and
+  (3) parked in EP-8's brief notes with the D-7 and D-16 addenda, the re-plan deciding whether they
+  are an S row in P2; (4) and (5) recorded in EP-4's brief as the session-start check (the four
+  transcripts found under this project's slug), with rule 11's wording put to the owner at EP-4's
+  close.
+- [x] IN-2 (from the owner, environment repository EP-0, 2026-10-31) Follow-ups to IN-1 after the owner
   moved more of the environment to the machine level. (1) Neighbour folders: the owner now grants the
   non-data projects to every session through user-level `permissions.additionalDirectories` and keeps a
   data relationship in the depending project's own `.claude\settings.json`. Claude Code's documentation
@@ -39,4 +44,7 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   only where it is missing and adds the triage line to rule 1. (4) The owner's environment repository
   (local-only; environment decisions and the shared memory) exists under the data root; the owner
   adopts it with `crw adopt` (rule 13: the registry is theirs). Suggested homes: EP-8 for the addenda,
-  EP-12 and EP-21 for the rest.
+  EP-12 and EP-21 for the rest. **Triaged at EP-4 (2026-10-31):** (1) parked in EP-8's brief notes
+  (the D-16 and D-18 addenda; the registry's neighbour list and the `--add-dir` flag land where the
+  re-plan puts them in P2, with pickup notes for EP-9 and EP-10); (2) parked in EP-12's brief notes;
+  (3) and (4) parked in EP-21's brief notes.

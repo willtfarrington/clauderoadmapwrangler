@@ -9,8 +9,9 @@ backup status and history graphs, hosts a chat to Claude Code, ships the roadmap
 ends with a phone view over a Tailscale tailnet.
 
 **Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
-projects with discovery and `crw scan` (EP-2) and the first half of the roadmap parser with `crw roadmap`
-(EP-3) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+projects with discovery and `crw scan` (EP-2), and the roadmap parser with `crw roadmap` (EP-3 the phase
+tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapshot that tells a session in
+progress) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
@@ -23,7 +24,8 @@ cargo build --release                   # target\release\clauderoadmapwrangler.e
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and a Start-menu entry
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
-target\release\crw.exe roadmap <folder> # what the parser reads: phases, the next EP, its brief notes
+target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,
+                                        # the decision log, whether a session is in progress
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -57,7 +59,9 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
 - **Briefs.** `roadmap/EP-n-<slug>.md`, opened with YAML front matter (`ep`, `title`, `size`, `model`,
   `effort`, `status`), then Context, In scope, Out of scope and Verification / acceptance, and closed by
   `> **Completion note (date; model/effort; duration).**`, which records each owner decision and its
-  outcome. A brief without a completion note means a session is in progress.
+  outcome. The tool reads the roadmap at git `HEAD` and in the working tree and keeps both: a changed
+  README, an untracked or changed brief, or the next brief without a completion note (when it is the only
+  open brief) means a session is in progress.
 - **Decisions.** `DECISIONS.md` entries `**D-n Title.** Decision. *Why.* *Alternatives.*`, refined by
   dated addenda (`> **Addendum (date, EP-n).** …`) and never rewritten.
 - **Owner tasks.** `roadmap/owner-tasks.md`, one line per task only the owner can do:

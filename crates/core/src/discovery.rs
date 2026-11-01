@@ -9,6 +9,7 @@ use std::thread;
 
 use crate::proposal::{self, Facts};
 use crate::registry::{Error, Project, Registry, State, Store};
+use crate::roadmap::snapshot;
 use crate::{files, paths, process, workspace};
 
 /// A folder and what it holds.
@@ -96,27 +97,29 @@ impl View {
     }
 
     /// The facts proposals are made from, one per registered project: the last commit of each
-    /// repository, asked of git one child at a time (D-29). The roadmap facts arrive with the
-    /// parsers (EP-3, EP-4).
+    /// repository, asked of git one child at a time (D-29), and the roadmap facts (every row
+    /// checked, a pickup gate on the next brief) read from the working tree without a child
+    /// process (`roadmap::snapshot::read_tree`).
     pub fn facts(&self) -> Vec<Facts> {
         let mut asked = false;
         self.registered
             .iter()
             .map(|registered| {
-                let last_commit = match &registered.folder {
-                    Some(folder) if folder.git => {
-                        if asked {
-                            thread::sleep(process::SPACING);
-                        }
-                        asked = true;
-                        proposal::last_commit(&folder.path)
-                    }
-                    _ => None,
+                let mut facts = Facts::default();
+                let Some(folder) = &registered.folder else {
+                    return facts;
                 };
-                Facts {
-                    last_commit,
-                    ..Facts::default()
+                if folder.git {
+                    if asked {
+                        thread::sleep(process::SPACING);
+                    }
+                    asked = true;
+                    facts.last_commit = proposal::last_commit(&folder.path);
                 }
+                if folder.roadmap {
+                    snapshot::read_tree(&folder.path).fill(&mut facts);
+                }
+                facts
             })
             .collect()
     }
@@ -452,6 +455,48 @@ mod tests {
         assert!(ignore(&store, &["alpha"], TODAY).is_err());
         assert!(adopt(&store, &["missing"], TODAY).is_err());
         assert!(adopt(&store, &[".hidden"], TODAY).is_err());
+    }
+
+    /// Runs git on folders that are not repositories, never the `claude` CLI (D-29).
+    #[test]
+    fn facts_come_from_git_and_the_parsers() {
+        let scratch = Scratch::new("discovery-facts");
+        let store = data_root(&scratch);
+        let data = &store.defaults.data_root;
+        const HEADER: &str = "## Phase P1 — Build\n\n| # | Brief | Size | Depends on | Core | Done |\n|---|---|---|---|---|---|\n";
+        fs::write(
+            data.join("alpha/roadmap/README.md"),
+            format!("{HEADER}| EP-1 | One | S | — | core | ☑ `0123abc` |\n"),
+        )
+        .unwrap();
+        fs::write(
+            data.join("beta/roadmap/README.md"),
+            format!("{HEADER}| EP-1 | One | S | — | core | ☐ |\n"),
+        )
+        .unwrap();
+        fs::write(
+            data.join("beta/roadmap/EP-1-one.md"),
+            "# EP-1 — One\n\n> **PICKUP GATE — owner input required (EP-0, 2026-10-01).** Two items.\n",
+        )
+        .unwrap();
+        adopt(&store, &["alpha", "beta"], TODAY).unwrap();
+        let view = view(&store.load().unwrap().registry).unwrap();
+        let facts = view.facts();
+        let summary: Vec<_> = view
+            .registered
+            .iter()
+            .zip(&facts)
+            .map(|(r, f)| (r.project.name.as_str(), f.all_rows_checked, f.pickup_gate))
+            .collect();
+        assert_eq!(
+            summary,
+            [
+                ("wrangler", Some(false), Some(false)),
+                ("alpha", Some(true), Some(false)),
+                ("beta", Some(false), Some(true)),
+            ]
+        );
+        assert!(facts.iter().all(|f| f.last_commit.is_none()));
     }
 
     #[test]

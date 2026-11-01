@@ -252,7 +252,7 @@ impl Done {
     }
 
     /// A Done or Status cell, or a milestone heading's mark; backticks around it are ignored.
-    fn parse(cell: &str) -> Done {
+    pub fn parse(cell: &str) -> Done {
         let text = cell.trim().trim_matches('`').trim();
         if let Some(rest) = ["☑", "[x]", "[X]"]
             .iter()
@@ -669,8 +669,9 @@ fn id_cell(text: &str) -> Option<EpId> {
     text.trim_matches(markup).parse().ok()
 }
 
-/// The commit hashes in a Done cell: words of 7 to 40 lowercase hex digits.
-fn hashes(text: &str) -> Vec<String> {
+/// The commit hashes in a Done cell or a `**Commits:**` line: words of 7 to 40 lowercase hex
+/// digits.
+pub fn hashes(text: &str) -> Vec<String> {
     text.split(|c: char| !c.is_ascii_alphanumeric())
         .filter(|word| {
             (7..=40).contains(&word.len())

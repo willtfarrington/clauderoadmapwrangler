@@ -52,7 +52,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-1 | [Toolchain bootstrap: Cargo workspace (`core`, `app`, `cli`), pins, cargo gate, LICENSE, README, install script skeleton, private GitHub remote, CI](EP-1-toolchain-bootstrap.md) (D-2, D-14, D-15, D-29) | M | EP-0 | core | ☑ `64d6c6a` |
 | EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☑ `8071475` |
 | EP-3 | [Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey](EP-3-parser-a.md) (D-9) | M | EP-1 | core | ☑ `ecca039` |
-| EP-4 | Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation (D-9, D-12) | M | EP-3 | core | ☐ |
+| EP-4 | [Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation](EP-4-parser-b.md) (D-9, D-12) | M | EP-3 | core | ☐ |
 | EP-5 | Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
 | EP-6 | Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects (D-25) | L | EP-2, EP-4 | core | ☐ |
 | EP-7 | Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health (D-24, D-25) | M | EP-6 | core | ☐ |
@@ -172,7 +172,21 @@ only its own files inside a managed project).
   `v2-notes.md` grown. Before the flip, a pre-flip audit (added at EP-1 with the owner's yes): `git grep`
   over every commit for the private project names kept in `private/`, and a re-read of the tracked
   planning record for personal machine details (it names the `D:` volume's label, the VPN and the
-  account's plan tier); anything found goes to the owner before the flip.
+  account's plan tier); anything found goes to the owner before the flip. **From IN-1 and IN-2
+  (2026-10-31, triaged at EP-4):** the owner replaced the one multi-root workspace with one
+  single-folder `<name>.code-workspace` per project beside the project folders (the aggregate file
+  stays for browsing and is what the registry's `workspace_file` names), and grants the other
+  projects to every session through the user-level `permissions.additionalDirectories`. Addenda to
+  write: D-7 (Adopt still appends to the aggregate file and should also create `<name>.code-workspace`
+  from the same template; the first-run default "exactly one `.code-workspace` in the data root" no
+  longer holds, so a fresh registry needs another rule for `workspace_file`; `crw scan`'s workspace
+  listing should read the per-project files), D-16 "no extra directories" and D-18 (Claude Code's
+  documentation says a settings-file grant gives file access only, while a folder passed at launch
+  with `--add-dir` also loads its `CLAUDE.md` and `.claude/rules` when
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` is set, so the registry should hold each project's
+  neighbour list and the headless launcher pass it as `--add-dir` with that variable). The re-plan
+  decides whether Adopt's per-project file, the scan listing and the neighbour list are an S row in
+  P2 or done at the re-plan, and writes the pickup notes for EP-9 and EP-10 accordingly.
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 
@@ -230,7 +244,10 @@ contain no real transcript text).
   project, run `Code.exe --open-url "<uri>"`; otherwise open `Code.exe <project folder>` (or a generated
   `<project>.code-workspace` in `%APPDATA%\clauderoadmapwrangler\workspaces\` when the project wants extra
   folders), wait for its lock file, then fire the URI; the session is recorded as `visual` with no process
-  handle; a note in the dialog that the prompt is pre-filled and must be sent by hand.
+  handle; a note in the dialog that the prompt is pre-filled and must be sent by hand. **From IN-1
+  (2026-10-31, triaged at EP-4):** open the owner's existing `<data root>\<name>.code-workspace` beside
+  the project folder instead of generating one under `%APPDATA%` (the D-16 addendum written at EP-8);
+  generate one only when no such file exists.
 - **EP-12.** `app::server`: axum on `127.0.0.1:<port>` (port in the registry, default 47831), routes
   `POST /hook`, `POST /statusline`, `GET /health`; `cli hook` reads the hook JSON from stdin and posts it
   with a 500 ms timeout, exiting 0 silently on any error; `cli statusline` does the same for the
@@ -242,6 +259,12 @@ contain no real transcript text).
   the current exe; `core::sessions::state`: a model fed by hooks, the runner and a `claude agents --json`
   poll every 5 s (`pid`, `cwd`, `kind`, `status`, `state`, `waitingFor`, `name`), reconciling cwd to a
   project; statuses busy / waiting / idle / done / failed; mode visual / headless / manual.
+  **From IN-2 (2026-10-31, triaged at EP-4):** the owner runs a stopgap user-level `SessionStart`
+  hook (`~/.claude/hooks/session-start-inbox.ps1`) that prints the project's open inbox lines into
+  the session; the installation replaces it (removed or chained, after the owner's yes). A
+  `UserPromptSubmit` hook that recognises `@<project>` in a prompt and injects that project's rules
+  and next-EP row gives on-demand cross-project context (the owner's wish; here, or at EP-20 if it
+  needs the mailman's registry lookups).
 - **EP-13.** The sessions tile: one tab per live or recent session; transcript rendering from the stream
   (assistant text, tool calls as one-line summaries, tool results collapsed, partial messages appended);
   Stop (graceful) and Kill; Resume by session id for a headless session that ended with a deferred tool use
@@ -337,7 +360,11 @@ a running session).
   Completion note placeholder); for a `packet` or `house5` profile project, generate the migration prompt
   (convert tables to the six-column header, keep ids and hashes, move handoff status into completion
   notes, keep every file) for a headless session the owner launches from the chat or the dialog; never
-  overwrite an existing file outside the markers.
+  overwrite an existing file outside the markers. **From IN-2 (2026-10-31, triaged at EP-4):** every
+  active project already has `roadmap/inbox.md` in the D-13 form (hand-carried by the owner), so the
+  formalise step creates the file only where it is missing and adds the triage line to rule 1; the
+  owner's local-only environment repository under the data root (environment decisions and the shared
+  memory) is adopted by the owner with `crw adopt` (rule 13), never by the tool on its own.
 - **EP-22.** `plugins/roadmap-wrangler/` with `.claude-plugin/plugin.json`, `skills/plan/SKILL.md` (the
   interview method as practised in this project's EP-0: research pass, domain map, rounds of four with the
   recommended option first, the planning file written to the repo first and filled per round, close-out

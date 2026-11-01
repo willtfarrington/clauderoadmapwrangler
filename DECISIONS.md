@@ -122,6 +122,15 @@ house style only with a regex fallback.
 > Depends-on ids leave out parenthesised annotations and `before` clauses. *Alternatives.* The three header
 > strings only; `◐` counted as done.
 
+> **Addendum (2026-10-31, EP-4).** "Session in progress" is derived from the snapshot's git status when the
+> folder is a repository: the roadmap README changed, a brief untracked or changed, or a `[~]` row. The rule
+> "a brief without a completion note" applies only where git cannot be asked (a folder that is not a
+> repository), and only when that brief belongs to the next EP and is the only open row with a brief: a
+> committed brief in a clean tree is a pre-written one, as two surveyed projects showed on 2026-10-31, not a
+> session. A running session joins as a source at EP-12. Completion evidence is one rule for the three
+> profiles (a checked row, the brief's own markers, or the handoff file), since their forms are disjoint.
+> *Alternatives.* The literal rule (two false positives); a separate "brief written" state.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and

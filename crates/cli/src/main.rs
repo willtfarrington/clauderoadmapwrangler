@@ -1,7 +1,7 @@
 //! `crw`, the console side of clauderoadmapwrangler (D-2, D-14): `doctor` from EP-1; `scan`,
 //! `adopt`, `ignore` and `set` from EP-2, the console side of the registry until the dashboard
-//! (EP-6); `roadmap` from EP-3, the parser's; `inbox send` and the `hook` and `statusline` relays
-//! arrive with their briefs.
+//! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
+//! brief); `inbox send` and the `hook` and `statusline` relays arrive with their briefs.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -12,7 +12,7 @@ use crw_core::discovery::{self, Folder, Listing, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::proposal;
 use crw_core::registry::{State, Store};
-use crw_core::roadmap::{self, Size, table};
+use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{files, paths};
 
@@ -27,8 +27,10 @@ commands:
   set <project> state <state>    active, paused, maintenance, done, archived or unformalised
   set <project> priority <1-5>   1 is the highest
   set <project> pinned <yes|no>  pinned projects sort first
-  roadmap <project|folder|file>  print what the parser reads in a roadmap: phases, the next EP,
-                                 its brief notes, counts and problems
+  roadmap <project|folder>       print a project's snapshot: the README at HEAD and in the working
+                                 tree, the next EP with its brief notes and its brief, the briefs
+                                 and the decision log found, whether a session is in progress
+  roadmap <README.md|EP-n-*.md>  print one roadmap README's tables, or one brief's parse
   help                           print this text
   --version                      print crw's version
 
@@ -305,22 +307,283 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
     }
 }
 
-/// Prints what the parser reads in one roadmap: the phases, the next EP with its row and brief
-/// notes, the counts and the problems. Reads, never writes.
-fn roadmap(target: &str) -> ExitCode {
-    let path = match roadmap_file(target) {
-        Ok(path) => path,
-        Err(e) => return failed(e),
-    };
-    let text = match fs::read_to_string(&path) {
-        Ok(text) => text,
-        Err(e) => return failed(format!("{}: {e}", path.display())),
-    };
-    let parsed = table::parse(&text);
-    let counts = parsed.counts();
+/// What `crw roadmap` was pointed at.
+enum Target {
+    /// A project folder (given, or a registered project's): the whole snapshot.
+    Folder(PathBuf),
+    /// A roadmap README: the table reading alone.
+    Readme(PathBuf),
+    /// A brief file: its parse.
+    Brief(PathBuf),
+}
 
+/// Prints what the parser reads: a project's snapshot (both readings, the briefs, the decision
+/// log, whether a session is in progress), one README's tables, or one brief. Reads, never
+/// writes.
+fn roadmap(target: &str) -> ExitCode {
     println!("crw {} roadmap", env!("CARGO_PKG_VERSION"));
+    match roadmap_target(target) {
+        Ok(Target::Folder(folder)) => print_snapshot(&folder),
+        Ok(Target::Readme(path)) => match fs::read_to_string(&path) {
+            Ok(text) => {
+                println!("  file      {}", path.display());
+                let parsed = table::parse(&text);
+                print_summary(&parsed);
+                print_rest(&parsed, &[]);
+                ExitCode::SUCCESS
+            }
+            Err(e) => failed(format!("{}: {e}", path.display())),
+        },
+        Ok(Target::Brief(path)) => match brief::read(&path) {
+            Ok(parsed) => {
+                print_brief(&path, &parsed);
+                ExitCode::SUCCESS
+            }
+            Err(e) => failed(format!("{}: {e}", path.display())),
+        },
+        Err(e) => failed(e),
+    }
+}
+
+/// A file as given (a brief by its name, else a README), a folder, or a registered project's
+/// folder.
+fn roadmap_target(target: &str) -> Result<Target, String> {
+    let path = Path::new(target);
+    if path.is_file() {
+        let name = path.file_name().unwrap_or_default().to_string_lossy();
+        return Ok(if brief::file_id(&name).is_some() {
+            Target::Brief(path.to_owned())
+        } else {
+            Target::Readme(path.to_owned())
+        });
+    }
+    if path.is_dir() {
+        return Ok(Target::Folder(path.to_owned()));
+    }
+    let registry = store()?.load().map_err(|e| e.to_string())?.registry;
+    let project = registry
+        .project(target)
+        .ok_or_else(|| format!("{target} is not a file, a folder or a registered project"))?;
+    Ok(Target::Folder(project.folder(&registry.data_root())))
+}
+
+fn print_snapshot(folder: &Path) -> ExitCode {
+    let snapshot = snapshot::take(folder);
+    println!("  folder    {}", folder.display());
+    let reading = match (&snapshot.head, &snapshot.tree, &snapshot.git) {
+        (None, None, _) => "no roadmap/README.md".to_owned(),
+        (Some(_), None, _) => "HEAD only (the README is missing from the working tree)".to_owned(),
+        (None, Some(_), None) => {
+            "the working tree (not a repository, or git is missing)".to_owned()
+        }
+        (None, Some(_), Some(_)) => "the working tree (the README is not committed)".to_owned(),
+        (Some(head), Some(_), _) if snapshot.differs() => {
+            let counts = head.counts();
+            let next = head
+                .next()
+                .map_or("none".to_owned(), |row| row.id.to_string());
+            format!(
+                "the working tree; HEAD differs: {} of {} done, next {next}",
+                counts.done, counts.total
+            )
+        }
+        (Some(_), Some(_), _) => "the working tree (HEAD reads the same)".to_owned(),
+    };
+    println!("  reading   {reading}");
+    let Some(current) = snapshot.current() else {
+        print_files(&snapshot);
+        print_problems(&[], &snapshot.problems);
+        return ExitCode::SUCCESS;
+    };
+    print_summary(current);
+    print_files(&snapshot);
+    print_rest(current, &snapshot.problems);
+    ExitCode::SUCCESS
+}
+
+/// The lines about the briefs, the next brief, the decision log and the session, between the
+/// summary and the phases.
+fn print_files(snapshot: &snapshot::Snapshot) {
+    if let Some(row) = snapshot.next() {
+        match snapshot.entry(row.id) {
+            Some(entry) => {
+                let brief = &entry.brief;
+                let front = brief
+                    .front
+                    .as_ref()
+                    .map_or("no front matter".to_owned(), |f| {
+                        let mut parts = vec![format!(
+                            "front matter ep {}",
+                            f.ep().map_or("?".to_owned(), |id| id.to_string())
+                        )];
+                        if let Some(size) = f.size() {
+                            parts.push(size.to_string());
+                        }
+                        if let (Some(model), Some(effort)) = (f.model(), f.effort()) {
+                            parts.push(format!("{model}/{effort}"));
+                        }
+                        if let Some(status) = f.status() {
+                            parts.push(status.to_owned());
+                        }
+                        parts.join(", ")
+                    });
+                let completion = match brief.completion() {
+                    Some(evidence) => format!("complete: {evidence}"),
+                    None => "open (no completion marker)".to_owned(),
+                };
+                println!("  brief     {}: {front}; {completion}", entry.file.name);
+                if let Some(gate) = brief.pickup_gate() {
+                    println!("            pickup gate at line {}", gate.line);
+                }
+                if let Some(handoff) = &entry.handoff {
+                    let state = if handoff.is_complete() {
+                        "complete"
+                    } else {
+                        "not complete"
+                    };
+                    println!(
+                        "            handoff file {}: {state}{}",
+                        handoff.path.display(),
+                        handoff
+                            .date()
+                            .map(|d| format!(" ({d})"))
+                            .unwrap_or_default()
+                    );
+                }
+            }
+            None => println!("  brief     {}: no brief file", row.id),
+        }
+    }
+    let files = &snapshot.files;
+    let complete = snapshot
+        .briefs
+        .iter()
+        .filter(|entry| entry.is_complete())
+        .count();
+    let with_front = snapshot
+        .briefs
+        .iter()
+        .filter(|entry| entry.brief.front.is_some())
+        .count();
+    println!(
+        "  briefs    {} ({complete} complete, {with_front} with front matter), {} companions, {} duplicates",
+        files.briefs.len(),
+        files.companions.len(),
+        files.duplicates.len()
+    );
+    let decisions = &snapshot.decisions;
+    let log = match &decisions.path {
+        Some(path) => {
+            let name = path
+                .strip_prefix(&snapshot.folder)
+                .unwrap_or(path)
+                .display()
+                .to_string();
+            let last = decisions
+                .log
+                .last_addendum()
+                .map(|date| format!(" (last {date})"))
+                .unwrap_or_default();
+            let index = match decisions.log.index_rows {
+                0 => String::new(),
+                n => format!(", an index of {n} rows"),
+            };
+            let domain = match decisions.log.domain_entries {
+                0 => String::new(),
+                n => format!(", {n} domain-id entries"),
+            };
+            let problem = decisions
+                .problem
+                .as_ref()
+                .map(|p| format!(" (unreadable: {p})"))
+                .unwrap_or_default();
+            format!(
+                "{name}: {} entries, {} addenda{last}{index}{domain}{problem}",
+                decisions.log.entries.len(),
+                decisions.log.addenda.len()
+            )
+        }
+        None => "no DECISIONS.md".to_owned(),
+    };
+    let adr = match decisions.adr_files {
+        0 => String::new(),
+        n => format!("; {n} ADR files"),
+    };
+    println!("  decisions {log}{adr}");
+    let reasons = snapshot.in_progress();
+    let session = match (&snapshot.git, reasons.is_empty()) {
+        (_, false) => {
+            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+            format!("in progress: {}", texts.join("; "))
+        }
+        (Some(_), true) => "not in progress (roadmap/ is clean)".to_owned(),
+        (None, true) => "not in progress by the files (git not asked)".to_owned(),
+    };
+    println!("  session   {session}");
+}
+
+fn print_brief(path: &Path, brief: &brief::Brief) {
     println!("  file      {}", path.display());
+    println!("  title     {}", brief.title.as_deref().unwrap_or("-"));
+    let front = match &brief.front {
+        Some(front) => front
+            .fields
+            .iter()
+            .map(|f| format!("{}: {}", f.label, f.value))
+            .collect::<Vec<_>>()
+            .join(" · "),
+        None => "none".to_owned(),
+    };
+    println!("  front     {front}");
+    let fields = brief
+        .fields
+        .iter()
+        .map(|f| format!("{}: {}", f.label, f.value))
+        .collect::<Vec<_>>()
+        .join(" · ");
+    println!(
+        "  fields    {}",
+        if fields.is_empty() { "none" } else { &fields }
+    );
+    match brief.completion() {
+        Some(evidence) => println!("  complete  yes: {evidence}"),
+        None => println!("  complete  no"),
+    }
+    if let Some(handoff) = &brief.handoff {
+        let state = if handoff.filled {
+            "filled"
+        } else {
+            "not filled"
+        };
+        println!(
+            "  handoff   {state}{} (line {})",
+            handoff
+                .date
+                .as_ref()
+                .map(|d| format!(" {d}"))
+                .unwrap_or_default(),
+            handoff.line
+        );
+    }
+    println!("\nblocks ({})", brief.quotes.len());
+    for quote in &brief.quotes {
+        let date = quote
+            .date
+            .as_ref()
+            .map(|d| format!(" {d}"))
+            .unwrap_or_default();
+        let label = if quote.label.is_empty() {
+            "(no label)".to_owned()
+        } else {
+            quote.label.clone()
+        };
+        println!("  line {:<4} {}{date}  {label}", quote.line, quote.kind);
+    }
+}
+
+/// The table reading's summary: profile, progress and the next EP.
+fn print_summary(parsed: &table::Roadmap) {
+    let counts = parsed.counts();
     match parsed.profile() {
         Some(profile) => println!(
             "  profile   {profile}: {} phases, {} rows",
@@ -357,7 +620,10 @@ fn roadmap(target: &str) -> ExitCode {
         None if counts.all_checked() => println!("  next      none: every row is checked"),
         None => println!("  next      none"),
     }
+}
 
+/// The table reading's detail: the phases, the next EP's brief notes and the problems.
+fn print_rest(parsed: &table::Roadmap, extra_problems: &[String]) {
     println!("\nphases ({})", parsed.phases.len());
     for phase in &parsed.phases {
         let heading = &phase.heading;
@@ -391,26 +657,15 @@ fn roadmap(target: &str) -> ExitCode {
             None => println!("\nbrief notes of {}: none", row.id),
         }
     }
-
-    println!("\nproblems ({})", parsed.problems.len());
-    for problem in &parsed.problems {
-        println!("  {problem}");
-    }
-    ExitCode::SUCCESS
+    print_problems(&parsed.problems, extra_problems);
 }
 
-/// A roadmap file as given, a folder's `roadmap\README.md`, or a registered project's.
-fn roadmap_file(target: &str) -> Result<PathBuf, String> {
-    let path = Path::new(target);
-    if path.is_file() {
-        return Ok(path.to_owned());
+fn print_problems(problems: &[table::Problem], extra: &[String]) {
+    println!("\nproblems ({})", problems.len() + extra.len());
+    for problem in problems {
+        println!("  {problem}");
     }
-    if path.is_dir() {
-        return Ok(roadmap::readme(path));
+    for problem in extra {
+        println!("  {problem}");
     }
-    let registry = store()?.load().map_err(|e| e.to_string())?.registry;
-    let project = registry
-        .project(target)
-        .ok_or_else(|| format!("{target} is not a file, a folder or a registered project"))?;
-    Ok(roadmap::readme(&project.folder(&registry.data_root())))
 }

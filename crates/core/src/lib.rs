@@ -1,8 +1,9 @@
 //! The model and the engines of clauderoadmapwrangler, without UI types (D-14). The roadmap
 //! parsers, the session runner and the usage meter arrive here brief by brief; EP-1 brought the
 //! version checks behind `crw doctor`, EP-2 the registry, discovery and the ledger, EP-3 the
-//! roadmap README's parser.
+//! roadmap README's parser, EP-4 the briefs, the decision log and the snapshot.
 
+pub mod decisions;
 pub mod discovery;
 pub mod doctor;
 pub mod files;
