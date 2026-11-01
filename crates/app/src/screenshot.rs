@@ -17,20 +17,33 @@
 //! - `adopt=<folder>`, `ignore=<folder>`, `pin=<project>`, `tick=<project>:<OT-n>` (the action a
 //!   click queues, through the same path: the first three write the run's registry, the tick is
 //!   refused);
+//! - `sort=<key>` (`priority`, `completion`, `remaining`, `last-activity`, `hosting`, `name`);
+//!   `stack=<stack>` (`rust`, `python`, … or the chip's letters) and `hosting=<class>` (`public`,
+//!   `private`, `remote`, `local`), each adding to its filter;
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
+//!
+//! The fake projects are not repositories and have no remote, so their git, GitHub and backup
+//! readings come from [`FAKES`], set against the run's own clock ([`readings`]); their stack chips
+//! and licences are read from the fixtures' own files. A run never starts the GitHub pass.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
+use chrono::{DateTime, TimeDelta, Utc};
+use crw_core::badges::activity::Activity;
+use crw_core::badges::backup::{Archive, Backup};
+use crw_core::badges::health;
+use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visibility};
+use crw_core::badges::stack::Kind;
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
 use eframe::egui;
 
 use crate::board::{Action, Dashboard};
 use crate::layout::{self, Pane};
-use crate::portfolio::Selection;
+use crate::portfolio::{Fetched, Portfolio, Selection, SortKey};
 use crate::style::Density;
 
 pub const PICTURE_VAR: &str = "CRW_SCREENSHOT";
@@ -170,6 +183,34 @@ impl Run {
                     }),
                     None => eprintln!("screenshot: tick takes <project>:<id>, not {value}"),
                 },
+                "sort" => {
+                    let wanted = value.replace('-', " ");
+                    match SortKey::ALL
+                        .into_iter()
+                        .find(|key| key.label().eq_ignore_ascii_case(&wanted))
+                    {
+                        Some(key) => board.view.sort = key,
+                        None => eprintln!("screenshot: no sort key called {value}"),
+                    }
+                }
+                "stack" => match Kind::ALL.into_iter().find(|kind| {
+                    kind.label().eq_ignore_ascii_case(value)
+                        || kind.short().eq_ignore_ascii_case(value)
+                }) {
+                    Some(kind) => {
+                        board.view.stacks.insert(kind);
+                    }
+                    None => eprintln!("screenshot: no stack called {value}"),
+                },
+                "hosting" => match Class::ALL
+                    .into_iter()
+                    .find(|class| format!("{class:?}").eq_ignore_ascii_case(value))
+                {
+                    Some(class) => {
+                        board.view.hosting.insert(class);
+                    }
+                    None => eprintln!("screenshot: no hosting class called {value}"),
+                },
                 "keys" | "size" => {} // read by `inject_keys` and `main`
                 _ => eprintln!("screenshot: unknown setup flag {flag}"),
             }
@@ -204,6 +245,219 @@ fn registry_text(root: &Path) -> String {
             .replace('"', "\\\"")
     );
     include_str!("../fixtures/registry.toml").replace("@DATA_ROOT@", &quoted)
+}
+
+/// The fake account's owner.
+const OWNER: &str = "example";
+
+/// A fake project's readings: ages in hours before the run's clock.
+struct Fake {
+    name: &'static str,
+    /// A repository: it has a last commit and a working tree.
+    git: bool,
+    commit_hours: i64,
+    changed: usize,
+    /// The origin on GitHub: `ahead`, `behind` as git counts them.
+    origin: Option<(u32, u32)>,
+    /// A repository of the project's name in the fake account.
+    listed: Option<(Visibility, bool)>,
+    head: Option<Verdict>,
+    /// The latest run's conclusion, or `in_progress`.
+    ci: Option<&'static str>,
+    backup_hours: Option<i64>,
+    backup_problem: Option<&'static str>,
+}
+
+static FAKES: [Fake; 8] = [
+    Fake {
+        name: "harbor",
+        git: true,
+        commit_hours: 3,
+        changed: 2,
+        origin: Some((1, 0)),
+        listed: Some((Visibility::Public, false)),
+        head: Some(Verdict::Ahead(1)),
+        ci: Some("success"),
+        backup_hours: Some(5),
+        backup_problem: None,
+    },
+    Fake {
+        name: "lantern",
+        git: true,
+        commit_hours: 26,
+        changed: 0,
+        origin: Some((0, 0)),
+        listed: Some((Visibility::Private, false)),
+        head: Some(Verdict::InSync),
+        ci: Some("failure"),
+        backup_hours: Some(5),
+        backup_problem: None,
+    },
+    Fake {
+        name: "meadow",
+        git: true,
+        commit_hours: 9 * 24,
+        changed: 0,
+        origin: Some((0, 0)),
+        listed: Some((Visibility::Public, false)),
+        head: Some(Verdict::NotFetched),
+        ci: Some("in_progress"),
+        backup_hours: Some(30),
+        backup_problem: None,
+    },
+    Fake {
+        name: "quarry",
+        git: true,
+        commit_hours: 50,
+        changed: 5,
+        origin: None,
+        listed: None,
+        head: None,
+        ci: None,
+        backup_hours: Some(70),
+        backup_problem: None,
+    },
+    Fake {
+        name: "compass",
+        git: true,
+        commit_hours: 75 * 24,
+        changed: 0,
+        origin: None,
+        listed: Some((Visibility::Private, false)),
+        head: None,
+        ci: None,
+        backup_hours: Some(5),
+        backup_problem: Some("could not read notes.db: it is in use"),
+    },
+    Fake {
+        name: "orchard",
+        git: true,
+        commit_hours: 40 * 24,
+        changed: 1,
+        origin: Some((0, 2)),
+        listed: Some((Visibility::Private, false)),
+        head: Some(Verdict::Behind(2)),
+        ci: Some("success"),
+        backup_hours: Some(5),
+        backup_problem: None,
+    },
+    Fake {
+        name: "beacon",
+        git: true,
+        commit_hours: 120 * 24,
+        changed: 0,
+        origin: Some((0, 0)),
+        listed: Some((Visibility::Public, true)),
+        head: Some(Verdict::InSync),
+        ci: Some("success"),
+        backup_hours: Some(5),
+        backup_problem: None,
+    },
+    Fake {
+        name: "atlas",
+        git: false,
+        commit_hours: 0,
+        changed: 0,
+        origin: None,
+        listed: None,
+        head: None,
+        ci: None,
+        backup_hours: None,
+        backup_problem: None,
+    },
+];
+
+/// Puts the fake readings into the portfolio, as if the git pass, the backup job and a GitHub
+/// pass 40 minutes ago had read them.
+pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
+    let hours = TimeDelta::hours;
+    let account: Vec<Listed> = FAKES
+        .iter()
+        .filter_map(|fake| {
+            let (visibility, archived) = fake.listed?;
+            Some(Listed {
+                repo: Repo {
+                    owner: OWNER.to_owned(),
+                    name: fake.name.to_owned(),
+                },
+                visibility,
+                archived,
+                pushed_at: Some(now - hours(fake.commit_hours)),
+                default_branch: Some("main".to_owned()),
+            })
+        })
+        .collect();
+    let at = now - TimeDelta::minutes(40);
+    for row in &mut portfolio.projects {
+        let Some(fake) = FAKES.iter().find(|fake| fake.name == row.name()) else {
+            continue;
+        };
+        let oid = format!("{:0<40}", format!("f00d{}", fake.name.len()));
+        let last = now - hours(fake.commit_hours);
+        let badges = &mut row.badges;
+        if fake.git {
+            row.facts.last_commit = Some(last);
+            badges.activity = Some(Activity {
+                oid: Some(oid.clone()),
+                last_commit: Some(last),
+                changed: fake.changed,
+                branch: Some("main".to_owned()),
+                upstream: fake.origin.map(|_| "origin/main".to_owned()),
+                ahead_behind: fake.origin,
+            });
+        }
+        badges.remote = fake
+            .origin
+            .map(|_| format!("https://github.com/{OWNER}/{}.git", fake.name));
+        badges.hosting = hosting::classify(
+            &[fake.name],
+            badges.remote.as_deref(),
+            Some(account.as_slice()),
+        );
+        badges.head = fake.head.clone().map(|verdict| Fetched {
+            value: Check {
+                remote_ref: "refs/heads/main".to_owned(),
+                remote: Some("0".repeat(40)),
+                local: Some(oid.clone()),
+                verdict,
+            },
+            at,
+        });
+        badges.workflows = usize::from(fake.ci.is_some());
+        badges.run = fake.ci.map(|conclusion| {
+            let running = conclusion == "in_progress";
+            Fetched {
+                value: Ok(Some(health::Run {
+                    workflow: "ci".to_owned(),
+                    status: if running { "in_progress" } else { "completed" }.to_owned(),
+                    conclusion: (!running).then(|| conclusion.to_owned()),
+                    created_at: Some(last + TimeDelta::minutes(1)),
+                    head_sha: Some(oid.clone()),
+                })),
+                at,
+            }
+        });
+        badges.backup = Some(Backup {
+            unit: Some(format!("WORK\\{}", fake.name)),
+            archive: fake.backup_hours.map(|h| Archive {
+                name: format!(
+                    "{} {}.zip",
+                    (now - hours(h))
+                        .with_timezone(&chrono::Local)
+                        .format("%Y-%m-%d %H%M%S"),
+                    fake.name
+                ),
+                at: Some(now - hours(h)),
+            }),
+            checked: fake.backup_hours.map(|h| now - hours(h)),
+            problem: fake.backup_problem.map(str::to_owned),
+            excluded: Vec::new(),
+        });
+    }
+    portfolio.account = Some(Fetched {
+        value: Ok(account),
+        at,
+    });
 }
 
 /// Called once per frame: whether the projects are still being read.

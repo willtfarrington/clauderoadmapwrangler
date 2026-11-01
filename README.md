@@ -12,10 +12,11 @@ ends with a phone view over a Tailscale tailnet.
 projects with discovery and `crw scan` (EP-2), the roadmap parser with `crw roadmap` (EP-3 the phase
 tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapshot that tells a session in
 progress), the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
-`crw tasks` and `crw tick` (EP-5), and the dashboard's shell (EP-6: the docking layout, the project list
-grouped by state, the detail pane, ticks and Adopt from the window) exist; badges arrive at EP-7 and
-sessions in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
-[`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
+`crw tasks` and `crw tick` (EP-5), the dashboard's shell (EP-6: the docking layout, the project list
+grouped by state, the detail pane, ticks and Adopt from the window) and its badges with `crw status`
+(EP-7: stack, progress, activity, hosting with a check of the origin's head, CI and licence, backup age)
+exist; sessions arrive in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the
+decisions [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
 
@@ -32,6 +33,8 @@ target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its
 target\release\crw.exe tasks <folder>   # what waits on the owner: tasks, inbox, handed-on blocks
 target\release\crw.exe tick <folder> OT-n         # tick an owner task
 target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
+target\release\crw.exe status [--offline]         # every project's badges; asks git, gh, the origins
+target\release\crw.exe setting <key> <value>      # set a registry setting, such as backup_settings
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -42,10 +45,13 @@ that holds this repository); `crw adopt` registers a folder and adds it to the V
 scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
-grouped by state, each with its next brief, its progress, what waits on the owner and whether a session
-is in progress; the detail pane shows the selected project's brief notes, owner items, inbox and
-problems. It reads each project's files at once and adds what git says one repository at a time. It
-writes only what the tool owns: the registry (Adopt, Ignore, a confirmed state, pin, priority) and the
+grouped by state, each with its next brief, its progress, what waits on the owner, its badges and
+whether a session is in progress; the detail pane shows the selected project's brief notes, status,
+owner items, inbox and problems. It reads each project's files at once and adds what git says one
+repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
+answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
+job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
+only what the tool owns: the registry (Adopt, Ignore, a confirmed state, pin, priority) and the
 ticks in a project's `owner-tasks.md` and `inbox.md`. Built with `--features screenshot` and run with
 `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio (`crates/app/fixtures/portfolio`), saves a
 picture of its own window and exits; `CRW_SCREENSHOT_SETUP` arranges the view (see

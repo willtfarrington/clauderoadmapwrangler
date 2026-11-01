@@ -1,0 +1,5 @@
+# A fake project's manifest (screenshot fixture, CLAUDE.md rule 5): the stack chip reads it.
+[project]
+name = "lantern"
+version = "0.2.0"
+requires-python = ">=3.13"

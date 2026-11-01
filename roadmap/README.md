@@ -202,6 +202,14 @@ only its own files inside a managed project).
   EP-6:** the README's pictures come from `CRW_SCREENSHOT=<file.png>` with `--features screenshot`
   over the fake portfolio (`CRW_SCREENSHOT_SETUP`: `light` or `dark`, `select=`, `expand=`,
   `size=<w>x<h>`; the default window is 1600 × 1000 points, a 2400 × 1500 picture at 150 %).
+  **From EP-7 (the owner's answer at its close):** place D-24's actions, which no row holds: Create
+  private remote, Make public, Make private and Remove remote (each behind a confirmation dialog and
+  logged, `gh repo edit --visibility … --accept-visibility-change-consequences` repeating `gh`'s
+  warning), Archive and Delete for an orphan (Delete needs the `delete_repo` scope the token lacks),
+  and Back up now (the job's script with `-Force`); their state is already read
+  (`badges::hosting::Hosting`, `badges::backup::Reading`), probably an M row in P2 or P4. The row's
+  full badge form needs a wide window (`size=2300x1000`; at 1600 × 1000 the compact form shows and
+  the counts give way), and the setup gained `sort=`, `stack=` and `hosting=` for the pictures.
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 
@@ -241,7 +249,10 @@ contain no real transcript text).
   exit code and the result JSON parsed even on a non-zero exit; a `session` ledger row (project, EP, mode,
   model, effort, ultracode, start, end, outcome, session id, cost estimate); `crates/core/tests/stub-claude`:
   a small binary that replays a recorded stream-json file (with fake names) and honours stdin
-  control responses, used by all runner tests; spacing of spawns ≥ 2 s (D-29).
+  control responses, used by all runner tests; spacing of spawns ≥ 2 s (D-29). **From EP-7:**
+  `process::turn()` is the one lock the threads that start children wait on (the git and GitHub
+  passes hold it per child), and `process::output_with` passes extra environment variables, as
+  `git::run_networked` does to keep credential prompts away.
 - **EP-10.** `core::prompt`: the opener assembled from the parse — project name and path; the read-first
   order taken from the project's `CLAUDE.md` when it has one (else the house default); the next row (id,
   title, size, depends-on, core) and its brief-notes bullet verbatim; open inbox messages and owner tasks
@@ -307,7 +318,9 @@ contain no real transcript text).
   project, Pause autopilot, Enable remote view when EP-31 exists, Quit) and the close-to-tray behaviour;
   event rules per D-21 (toast: waiting, finished, failed, usage 80 % and 95 %; badge: unadopted, orphan or
   mismatched remote, stale backup, inbox arrival); quiet hours in the registry; a notification log in the
-  ledger.
+  ledger. **From EP-7:** the badge events have their readings: `Hosting::needs_attention()` (an orphan
+  or a missing repository), `Verdict::{Diverged, NotFetched}` of a current head check, and
+  `backup::State::{Stale, Failing, NotCovered}`; they reach the window through `portfolio::Loader`.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown.
@@ -345,13 +358,18 @@ a running session).
   with a "degraded" marker and retry with backoff; the strip in the status bar (weekly, Fable, five-hour
   when active, each a bar with the percent) and the usage tile (bars with reset countdowns, surface
   breakdown, a 7-day sparkline of samples); toasts at 80 % and 95 % of weekly or Fable (once per crossing
-  per window).
+  per window). **From EP-7:** the ledger is at schema 2 (`badge_cache` added) and the window creates it
+  at its first start; the usage rows go into V1's `usage_sample`, and the endpoint's poll can follow
+  the GitHub pass's pattern (cache first, a failure shown and not stored).
 - **EP-18.** The resolver (EP-10) gains the downshift rule: when the Fable-scoped percent exceeds the
   registry's `fable_downshift_percent` (default 60) and the rule's size is S, propose `claude-opus-5-5` at
   the same effort with the reason shown; the autopilot applies it; attribution: the weekly and Fable
   percents sampled before launch and after the result are stored on the session row, the delta shown per
   session and summed per project for a usage-share badge (this week) in the list and the detail tile;
-  sessions the owner starts get the status-line cost estimate only.
+  sessions the owner starts get the status-line cost estimate only. **From EP-7:** the usage-share
+  badge joins the row's badge column as one more of its own columns (`list::FULL`, `list::COMPACT`),
+  a line of the Detail pane's Status section, and the sort key `SortKey::UsageShare`, which waits
+  for it (`arrives_at`).
 - **EP-19.** `core::autopilot`: per-project toggle in the list and the registry; after a headless run's
   result the gate is evaluated and logged (every failed condition named): autopilot on; outcome completed
   and a completion note found in the parsed brief; no open owner task with `before EP-<next>`; next EP not
@@ -435,6 +453,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   continued conversations, Opus 5.5 at medium by default with a picker; the chat tile: conversation list,
   streaming replies, an input box, action chips when the session proposes an action (Adopt X, Formalise
   Y → opens the EP-21 preview or the launch dialog with a generated prompt), history in the ledger.
+  **From EP-7:** `crw status` prints counts and stack names, never paths, but a session runs it on
+  named non-data projects only (D-24 addendum), so the digest takes the badges from the window's own
+  readings rather than from a `crw status` over the whole registry.
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note
@@ -451,7 +472,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to
   <site>)` message is created for that); the daily JSON export of registry and ledger into this repository's
-  `private/export/<date>/`; CSV per project (sessions, snapshots) on demand.
+  `private/export/<date>/`; CSV per project (sessions, snapshots) on demand. **From EP-7:** "whose
+  remote is public" is `Hosting::class() == Class::Public`, from the account's list cached in the
+  ledger's `badge_cache`.
 - **EP-28.** `cli doctor` and the Diagnostics tile with the checks of D-29 (Claude Code version vs
   minimum, auth status, extension version from the extensions folder, hooks and status-line entries present
   and pointing at the current exe, Tailscale state via `tailscale status --json`, `D:` mounted with the
@@ -465,6 +488,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   folder is on PATH already); its form is the brief's choice (a `crw.cmd` that forwards its arguments
   to `target\release\crw.exe`, or a copy of the exe refreshed at each run), Diagnostics checks that
   the shim reaches the current exe, and the hook and status-line entries keep the exe's full path.
+  **From EP-7:** the backup job's settings name the target drive's label (`VolumeLabel`, not read
+  yet), which the `D:` check can set against the drive's own; the last poll times include the
+  GitHub cache's `fetched_at` (`Ledger::cached`).
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 

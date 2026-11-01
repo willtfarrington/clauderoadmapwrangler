@@ -1,0 +1,7 @@
+# A fake project's manifest (screenshot fixture, CLAUDE.md rule 5): the stack chip reads it.
+[package]
+name = "quarry"
+version = "0.6.0"
+edition = "2024"
+
+[dependencies]

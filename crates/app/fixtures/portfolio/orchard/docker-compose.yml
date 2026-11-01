@@ -1,0 +1,2 @@
+# A fake project's compose file (screenshot fixture): the stack chip looks for its name only.
+services: {}

@@ -1,22 +1,33 @@
-//! What the dashboard shows (D-6, D-9, D-25): the registry set against the data root, each
-//! registered project's snapshot, the facts its proposals come from and the mail its briefs hand
-//! on. It is read in two passes on worker threads: the files first, with no child process, so the
-//! list shows at once; then git, one child at a time with the usual spacing (D-29), each
-//! project's row filled in as its turn ends. A watcher on the data root's top level asks for a new
-//! read of the files when a folder appears, goes or is renamed (D-7). The groups, the sort keys
-//! and the filter are here too, as plain functions the list pane and its keys share.
+//! What the dashboard shows (D-6, D-9, D-24, D-25): the registry set against the data root, each
+//! registered project's snapshot, the facts its proposals come from, the mail its briefs hand on
+//! and its badges. It is read in passes on worker threads: the files first, with no child process,
+//! so the list shows at once; then the backup job and git, one child at a time with the usual
+//! spacing (D-29), each project's row filled in as its turn ends; and the GitHub pass, from the
+//! ledger's cache at once and from the network when the cache is a day old or on F5, its children
+//! taking turns with git's. A watcher on the data root's top level asks for a new read of the files
+//! when a folder appears, goes or is renamed (D-7). The groups, the sort keys and the filters are
+//! here too, as plain functions the list pane and its keys share.
 
 use std::cmp::Ordering;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as Atomic};
 use std::sync::mpsc::{self, Receiver, Sender};
-use std::sync::{Arc, Mutex};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
+use crw_core::badges::activity::Activity;
+use crw_core::badges::backup::{self, Backup};
+use crw_core::badges::health::{self, Run};
+use crw_core::badges::hosting::{self, Check, Class, Hosting, Listed};
+use crw_core::badges::online::{self, Reading};
+use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
+use crw_core::git;
 use crw_core::inbox::{self, Outgoing};
+use crw_core::ledger::Ledger;
 use crw_core::process;
 use crw_core::proposal::{self, Facts, Proposal};
 use crw_core::registry::{Project, Registry, State, Store};
@@ -26,7 +37,12 @@ use eframe::egui;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde::{Deserialize, Serialize};
 
-/// The portfolio as one read of the files found it, with the git readings added as they come.
+/// While the window is open, the GitHub pass looks at its cache's age this often; it asks the
+/// network only when the cache is older than [`online::FRESH_FOR`].
+const ONLINE_CHECK_EVERY: Duration = Duration::from_secs(3600);
+
+/// The portfolio as one read of the files found it, with the git and GitHub readings added as
+/// they come.
 #[derive(Debug, Clone, Default)]
 pub struct Portfolio {
     pub registry: PathBuf,
@@ -38,6 +54,76 @@ pub struct Portfolio {
     pub unadopted: Vec<Folder>,
     /// Why the registry or the data root could not be read; the list is empty then.
     pub problem: Option<String>,
+    /// The account's repositories (D-24), from the cache or the GitHub pass.
+    pub account: Option<Fetched<Result<Vec<Listed>, String>>>,
+    /// The backup job as the git pass last read it; `None` when the registry sets none.
+    pub backup: Option<backup::Reading>,
+}
+
+/// A networked reading and the time it was fetched, this session or from the cache.
+#[derive(Debug, Clone)]
+pub struct Fetched<T> {
+    pub value: T,
+    pub at: DateTime<Utc>,
+}
+
+/// What a row's badges show (D-24, D-25): the files' readings at once, the backup and git's with
+/// the git pass, GitHub's from the cache or the GitHub pass.
+#[derive(Debug, Clone)]
+pub struct Badges {
+    pub stack: Vec<Chip>,
+    pub licence: Option<String>,
+    /// Workflow files in `.github/workflows`.
+    pub workflows: usize,
+    /// The origin's URL, from `.git/config`.
+    pub remote: Option<String>,
+    /// From the remote and the account's list, once it is read.
+    pub hosting: Hosting,
+    pub activity: Option<Activity>,
+    pub backup: Option<Backup>,
+    pub head: Option<Fetched<Check>>,
+    pub run: Option<Fetched<Result<Option<Run>, String>>>,
+}
+
+impl Default for Badges {
+    fn default() -> Self {
+        Self {
+            stack: Vec::new(),
+            licence: None,
+            workflows: 0,
+            remote: None,
+            hosting: Hosting::Local,
+            activity: None,
+            backup: None,
+            head: None,
+            run: None,
+        }
+    }
+}
+
+impl Badges {
+    /// The readings of the project's files: no child.
+    fn read(folder: &Path) -> Self {
+        Self {
+            stack: stack::read(folder),
+            licence: health::licence(folder),
+            workflows: health::workflows(folder),
+            remote: git::remote_url(folder, "origin"),
+            ..Self::default()
+        }
+    }
+
+    /// Whether the head check still describes the clone: its local commit is the one git last
+    /// read (before the git pass, the check is all there is).
+    pub fn head_is_current(&self) -> bool {
+        match (&self.head, &self.activity) {
+            (Some(head), Some(activity)) => {
+                head.value.local.is_some() && head.value.local == activity.oid
+            }
+            (Some(_), None) => true,
+            (None, _) => false,
+        }
+    }
 }
 
 /// A registered project and what its files say.
@@ -53,6 +139,7 @@ pub struct ProjectRow {
     /// The git pass's reading; `None` until it reaches the project, and for a folder that is
     /// not a repository.
     pub git: Option<Git>,
+    pub badges: Badges,
 }
 
 /// What the git pass reads of one repository.
@@ -129,12 +216,30 @@ impl ProjectRow {
         proposal::propose(self.project.state, &self.facts, now)
     }
 
+    /// The folder's own name, which an orphan is matched by as well as the project's.
+    pub fn folder_name(&self) -> String {
+        self.path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }
+
+    /// The hosting class the sort key and the filter use; `None` when the folder is missing.
+    pub fn hosting_class(&self) -> Option<Class> {
+        self.folder.as_ref().map(|_| self.badges.hosting.class())
+    }
+
     /// Adds the git pass's reading.
     fn add_git(&mut self, git: Git) {
         git.reading.clone().fill(&mut self.snapshot);
         self.facts = Facts::default();
         self.snapshot.fill(&mut self.facts);
         self.facts.last_commit = git.last_commit;
+        self.badges.activity = git
+            .reading
+            .worktree
+            .as_ref()
+            .map(|status| Activity::read(status, git.last_commit));
         self.git = Some(git);
     }
 }
@@ -173,9 +278,12 @@ pub fn read_files(store: &Store) -> Portfolio {
 }
 
 fn row(registered: Registered, registry: &Registry) -> ProjectRow {
-    let snapshot = match &registered.folder {
-        Some(folder) => snapshot::read_tree(&folder.path),
-        None => Snapshot::default(),
+    let (snapshot, badges) = match &registered.folder {
+        Some(folder) => (
+            snapshot::read_tree(&folder.path),
+            Badges::read(&folder.path),
+        ),
+        None => (Snapshot::default(), Badges::default()),
     };
     let mut facts = Facts::default();
     snapshot.fill(&mut facts);
@@ -190,18 +298,14 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         facts,
         outgoing,
         git: None,
+        badges,
     }
 }
 
-/// Git children of every thread run one at a time (D-29): a superseded pass may still be
-/// finishing its child when the next one starts.
-static GIT: Mutex<()> = Mutex::new(());
-
-/// The git pass for one repository: `HEAD`'s README and the status, then the last commit,
-/// each child after the spacing.
+/// The git pass for one repository: `HEAD`'s README and the status, then the last commit, in
+/// one turn among the threads that start children (D-29), each child after the spacing.
 pub fn read_git(folder: &Path) -> Git {
-    let _turn = GIT.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-    thread::sleep(process::SPACING);
+    let _turn = process::turn();
     let reading = snapshot::read_git(folder).unwrap_or_default();
     thread::sleep(process::SPACING);
     Git {
@@ -216,6 +320,12 @@ pub enum Message {
         generation: u64,
         portfolio: Portfolio,
     },
+    /// The backup job, read at the start of a git pass; `reading` is `None` when none is set.
+    Backups {
+        generation: u64,
+        reading: Option<backup::Reading>,
+        projects: HashMap<String, Backup>,
+    },
     Git {
         generation: u64,
         project: String,
@@ -226,41 +336,112 @@ pub enum Message {
     GitDone {
         generation: u64,
     },
+    /// A networked reading, from the cache or the network; `progress` counts the projects asked
+    /// about, and is `None` for the cache's readings.
+    Online {
+        generation: u64,
+        reading: Reading,
+        at: DateTime<Utc>,
+        progress: Option<(usize, usize)>,
+    },
+    OnlineDone {
+        generation: u64,
+        problem: Option<String>,
+    },
     /// A folder of the data root appeared, went or was renamed.
     Folders,
 }
 
-/// Starts the reads, receives their results and keeps the git readings for the reads to come:
-/// a read of the files after a write keeps what git said before it.
+/// The networked readings so far, by project name.
+#[derive(Debug, Default)]
+struct Online {
+    account: Option<Fetched<Result<Vec<Listed>, String>>>,
+    heads: HashMap<String, Fetched<Check>>,
+    runs: HashMap<String, Fetched<Result<Option<Run>, String>>>,
+}
+
+impl Online {
+    /// Keeps `reading` unless a newer one of its kind is kept already: the cache, read again,
+    /// never hides what this session fetched.
+    fn put(&mut self, reading: Reading, at: DateTime<Utc>) {
+        fn by_project<T>(
+            map: &mut HashMap<String, Fetched<T>>,
+            project: &str,
+            value: T,
+            at: DateTime<Utc>,
+        ) {
+            if map.get(&key(project)).is_none_or(|old| at >= old.at) {
+                map.insert(key(project), Fetched { value, at });
+            }
+        }
+        match reading {
+            Reading::Account(value) => {
+                if self.account.as_ref().is_none_or(|old| at >= old.at) {
+                    self.account = Some(Fetched { value, at });
+                }
+            }
+            Reading::Head { project, check } => by_project(&mut self.heads, &project, check, at),
+            Reading::Run { project, run } => by_project(&mut self.runs, &project, run, at),
+        }
+    }
+}
+
+/// Starts the reads, receives their results and keeps the git, backup and GitHub readings for
+/// the reads to come: a read of the files after a write keeps what the other passes said.
 pub struct Loader {
     store: Arc<Store>,
+    /// The ledger the GitHub readings are cached in; `None` without a profile folder.
+    ledger: Option<PathBuf>,
+    /// Whether the GitHub pass may ask the network; a screenshot run's only reads its cache.
+    online_allowed: bool,
     ctx: egui::Context,
     tx: Sender<Message>,
     rx: Receiver<Message>,
     files: Arc<AtomicU64>,
     git: Arc<AtomicU64>,
+    online: Arc<AtomicU64>,
     readings: HashMap<String, Git>,
+    backups: Option<(backup::Reading, HashMap<String, Backup>)>,
+    fetched: Online,
     /// A read of the files is under way.
     pub reading_files: bool,
     /// The git pass: repositories read, and how many there are.
     pub git_progress: Option<(usize, usize)>,
+    /// The GitHub pass: projects asked about, and how many there are.
+    pub online_progress: Option<(usize, usize)>,
+    /// Why the last GitHub pass could not use the cache.
+    pub online_problem: Option<String>,
+    online_checked: Option<Instant>,
     watcher: Option<(PathBuf, RecommendedWatcher)>,
     pub watch_problem: Option<String>,
 }
 
 impl Loader {
-    pub fn new(store: Arc<Store>, ctx: egui::Context) -> Self {
+    pub fn new(
+        store: Arc<Store>,
+        ledger: Option<PathBuf>,
+        online_allowed: bool,
+        ctx: egui::Context,
+    ) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             store,
+            ledger,
+            online_allowed,
             ctx,
             tx,
             rx,
             files: Arc::new(AtomicU64::new(0)),
             git: Arc::new(AtomicU64::new(0)),
+            online: Arc::new(AtomicU64::new(0)),
             readings: HashMap::new(),
+            backups: None,
+            fetched: Online::default(),
             reading_files: false,
             git_progress: None,
+            online_progress: None,
+            online_problem: None,
+            online_checked: None,
             watcher: None,
             watch_problem: None,
         }
@@ -285,26 +466,50 @@ impl Loader {
         });
     }
 
-    /// Runs the git pass on a worker thread, after superseding any pass still running.
+    /// Runs the git pass on a worker thread, after superseding any pass still running: the
+    /// backup job first (file reads), then git, one repository after another.
     pub fn read_git(&mut self) {
         let generation = self.git.fetch_add(1, Atomic::SeqCst) + 1;
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let latest = self.git.clone();
         self.git_progress = Some((0, 0));
         thread::spawn(move || {
-            let repositories: Vec<(String, PathBuf)> = store
-                .load()
-                .map(|loaded| {
-                    let root = loaded.registry.data_root();
-                    loaded
-                        .registry
+            let registry = store.load().map(|loaded| loaded.registry).ok();
+            let projects: Vec<(String, PathBuf)> = registry
+                .as_ref()
+                .map(|registry| {
+                    let root = registry.data_root();
+                    registry
                         .projects
                         .iter()
                         .map(|project| (project.name.clone(), project.folder(&root)))
-                        .filter(|(_, folder)| folder.join(".git").exists())
                         .collect()
                 })
                 .unwrap_or_default();
+            let (settings, log) = registry
+                .as_ref()
+                .map(Registry::backup_files)
+                .unwrap_or_default();
+            let reading = settings.map(|settings| backup::Reading::read(&settings, log.as_deref()));
+            let backups = reading
+                .as_ref()
+                .map(|reading| {
+                    projects
+                        .iter()
+                        .map(|(name, folder)| (key(name), reading.project(folder)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let _ = tx.send(Message::Backups {
+                generation,
+                reading,
+                projects: backups,
+            });
+            ctx.request_repaint();
+            let repositories: Vec<(String, PathBuf)> = projects
+                .into_iter()
+                .filter(|(_, folder)| folder.join(".git").exists())
+                .collect();
             let of = repositories.len();
             for (done, (project, folder)) in repositories.into_iter().enumerate() {
                 if latest.load(Atomic::SeqCst) != generation {
@@ -325,15 +530,103 @@ impl Loader {
         });
     }
 
-    /// Whether a read is under way.
-    pub fn busy(&self) -> bool {
-        self.reading_files || self.git_progress.is_some()
+    /// Runs the GitHub pass on a worker thread, after superseding any pass still running: the
+    /// cached readings at once, then the network when the account's reading is older than a
+    /// day, or always when `force` (F5). Every reading fetched is cached with its time.
+    pub fn read_online(&mut self, force: bool) {
+        let generation = self.online.fetch_add(1, Atomic::SeqCst) + 1;
+        let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
+        let (latest, ledger, allowed) = (
+            self.online.clone(),
+            self.ledger.clone(),
+            self.online_allowed,
+        );
+        self.online_progress = Some((0, 0));
+        self.online_checked = Some(Instant::now());
+        thread::spawn(move || {
+            let mut problem = None;
+            let ledger = ledger.and_then(|path| match Ledger::open(&path) {
+                Ok(ledger) => Some(ledger),
+                Err(e) => {
+                    problem = Some(format!(
+                        "The ledger could not be opened, so nothing is cached: {e}"
+                    ));
+                    None
+                }
+            });
+            let mut current = false;
+            for row in ledger
+                .as_ref()
+                .and_then(|ledger| ledger.cached().ok())
+                .unwrap_or_default()
+            {
+                if let Some(reading) = Reading::from_cache(&row.project, &row.source, &row.data) {
+                    current |= row.source == online::ACCOUNT
+                        && Utc::now() - row.fetched_at < online::FRESH_FOR;
+                    let _ = tx.send(Message::Online {
+                        generation,
+                        reading,
+                        at: row.fetched_at,
+                        progress: None,
+                    });
+                }
+            }
+            ctx.request_repaint();
+            if allowed && (force || !current) {
+                let projects = online_projects(&store);
+                let of = projects.iter().filter(|p| p.remote.is_some()).count();
+                let mut done = 0;
+                online::fetch(&projects, |reading| {
+                    if latest.load(Atomic::SeqCst) != generation {
+                        return false;
+                    }
+                    let at = Utc::now();
+                    if let (Some(ledger), Some((project, source, json))) =
+                        (&ledger, reading.to_cache())
+                        && let Err(e) = ledger.cache(&project, source, at, &json)
+                    {
+                        problem = Some(format!("A GitHub reading could not be cached: {e}"));
+                    }
+                    if matches!(reading, Reading::Head { .. }) {
+                        done += 1;
+                    }
+                    let _ = tx.send(Message::Online {
+                        generation,
+                        reading,
+                        at,
+                        progress: Some((done, of)),
+                    });
+                    ctx.request_repaint();
+                    true
+                });
+            }
+            let _ = tx.send(Message::OnlineDone {
+                generation,
+                problem,
+            });
+            ctx.request_repaint();
+        });
     }
 
-    /// Takes in what the threads sent: a newer portfolio (with the git readings so far), or
-    /// one repository's reading. Returns whether the data root's folders changed.
+    /// Whether the hourly look at the GitHub cache is due (D-24's daily refresh).
+    pub fn online_due(&self) -> bool {
+        self.online_progress.is_none()
+            && self
+                .online_checked
+                .is_none_or(|at| at.elapsed() >= ONLINE_CHECK_EVERY)
+    }
+
+    /// Whether a read is under way.
+    pub fn busy(&self) -> bool {
+        self.reading_files || self.git_progress.is_some() || self.online_progress.is_some()
+    }
+
+    /// Takes in what the threads sent: a newer portfolio (with the other passes' readings so
+    /// far), one repository's reading, the backup job's, or a GitHub reading. Returns whether the
+    /// data root's folders changed.
     pub fn receive(&mut self, portfolio: &mut Portfolio) -> bool {
         let mut folders = false;
+        let mut changed = false;
         while let Ok(message) = self.rx.try_recv() {
             match message {
                 Message::Files {
@@ -350,6 +643,15 @@ impl Loader {
                     *portfolio = read;
                     self.reading_files = false;
                     self.watch(&portfolio.data_root);
+                    changed = true;
+                }
+                Message::Backups {
+                    generation,
+                    reading,
+                    projects,
+                } if generation == self.git.load(Atomic::SeqCst) => {
+                    self.backups = reading.map(|reading| (reading, projects));
+                    changed = true;
                 }
                 Message::Git {
                     generation,
@@ -371,12 +673,66 @@ impl Loader {
                 Message::GitDone { generation } if generation == self.git.load(Atomic::SeqCst) => {
                     self.git_progress = None;
                 }
+                Message::Online {
+                    generation,
+                    reading,
+                    at,
+                    progress,
+                } if generation == self.online.load(Atomic::SeqCst) => {
+                    self.fetched.put(reading, at);
+                    if progress.is_some() {
+                        self.online_progress = progress;
+                    }
+                    changed = true;
+                }
+                Message::OnlineDone {
+                    generation,
+                    problem,
+                } if generation == self.online.load(Atomic::SeqCst) => {
+                    self.online_progress = None;
+                    self.online_problem = problem;
+                }
                 Message::Folders => folders = true,
                 // A superseded read's result.
-                Message::Files { .. } | Message::Git { .. } | Message::GitDone { .. } => {}
+                Message::Files { .. }
+                | Message::Backups { .. }
+                | Message::Git { .. }
+                | Message::GitDone { .. }
+                | Message::Online { .. }
+                | Message::OnlineDone { .. } => {}
             }
         }
+        if changed {
+            self.apply(portfolio);
+        }
         folders
+    }
+
+    /// Puts the backup and GitHub readings into the portfolio, and the hosting each row's remote
+    /// and the account's list give.
+    fn apply(&self, portfolio: &mut Portfolio) {
+        portfolio.account = self.fetched.account.clone();
+        portfolio.backup = self.backups.as_ref().map(|(reading, _)| reading.clone());
+        let account = portfolio
+            .account
+            .as_ref()
+            .and_then(|fetched| fetched.value.as_ref().ok())
+            .map(Vec::as_slice);
+        for row in &mut portfolio.projects {
+            let name = key(row.name());
+            row.badges.backup = self
+                .backups
+                .as_ref()
+                .and_then(|(_, projects)| projects.get(&name).cloned());
+            row.badges.head = self.fetched.heads.get(&name).cloned();
+            row.badges.run = self.fetched.runs.get(&name).cloned();
+            let folder = row.folder_name();
+            row.badges.hosting = hosting::classify(
+                &[row.name(), &folder],
+                row.badges.remote.as_deref(),
+                account,
+            );
+        }
     }
 
     /// Watches the data root's top level (D-7), once per data root.
@@ -414,6 +770,29 @@ impl Loader {
             }
         }
     }
+}
+
+/// The projects the GitHub pass asks about: every registered folder, with its origin and whether
+/// it has workflows.
+fn online_projects(store: &Store) -> Vec<online::Project> {
+    let Ok(loaded) = store.load() else {
+        return Vec::new();
+    };
+    let root = loaded.registry.data_root();
+    loaded
+        .registry
+        .projects
+        .iter()
+        .map(|project| {
+            let folder = project.folder(&root);
+            online::Project {
+                name: project.name.clone(),
+                remote: git::remote_url(&folder, "origin"),
+                workflows: health::workflows(&folder) > 0,
+                folder,
+            }
+        })
+        .collect()
 }
 
 /// An entry of the data root created, removed or renamed; a write inside a project folder only
@@ -469,7 +848,6 @@ impl SortKey {
     /// The brief that brings a key's data, for the keys that have none yet.
     pub fn arrives_at(self) -> Option<&'static str> {
         match self {
-            SortKey::Hosting => Some("EP-7"),
             SortKey::UsageShare => Some("EP-18"),
             _ => None,
         }
@@ -481,7 +859,7 @@ impl SortKey {
             SortKey::Completion => "the most complete first",
             SortKey::Remaining => "the fewest open rows first",
             SortKey::LastActivity => "the latest commit first",
-            SortKey::Hosting => "by remote",
+            SortKey::Hosting => "public, private, other remotes, then local only",
             SortKey::UsageShare => "the largest share of this week's usage first",
             SortKey::Name => "A to Z",
         }
@@ -537,13 +915,45 @@ pub struct Group {
     pub members: Vec<Member>,
 }
 
+/// What the list keeps (D-25): the names that contain `name`, case aside, and when stacks or
+/// hosting classes are chosen, the projects with one of the chosen stacks and one of the chosen
+/// classes; unadopted folders, which have no badges, only while none are chosen.
+#[derive(Clone, Copy, Debug)]
+pub struct Filter<'a> {
+    pub name: &'a str,
+    pub stacks: &'a BTreeSet<Kind>,
+    pub hosting: &'a BTreeSet<Class>,
+}
+
+impl Filter<'_> {
+    fn by_badges(&self) -> bool {
+        !self.stacks.is_empty() || !self.hosting.is_empty()
+    }
+
+    fn named(&self, name: &str) -> bool {
+        let wanted = self.name.trim().to_lowercase();
+        wanted.is_empty() || name.to_lowercase().contains(&wanted)
+    }
+
+    fn keeps(&self, row: &ProjectRow) -> bool {
+        self.named(row.name())
+            && (self.stacks.is_empty()
+                || row
+                    .badges
+                    .stack
+                    .iter()
+                    .any(|chip| self.stacks.contains(&chip.kind)))
+            && (self.hosting.is_empty()
+                || row
+                    .hosting_class()
+                    .is_some_and(|class| self.hosting.contains(&class)))
+    }
+}
+
 impl Portfolio {
     /// The list's groups in [`GroupKind::ORDER`], empty ones left out; inside each, pinned
-    /// projects first, then `sort`, then the name. `filter` keeps the names that contain it,
-    /// case aside.
-    pub fn groups(&self, sort: SortKey, filter: &str) -> Vec<Group> {
-        let filter = filter.trim().to_lowercase();
-        let shown = |name: &str| filter.is_empty() || name.to_lowercase().contains(&filter);
+    /// projects first, then `sort`, then the name; only what `filter` keeps.
+    pub fn groups(&self, sort: SortKey, filter: Filter<'_>) -> Vec<Group> {
         GroupKind::ORDER
             .into_iter()
             .filter_map(|kind| {
@@ -552,14 +962,15 @@ impl Portfolio {
                         let mut rows: Vec<usize> = (0..self.projects.len())
                             .filter(|&i| {
                                 let row = &self.projects[i];
-                                row.project.state == state && shown(row.name())
+                                row.project.state == state && filter.keeps(row)
                             })
                             .collect();
                         rows.sort_by(|&a, &b| compare(&self.projects[a], &self.projects[b], sort));
                         rows.into_iter().map(Member::Project).collect()
                     }
+                    GroupKind::Unadopted if filter.by_badges() => Vec::new(),
                     GroupKind::Unadopted => (0..self.unadopted.len())
-                        .filter(|&i| shown(&self.unadopted[i].name))
+                        .filter(|&i| filter.named(&self.unadopted[i].name))
                         .map(Member::Folder)
                         .collect(),
                 };
@@ -591,7 +1002,7 @@ impl Portfolio {
     pub fn order(
         &self,
         sort: SortKey,
-        filter: &str,
+        filter: Filter<'_>,
         folded: impl Fn(GroupKind) -> bool,
     ) -> Vec<Selection> {
         self.groups(sort, filter)
@@ -622,7 +1033,11 @@ fn compare(a: &ProjectRow, b: &ProjectRow, sort: SortKey) -> Ordering {
             ),
             SortKey::Remaining => last_if_none(a.remaining(), b.remaining()),
             SortKey::LastActivity => b.facts.last_commit.cmp(&a.facts.last_commit),
-            SortKey::Hosting | SortKey::UsageShare | SortKey::Name => Ordering::Equal,
+            SortKey::Hosting => last_if_none(
+                a.hosting_class().map(|c| c as usize),
+                b.hosting_class().map(|c| c as usize),
+            ),
+            SortKey::UsageShare | SortKey::Name => Ordering::Equal,
         })
         .then_with(|| key(a.name()).cmp(&key(b.name())))
 }
@@ -649,6 +1064,20 @@ mod tests {
     use crw_core::roadmap::EpId;
 
     use super::*;
+
+    static NO_STACKS: BTreeSet<Kind> = BTreeSet::new();
+    static NO_CLASSES: BTreeSet<Class> = BTreeSet::new();
+
+    impl<'a> Filter<'a> {
+        /// The name filter alone.
+        fn name(name: &'a str) -> Self {
+            Self {
+                name,
+                stacks: &NO_STACKS,
+                hosting: &NO_CLASSES,
+            }
+        }
+    }
 
     /// A folder under the system temp folder, removed when dropped.
     struct Scratch(PathBuf);
@@ -707,7 +1136,7 @@ mod tests {
         let portfolio = read_files(&store);
         assert_eq!(portfolio.problem, None);
         assert!(portfolio.written);
-        let groups = portfolio.groups(SortKey::Priority, "");
+        let groups = portfolio.groups(SortKey::Priority, Filter::name(""));
         let summary: Vec<(&str, Vec<String>)> = groups
             .iter()
             .map(|group| (group.kind.name(), names(&portfolio, group)))
@@ -775,7 +1204,7 @@ mod tests {
         let store = fake_store(&scratch);
         let mut portfolio = read_files(&store);
         let active = |portfolio: &Portfolio, sort, filter| {
-            let groups = portfolio.groups(sort, filter);
+            let groups = portfolio.groups(sort, Filter::name(filter));
             groups
                 .first()
                 .map(|group| names(portfolio, group))
@@ -819,7 +1248,7 @@ mod tests {
             ["meadow", "quarry", "lantern", "harbor"]
         );
         // The filter keeps names that contain it, case aside, across groups.
-        let groups = portfolio.groups(SortKey::Name, "AR");
+        let groups = portfolio.groups(SortKey::Name, Filter::name("AR"));
         let kept: Vec<Vec<String>> = groups.iter().map(|g| names(&portfolio, g)).collect();
         assert_eq!(
             kept,
@@ -828,7 +1257,134 @@ mod tests {
                 vec!["orchard".to_owned()]
             ]
         );
-        assert!(portfolio.groups(SortKey::Name, "nothing").is_empty());
+        assert!(
+            portfolio
+                .groups(SortKey::Name, Filter::name("nothing"))
+                .is_empty()
+        );
+    }
+
+    fn listed(name: &str, visibility: hosting::Visibility) -> Hosting {
+        Hosting::Listed(Listed {
+            repo: hosting::Repo {
+                owner: "example".to_owned(),
+                name: name.to_owned(),
+            },
+            visibility,
+            archived: false,
+            pushed_at: None,
+            default_branch: Some("main".to_owned()),
+        })
+    }
+
+    #[test]
+    fn the_hosting_sort_and_the_badge_filters() {
+        let scratch = Scratch::new("portfolio-badges");
+        let store = fake_store(&scratch);
+        let mut portfolio = read_files(&store);
+        for (name, hosting) in [
+            ("harbor", listed("harbor", hosting::Visibility::Public)),
+            ("lantern", listed("lantern", hosting::Visibility::Private)),
+            ("meadow", listed("meadow", hosting::Visibility::Public)),
+        ] {
+            let row = portfolio
+                .projects
+                .iter_mut()
+                .find(|row| row.name() == name)
+                .unwrap();
+            row.badges.hosting = hosting;
+        }
+        // The fixtures' manifests give the stacks.
+        let harbor = portfolio.project("harbor").unwrap();
+        let kinds: Vec<Kind> = harbor.badges.stack.iter().map(|chip| chip.kind).collect();
+        assert_eq!(kinds, [Kind::Rust, Kind::PowerShell]);
+        assert_eq!(harbor.badges.licence.as_deref(), Some("LICENSE"));
+
+        let shown = |portfolio: &Portfolio, sort, filter: Filter<'_>| -> Vec<Vec<String>> {
+            portfolio
+                .groups(sort, filter)
+                .iter()
+                .map(|group| names(portfolio, group))
+                .collect()
+        };
+        // Public, private, then local; pinned harbor still first.
+        assert_eq!(
+            shown(&portfolio, SortKey::Hosting, Filter::name(""))[0],
+            ["harbor", "meadow", "lantern", "quarry"]
+        );
+        let rust = BTreeSet::from([Kind::Rust]);
+        let public = BTreeSet::from([Class::Public]);
+        let by_stack = Filter {
+            stacks: &rust,
+            ..Filter::name("")
+        };
+        // Rust only: no unadopted folder, which has no badges.
+        assert_eq!(
+            shown(&portfolio, SortKey::Name, by_stack),
+            [vec!["harbor", "quarry"], vec!["beacon"]]
+        );
+        let both = Filter {
+            hosting: &public,
+            ..by_stack
+        };
+        assert_eq!(shown(&portfolio, SortKey::Name, both), [vec!["harbor"]]);
+        let local = BTreeSet::from([Class::Local]);
+        let local_only = Filter {
+            hosting: &local,
+            ..Filter::name("")
+        };
+        let kept = shown(&portfolio, SortKey::Name, local_only);
+        assert!(
+            kept.iter()
+                .flatten()
+                .all(|name| !["harbor", "lantern", "meadow"].contains(&name.as_str()))
+        );
+        // The missing folder has no hosting at all.
+        assert!(!kept.iter().flatten().any(|name| name == "tundra"));
+    }
+
+    #[test]
+    fn the_newer_github_reading_wins() {
+        let mut online = Online::default();
+        let now = Utc::now();
+        let run = |conclusion: &str| {
+            Ok(Some(Run {
+                workflow: "ci".to_owned(),
+                status: "completed".to_owned(),
+                conclusion: Some(conclusion.to_owned()),
+                created_at: None,
+                head_sha: None,
+            }))
+        };
+        online.put(
+            Reading::Run {
+                project: "Harbor".to_owned(),
+                run: run("failure"),
+            },
+            now,
+        );
+        // The cache, read again, holds an older reading: it does not replace this session's.
+        online.put(
+            Reading::Run {
+                project: "harbor".to_owned(),
+                run: run("success"),
+            },
+            now - chrono::TimeDelta::hours(5),
+        );
+        let kept = &online.runs["harbor"];
+        assert_eq!(kept.at, now);
+        assert_eq!(
+            kept.value
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .unwrap()
+                .conclusion
+                .as_deref(),
+            Some("failure")
+        );
+        online.put(Reading::Account(Err("offline".to_owned())), now);
+        assert!(online.account.unwrap().value.is_err());
     }
 
     #[test]
@@ -842,7 +1398,7 @@ mod tests {
                 GroupKind::State(State::Done | State::Archived | State::Paused)
             )
         };
-        let order = portfolio.order(SortKey::Priority, "", folded);
+        let order = portfolio.order(SortKey::Priority, Filter::name(""), folded);
         let project = |name: &str| Selection::Project(name.to_owned());
         assert_eq!(
             order,
@@ -943,5 +1499,12 @@ mod tests {
         );
         assert!(row.snapshot.differs());
         assert_eq!(row.in_progress(), [InProgress::ReadmeDirty]);
+        // The same status child gives the activity badge: the changed README, no upstream.
+        let activity = row.badges.activity.as_ref().unwrap();
+        assert_eq!(activity.changed, 1);
+        assert_eq!(activity.upstream, None);
+        assert_eq!(activity.oid.as_ref().map(String::len), Some(40));
+        assert_eq!(row.badges.remote, None);
+        assert_eq!(row.badges.hosting, Hosting::Local);
     }
 }

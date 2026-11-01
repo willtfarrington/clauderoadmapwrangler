@@ -1,10 +1,12 @@
 //! clauderoadmapwrangler's desktop window (D-14, D-25): the docking layout over the portfolio,
 //! read-only but for the writes the tool owns (D-11). EP-6 brought the shell, the project list,
-//! the detail pane and the `screenshot` feature's capture; later briefs fill the other tiles.
+//! the detail pane and the `screenshot` feature's capture, EP-7 the badges; later briefs fill the
+//! other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod badges;
 mod board;
 mod detail;
 mod layout;
@@ -15,13 +17,11 @@ mod portfolio;
 mod screenshot;
 mod style;
 
-use std::sync::Arc;
-
 use crw_core::paths;
 use crw_core::registry::Store;
 use eframe::egui;
 
-use board::Dashboard;
+use board::{Dashboard, Places};
 
 /// Names the window and eframe's folder in `%APPDATA%`, beside the registry (D-2, D-8).
 const APP_ID: &str = "clauderoadmapwrangler";
@@ -46,7 +46,12 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let store = Store::locate().ok_or("no profile folder: APPDATA is not set")?;
-            let mut dashboard = Dashboard::new(cc, Arc::new(store));
+            let places = Places {
+                store,
+                ledger: paths::ledger_file(),
+                online: true,
+            };
+            let mut dashboard = Dashboard::new(cc, places);
             if let Some(home) = paths::home() {
                 dashboard.board_mut().home_note =
                     Some(format!("{}={}", paths::HOME_VAR, home.display()));
@@ -91,7 +96,14 @@ fn screenshot_run(run: &screenshot::Run) -> eframe::Result {
         APP_ID,
         options,
         Box::new(move |cc| {
-            let mut dashboard = Dashboard::new(cc, Arc::new(store));
+            // The run's own ledger, and no network: the fake projects' readings come from
+            // `screenshot::readings`.
+            let places = Places {
+                store,
+                ledger: Some(run.home.join("ledger.sqlite")),
+                online: false,
+            };
+            let mut dashboard = Dashboard::new(cc, places);
             run.arrange(&mut dashboard, &cc.egui_ctx);
             Ok(Box::new(dashboard))
         }),

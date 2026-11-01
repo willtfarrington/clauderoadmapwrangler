@@ -1,18 +1,22 @@
 //! The Detail pane (D-25): everything the files say about the selected project — its proposals,
 //! its next brief with the brief notes verbatim, why a session is taken to be in progress, the
-//! progress per phase, what waits on the owner (ticked here when it lives in `owner-tasks.md`),
-//! the inbox (ticked here with a disposition), the mail its briefs hand on, and the problems the
-//! readers met. For an unadopted folder: what it holds, Adopt and Ignore.
+//! progress per phase, its badges spelt out (EP-7), what waits on the owner (ticked here when it
+//! lives in `owner-tasks.md`), the inbox (ticked here with a disposition), the mail its briefs
+//! hand on, and the problems the readers met. For an unadopted folder: what it holds, Adopt and
+//! Ignore.
 
+use chrono::Utc;
+use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
 use crw_core::roadmap::snapshot::Snapshot;
 use crw_core::roadmap::table::Done;
 use crw_core::tasks::{self, Form, OwnerItem};
 use eframe::egui::{self, RichText};
 
+use crate::badges::{self, Mark};
 use crate::board::{Action, Board};
 use crate::markup::{self, Look};
-use crate::portfolio::{ProjectRow, Selection};
+use crate::portfolio::{Portfolio, ProjectRow, Selection};
 use crate::style::{self, icons};
 
 impl Board {
@@ -22,7 +26,7 @@ impl Board {
             .auto_shrink(false)
             .show(ui, |ui| match self.view.selected.clone() {
                 Some(Selection::Project(name)) => match self.portfolio.project(&name) {
-                    Some(row) => project(ui, row, &mut self.drafts, &mut actions),
+                    Some(row) => project(ui, row, &self.portfolio, &mut self.drafts, &mut actions),
                     None => gone(ui, &name),
                 },
                 Some(Selection::Folder(name)) => match self.portfolio.folder(&name) {
@@ -80,6 +84,7 @@ fn section(ui: &mut egui::Ui, title: &str) {
 fn project(
     ui: &mut egui::Ui,
     row: &ProjectRow,
+    portfolio: &Portfolio,
     drafts: &mut std::collections::HashMap<(String, String), String>,
     actions: &mut Vec<Action>,
 ) {
@@ -130,6 +135,7 @@ fn project(
 
     next_brief(ui, row);
     progress(ui, snapshot);
+    status(ui, row, portfolio);
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
@@ -304,6 +310,142 @@ fn progress(ui: &mut egui::Ui, snapshot: &Snapshot) {
                 ui.label(RichText::new(format!("{}{status}", heading.name)).weak());
                 ui.end_row();
             }
+        });
+}
+
+/// One badge spelt out: its mark, then its sentence.
+fn mark_line(ui: &mut egui::Ui, mark: &Mark) {
+    ui.horizontal_wrapped(|ui| {
+        mark.show(ui);
+        ui.label(&mark.hover);
+    });
+}
+
+fn weak_line(ui: &mut egui::Ui, text: impl Into<String>) {
+    ui.add(egui::Label::new(RichText::new(text.into()).weak()).wrap());
+}
+
+/// The badges spelt out (D-24, D-25): stack, activity, hosting with the head check, health and
+/// backup, each with where it comes from and how old it is.
+fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
+    let now = Utc::now();
+    let badges = &row.badges;
+    section(ui, "Status");
+    egui::Grid::new(("status", row.name()))
+        .num_columns(2)
+        .spacing([14.0, 5.0])
+        .show(ui, |ui| {
+            ui.label(RichText::new("Stack").weak());
+            ui.horizontal_wrapped(|ui| {
+                if badges.stack.is_empty() {
+                    ui.label(RichText::new("No manifest at the root or one folder down").weak());
+                }
+                for chip in &badges.stack {
+                    style::chip(ui, &chip.text(), style::stack_colour(chip.kind))
+                        .on_hover_text(&chip.source);
+                }
+            });
+            ui.end_row();
+
+            ui.label(RichText::new("Activity").weak());
+            ui.vertical(|ui| match badges::activity(row, now) {
+                Some((age, dirty)) => {
+                    mark_line(ui, &age);
+                    match dirty {
+                        Some(dirty) => mark_line(ui, &dirty),
+                        None => weak_line(ui, "A clean working tree"),
+                    }
+                }
+                None if row.awaits_git() => weak_line(ui, "Git has not been asked yet"),
+                None => weak_line(ui, "Not a git repository"),
+            });
+            ui.end_row();
+
+            ui.label(RichText::new("Hosting").weak());
+            ui.vertical(|ui| {
+                mark_line(ui, &badges::hosting(row, now));
+                if let Some(remote) = &badges.remote {
+                    weak_line(ui, format!("origin {remote}"));
+                }
+                if let Some(mark) = badges::sync(row, now) {
+                    mark_line(ui, &mark);
+                }
+                match &portfolio.account {
+                    Some(fetched) => {
+                        let age = short_age(now - fetched.at);
+                        match &fetched.value {
+                            Ok(_) => weak_line(
+                                ui,
+                                format!(
+                                    "GitHub read {age} ago; it is asked daily and on F5, never \
+                                     fetched from"
+                                ),
+                            ),
+                            Err(e) => weak_line(ui, format!("GitHub could not be asked: {e}")),
+                        }
+                    }
+                    None => weak_line(ui, "GitHub not read yet: it is asked daily and on F5"),
+                }
+            });
+            ui.end_row();
+
+            ui.label(RichText::new("Health").weak());
+            ui.vertical(|ui| {
+                match badges::ci(row, now) {
+                    Some(mark) => mark_line(ui, &mark),
+                    None => weak_line(ui, "No GitHub Actions workflows"),
+                }
+                match (&badges.licence, badges::licence_warning(row)) {
+                    (_, Some(warning)) => mark_line(ui, &warning),
+                    (Some(file), None) => weak_line(ui, format!("Licence: {file}")),
+                    (None, None) => weak_line(ui, "No licence file at the root"),
+                }
+            });
+            ui.end_row();
+
+            ui.label(RichText::new("Backup").weak());
+            ui.vertical(|ui| {
+                match badges::backup(row, now) {
+                    Some(mark) => mark_line(ui, &mark),
+                    None if portfolio.backup.is_none() => weak_line(
+                        ui,
+                        "No backup job is set: crw setting backup_settings <its settings file>",
+                    ),
+                    None => weak_line(ui, "Not read yet"),
+                }
+                if let Some(backup) = &badges.backup
+                    && !backup.excluded.is_empty()
+                {
+                    weak_line(
+                        ui,
+                        format!("The job leaves out: {}", backup.excluded.join(", ")),
+                    );
+                }
+                if let Some(job) = &portfolio.backup {
+                    let target = match &job.job {
+                        Ok(settings) => format!(
+                            "target {} ({})",
+                            settings.target.display(),
+                            if job.mounted {
+                                "mounted"
+                            } else {
+                                "not mounted"
+                            }
+                        ),
+                        Err(e) => format!("its settings could not be read: {e}"),
+                    };
+                    let run = match job.last_run() {
+                        Some(run) => format!(
+                            "; the last run ended {} ago: {}",
+                            short_age(now - run.at),
+                            run.status
+                        ),
+                        None => String::new(),
+                    };
+                    weak_line(ui, format!("The job's {target}{run}"));
+                }
+            });
+            ui.end_row();
         });
 }
 

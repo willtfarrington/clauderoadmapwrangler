@@ -1,6 +1,8 @@
 //! The dashboard's look (D-25): a type scale for a 4K-class display at the system's scaling in
-//! two densities, the state chips' colours, and the Material Symbols icon font.
+//! two densities, the state chips' and the stack chips' colours, and the Material Symbols icon
+//! font.
 
+use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
 use eframe::egui::{self, Color32, FontFamily, FontId, RichText, TextStyle, vec2};
 use serde::{Deserialize, Serialize};
@@ -87,6 +89,28 @@ pub fn state_colour(state: Option<State>) -> Color32 {
         Some(State::Archived) => Color32::from_rgb(110, 110, 110),
         Some(State::Unformalised) => Color32::from_rgb(150, 100, 205),
         None => Color32::from_rgb(225, 110, 40),
+    }
+}
+
+/// The colour of a stack's chip (D-25), each near the colour its community uses.
+pub fn stack_colour(kind: Kind) -> Color32 {
+    match kind {
+        Kind::Rust => Color32::from_rgb(206, 92, 40),
+        Kind::Python => Color32::from_rgb(55, 118, 171),
+        Kind::TypeScript => Color32::from_rgb(49, 120, 198),
+        Kind::Node => Color32::from_rgb(84, 150, 70),
+        Kind::PowerShell => Color32::from_rgb(70, 110, 180),
+        Kind::Docker => Color32::from_rgb(36, 150, 237),
+        Kind::Static => Color32::from_rgb(214, 90, 60),
+    }
+}
+
+/// The green of a passing run, a public repository and a fresh backup.
+pub fn green(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(87, 187, 105)
+    } else {
+        Color32::from_rgb(36, 135, 56)
     }
 }
 

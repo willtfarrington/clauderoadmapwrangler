@@ -1,23 +1,31 @@
 //! `crw`, the console side of clauderoadmapwrangler (D-2, D-14): `doctor` from EP-1; `scan`,
 //! `adopt`, `ignore` and `set` from EP-2, the console side of the registry until the dashboard
 //! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
-//! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `inbox send`
-//! and the `hook` and `statusline` relays arrive with their briefs.
+//! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `status` and
+//! `setting` from EP-7, the badges and the registry's settings; `inbox send` and the `hook` and
+//! `statusline` relays arrive with their briefs.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use chrono::Utc;
+use chrono::{DateTime, Utc};
+use crw_core::badges::activity::Activity;
+use crw_core::badges::backup::{self, Backup, State as BackupState};
+use crw_core::badges::health::{self, Run};
+use crw_core::badges::hosting::{self, Check, Hosting, Listed};
+use crw_core::badges::online::{self, Reading};
+use crw_core::badges::short_age;
+use crw_core::badges::stack::{self, Chip};
 use crw_core::discovery::{self, Folder, Listing, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
-use crw_core::proposal;
-use crw_core::registry::{State, Store};
+use crw_core::registry::{Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, paths};
+use crw_core::{files, git, paths, process, proposal};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -40,11 +48,17 @@ commands:
   tick <project|folder> IN-n <disposition...>
                                  tick an inbox message, its disposition written on its line
   untick <project|folder> OT-n   clear an owner task's tick
+  status [--offline] [<project|folder>]
+                                 print the badges of every registered project, or one: stack,
+                                 progress, activity, hosting with the head check, CI and licence,
+                                 backup; asks git, gh and the origins (--offline: git only)
+  setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
+                                 workspace_file, backup_settings, backup_log
   help                           print this text
   --version                      print crw's version
 
 A tick changes one box in the project's file and nothing else there; the file as it was is copied
-to the backups folder first.
+to the backups folder first. status writes nothing: it never fetches and keeps no cache.
 
 CRW_HOME=<folder> keeps the registry, the ledger and the backups in that folder instead of the
 profile folders, for trying the commands.";
@@ -62,6 +76,10 @@ fn main() -> ExitCode {
         ["tasks", target] => waiting(target),
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
         ["untick", target, id] => tick(target, id, &[], false),
+        ["status", rest @ ..] => status(rest),
+        ["setting"] => setting(None, None),
+        ["setting", key] => setting(Some(key), None),
+        ["setting", key, value] => setting(Some(key), Some(value)),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -877,6 +895,329 @@ fn one_line(text: &str, width: usize) -> String {
     } else {
         words
     }
+}
+
+/// Prints the badges (D-24, D-25) of every registered project, or of the one named: the files'
+/// readings, git's, the backup job's and, unless `--offline`, GitHub's and the origins'. Reads
+/// and asks, never writes: no fetch, no cache.
+fn status(args: &[&str]) -> ExitCode {
+    let offline = args.contains(&"--offline");
+    let targets: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| *arg != "--offline")
+        .collect();
+    if targets.len() > 1 || targets.iter().any(|arg| arg.starts_with("--")) {
+        return usage_error(&format!(
+            "status takes --offline and one project, not {args:?}"
+        ));
+    }
+    println!("crw {} status", env!("CARGO_PKG_VERSION"));
+    let registry = store()
+        .ok()
+        .and_then(|store| store.load().ok())
+        .map(|loaded| loaded.registry);
+    let projects: Vec<(String, Option<State>, PathBuf)> = match targets.first() {
+        Some(target) => match project_folder(target) {
+            Ok(folder) => {
+                let registered = registry.as_ref().and_then(|r| r.project(target));
+                let name = registered.map_or_else(|| folder_name(&folder), |p| p.name.clone());
+                vec![(name, registered.map(|p| p.state), folder)]
+            }
+            Err(e) => return failed(e),
+        },
+        None => match &registry {
+            Some(registry) => {
+                let root = registry.data_root();
+                registry
+                    .projects
+                    .iter()
+                    .map(|p| (p.name.clone(), Some(p.state), p.folder(&root)))
+                    .collect()
+            }
+            None => return failed("the registry could not be read"),
+        },
+    };
+    let now = Utc::now();
+
+    let job = registry.as_ref().and_then(|registry| {
+        let (settings, log) = registry.backup_files();
+        settings.map(|settings| backup::Reading::read(&settings, log.as_deref()))
+    });
+    match &job {
+        None => {
+            println!("  backup    no job set (crw setting backup_settings <its settings file>)")
+        }
+        Some(job) => {
+            let target = match &job.job {
+                Ok(settings) => format!(
+                    "target {} ({})",
+                    settings.target.display(),
+                    if job.mounted {
+                        "mounted"
+                    } else {
+                        "not mounted"
+                    }
+                ),
+                Err(e) => format!("unreadable: {e}"),
+            };
+            let run = match (&job.log, job.last_run()) {
+                (None, _) => "; no log set".to_owned(),
+                (Some(Err(e)), _) => format!("; the log is unreadable: {e}"),
+                (Some(Ok(_)), Some(run)) => format!(
+                    "; the last run ended {} ago: {}",
+                    short_age(now - run.at),
+                    run.status
+                ),
+                (Some(Ok(_)), None) => "; the log names no run".to_owned(),
+            };
+            println!("  backup    {}: {target}{run}", job.settings.display());
+        }
+    }
+
+    let mut account: Option<Result<Vec<Listed>, String>> = None;
+    let mut heads: HashMap<String, Check> = HashMap::new();
+    let mut runs: HashMap<String, Result<Option<Run>, String>> = HashMap::new();
+    if !offline {
+        let asked: Vec<online::Project> = projects
+            .iter()
+            .filter(|(_, _, folder)| folder.is_dir())
+            .map(|(name, _, folder)| online::Project {
+                name: name.clone(),
+                folder: folder.clone(),
+                remote: git::remote_url(folder, "origin"),
+                workflows: health::workflows(folder) > 0,
+            })
+            .collect();
+        online::fetch(&asked, |reading| {
+            match reading {
+                Reading::Account(list) => account = Some(list),
+                Reading::Head { project, check } => {
+                    heads.insert(project, check);
+                }
+                Reading::Run { project, run } => {
+                    runs.insert(project, run);
+                }
+            }
+            true
+        });
+    }
+    match &account {
+        None => println!("  github    not asked (--offline)"),
+        Some(Ok(list)) => println!(
+            "  github    {} repositories of {}",
+            list.len(),
+            list.first()
+                .map_or("the account", |l| l.repo.owner.as_str())
+        ),
+        Some(Err(e)) => println!("  github    could not be asked: {e}"),
+    }
+    let list = account
+        .as_ref()
+        .and_then(|account| account.as_ref().ok())
+        .map(Vec::as_slice);
+
+    for (name, state, folder) in &projects {
+        println!();
+        println!(
+            "{name}{}",
+            state.map(|s| format!("  ({s})")).unwrap_or_default()
+        );
+        if !folder.is_dir() {
+            println!("  missing   {}", folder.display());
+            continue;
+        }
+        let chips = stack::read(folder);
+        let stack = chips.iter().map(Chip::text).collect::<Vec<_>>().join(", ");
+        println!(
+            "  stack     {}",
+            if stack.is_empty() { "-" } else { &stack }
+        );
+        let snapshot = snapshot::read_tree(folder);
+        let progress = match snapshot.current().map(|roadmap| roadmap.counts()) {
+            Some(counts) if counts.total > 0 => format!(
+                "{} of {} done ({} %)",
+                counts.done,
+                counts.total,
+                counts.done * 100 / counts.total
+            ),
+            Some(_) => "no phase table".to_owned(),
+            None => "no roadmap/README.md".to_owned(),
+        };
+        println!("  progress  {progress}");
+        let activity = folder.join(".git").exists().then(|| {
+            let status = {
+                let _turn = process::turn();
+                git::status(folder)
+            };
+            let last = {
+                let _turn = process::turn();
+                proposal::last_commit(folder)
+            };
+            status.map(|status| Activity::read(&status, last))
+        });
+        println!("  activity  {}", activity_text(activity.as_ref(), now));
+        let remote = git::remote_url(folder, "origin");
+        let hosting = hosting::classify(&[name, &folder_name(folder)], remote.as_deref(), list);
+        let head = heads
+            .get(name)
+            .map(|check| format!("; the origin: {}", check.text()));
+        println!(
+            "  hosting   {}{}",
+            hosting_text(&hosting, remote.as_deref(), now),
+            head.unwrap_or_default()
+        );
+        let ci = match (health::workflows(folder), runs.get(name)) {
+            (0, _) => "no workflows".to_owned(),
+            (_, None) => "workflows (GitHub not asked)".to_owned(),
+            (_, Some(Ok(Some(run)))) => format!(
+                "{}{}",
+                run.text(),
+                run.created_at
+                    .map(|at| format!(", {} ago", short_age(now - at)))
+                    .unwrap_or_default()
+            ),
+            (_, Some(Ok(None))) => "workflows, no run yet".to_owned(),
+            (_, Some(Err(e))) => format!("GitHub could not be asked: {e}"),
+        };
+        let licence = health::licence(folder).unwrap_or_else(|| "no licence file".to_owned());
+        println!("  health    {ci}; {licence}");
+        if let Some(job) = &job {
+            println!("  backup    {}", backup_text(&job.project(folder), now));
+        }
+    }
+    ExitCode::SUCCESS
+}
+
+fn folder_name(folder: &Path) -> String {
+    folder
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// `last commit 3 d ago; 2 changed; main → origin/main, level`.
+fn activity_text(activity: Option<&Result<Activity, String>>, now: DateTime<Utc>) -> String {
+    match activity {
+        None => "not a git repository".to_owned(),
+        Some(Err(e)) => format!("git could not be asked: {e}"),
+        Some(Ok(activity)) => {
+            let last = activity
+                .last_commit
+                .map_or("no commit yet".to_owned(), |at| {
+                    format!("last commit {} ago", short_age(now - at))
+                });
+            let changed = match activity.changed {
+                0 => "clean".to_owned(),
+                n => format!("{n} changed"),
+            };
+            format!("{last}; {changed}; {}", activity.branch_text())
+        }
+    }
+}
+
+fn hosting_text(hosting: &Hosting, remote: Option<&str>, now: DateTime<Utc>) -> String {
+    let pushed = |listed: &Listed| {
+        listed
+            .pushed_at
+            .map(|at| format!(", pushed {} ago", short_age(now - at)))
+            .unwrap_or_default()
+    };
+    match hosting {
+        Hosting::Listed(listed) => format!(
+            "{} {}{}",
+            hosting.label(),
+            listed.repo.slug(),
+            pushed(listed)
+        ),
+        Hosting::Orphan(listed) => format!(
+            "orphan: no remote, but the account holds {}{}",
+            listed.repo.slug(),
+            pushed(listed)
+        ),
+        Hosting::Missing(repo) => format!("missing: the account does not list {}", repo.slug()),
+        Hosting::GitHub(repo) => format!("GitHub {} (not in the account's list)", repo.slug()),
+        Hosting::Elsewhere(host) => format!("a remote at {host}"),
+        Hosting::Local => match remote {
+            Some(url) => format!("local ({url})"),
+            None => "local: no remote".to_owned(),
+        },
+    }
+}
+
+fn backup_text(backup: &Backup, now: DateTime<Utc>) -> String {
+    let unit = backup.unit.as_deref().unwrap_or_default();
+    let checked = backup
+        .checked
+        .map(|at| format!("checked {} ago", short_age(now - at)))
+        .unwrap_or_default();
+    let archive = backup
+        .archive
+        .as_ref()
+        .map(|archive| format!(", newest archive {}", archive.name))
+        .unwrap_or_default();
+    let excluded = match backup.excluded.as_slice() {
+        [] => String::new(),
+        paths => format!("; leaves out {}", paths.join(", ")),
+    };
+    let text = match backup.state(now) {
+        BackupState::NotCovered => return "not covered by the job".to_owned(),
+        BackupState::Unknown => format!("{unit}: no archive and no log line yet"),
+        BackupState::Fresh => format!("{unit}: {checked}{archive}"),
+        BackupState::Stale => format!("{unit}: stale, {checked}{archive}"),
+        BackupState::Failing => format!(
+            "{unit}: the job's last word: {}",
+            backup.problem.as_deref().unwrap_or_default()
+        ),
+    };
+    format!("{text}{excluded}")
+}
+
+/// Prints the registry's settings, or one, or sets one through the store (a daily copy of the
+/// file first, D-8).
+fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    if let Some(key) = key
+        && !Settings::KEYS.contains(&key)
+    {
+        return usage_error(&format!(
+            "unknown setting {key:?}: {}",
+            Settings::KEYS.join(", ")
+        ));
+    }
+    if let (Some(key), Some(value)) = (key, value) {
+        return match store.change(&files::today(), |c| c.set_setting(key, value)) {
+            Ok((registry, ())) => {
+                println!("{key} = {value}");
+                let full = registry.data_root().join(value);
+                if key != "data_root" && !full.exists() {
+                    println!("note: {} does not exist yet", full.display());
+                }
+                ExitCode::SUCCESS
+            }
+            Err(e) => failed(e),
+        };
+    }
+    let registry = match store.load() {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    println!("crw {} setting", env!("CARGO_PKG_VERSION"));
+    for name in Settings::KEYS
+        .iter()
+        .filter(|name| key.is_none_or(|k| k == **name))
+    {
+        let value = match (registry.settings.get(name), *name) {
+            (Some(path), _) => path.display().to_string(),
+            (None, "data_root") => format!("{} (the default)", registry.data_root().display()),
+            (None, _) => "not set".to_owned(),
+        };
+        println!("  {name:<16} {value}");
+    }
+    ExitCode::SUCCESS
 }
 
 /// Ticks one line of a project's `owner-tasks.md` or `inbox.md`, or clears an owner task's tick

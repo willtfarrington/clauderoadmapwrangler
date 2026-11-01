@@ -153,6 +153,32 @@ pub struct Settings {
     pub data_root: Option<PathBuf>,
     /// The owner's VS Code workspace file, which Adopt appends to (D-7); relative to the data root.
     pub workspace_file: Option<PathBuf>,
+    /// The Documents backup job's settings file, which the backup badge reads (D-24); relative to
+    /// the data root or a full path.
+    pub backup_settings: Option<PathBuf>,
+    /// The backup job's run log; relative to the data root or a full path.
+    pub backup_log: Option<PathBuf>,
+}
+
+impl Settings {
+    /// The keys `crw setting` reads and sets.
+    pub const KEYS: [&str; 4] = [
+        "data_root",
+        "workspace_file",
+        "backup_settings",
+        "backup_log",
+    ];
+
+    /// A setting's value as written, by its key.
+    pub fn get(&self, key: &str) -> Option<&Path> {
+        match key {
+            "data_root" => self.data_root.as_deref(),
+            "workspace_file" => self.workspace_file.as_deref(),
+            "backup_settings" => self.backup_settings.as_deref(),
+            "backup_log" => self.backup_log.as_deref(),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Deserialize)]
@@ -223,6 +249,15 @@ impl Registry {
     pub fn workspace_file(&self) -> Option<PathBuf> {
         let file = self.settings.workspace_file.as_ref()?;
         Some(self.data_root().join(file))
+    }
+
+    /// The backup job's settings file and run log, as full paths, when they are set (D-24).
+    pub fn backup_files(&self) -> (Option<PathBuf>, Option<PathBuf>) {
+        let full = |path: &Option<PathBuf>| path.as_ref().map(|path| self.data_root().join(path));
+        (
+            full(&self.settings.backup_settings),
+            full(&self.settings.backup_log),
+        )
     }
 
     /// The project called `name`, in any case.
@@ -566,6 +601,31 @@ impl Changes<'_> {
         self.set(name, "pinned", Value::from(pinned))
     }
 
+    /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment.
+    pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
+        if !Settings::KEYS.contains(&key) {
+            return Err(Error::Invalid(format!(
+                "unknown setting {key:?}: {}",
+                Settings::KEYS.join(", ")
+            )));
+        }
+        if value.trim().is_empty() {
+            return Err(Error::Invalid(format!("{key} needs a path")));
+        }
+        let settings = self
+            .document
+            .entry("settings")
+            .or_insert_with(|| {
+                let mut table = Table::new();
+                table.decor_mut().set_prefix("\n");
+                Item::Table(table)
+            })
+            .as_table_mut()
+            .ok_or_else(|| Error::Invalid("settings must be a [settings] table".to_owned()))?;
+        set_keeping_decor(settings, key, Value::from(value));
+        Ok(())
+    }
+
     /// Adds `folder` to the ignore list; `false` when it is on it already.
     pub fn ignore(&mut self, folder: &str) -> Result<bool, Error> {
         if self
@@ -856,6 +916,68 @@ state = "paused"
         assert!(text.contains("format = 2\n"), "{text}");
         assert_eq!(text.matches("pinned = false").count(), 2, "{text}");
         assert!(text.starts_with("# The owner's notes stay.\n"));
+    }
+
+    #[test]
+    fn settings_are_set_in_place_and_read_back() {
+        let scratch = Scratch::new("registry-settings");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("backup_settings", r"jobs\backup.psd1")?;
+                c.set_setting("backup_log", r"D:\logs\backup.jsonl")
+            })
+            .unwrap();
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains(
+                "data_root = 'C:\\Data'\nbackup_settings = 'jobs\\backup.psd1'\n\
+                 backup_log = 'D:\\logs\\backup.jsonl'\n"
+            ),
+            "{text}"
+        );
+        assert_eq!(
+            registry.backup_files(),
+            (
+                Some(PathBuf::from(r"C:\Data\jobs\backup.psd1")),
+                Some(PathBuf::from(r"D:\logs\backup.jsonl"))
+            )
+        );
+        assert_eq!(
+            registry.settings.get("backup_log"),
+            Some(Path::new(r"D:\logs\backup.jsonl"))
+        );
+        assert!(
+            store
+                .change(TODAY, |c| c.set_setting("colour", "red"))
+                .is_err()
+        );
+        assert!(
+            store
+                .change(TODAY, |c| c.set_setting("backup_log", " "))
+                .is_err()
+        );
+        // A relative data root is refused when it reads back, and nothing is written.
+        assert!(
+            store
+                .change(TODAY, |c| c.set_setting("data_root", "rel"))
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        // A registry without a [settings] table gains one.
+        let bare = Scratch::new("registry-settings-bare");
+        let store = self::store(&bare);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, "format = 1\n").unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("backup_settings", "job.psd1"))
+            .unwrap();
+        assert_eq!(
+            registry.settings.backup_settings,
+            Some(PathBuf::from("job.psd1"))
+        );
     }
 
     #[test]

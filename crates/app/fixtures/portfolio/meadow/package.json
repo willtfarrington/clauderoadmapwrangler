@@ -1,0 +1,6 @@
+{
+  "name": "meadow",
+  "private": true,
+  "description": "A fake project's manifest (screenshot fixture, CLAUDE.md rule 5): the stack chip reads it.",
+  "packageManager": "pnpm@9.12.0"
+}

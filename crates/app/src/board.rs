@@ -8,6 +8,9 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use crw_core::badges::hosting::Class;
+use crw_core::badges::short_age;
+use crw_core::badges::stack::Kind;
 use crw_core::discovery::{self, Listing};
 use crw_core::registry::{State, Store};
 use crw_core::{files, inbox, tasks};
@@ -16,7 +19,7 @@ use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
 
 use crate::layout::{self, Pane};
-use crate::portfolio::{GroupKind, Loader, Portfolio, Selection, SortKey, step};
+use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
 use crate::style::{self, Density, icons};
 
 const THEME_KEY: &str = "theme";
@@ -25,6 +28,8 @@ const VIEW_KEY: &str = "view";
 const NOTICE_FOR: Duration = Duration::from_secs(8);
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
+/// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
+const ONLINE_WAKE: Duration = Duration::from_secs(600);
 const REFRESH: KeyboardShortcut = KeyboardShortcut::new(Modifiers::NONE, Key::F5);
 
 /// What the list shows and how, saved with the layout (D-25).
@@ -39,6 +44,10 @@ pub struct View {
     /// Projects whose rows are expanded inline, by name.
     pub expanded: BTreeSet<String>,
     pub selected: Option<Selection>,
+    /// The stack filter: projects with any of these stacks (EP-7).
+    pub stacks: BTreeSet<Kind>,
+    /// The hosting filter: projects in any of these classes (EP-7).
+    pub hosting: BTreeSet<Class>,
 }
 
 impl Default for View {
@@ -51,6 +60,8 @@ impl Default for View {
             folded: ["done", "archived"].map(str::to_owned).into(),
             expanded: BTreeSet::new(),
             selected: None,
+            stacks: BTreeSet::new(),
+            hosting: BTreeSet::new(),
         }
     }
 }
@@ -59,6 +70,23 @@ impl View {
     pub fn is_folded(&self, kind: GroupKind) -> bool {
         self.folded.contains(kind.name())
     }
+
+    /// The name, stack and hosting filters as the list applies them.
+    pub fn list_filter(&self) -> Filter<'_> {
+        Filter {
+            name: &self.filter,
+            stacks: &self.stacks,
+            hosting: &self.hosting,
+        }
+    }
+}
+
+/// Where the window's data comes from: the registry's store, the ledger the GitHub readings are
+/// cached in, and whether the GitHub pass may ask the network (a screenshot run's never does).
+pub struct Places {
+    pub store: Store,
+    pub ledger: Option<PathBuf>,
+    pub online: bool,
 }
 
 /// What the owner asked for in a pane, run after the frame.
@@ -122,10 +150,16 @@ pub struct Board {
 }
 
 impl Board {
-    pub fn new(store: Arc<Store>, ctx: &egui::Context, view: View, theme: ThemePreference) -> Self {
-        let mut loader = Loader::new(store, ctx.clone());
+    pub fn new(places: Places, ctx: &egui::Context, view: View, theme: ThemePreference) -> Self {
+        let mut loader = Loader::new(
+            Arc::new(places.store),
+            places.ledger,
+            places.online,
+            ctx.clone(),
+        );
         loader.read_files();
         loader.read_git();
+        loader.read_online(false);
         Self {
             loader,
             portfolio: Portfolio::default(),
@@ -173,12 +207,20 @@ impl Board {
     }
 
     /// Takes in the worker threads' results and the watcher's news; after a burst of folder
-    /// changes settles, reads the files again.
+    /// changes settles, reads the files again; once an hour, looks at the GitHub cache's age.
     pub fn receive(&mut self, ctx: &egui::Context) {
         if self.loader.receive(&mut self.portfolio) {
             self.settle_until = Some(Instant::now() + SETTLE);
             ctx.request_repaint_after(SETTLE);
         }
+        #[cfg(feature = "screenshot")]
+        if self.fixtures {
+            crate::screenshot::readings(&mut self.portfolio, chrono::Utc::now());
+        }
+        if self.loader.online_due() {
+            self.loader.read_online(false);
+        }
+        ctx.request_repaint_after(ONLINE_WAKE);
         if let Some(at) = self.settle_until {
             if Instant::now() >= at {
                 self.settle_until = None;
@@ -204,7 +246,7 @@ impl Board {
             if pressed(key) {
                 let order = self
                     .portfolio
-                    .order(self.view.sort, &self.view.filter, |kind| {
+                    .order(self.view.sort, self.view.list_filter(), |kind| {
                         self.view.is_folded(kind)
                     });
                 if let Some(next) = step(&order, self.view.selected.as_ref(), down) {
@@ -275,7 +317,10 @@ impl Board {
             Action::Refresh => {
                 self.loader.read_files();
                 self.loader.read_git();
-                self.notify("Reading every project again: the files, then git.");
+                self.loader.read_online(true);
+                self.notify(
+                    "Reading every project again: the files, the backup job, git, then GitHub.",
+                );
             }
             Action::NotYet(text) => self.warn(text),
             Action::Adopt(name) => {
@@ -443,6 +488,10 @@ impl Board {
                 ui.label(RichText::new(problem).color(style::amber(ui)));
                 quiet = false;
             }
+            if let Some(problem) = &self.loader.online_problem {
+                ui.label(RichText::new(problem).color(style::amber(ui)));
+                quiet = false;
+            }
             if quiet {
                 ui.label(
                     RichText::new(
@@ -452,14 +501,31 @@ impl Board {
                 );
             }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                let reading = match self.loader.git_progress {
+                let reading = match (self.loader.git_progress, self.loader.online_progress) {
                     _ if self.loader.reading_files => "Reading the files…".to_owned(),
-                    Some((done, of)) if of > 0 => format!("Asking git: {done} of {of}"),
-                    Some(_) => "Asking git…".to_owned(),
-                    None => "Up to date".to_owned(),
+                    (Some((done, of)), _) if of > 0 => format!("Asking git: {done} of {of}"),
+                    (Some(_), _) => "Asking git…".to_owned(),
+                    (None, Some((done, of))) if of > 0 => {
+                        format!("Asking GitHub: {done} of {of}")
+                    }
+                    (None, Some(_)) => "Asking GitHub…".to_owned(),
+                    (None, None) => "Up to date".to_owned(),
+                };
+                let github = match &self.portfolio.account {
+                    Some(fetched) => {
+                        let age = short_age(chrono::Utc::now() - fetched.at);
+                        match &fetched.value {
+                            Ok(list) => format!(
+                                "GitHub: {} repositories of the account, read {age} ago",
+                                list.len()
+                            ),
+                            Err(e) => format!("GitHub could not be asked ({age} ago): {e}"),
+                        }
+                    }
+                    None => "GitHub: not read yet".to_owned(),
                 };
                 ui.label(RichText::new(reading).weak()).on_hover_text(format!(
-                    "Registry {}\nData root {}",
+                    "Registry {}\nData root {}\n{github}",
                     self.portfolio.registry.display(),
                     self.portfolio.data_root.display()
                 ));
@@ -486,7 +552,7 @@ pub struct Dashboard {
 }
 
 impl Dashboard {
-    pub fn new(cc: &eframe::CreationContext<'_>, store: Arc<Store>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, places: Places) -> Self {
         egui_material_icons::initialize(&cc.egui_ctx);
         let theme: ThemePreference = stored(cc.storage, THEME_KEY).unwrap_or_default();
         let view: View = stored(cc.storage, VIEW_KEY).unwrap_or_default();
@@ -494,7 +560,7 @@ impl Dashboard {
         view.density.apply(&cc.egui_ctx);
         Self {
             layout: layout::restore(cc.storage),
-            board: Board::new(store, &cc.egui_ctx, view, theme),
+            board: Board::new(places, &cc.egui_ctx, view, theme),
         }
     }
 

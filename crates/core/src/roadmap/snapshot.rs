@@ -6,7 +6,6 @@
 //! asked one question at a time with the usual spacing (D-29); a folder that is not a repository
 //! is read from the working tree alone.
 
-use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,6 +14,7 @@ use std::thread;
 use super::brief::{self, Brief, BriefFile, Evidence, Files, HandoffFile};
 use super::table::{self, Done, Roadmap, Row};
 use super::{EpId, first_date, readme};
+use crate::git::{self, ChangeKind};
 use crate::inbox::{self, Inbox};
 use crate::proposal::Facts;
 use crate::tasks::{self, OwnerItem, Tasks, legacy};
@@ -82,7 +82,7 @@ impl Entry {
     }
 }
 
-/// `git status --porcelain -- roadmap`, read.
+/// What git reports changed under `roadmap/`.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct GitStatus {
     /// The README is modified, staged or untracked.
@@ -305,8 +305,8 @@ pub fn read_tree(folder: &Path) -> Snapshot {
     snapshot
 }
 
-/// Reads `folder` whole: the working tree, then `HEAD`'s README and git's status under
-/// `roadmap/` when the folder is a repository (two git children, spaced).
+/// Reads `folder` whole: the working tree, then `HEAD`'s README and git's status when the folder
+/// is a repository (two git children, spaced).
 pub fn take(folder: &Path) -> Snapshot {
     let mut snapshot = read_tree(folder);
     if let Some(reading) = read_git(folder) {
@@ -315,16 +315,18 @@ pub fn take(folder: &Path) -> Snapshot {
     snapshot
 }
 
-/// What git says about a repository's roadmap: the README at `HEAD`, and the status under
-/// `roadmap/`. The dashboard reads it after the working tree, on its own thread (EP-6).
+/// What git says about a repository: the README at `HEAD`, the changes under `roadmap/`, and the
+/// whole working tree's status, which the badges read (EP-7). The dashboard reads it after the
+/// working tree, on its own thread (EP-6).
 #[derive(Debug, Clone, Default)]
 pub struct GitReading {
     pub head: Option<Roadmap>,
     pub status: Option<GitStatus>,
+    pub worktree: Option<git::Status>,
 }
 
 impl GitReading {
-    /// Puts the reading into a snapshot of the working tree.
+    /// Puts the roadmap's part of the reading into a snapshot of the working tree.
     pub fn fill(self, snapshot: &mut Snapshot) {
         snapshot.head = self.head;
         snapshot.git = self.status;
@@ -336,49 +338,38 @@ pub fn read_git(folder: &Path) -> Option<GitReading> {
     if !folder.join(".git").exists() {
         return None;
     }
-    let head = git(folder, &["show", &format!("HEAD:{README_IN_REPO}")])
+    let head = git::run(folder, &["show", &format!("HEAD:{README_IN_REPO}")])
         .ok()
         .map(|text| table::parse(&text));
     thread::sleep(process::SPACING);
-    let status = git(folder, &["status", "--porcelain", "-z", "--", "roadmap"])
-        .ok()
-        .map(|text| status_of(&text));
-    Some(GitReading { head, status })
+    let worktree = git::status(folder).ok();
+    Some(GitReading {
+        head,
+        status: worktree.as_ref().map(roadmap_changes),
+        worktree,
+    })
 }
 
-fn git(folder: &Path, args: &[&str]) -> Result<String, String> {
-    let mut all: Vec<&OsStr> = vec![OsStr::new("-C"), folder.as_os_str()];
-    all.extend(args.iter().map(OsStr::new));
-    process::output_of(Path::new("git"), all, process::TIMEOUT)
-}
-
-/// `git status --porcelain -z -- roadmap`: `XY path` records separated by NUL, a renamed or
-/// copied file followed by its old path.
-fn status_of(text: &str) -> GitStatus {
-    let mut status = GitStatus::default();
-    let mut records = text.split('\0').filter(|record| !record.is_empty());
-    while let Some(record) = records.next() {
-        let Some((marks, path)) = record.split_at_checked(3) else {
-            continue;
-        };
-        if marks.starts_with(['R', 'C']) {
-            records.next();
-        }
-        let untracked = marks.starts_with("??");
+/// The changes under `roadmap/` that matter (D-9): the README, and the brief files git does not
+/// track or sees changed (a renamed brief by its new name).
+fn roadmap_changes(status: &git::Status) -> GitStatus {
+    let mut changes = GitStatus::default();
+    for change in &status.changes {
+        let path = change.path.as_str();
         if path == README_IN_REPO {
-            status.readme_dirty = true;
+            changes.readme_dirty = true;
         } else if let Some(name) = path.strip_prefix("roadmap/")
             && !name.contains('/')
             && brief::file_id(name).is_some_and(|(_, slug)| !brief::is_companion(slug))
         {
-            if untracked {
-                status.untracked.push(name.to_owned());
+            if change.kind == ChangeKind::Untracked {
+                changes.untracked.push(name.to_owned());
             } else {
-                status.modified.push(name.to_owned());
+                changes.modified.push(name.to_owned());
             }
         }
     }
-    status
+    changes
 }
 
 #[cfg(test)]
@@ -386,25 +377,36 @@ mod tests {
     use super::*;
 
     #[test]
-    fn reads_the_porcelain_status() {
-        let text = "?? roadmap/EP-4-parser-b.md\0 M roadmap/README.md\0M  roadmap/EP-3-parser-a.md\0R  roadmap/EP-5-new.md\0roadmap/EP-5-old.md\0?? roadmap/EP-9-completion-report.md\0?? roadmap/inbox.md\0?? roadmap/sub/EP-1-x.md\0A  roadmap/_TEMPLATE.md\0";
+    fn reads_the_roadmaps_changes_from_the_status() {
+        let changes = |text: &str| roadmap_changes(&git::parse_status(text));
+        let text = "# branch.oid 1111111111111111111111111111111111111111\0\
+                    # branch.head main\0\
+                    ? roadmap/EP-4-parser-b.md\0\
+                    1 .M N... 100644 100644 100644 aaaa aaaa roadmap/README.md\0\
+                    1 M. N... 100644 100644 100644 bbbb cccc roadmap/EP-3-parser-a.md\0\
+                    2 R. N... 100644 100644 100644 dddd dddd R100 roadmap/EP-5-new.md\0roadmap/EP-5-old.md\0\
+                    ? roadmap/EP-9-completion-report.md\0\
+                    ? roadmap/inbox.md\0\
+                    ? roadmap/sub/EP-1-x.md\0\
+                    1 A. N... 000000 100644 100644 0000 eeee roadmap/_TEMPLATE.md\0\
+                    1 .M N... 100644 100644 100644 ffff ffff src/main.rs\0";
         assert_eq!(
-            status_of(text),
+            changes(text),
             GitStatus {
                 readme_dirty: true,
                 untracked: vec!["EP-4-parser-b.md".to_owned()],
                 modified: vec!["EP-3-parser-a.md".to_owned(), "EP-5-new.md".to_owned()],
             }
         );
-        assert!(status_of("").is_clean());
+        assert!(changes("").is_clean());
         assert_eq!(
-            status_of("?? roadmap/README.md\0"),
+            changes("? roadmap/README.md\0"),
             GitStatus {
                 readme_dirty: true,
                 ..GitStatus::default()
             }
         );
-        assert!(!status_of("?? roadmap/README.md\0").is_clean());
+        assert!(!changes("? roadmap/README.md\0").is_clean());
         assert_eq!(
             InProgress::ReadmeDirty.to_string(),
             "the roadmap README is changed"

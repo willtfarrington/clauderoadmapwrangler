@@ -321,6 +321,25 @@ divergence; the backup job already exists; the site's figures were hand-typed an
 Status only; actions without confirmation; archiving, deleting or renaming the orphan now; a second
 archive mechanism; editing `index.html`.
 
+> **Addendum (2026-11-01, EP-7).** The head comparison asks `git ls-remote origin` for the upstream's
+> branch (`HEAD` without an upstream) and sets it against the local `HEAD`; when the two differ,
+> `git rev-list --left-right --count` counts both sides: in sync, ahead, behind, diverged, or *not
+> fetched* when the origin holds commits the clone has never seen. The tool never fetches, since a
+> fetch writes into the project's `.git` (D-11); once a commit makes the check stale, the row shows
+> git's own counts against the upstream as last fetched. One `gh repo list` gives every repository
+> of the account (the hosting and the orphans), one `gh run list` per repository with workflows its
+> latest run; the answers are cached in the ledger (`badge_cache`, schema 2) with their fetch time,
+> asked again when a day old (the window looks hourly) or on F5, and a failed answer is shown but
+> not cached. The activity badge's `git --no-optional-locks status` covers the whole working tree
+> and writes nothing; it runs in every registered repository, the data repositories included, and
+> git's output appears only as counts, never as paths; this project's sessions run `crw status` on
+> named non-data projects, never over the whole registry (the owner's answer). The backup job is
+> read through two registry settings, `backup_settings` (its settings file) and `backup_log` (its
+> run log); a project is stale after 48 hours without the job writing or checking its unit. The
+> actions above are placed by the P1 re-plan (EP-8). *Alternatives.* Push dates instead of heads;
+> a fetch before the comparison; a cache file of its own; asking GitHub at every start; a setting
+> for the archive folder instead of the job's settings file; no git child in the data repositories.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with
@@ -344,6 +363,19 @@ state; graphs only in the detail tile or a separate window.
 > show at once; git's readings join as a worker thread gets them, one child at a time (D-29). A right
 > click on a row pins it or sets its priority or state (D-6's "by hand"). *Alternatives.* Unadopted
 > folders first; Enter expanding the row; pin, priority and state from `crw set` only.
+
+> **Addendum (2026-11-01, EP-7).** The badges have a column between the counts and the session
+> status, cut into columns of their own so the marks line up from row to row: in the full form the
+> first stack chip (`RS+1` when there are more), the hosting, the sync with the origin, the last
+> commit's age in its staleness colour (fresh under 7 days, quiet under D-6's 60, stale after) with a
+> dot for a dirty tree, the CI run with a warning for a public repository without a licence, and
+> the backup; the compact form drops the chip and the age. As a row narrows the badges turn compact,
+> then the counts give way, then the badges, then the progress, now a small pill filled to the
+> fraction done. Hosting sorts public, private, other remotes, then local only, a missing folder
+> last; the stack and hosting filters keep the projects with any chosen value, are saved with the
+> view, and hide the unadopted folders while set. Each badge's sentence is its hover text and a line
+> of the Detail pane's Status section. *Alternatives.* The badges giving way before the counts;
+> every stack chip in the row; filters that need every chosen value.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

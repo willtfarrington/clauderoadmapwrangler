@@ -1,25 +1,30 @@
-//! The Projects pane (D-25): a toolbar (the name filter, the sort key, the filters EP-7 feeds),
-//! then the groups by state, each with a header that folds it, and one dense row per project:
-//! its next brief, its progress, what waits on the owner, whether a session is in progress, and
-//! the switches later briefs bring to life. A row expands inline; a right click pins it or sets
-//! its priority or its state; an unadopted folder offers Adopt and Ignore.
+//! The Projects pane (D-25): a toolbar (the name filter, the sort key, the stack and hosting
+//! filters), then the groups by state, each with a header that folds it, and one dense row per
+//! project: its next brief, its progress, what waits on the owner, its badges (EP-7), whether a
+//! session is in progress, and the switches later briefs bring to life. A row expands inline; a
+//! right click pins it or sets its priority or its state; an unadopted folder offers Adopt and
+//! Ignore.
 
+use chrono::{DateTime, Utc};
+use crw_core::badges::hosting::Class;
+use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
 use eframe::egui::{self, Align, Checkbox, Layout, Rect, RichText, Sense, UiBuilder, vec2};
 
+use crate::badges;
 use crate::board::{Action, Board, View};
 use crate::markup::{self, Look};
 use crate::portfolio::{GroupKind, Member, ProjectRow, Selection, SortKey};
 use crate::style::{self, icons};
 
-/// The columns of a row, in points, left to right; the title takes what is left. EP-7's badges
-/// join between the counts and the session status.
+/// The columns of a row, in points, left to right; the title takes what is left.
 const EXPANDER: f32 = 20.0;
 const PIN: f32 = 20.0;
 const NAME: f32 = 160.0;
 const STATE: f32 = 104.0;
 const NEXT: f32 = 70.0;
-/// Below this the title gives way: first the counts go, then the progress.
+/// Below this the title gives way: the badges shrink to their compact form, the counts go, the
+/// badges go, then the progress.
 const TITLE_AT_LEAST: f32 = 160.0;
 const PROGRESS: f32 = 44.0;
 const ITEMS: f32 = 72.0;
@@ -29,8 +34,33 @@ const START: f32 = 32.0;
 const GAP: f32 = 5.0;
 /// Adopt and Ignore at the end of an unadopted folder's row.
 const FOLDER_BUTTONS: f32 = 150.0;
+/// The badge column's own columns, so the marks line up from row to row: in the full form the
+/// first stack chip, the hosting, the sync with the origin, the last commit's age with the dirty
+/// mark, the CI run with the licence warning, the backup; the compact form drops the chip and
+/// the age.
+const BADGE_GAP: f32 = 3.0;
+const FULL: [f32; 6] = [36.0, 18.0, 36.0, 46.0, 38.0, 18.0];
+const COMPACT: [f32; 4] = [18.0, 36.0, 38.0, 18.0];
 
-/// The cells of one row; the progress and the counts only when the row is wide enough.
+/// How much of the badge column a row has room for.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Form {
+    Full,
+    Compact,
+}
+
+impl Form {
+    fn width(self) -> f32 {
+        let widths: &[f32] = match self {
+            Form::Full => &FULL,
+            Form::Compact => &COMPACT,
+        };
+        widths.iter().sum::<f32>() + BADGE_GAP * (widths.len() - 1) as f32
+    }
+}
+
+/// The cells of one row; the progress, the counts and the badges only when the row is wide
+/// enough.
 struct Columns {
     expander: Rect,
     pin: Rect,
@@ -40,6 +70,7 @@ struct Columns {
     title: Rect,
     progress: Option<Rect>,
     items: Option<Rect>,
+    badges: Option<(Rect, Form)>,
     session: Rect,
     autopilot: Rect,
     start: Rect,
@@ -50,16 +81,25 @@ impl Columns {
         let always = [EXPANDER, PIN, NAME, STATE, NEXT, SESSION, AUTOPILOT, START];
         // Eight columns and the title: eight gaps.
         let spare = row.width() - always.iter().sum::<f32>() - GAP * always.len() as f32;
-        let (progress, items) = if spare - PROGRESS - ITEMS - 2.0 * GAP >= TITLE_AT_LEAST {
-            (true, true)
-        } else if spare - PROGRESS - GAP >= TITLE_AT_LEAST {
-            (true, false)
-        } else {
-            (false, false)
+        // The optional cells, from the most to the least, until the title keeps its room.
+        let choices = [
+            (true, true, Some(Form::Full)),
+            (true, true, Some(Form::Compact)),
+            (true, false, Some(Form::Compact)),
+            (true, false, None),
+            (false, false, None),
+        ];
+        let taken = |(progress, items, badges): (bool, bool, Option<Form>)| {
+            f32::from(u8::from(progress)) * (PROGRESS + GAP)
+                + f32::from(u8::from(items)) * (ITEMS + GAP)
+                + badges.map_or(0.0, |form| form.width() + GAP)
         };
-        let title = spare
-            - if progress { PROGRESS + GAP } else { 0.0 }
-            - if items { ITEMS + GAP } else { 0.0 };
+        let chosen = choices
+            .into_iter()
+            .find(|&choice| spare - taken(choice) >= TITLE_AT_LEAST)
+            .unwrap_or((false, false, None));
+        let (progress, items, badges) = chosen;
+        let title = spare - taken(chosen);
         let mut x = row.left();
         let mut next = |width: f32| {
             let cell = Rect::from_min_size(egui::pos2(x, row.top()), vec2(width, row.height()));
@@ -75,11 +115,25 @@ impl Columns {
             title: next(title.max(40.0)),
             progress: progress.then(|| next(PROGRESS)),
             items: items.then(|| next(ITEMS)),
+            badges: badges.map(|form| (next(form.width()), form)),
             session: next(SESSION),
             autopilot: next(AUTOPILOT),
             start: next(START),
         }
     }
+}
+
+/// `rect` cut into columns of `widths`, left to right.
+fn split(rect: Rect, widths: &[f32]) -> Vec<Rect> {
+    let mut x = rect.left();
+    widths
+        .iter()
+        .map(|&width| {
+            let cell = Rect::from_min_size(egui::pos2(x, rect.top()), vec2(width, rect.height()));
+            x += width + BADGE_GAP;
+            cell
+        })
+        .collect()
 }
 
 /// Draws `add` inside `rect`, left to right and centred on the row's middle line.
@@ -101,10 +155,14 @@ impl Board {
             ui.label(RichText::new(problem).color(style::red(ui)));
             return;
         }
-        let groups = self.portfolio.groups(self.view.sort, &self.view.filter);
+        let groups = self
+            .portfolio
+            .groups(self.view.sort, self.view.list_filter());
         if groups.is_empty() {
             let text = if self.loader.reading_files {
                 "Reading the registry and the projects…"
+            } else if !self.view.stacks.is_empty() || !self.view.hosting.is_empty() {
+                "No project passes the filters."
             } else if self.view.filter.trim().is_empty() {
                 "No projects: the registry lists none and the data root holds no folder."
             } else {
@@ -194,17 +252,49 @@ impl Board {
                     }
                 },
             );
-            ui.menu_button(
-                format!("{} Filters", icons::ICON_FILTER_LIST.codepoint),
-                |ui| {
-                    for name in ["By stack", "By hosting"] {
-                        ui.add_enabled(false, egui::Button::new(name))
-                            .on_disabled_hover_text(
-                                "The stack chips and the hosting badges arrive at EP-7.",
-                            );
+            let chosen = self.view.stacks.len() + self.view.hosting.len();
+            let label = match chosen {
+                0 => format!("{} Filters", icons::ICON_FILTER_LIST.codepoint),
+                n => format!("{} Filters ({n})", icons::ICON_FILTER_LIST.codepoint),
+            };
+            ui.menu_button(label, |ui| {
+                ui.label(RichText::new("Stack: any of").weak());
+                for kind in Kind::ALL {
+                    let mut on = self.view.stacks.contains(&kind);
+                    if ui.checkbox(&mut on, kind.label()).changed() {
+                        if on {
+                            self.view.stacks.insert(kind);
+                        } else {
+                            self.view.stacks.remove(&kind);
+                        }
                     }
-                },
-            );
+                }
+                ui.separator();
+                ui.label(RichText::new("Hosting: any of").weak());
+                for class in Class::ALL {
+                    let mut on = self.view.hosting.contains(&class);
+                    if ui.checkbox(&mut on, class.label()).changed() {
+                        if on {
+                            self.view.hosting.insert(class);
+                        } else {
+                            self.view.hosting.remove(&class);
+                        }
+                    }
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(chosen > 0, egui::Button::new("Clear the filters"))
+                    .clicked()
+                {
+                    self.view.stacks.clear();
+                    self.view.hosting.clear();
+                }
+                ui.label(
+                    RichText::new("Unadopted folders show only while no filter is chosen.")
+                        .small()
+                        .weak(),
+                );
+            });
         });
     }
 }
@@ -370,21 +460,13 @@ fn project_row(
     if let Some(progress) = columns.progress
         && counts.total > 0
     {
-        cell(ui, progress, |ui| {
-            ui.label(RichText::new(format!("{}/{}", counts.done, counts.total)).weak())
-                .on_hover_text(format!(
-                    "{} of {} rows done{}",
-                    counts.done,
-                    counts.total,
-                    match counts.stretch {
-                        0 => String::new(),
-                        n => format!(", {n} stretch"),
-                    }
-                ));
-        });
+        progress_cell(ui, progress, counts);
     }
     if let Some(cells) = columns.items {
         cell(ui, cells, |ui| counts_cell(ui, row));
+    }
+    if let Some((rect, form)) = columns.badges {
+        badges_cell(ui, rect, form, row, now);
     }
     cell(ui, columns.session, |ui| {
         let reasons = row.in_progress();
@@ -451,6 +533,103 @@ fn project_row(
         expansion(ui, row);
     }
     actions
+}
+
+/// Done over total on a small pill filled to the fraction done, the percent on hover (D-25).
+fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: crw_core::roadmap::table::Counts) {
+    let fraction = counts.done as f32 / counts.total as f32;
+    let pill = Rect::from_center_size(
+        egui::pos2(rect.center().x - 2.0, rect.center().y),
+        vec2(rect.width() - 4.0, (rect.height() - 8.0).min(18.0)),
+    );
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(pill, 5.0, ui.visuals().faint_bg_color);
+    painter.rect_filled(
+        Rect::from_min_size(pill.min, vec2(pill.width() * fraction, pill.height())),
+        5.0,
+        style::green(ui).gamma_multiply(0.3),
+    );
+    let response = ui.put(
+        pill,
+        egui::Label::new(RichText::new(format!("{}/{}", counts.done, counts.total)).small()),
+    );
+    response.on_hover_text(format!(
+        "{} of {} rows done ({:.0} %){}",
+        counts.done,
+        counts.total,
+        fraction * 100.0,
+        match counts.stretch {
+            0 => String::new(),
+            n => format!(", {n} stretch"),
+        }
+    ));
+}
+
+/// The row's badges in their own columns (D-24, D-25), as much of them as `form` has room for.
+fn badges_cell(ui: &mut egui::Ui, rect: Rect, form: Form, row: &ProjectRow, now: DateTime<Utc>) {
+    let cells = match form {
+        Form::Full => split(rect, &FULL),
+        Form::Compact => split(rect, &COMPACT),
+    };
+    let mut cells = cells.into_iter();
+    if form == Form::Full
+        && let Some(stack) = cells.next()
+        && let Some(first) = row.badges.stack.first()
+    {
+        cell(ui, stack, |ui| {
+            let hover = row
+                .badges
+                .stack
+                .iter()
+                .map(|chip| format!("{} ({})", chip.text(), chip.source))
+                .collect::<Vec<_>>()
+                .join("\n");
+            let more = row.badges.stack.len() - 1;
+            let text = match more {
+                0 => first.kind.short().to_owned(),
+                n => format!("{}+{n}", first.kind.short()),
+            };
+            style::chip(ui, &text, style::stack_colour(first.kind)).on_hover_text(hover);
+        });
+    }
+    if row.folder.is_none() {
+        return;
+    }
+    let (Some(hosting), Some(sync)) = (cells.next(), cells.next()) else {
+        return;
+    };
+    cell(ui, hosting, |ui| badges::hosting(row, now).show(ui));
+    if let Some(mark) = badges::sync(row, now) {
+        cell(ui, sync, |ui| mark.show(ui));
+    }
+    if form == Form::Full
+        && let Some(age) = cells.next()
+        && let Some((mark, dirty)) = badges::activity(row, now)
+    {
+        cell(ui, age, |ui| {
+            ui.spacing_mut().item_spacing.x = 3.0;
+            mark.show(ui);
+            if let Some(dirty) = dirty {
+                ui.label(RichText::new("●").small().color(dirty.tone.colour(ui)))
+                    .on_hover_text(&dirty.hover);
+            }
+        });
+    }
+    let (Some(health), Some(backup)) = (cells.next(), cells.next()) else {
+        return;
+    };
+    cell(ui, health, |ui| {
+        ui.spacing_mut().item_spacing.x = 2.0;
+        if let Some(mark) = badges::ci(row, now) {
+            mark.show(ui);
+        }
+        if let Some(mark) = badges::licence_warning(row) {
+            mark.show(ui);
+        }
+    });
+    if let Some(mark) = badges::backup(row, now) {
+        cell(ui, backup, |ui| mark.show(ui));
+    }
 }
 
 /// What waits on the owner: open owner items, open inbox messages (red when one is urgent).
