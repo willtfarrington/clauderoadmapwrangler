@@ -186,3 +186,7 @@ IN-1 and IN-2 (both from the owner, 2026-10-31); their triage is below the compl
 > the gated one already paused. Found on the way: the domain-id project writes its decisions as list
 > items with an em dash, so they are a count, not entries. No owner tasks; no messages for other
 > projects. Next: EP-5 (owner tasks and inbox files), from this workspace file.
+> **After the commit (≈ 55 min in all):** `9603196` pushed at 20:05; CI run 41255165919 on windows-latest
+> passed (format, clippy, the 93 tests), its cache whole since `Cargo.lock` did not change; with the
+> tick, `crw roadmap .` reads this repository's next EP as EP-5 and the session as not in progress once
+> the record commit lands.
