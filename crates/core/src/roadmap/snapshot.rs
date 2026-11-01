@@ -1,9 +1,10 @@
 //! A project's roadmap as a snapshot (D-9): the README at `HEAD` and in the working tree, both
-//! parsed and both kept; the brief files and the decision log as they stand on disk; what git
-//! says is changed under `roadmap/`; and what follows from them: whether a session is in
-//! progress, with its reasons, and the two facts `proposal` reads (every row checked, a pickup
-//! gate on the next brief). Git is asked one question at a time with the usual spacing (D-29);
-//! a folder that is not a repository is read from the working tree alone.
+//! parsed and both kept; the brief files, the decision log, the owner tasks, the inbox and the
+//! older forms of the owner's to-dos as they stand on disk (EP-5); what git says is changed under
+//! `roadmap/`; and what follows from them: whether a session is in progress, with its reasons,
+//! and the two facts `proposal` reads (every row checked, a pickup gate on the next brief). Git is
+//! asked one question at a time with the usual spacing (D-29); a folder that is not a repository
+//! is read from the working tree alone.
 
 use std::ffi::OsStr;
 use std::fmt;
@@ -11,10 +12,12 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::thread;
 
-use super::brief::{self, Brief, BriefFile, Files, HandoffFile};
+use super::brief::{self, Brief, BriefFile, Evidence, Files, HandoffFile};
 use super::table::{self, Done, Roadmap, Row};
-use super::{EpId, readme};
+use super::{EpId, first_date, readme};
+use crate::inbox::{self, Inbox};
 use crate::proposal::Facts;
+use crate::tasks::{self, OwnerItem, Tasks, legacy};
 use crate::{decisions, process};
 
 /// The README's path inside the repository, as git names it.
@@ -34,6 +37,12 @@ pub struct Snapshot {
     /// The briefs, parsed, in the order of [`Files::briefs`].
     pub briefs: Vec<Entry>,
     pub decisions: decisions::Decisions,
+    /// `roadmap/owner-tasks.md` (D-10); `None` when the project keeps none.
+    pub tasks: Option<Tasks>,
+    /// `roadmap/inbox.md` (D-13); `None` when the project keeps none.
+    pub inbox: Option<Inbox>,
+    /// The owner's to-dos in the older forms, read-only (D-10).
+    pub legacy: Vec<OwnerItem>,
     /// Files that could not be read.
     pub problems: Vec<String>,
 }
@@ -50,6 +59,26 @@ impl Entry {
     /// Complete by the brief's own markers or by its handoff file.
     pub fn is_complete(&self) -> bool {
         self.brief.is_complete() || self.handoff.as_ref().is_some_and(HandoffFile::is_complete)
+    }
+
+    /// The date its completion carries: the marker's, a done status's, a filled handoff
+    /// payload's, else the handoff file's.
+    pub fn completed_on(&self) -> Option<String> {
+        let marked = self.brief.completion().and_then(|evidence| match evidence {
+            Evidence::CompletionNote { date, .. }
+            | Evidence::Complete { date, .. }
+            | Evidence::CompletionHeading { date, .. }
+            | Evidence::HandoffPayload { date, .. } => date,
+            Evidence::Status { value } => first_date(&value).map(str::to_owned),
+            Evidence::FrontMatter { .. } => None,
+        });
+        marked
+            .or_else(|| self.brief.handoff.as_ref().and_then(|h| h.date.clone()))
+            .or_else(|| {
+                self.handoff
+                    .as_ref()
+                    .and_then(|h| h.date().map(str::to_owned))
+            })
     }
 }
 
@@ -195,21 +224,49 @@ impl Snapshot {
         self.fill(&mut facts);
         facts.pickup_gate == Some(true)
     }
+
+    /// The brief completed last: the newest completion date, then the later row in table order.
+    /// Its blocks and its handoff notes are the older forms' hand-offs still to be read (EP-5).
+    pub fn latest_complete(&self) -> Option<&Entry> {
+        let position = |id: EpId| {
+            self.current()
+                .and_then(|roadmap| roadmap.rows().position(|row| row.id == id))
+        };
+        self.briefs
+            .iter()
+            .filter(|entry| entry.is_complete())
+            .max_by_key(|entry| (entry.completed_on(), position(entry.file.id)))
+    }
+
+    /// Everything waiting on the owner (D-10): the lines of `owner-tasks.md`, then the older
+    /// forms.
+    pub fn owner_items(&self) -> Vec<OwnerItem> {
+        self.tasks
+            .iter()
+            .flat_map(Tasks::items)
+            .chain(self.legacy.iter().cloned())
+            .collect()
+    }
 }
 
-/// Reads `folder` from the working tree alone: the README, the briefs, the decision log. No
-/// child process runs, so `crw scan` can call it for every project.
+/// Reads `folder` from the working tree alone: the README, the briefs, the decision log, the
+/// owner tasks, the inbox and the older forms. No child process runs, so `crw scan` can call it
+/// for every project.
 pub fn read_tree(folder: &Path) -> Snapshot {
     let mut snapshot = Snapshot {
         folder: folder.to_owned(),
         ..Snapshot::default()
     };
     let readme = readme(folder);
-    match fs::read_to_string(&readme) {
-        Ok(text) => snapshot.tree = Some(table::parse(&text)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => snapshot.problems.push(format!("{}: {e}", readme.display())),
-    }
+    let readme_text = match fs::read_to_string(&readme) {
+        Ok(text) => Some(text),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => {
+            snapshot.problems.push(format!("{}: {e}", readme.display()));
+            None
+        }
+    };
+    snapshot.tree = readme_text.as_deref().map(table::parse);
     match brief::discover(&folder.join("roadmap")) {
         Ok(files) => snapshot.files = files,
         Err(e) => snapshot
@@ -229,6 +286,22 @@ pub fn read_tree(folder: &Path) -> Snapshot {
         }
     }
     snapshot.decisions = decisions::read(folder);
+    match tasks::read(folder) {
+        Ok(tasks) => snapshot.tasks = tasks,
+        Err(e) => snapshot
+            .problems
+            .push(format!("{}: {e}", tasks::path(folder).display())),
+    }
+    match inbox::read(folder) {
+        Ok(inbox) => snapshot.inbox = inbox,
+        Err(e) => snapshot
+            .problems
+            .push(format!("{}: {e}", inbox::path(folder).display())),
+    }
+    let (items, problems) =
+        legacy::read(folder, readme_text.as_deref(), snapshot.latest_complete());
+    snapshot.legacy = items;
+    snapshot.problems.extend(problems);
     snapshot
 }
 

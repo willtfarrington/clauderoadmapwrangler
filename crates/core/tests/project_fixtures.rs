@@ -116,7 +116,10 @@ fn house_a_session_in_progress_on_the_next_brief() {
         [
             "owner decisions",
             "completion note",
-            "completion note (EP-5 verification)"
+            "completion note (EP-5 verification)",
+            "handed on to beta",
+            "handed on to delta",
+            "parked"
         ]
     );
 

@@ -18,3 +18,24 @@ inline below, and no `DECISIONS.md`.
 **D-1 Engine.** Keep the engine. *Why.* It works.
 
 **D-2 Report.** One page. *Why.* Enough.
+
+## Maintenance
+
+Every row is checked; the project is in maintenance.
+
+Open items for the owner, with the detail in the last completion note:
+
+- Now: delete the scratch folder the refit left behind.
+- On or after 2026-11-02, once the clocks change: the nightly job starts at 01:00, not 00:00.
+- Optional: confirm the two rooms filed by inference.
+
+Notes from other projects are parked below this line; none is waiting.
+
+## Risks / open items
+
+1. ~~The podium overhangs the tower.~~ **Resolved by EP-2** (2026-08-12): the plate follows the
+   wings. New open items spawned by the refit:
+   - **Bed count**: the directory models twelve beds; revisit when a source appears.
+   - ~~**Floor numbers**: two sources disagree.~~ **Resolved by EP-3** (2026-08-13).
+2. Bridge levels are inferred pending a visit.
+3. Speeds: ~~the pitch shifts~~ **resolved at EP-3**; the long takes still drift.

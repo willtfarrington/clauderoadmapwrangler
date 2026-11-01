@@ -9,10 +9,12 @@ backup status and history graphs, hosts a chat to Claude Code, ships the roadmap
 ends with a phone view over a Tailscale tailnet.
 
 **Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
-projects with discovery and `crw scan` (EP-2), and the roadmap parser with `crw roadmap` (EP-3 the phase
+projects with discovery and `crw scan` (EP-2), the roadmap parser with `crw roadmap` (EP-3 the phase
 tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapshot that tells a session in
-progress) exist; the read-only dashboard arrives at EP-6. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
-[`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
+progress), and the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
+`crw tasks` and `crw tick` (EP-5) exist; the read-only dashboard arrives at EP-6. The roadmap is
+[`roadmap/README.md`](roadmap/README.md), the decisions [`DECISIONS.md`](DECISIONS.md), the session rules
+[`CLAUDE.md`](CLAUDE.md).
 
 ## Building
 
@@ -26,6 +28,9 @@ target\release\crw.exe doctor           # versions of claude, gh, tailscale, cod
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,
                                         # the decision log, whether a session is in progress
+target\release\crw.exe tasks <folder>   # what waits on the owner: tasks, inbox, handed-on blocks
+target\release\crw.exe tick <folder> OT-n         # tick an owner task
+target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -65,11 +70,17 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
 - **Decisions.** `DECISIONS.md` entries `**D-n Title.** Decision. *Why.* *Alternatives.*`, refined by
   dated addenda (`> **Addendum (date, EP-n).** …`) and never rewritten.
 - **Owner tasks.** `roadmap/owner-tasks.md`, one line per task only the owner can do:
-  `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`.
+  `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. The owner ticks a task in the tool, which
+  changes the box and nothing else in the project (a copy of the file goes to the tool's backups folder
+  first). Older forms of the owner's to-dos (a README's `## Risks / open items` list struck through when
+  resolved, an `Open items for the owner` list, an `**Owner actions outside any brief**` paragraph,
+  `owner-decisions.md` and `open-questions.md` registers, handoff notes, and the `Parked` and
+  `Handed on` blocks of the latest completed brief) are read and shown, never rewritten.
 - **Inbox.** `roadmap/inbox.md`, one line per message from another project:
-  `- [ ] IN-n (from <project> EP-k, date) text`. A sending session writes
+  `- [ ] IN-n (from <project> EP-k, date) text`, optionally `[urgent]`. A sending session writes
   `> **Handed on (to <project>).** …` after its completion note and the tool delivers it; the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
+  The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line.
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in
   `roadmap/v2-notes.md`.
 - **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.

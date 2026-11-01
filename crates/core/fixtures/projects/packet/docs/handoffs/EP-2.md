@@ -7,6 +7,11 @@
 
 All of them.
 
+## Risks / notes for the next session
+
+- The ingest step assumes a per-item freeze flag; EP-3 must provide it.
+- ~~The pinned scanner binary is end-of-life~~ **settled at EP-2:** it keeps working meanwhile.
+
 ## Next eligible EPs
 
 EP-3.

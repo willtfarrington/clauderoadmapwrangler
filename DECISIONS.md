@@ -140,6 +140,17 @@ handoff notes) are parsed and shown read-only and never rewritten. The rule is a
 must not be disturbed. *Alternatives.* Migrating today's open items into the file; parsing the existing
 forms only with ticks in the registry; tasks only in the registry.
 
+> **Addendum (2026-11-01, EP-5).** A tick changes the one byte inside the line's box (and back) and
+> nothing else in the file; the file as it was is first copied to the tool's backups folder
+> (`%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project folder>\owner-tasks.<date>.md`, never
+> overwritten), not to a `.bak` beside it, so a tick leaves no new file in the project (D-11). Every form
+> reads into one owner item with a state: struck through at its start, resolved; a clause struck inside,
+> partly resolved; a register row by its Done cell or by words (`Resolved`, `Closed`, `Decided`,
+> `(closed)`). The `Parked` and `Handed on` blocks and the handoff notes are read from the latest
+> completed brief only (the newest completion date, then table order): the sessions after a brief have
+> read its hand-offs. `> **Owner decisions (…).**` blocks record decisions taken and are not owner
+> items. *Alternatives.* A `.bak` copy beside the file; the blocks of every brief.
+
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
 the `.code-workspace` file. It **never edits `roadmap/README.md`, briefs or `DECISIONS.md`**; sessions do,
@@ -171,6 +182,13 @@ several projects in parallel and carried such findings by hand (a vault-tooling 
 projects drifting from a contract). *Alternatives.* Registry-only messages injected into prompts; sessions
 writing across repositories with `--add-dir`; messages only through the UI; a blocking inbox; injecting
 urgent messages into running headless sessions.
+
+> **Addendum (2026-11-01, EP-5).** The owner's tick in the tool requires a disposition and writes it at
+> the end of the message's last line as ` **Disposition (date):** text`, on one line, the form one
+> project's sessions already use; a session's own `**Triaged at EP-n (date):** …` reads as a disposition
+> too. A `> **Handed on (to the owner).**` block is an owner item, not mail; a target the registry does
+> not know, whole or by its first word, is shown and not delivered. *Alternatives.* The disposition on a
+> continuation line of its own; delivering `(to the owner)` blocks into `owner-tasks.md`.
 
 ## Architecture
 

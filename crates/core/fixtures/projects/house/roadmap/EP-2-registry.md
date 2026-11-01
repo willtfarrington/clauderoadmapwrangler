@@ -20,3 +20,7 @@ The registry.
 > **Completion note (2026-10-03).** One session.
 
 > **Completion note (2026-10-05, EP-5 verification).** The re-plan re-ran the checks.
+
+> **Handed on (to beta).** The registry's format is 2 from here; read it before your EP-6.
+> **Handed on (to delta).** The same note, for a project the registry does not know.
+> **Parked.** A backup count per project; a later brief.

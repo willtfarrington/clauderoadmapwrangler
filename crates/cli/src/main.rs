@@ -1,7 +1,8 @@
 //! `crw`, the console side of clauderoadmapwrangler (D-2, D-14): `doctor` from EP-1; `scan`,
 //! `adopt`, `ignore` and `set` from EP-2, the console side of the registry until the dashboard
 //! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
-//! brief); `inbox send` and the `hook` and `statusline` relays arrive with their briefs.
+//! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `inbox send`
+//! and the `hook` and `statusline` relays arrive with their briefs.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -10,9 +11,11 @@ use std::process::ExitCode;
 use chrono::Utc;
 use crw_core::discovery::{self, Folder, Listing, View};
 use crw_core::doctor::{self, Outcome};
+use crw_core::inbox::{self, Recipient};
 use crw_core::proposal;
 use crw_core::registry::{State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
+use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{files, paths};
 
@@ -31,8 +34,17 @@ commands:
                                  tree, the next EP with its brief notes and its brief, the briefs
                                  and the decision log found, whether a session is in progress
   roadmap <README.md|EP-n-*.md>  print one roadmap README's tables, or one brief's parse
+  tasks <project|folder>         print what waits on the owner: the owner tasks, the inbox, the
+                                 handed-on blocks and the open items of the older forms
+  tick <project|folder> OT-n     tick an owner task in roadmap/owner-tasks.md
+  tick <project|folder> IN-n <disposition...>
+                                 tick an inbox message, its disposition written on its line
+  untick <project|folder> OT-n   clear an owner task's tick
   help                           print this text
   --version                      print crw's version
+
+A tick changes one box in the project's file and nothing else there; the file as it was is copied
+to the backups folder first.
 
 CRW_HOME=<folder> keeps the registry, the ledger and the backups in that folder instead of the
 profile folders, for trying the commands.";
@@ -47,6 +59,9 @@ fn main() -> ExitCode {
         ["ignore", folders @ ..] if !folders.is_empty() => ignore(folders),
         ["set", project, field, value] => set(project, field, value),
         ["roadmap", target] => roadmap(target),
+        ["tasks", target] => waiting(target),
+        ["tick", target, id, words @ ..] => tick(target, id, words, true),
+        ["untick", target, id] => tick(target, id, &[], false),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -667,5 +682,252 @@ fn print_problems(problems: &[table::Problem], extra: &[String]) {
     }
     for problem in extra {
         println!("  {problem}");
+    }
+}
+
+/// A project folder as given, or a registered project's.
+fn project_folder(target: &str) -> Result<PathBuf, String> {
+    match roadmap_target(target)? {
+        Target::Folder(folder) => Ok(folder),
+        Target::Readme(path) | Target::Brief(path) => Err(format!(
+            "{} is a file: give a project folder or a registered project",
+            path.display()
+        )),
+    }
+}
+
+/// Prints what waits on the owner in one project (D-10, D-13): the owner tasks, the inbox, the
+/// handed-on blocks with their recipients, and the older forms' open items. Reads, never writes.
+fn waiting(target: &str) -> ExitCode {
+    println!("crw {} tasks", env!("CARGO_PKG_VERSION"));
+    let folder = match project_folder(target) {
+        Ok(folder) => folder,
+        Err(e) => return failed(e),
+    };
+    let snapshot = snapshot::read_tree(&folder);
+    let registry = store()
+        .ok()
+        .and_then(|store| store.load().ok())
+        .map(|loaded| loaded.registry);
+    let outgoing = inbox::outgoing(&snapshot.briefs, |name| {
+        registry
+            .as_ref()
+            .and_then(|registry| registry.project(name))
+            .map(|project| project.name.clone())
+    });
+    let relative = |path: &Path| {
+        path.strip_prefix(&folder)
+            .unwrap_or(path)
+            .display()
+            .to_string()
+    };
+
+    println!("  folder    {}", folder.display());
+    match &snapshot.tasks {
+        Some(file) => {
+            let gated = file.open().filter(|task| task.gate.is_some()).count();
+            println!(
+                "  tasks     {}: {}, {} open ({gated} gated)",
+                relative(&file.path),
+                file.tasks.len(),
+                file.open().count()
+            );
+        }
+        None => println!("  tasks     no roadmap/{}", tasks::FILE),
+    }
+    match &snapshot.inbox {
+        Some(file) => {
+            let urgent = file.open().filter(|message| message.urgent).count();
+            println!(
+                "  inbox     {}: {} messages, {} open ({urgent} urgent)",
+                relative(&file.path),
+                file.messages.len(),
+                file.open().count()
+            );
+        }
+        None => println!("  inbox     no roadmap/{}", inbox::FILE),
+    }
+    let legacy = &snapshot.legacy;
+    let count = |state| legacy.iter().filter(|item| item.state == state).count();
+    let mut forms: Vec<_> = legacy.iter().map(|item| item.form).collect();
+    forms.sort();
+    forms.dedup();
+    println!(
+        "  older     {} items in {} forms: {} open, {} partly resolved, {} resolved",
+        legacy.len(),
+        forms.len(),
+        count(tasks::State::Open),
+        count(tasks::State::Partly),
+        count(tasks::State::Resolved)
+    );
+    let latest = snapshot
+        .latest_complete()
+        .map_or("none".to_owned(), |entry| {
+            let date = entry
+                .completed_on()
+                .map(|date| format!(" ({date})"))
+                .unwrap_or_default();
+            format!("{}{date}", entry.file.id)
+        });
+    println!("            the latest completed brief's hand-offs: {latest}");
+
+    if let Some(file) = &snapshot.tasks {
+        println!("\nowner tasks ({})", file.tasks.len());
+        let mut ordered: Vec<_> = file.tasks.iter().collect();
+        ordered.sort_by_key(|task| task.done);
+        for task in ordered {
+            let mut meta: Vec<String> = Vec::new();
+            meta.extend(task.raised.map(|id| id.to_string()));
+            meta.extend(task.date.clone());
+            meta.extend(task.gate.map(|id| format!("before {id}")));
+            println!(
+                "  {} {:<6} {:<32} {}",
+                if task.done { "[x]" } else { "[ ]" },
+                task.id,
+                meta.join(", "),
+                one_line(&task.text, 70)
+            );
+        }
+    }
+    if let Some(file) = &snapshot.inbox {
+        println!("\ninbox ({})", file.messages.len());
+        let mut ordered: Vec<_> = file.messages.iter().collect();
+        ordered.sort_by_key(|message| message.done);
+        for message in ordered {
+            let mut meta: Vec<String> = Vec::new();
+            meta.extend(message.from.clone());
+            meta.extend(message.date.clone());
+            if message.urgent {
+                meta.push("urgent".to_owned());
+            }
+            println!(
+                "  {} {:<6} {:<40} {}",
+                if message.done { "[x]" } else { "[ ]" },
+                message.id,
+                one_line(&meta.join(", "), 40),
+                one_line(&message.text, 60)
+            );
+            if let Some(disposition) = &message.disposition {
+                println!("             {}", one_line(disposition, 100));
+            }
+        }
+    }
+    println!("\nhanded on ({})", outgoing.len());
+    for block in &outgoing {
+        let recipient = match &block.recipient {
+            Recipient::Project(name) => format!("to {name}: registered"),
+            Recipient::Unknown => {
+                format!("to {}: not registered, shown and not delivered", block.to)
+            }
+        };
+        println!(
+            "  {} line {:<4} {recipient}",
+            relative(&block.path),
+            block.line
+        );
+    }
+    let open: Vec<&OwnerItem> = legacy.iter().filter(|item| item.is_open()).collect();
+    println!(
+        "\nopen items in the older forms ({} of {})",
+        open.len(),
+        legacy.len()
+    );
+    for item in open {
+        let what = match &item.id {
+            Some(id) => format!("{} {id}", item.form),
+            None => item.form.to_string(),
+        };
+        let mut meta: Vec<String> = vec![format!("{}:{}", relative(&item.path), item.line)];
+        meta.extend(item.gate.as_ref().map(ToString::to_string));
+        if item.state == tasks::State::Partly {
+            meta.push("partly resolved".to_owned());
+        }
+        println!(
+            "  {what:<18} {:<48} {}",
+            one_line(&meta.join(", "), 48),
+            one_line(&item.text, 70)
+        );
+    }
+    let mut problems: Vec<String> = snapshot.problems.clone();
+    if let Some(file) = &snapshot.tasks {
+        let path = relative(&file.path);
+        problems.extend(file.problems.iter().map(|p| format!("{path} {p}")));
+    }
+    if let Some(file) = &snapshot.inbox {
+        let path = relative(&file.path);
+        problems.extend(file.problems.iter().map(|p| format!("{path} {p}")));
+    }
+    println!("\nproblems ({})", problems.len());
+    for problem in &problems {
+        println!("  {problem}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// The first line of `text`, its runs of spaces collapsed, cut at `width` characters.
+fn one_line(text: &str, width: usize) -> String {
+    let first = text.lines().next().unwrap_or_default();
+    let words = first.split_whitespace().collect::<Vec<_>>().join(" ");
+    let more = text.lines().nth(1).is_some();
+    if words.chars().count() > width {
+        let cut: String = words.chars().take(width.saturating_sub(1)).collect();
+        format!("{}…", cut.trim_end())
+    } else if more {
+        format!("{words} …")
+    } else {
+        words
+    }
+}
+
+/// Ticks one line of a project's `owner-tasks.md` or `inbox.md`, or clears an owner task's tick
+/// (D-10, D-13): the box changes in the project's file and nothing else there; the file as it was
+/// is copied to the backups folder first (D-11).
+fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
+    let folder = match project_folder(target) {
+        Ok(folder) => folder,
+        Err(e) => return failed(e),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let today = files::today();
+    let prefix = id
+        .split('-')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_uppercase();
+    let (path, result) = match (prefix.as_str(), checked) {
+        ("OT", _) if !words.is_empty() => {
+            return usage_error("an owner task is ticked without a disposition");
+        }
+        ("OT", true) => (
+            tasks::path(&folder),
+            tasks::tick(&folder, id, &store.backups, &today),
+        ),
+        ("OT", false) => (
+            tasks::path(&folder),
+            tasks::untick(&folder, id, &store.backups, &today),
+        ),
+        ("IN", true) => (
+            inbox::path(&folder),
+            inbox::tick(&folder, id, &words.join(" "), &store.backups, &today),
+        ),
+        ("IN", false) => {
+            return usage_error("an inbox message's tick stays: its disposition is on the line");
+        }
+        _ => return usage_error(&format!("{id} is not an OT-n or IN-n id")),
+    };
+    match result {
+        Ok(copy) => {
+            println!(
+                "{} {id} in {}; the file as it was is kept as {}",
+                if checked { "ticked" } else { "cleared" },
+                path.display(),
+                copy.display()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(format!("{}: {e}", path.display())),
     }
 }

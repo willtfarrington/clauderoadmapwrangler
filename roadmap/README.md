@@ -53,7 +53,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-2 | [Registry and discovery: `registry.toml` with backups, DATA scan, adopt and ignore, workspace-file append, states, priority, pins, ledger schema; this project registered first](EP-2-registry-and-discovery.md) (D-5, D-6, D-7, D-8) | M | EP-1 | core | ☑ `8071475` |
 | EP-3 | [Parser A: house-style phase tables, rows, sizes, Done cells of every form, depends-on, brief notes, phase headings; next EP in table order; fixtures from the survey](EP-3-parser-a.md) (D-9) | M | EP-1 | core | ☑ `ecca039` |
 | EP-4 | [Parser B: briefs with front matter and completion notes, decision logs, format profiles for the five-column and packet styles, HEAD-plus-status snapshots, in-progress derivation](EP-4-parser-b.md) (D-9, D-12) | M | EP-3 | core | ☑ `9603196` |
-| EP-5 | Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
+| EP-5 | [Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only](EP-5-owner-tasks-and-inbox.md) (D-10, D-11, D-13) | M | EP-4 | core | ☐ |
 | EP-6 | Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects (D-25) | L | EP-2, EP-4 | core | ☐ |
 | EP-7 | Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health (D-24, D-25) | M | EP-6 | core | ☐ |
 | EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7 | core | ☐ |
@@ -154,7 +154,13 @@ only its own files inside a managed project).
   appears or goes (D-7); the fake registry through `registry::Store::new` or `CRW_HOME`, never the
   owner's (rule 13). **From EP-3:** the tiles read `Roadmap::next`, `note`, `phase_of` and
   `Phase::counts`; `brief.title` is the row's one-liner and `Note::text` the bullet verbatim;
-  `Roadmap::problems` go in the detail tile.
+  `Roadmap::problems` go in the detail tile. **From EP-5:** the detail tile's owner items are
+  `Snapshot::owner_items()` (`is_open()`, `is_tickable()`, `State::Partly` for an item with a clause
+  struck through, `Gate` for `before EP-m`, `on or after` a date or a decision point in words), the
+  inbox is `snapshot.inbox` and the outgoing mail `inbox::outgoing(&snapshot.briefs, …)` resolved
+  through `Registry::project`; ticks go through `tasks::tick` / `untick` and `inbox::tick` (a
+  disposition required) with the store's backups folder, and the copy's path belongs in the status
+  bar; a project's checklist problems (`Tasks::problems`, `Inbox::problems`) go in the detail tile.
 - **EP-7.** `core::badges`: stack chips from manifests (`Cargo.toml` → Rust and the GUI family,
   `pyproject.toml` → Python and the version pin, `package.json` → TypeScript/Node and the manager,
   `docker-compose.yml`, `*.ps1` → PowerShell, `index.html` → static site); progress from the parse (done,
@@ -238,7 +244,10 @@ contain no real transcript text).
   list), effort picker (low … max, ultracode toggle), permission mode (default from the project's
   registry entry), the rule table's resolution shown with a reason; `core::rules`: `[[rule]]` entries in
   `registry.toml` with `match` (size, phase, title regex) and `set` (model, effort, ultracode), global then
-  per-project, first match wins; Headless launch button → EP-9.
+  per-project, first match wins; Headless launch button → EP-9. **From EP-5:** the open owner tasks
+  and inbox messages are `snapshot.tasks` and `snapshot.inbox` (`open()`), each with its id, the
+  parenthesis's fields and its text as written; the older forms' items (`snapshot.legacy`) are the
+  project session's own reading and need not be in the prompt.
 - **EP-11.** Visual launch: build `vscode://anthropic.claude-code/open?prompt=<url-encoded opener>`;
   read `~/.claude/ide/*.lock` to learn the running window's `workspaceFolders`; if the first folder is the
   project, run `Code.exe --open-url "<uri>"`; otherwise open `Code.exe <project folder>` (or a generated
@@ -352,6 +361,11 @@ a running session).
   same line with `from owner`; `urgent` → toast and ntfy; `core::notify::ntfy`: POST to
   `https://<ntfy host>/<topic>` over the tailnet with title and priority (host and topic in the registry;
   disabled when empty); the inbox section of the detail tile with tick (disposition text required).
+  **From EP-5:** `inbox::outgoing` already resolves each `Handed on (to …)` block against the registry
+  (`Recipient::Project` or `Unknown`) and leaves out the blocks to the owner, which are owner items;
+  the append to the receiver's `inbox.md` can reuse `checklist`'s copy-then-atomic-write, the next
+  free id is the highest `IN-n` of `inbox::parse` plus one, and the tick with a disposition exists
+  (`inbox::tick`, `crw tick <project> IN-n <disposition>`).
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -365,6 +379,10 @@ a running session).
   formalise step creates the file only where it is missing and adds the triage line to rule 1; the
   owner's local-only environment repository under the data root (environment decisions and the shared
   memory) is adopted by the owner with `crw adopt` (rule 13), never by the tool on its own.
+  **From EP-5:** in the files the formalise step writes, every line of work stays a top-level list
+  item `- [ ] OT-n (…) text` or `- [ ] IN-n (…) text` below a header paragraph: `checklist::parse`
+  reports any other box as a problem, and the header's example line belongs in backticks, as the
+  inbox files already write it.
 - **EP-22.** `plugins/roadmap-wrangler/` with `.claude-plugin/plugin.json`, `skills/plan/SKILL.md` (the
   interview method as practised in this project's EP-0: research pass, domain map, rounds of four with the
   recommended option first, the planning file written to the repo first and filled per round, close-out
