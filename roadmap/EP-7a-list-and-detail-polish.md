@@ -148,3 +148,7 @@ holds nothing open (IN-1 … IN-4 are triaged; IN-4 is this brief); OT-1 and OT-
 > light, 1100 light, 1100 dark with the legend, and 2300 dark comfortable with an expanded row. No
 > private project name in the diff or the brief. No messages for other projects. Next: EP-8 (the
 > P1 re-plan), after OT-3.
+> **After the commit (≈ 55 min in all):** `6308fd9` and the record commit `0c66087` pushed
+> together at 00:16 UTC on 2026-11-02; CI run 41366242379 on windows-latest passed in 2 min 17 s
+> (format, clippy with and without the screenshot feature, the tests without and with it). This
+> line is a third commit, on the owner's yes, as at EP-5, EP-6 and EP-7.
