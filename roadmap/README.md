@@ -252,7 +252,7 @@ only its own files inside a managed project).
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☐ |
+| EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☑ `71b2076` |
 | EP-10 | Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☐ |
 | EP-33 | Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed (D-6, D-7) | S | EP-2 | core | ☐ |
 | EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
