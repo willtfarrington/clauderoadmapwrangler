@@ -14,8 +14,9 @@ tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapsho
 progress), the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
 `crw tasks` and `crw tick` (EP-5), the dashboard's shell (EP-6: the docking layout, the project list
 grouped by state, the detail pane, ticks and Adopt from the window) and its badges with `crw status`
-(EP-7: stack, progress, activity, hosting with a check of the origin's head, CI and licence, backup age)
-exist; sessions arrive in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the
+(EP-7: stack, progress, activity, hosting with a check of the origin's head, CI and license, backup age;
+EP-7a: columns sized to their content under a header row, and a legend of every mark) exist; sessions
+arrive in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the
 decisions [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ## Building
@@ -46,8 +47,9 @@ scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
 grouped by state, each with its next brief, its progress, what waits on the owner, its badges and
-whether a session is in progress; the detail pane shows the selected project's brief notes, status,
-owner items, inbox and problems. It reads each project's files at once and adds what git says one
+whether a session is in progress, in columns as wide as their widest value under a header row; the
+Legend switch shows a key to every mark. The detail pane shows the selected project's brief notes,
+status, owner items, inbox and problems. It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
@@ -107,4 +109,4 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
 Built for one developer's workflow: one user, one house style, configurability only where it costs
 nothing. The tool drives the user's own installed Claude Code CLI and claude.ai login; it offers neither,
 and it never stores the login's token. Developed with AI assistance (Claude Code), reviewed and directed by
-the owner. Licence: [MIT](LICENSE).
+the owner. License: [MIT](LICENSE).

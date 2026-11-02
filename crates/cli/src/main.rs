@@ -50,7 +50,7 @@ commands:
   untick <project|folder> OT-n   clear an owner task's tick
   status [--offline] [<project|folder>]
                                  print the badges of every registered project, or one: stack,
-                                 progress, activity, hosting with the head check, CI and licence,
+                                 progress, activity, hosting with the head check, CI and license,
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
                                  workspace_file, backup_settings, backup_log
@@ -1080,8 +1080,8 @@ fn status(args: &[&str]) -> ExitCode {
             (_, Some(Ok(None))) => "workflows, no run yet".to_owned(),
             (_, Some(Err(e))) => format!("GitHub could not be asked: {e}"),
         };
-        let licence = health::licence(folder).unwrap_or_else(|| "no licence file".to_owned());
-        println!("  health    {ci}; {licence}");
+        let license = health::license(folder).unwrap_or_else(|| "no license file".to_owned());
+        println!("  health    {ci}; {license}");
         if let Some(job) = &job {
             println!("  backup    {}", backup_text(&job.project(folder), now));
         }

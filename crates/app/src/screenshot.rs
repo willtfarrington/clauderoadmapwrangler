@@ -8,7 +8,8 @@
 //! projects are the tracked folders of `fixtures/portfolio`, which a run never writes into: ticks
 //! are refused with a notice. `CRW_SCREENSHOT_SETUP` (comma-separated) arranges the view:
 //!
-//! - `light` / `dark` (the theme); `compact` / `comfortable` (the density);
+//! - `light` / `dark` (the theme); `compact` / `comfortable` (the density); `legend` (the key
+//!   to the row's marks open under the list);
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
 //! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat` or `usage` to
 //!   the front of its group);
@@ -24,7 +25,7 @@
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
 //! readings come from [`FAKES`], set against the run's own clock ([`readings`]); their stack chips
-//! and licences are read from the fixtures' own files. A run never starts the GitHub pass.
+//! and licenses are read from the fixtures' own files. A run never starts the GitHub pass.
 
 use std::fs;
 use std::io;
@@ -148,6 +149,7 @@ impl Run {
                     };
                     board.view.density.apply(ctx);
                 }
+                "legend" => board.view.legend = true,
                 "select" => {
                     // A name the registry lists is a project; anything else is taken for a
                     // folder of the data root (the portfolio is not read yet).

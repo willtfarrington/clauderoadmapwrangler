@@ -377,6 +377,22 @@ state; graphs only in the detail tile or a separate window.
 > of the Detail pane's Status section. *Alternatives.* The badges giving way before the counts;
 > every stack chip in the row; filters that need every chosen value.
 
+> **Addendum (2026-11-01, EP-7a).** Each column of the list is as wide as the widest value the
+> portfolio holds, measured every frame by the code that draws it, over every project and folder
+> whether folded, filtered out or shown, so the columns stay put; and at least as wide as its name
+> in a header row that stays above the scrolling list (Project, State, Next, Brief, Done, Waiting,
+> Stack, Hosting, Sync, Age, CI, Backup, Session; the expander, the pin and the two switches go
+> unnamed). Beyond the title's 160 points the gaps between the columns take three tenths of the
+> spare width, each at most 12 points more, and the title takes the rest; a narrower row keeps the
+> give-way order above. A Legend switch in the toolbar, saved with the view, opens a key to every
+> mark of the row at the foot of the pane (at most 45 % of its height), grouped as the columns run
+> and drawn from the same table of signs the row's marks are made from. The Status section sets
+> each subsection's name level with its first line and the marks in a column of their own, so the
+> sentences start together, with a divider in the theme's separator colour between subsections.
+> The window, `crw` and the README spell license; this file keeps its wording. *Alternatives.*
+> Drag-resizable columns with saved widths (v2 notes); headers clipped to their content's width;
+> the key as hover texts only, or in a window of its own; fixed gaps.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates

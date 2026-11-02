@@ -48,6 +48,8 @@ pub struct View {
     pub stacks: BTreeSet<Kind>,
     /// The hosting filter: projects in any of these classes (EP-7).
     pub hosting: BTreeSet<Class>,
+    /// The key to the row's marks, open at the foot of the Projects pane (EP-7a).
+    pub legend: bool,
 }
 
 impl Default for View {
@@ -62,6 +64,7 @@ impl Default for View {
             selected: None,
             stacks: BTreeSet::new(),
             hosting: BTreeSet::new(),
+            legend: false,
         }
     }
 }
@@ -679,7 +682,10 @@ impl eframe::App for Dashboard {
 
 #[cfg(test)]
 mod tests {
+    use eframe::Storage as _;
+
     use super::*;
+    use crate::layout::tests::MemoryStorage;
 
     #[test]
     fn the_view_keeps_finished_work_folded_at_first() {
@@ -688,5 +694,23 @@ mod tests {
         assert!(view.is_folded(GroupKind::State(State::Archived)));
         assert!(!view.is_folded(GroupKind::State(State::Active)));
         assert!(!view.is_folded(GroupKind::Unadopted));
+        assert!(!view.legend);
+    }
+
+    #[test]
+    fn a_view_saved_before_the_legend_reads_with_it_closed() {
+        let mut storage = MemoryStorage::default();
+        let open = View {
+            legend: true,
+            ..View::default()
+        };
+        eframe::set_value(&mut storage, VIEW_KEY, &open);
+        let saved = storage.get_string(VIEW_KEY).unwrap();
+        assert!(saved.contains("legend:true"), "{saved}");
+        assert_eq!(stored::<View>(Some(&storage), VIEW_KEY), Some(open));
+        // What a build before EP-7a wrote: no such field.
+        storage.set_string(VIEW_KEY, saved.replace(",legend:true", ""));
+        let older: View = stored(Some(&storage), VIEW_KEY).unwrap();
+        assert_eq!(older, View::default());
     }
 }

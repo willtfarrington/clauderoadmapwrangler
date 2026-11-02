@@ -281,12 +281,13 @@ impl FrontMatter {
         field(&self.fields, key)
     }
 
+    /// The EP the brief is for: `ep: 3`, `ep: 7a` (a lettered row, EP-7a) or `ep: EP-7a`.
     pub fn ep(&self) -> Option<EpId> {
         let value = self.get("ep")?.trim();
         value
             .parse()
             .ok()
-            .or_else(|| value.parse::<u32>().ok().map(EpId::new))
+            .or_else(|| format!("EP-{value}").parse().ok())
     }
 
     pub fn size(&self) -> Option<Size> {
@@ -823,6 +824,16 @@ status: done
         let front = brief.front.as_ref().unwrap();
         assert_eq!(front.lines, 8);
         assert_eq!(front.ep(), Some(ep(3)));
+        // A lettered row's brief, in the house form and with the prefix; nothing else.
+        for (value, id) in [("7a", Some("EP-7a")), ("EP-7a", Some("EP-7a")), ("N", None)] {
+            let text = HOUSE.replacen("ep: 3", &format!("ep: {value}"), 1);
+            let front = parse(&text).front.unwrap();
+            assert_eq!(
+                front.ep().map(|id| id.to_string()).as_deref(),
+                id,
+                "{value}"
+            );
+        }
         assert_eq!(front.get("title"), Some("Parser A — tables"));
         assert_eq!(front.size(), Some(Size::M));
         assert_eq!(front.model(), Some("claude-opus-5-5"));

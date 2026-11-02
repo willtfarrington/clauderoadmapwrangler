@@ -1,10 +1,12 @@
 //! The dashboard's look (D-25): a type scale for a 4K-class display at the system's scaling in
-//! two densities, the state chips' and the stack chips' colours, and the Material Symbols icon
-//! font.
+//! two densities, the state chips' and the stack chips' colours, the Material Symbols icon font,
+//! and the measure the list sizes its columns with.
 
 use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
-use eframe::egui::{self, Color32, FontFamily, FontId, RichText, TextStyle, vec2};
+use eframe::egui::{
+    self, Align, Color32, FontFamily, FontId, Layout, Rect, RichText, TextStyle, UiBuilder, vec2,
+};
 use serde::{Deserialize, Serialize};
 
 pub use egui_material_icons::icons;
@@ -131,6 +133,46 @@ pub fn chip(ui: &mut egui::Ui, text: &str, colour: Color32) -> egui::Response {
             ui.label(RichText::new(text).small().color(ink));
         })
         .response
+}
+
+/// The width `add` takes on one line, laid out by the same code that draws it in an invisible
+/// child that is never painted and takes no room: how the list sizes its columns and the Status
+/// section its mark column to what they hold (EP-7a).
+pub fn width_of(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) -> f32 {
+    let at = ui.cursor().min;
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            // Wide enough that nothing truncates or wraps.
+            .max_rect(Rect::from_min_size(at, vec2(10_000.0, 100.0)))
+            .layout(Layout::left_to_right(Align::Center))
+            .sizing_pass()
+            .invisible(),
+    );
+    add(&mut child);
+    child.min_rect().width()
+}
+
+/// The height `add` takes laid out top to bottom at `width`, measured as [`width_of`] measures:
+/// how the legend's panel is made as tall as the key.
+pub fn height_of(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) -> f32 {
+    let at = ui.cursor().min;
+    let mut child = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_size(at, vec2(width, 10_000.0)))
+            .layout(Layout::top_down(Align::Min))
+            .sizing_pass()
+            .invisible(),
+    );
+    add(&mut child);
+    child.min_rect().height()
+}
+
+/// Draws `add` on a left-to-right line and pads after it to `width`, so what follows starts at
+/// the same place on every line of a column, whatever `add` drew or if it drew nothing.
+pub fn padded(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
+    let end = ui.cursor().min.x + width + ui.spacing().item_spacing.x;
+    add(ui);
+    ui.add_space((end - ui.cursor().min.x).max(0.0));
 }
 
 /// An icon at the text's size, in the colour given or the text's own.

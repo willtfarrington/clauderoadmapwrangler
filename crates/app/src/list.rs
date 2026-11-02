@@ -1,139 +1,352 @@
 //! The Projects pane (D-25): a toolbar (the name filter, the sort key, the stack and hosting
-//! filters), then the groups by state, each with a header that folds it, and one dense row per
-//! project: its next brief, its progress, what waits on the owner, its badges (EP-7), whether a
-//! session is in progress, and the switches later briefs bring to life. A row expands inline; a
-//! right click pins it or sets its priority or its state; an unadopted folder offers Adopt and
-//! Ignore.
+//! filters, the legend's switch), a header row that names the columns, then the groups by state,
+//! each with a header that folds it, and one dense row per project: its next brief, its progress,
+//! what waits on the owner, its badges (EP-7), whether a session is in progress, and the switches
+//! later briefs bring to life. Each column is as wide as the widest value the portfolio holds
+//! (EP-7a); a wide window shares its spare width between the title and the gaps, a narrow one
+//! drops the optional columns in D-25's order. A row expands inline; a right click pins it or
+//! sets its priority or its state; an unadopted folder offers Adopt and Ignore. The legend, a key
+//! to every mark of the row, opens at the foot of the pane.
 
 use chrono::{DateTime, Utc};
 use crw_core::badges::hosting::Class;
 use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
+use crw_core::roadmap::table::{Counts, Row};
 use eframe::egui::{self, Align, Checkbox, Layout, Rect, RichText, Sense, UiBuilder, vec2};
 
-use crate::badges;
+use crate::badges::{
+    self, FOLDER, GIT_PENDING, MESSAGES, OWNER_ITEMS, PINNED, PROPOSAL, SESSION, URGENT,
+};
 use crate::board::{Action, Board, View};
 use crate::markup::{self, Look};
-use crate::portfolio::{GroupKind, Member, ProjectRow, Selection, SortKey};
+use crate::portfolio::{GroupKind, Member, Portfolio, ProjectRow, Selection, SortKey};
 use crate::style::{self, icons};
 
-/// The columns of a row, in points, left to right; the title takes what is left.
+/// The fixed columns: the row's expander and pin, and the two switches at its end.
 const EXPANDER: f32 = 20.0;
 const PIN: f32 = 20.0;
-const NAME: f32 = 160.0;
-const STATE: f32 = 104.0;
-const NEXT: f32 = 70.0;
+const AUTOPILOT: f32 = 26.0;
+const START: f32 = 32.0;
 /// Below this the title gives way: the badges shrink to their compact form, the counts go, the
 /// badges go, then the progress.
 const TITLE_AT_LEAST: f32 = 160.0;
-const PROGRESS: f32 = 44.0;
-const ITEMS: f32 = 72.0;
-const SESSION: f32 = 24.0;
-const AUTOPILOT: f32 = 26.0;
-const START: f32 = 32.0;
-const GAP: f32 = 5.0;
+/// The title's floor when even the fewest columns leave it less.
+const TITLE_MIN: f32 = 40.0;
+/// Between two columns; the expander, the pin and the name sit closer.
+const GAP: f32 = 10.0;
+const TIGHT: f32 = 2.0;
+/// On a wide row the gaps after the name take this share of the width beyond the title's least,
+/// each widening by at most [`SPREAD`]; the title takes the rest.
+const SPREAD_SHARE: f32 = 0.3;
+const SPREAD: f32 = 12.0;
+/// Around the progress pill's text.
+const PILL_PAD: f32 = 16.0;
 /// Adopt and Ignore at the end of an unadopted folder's row.
 const FOLDER_BUTTONS: f32 = 150.0;
-/// The badge column's own columns, so the marks line up from row to row: in the full form the
-/// first stack chip, the hosting, the sync with the origin, the last commit's age with the dirty
-/// mark, the CI run with the licence warning, the backup; the compact form drops the chip and
-/// the age.
-const BADGE_GAP: f32 = 3.0;
-const FULL: [f32; 6] = [36.0, 18.0, 36.0, 46.0, 38.0, 18.0];
-const COMPACT: [f32; 4] = [18.0, 36.0, 38.0, 18.0];
+/// The most of the pane's height the legend takes before it scrolls, and the room above it.
+const LEGEND_AT_MOST: f32 = 0.45;
+const LEGEND_TOP: i8 = 8;
 
-/// How much of the badge column a row has room for.
+/// The columns of a row, left to right; the title takes what the others leave.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Form {
-    Full,
-    Compact,
+enum Column {
+    Expander,
+    Pin,
+    Name,
+    State,
+    Next,
+    Title,
+    Progress,
+    Items,
+    Stack,
+    Hosting,
+    Sync,
+    Age,
+    Health,
+    Backup,
+    Session,
+    Autopilot,
+    Start,
 }
 
-impl Form {
-    fn width(self) -> f32 {
-        let widths: &[f32] = match self {
-            Form::Full => &FULL,
-            Form::Compact => &COMPACT,
-        };
-        widths.iter().sum::<f32>() + BADGE_GAP * (widths.len() - 1) as f32
+impl Column {
+    const ALL: [Column; 17] = [
+        Column::Expander,
+        Column::Pin,
+        Column::Name,
+        Column::State,
+        Column::Next,
+        Column::Title,
+        Column::Progress,
+        Column::Items,
+        Column::Stack,
+        Column::Hosting,
+        Column::Sync,
+        Column::Age,
+        Column::Health,
+        Column::Backup,
+        Column::Session,
+        Column::Autopilot,
+        Column::Start,
+    ];
+    /// Before the optional columns, always.
+    const LEFT: [Column; 6] = [
+        Column::Expander,
+        Column::Pin,
+        Column::Name,
+        Column::State,
+        Column::Next,
+        Column::Title,
+    ];
+    /// After them, always.
+    const RIGHT: [Column; 3] = [Column::Session, Column::Autopilot, Column::Start];
+    /// The optional columns, from the most a row shows to the least: the badges in full (the
+    /// stack chip and the age as well), compact, then the counts go, then the badges, then the
+    /// progress (D-25, EP-7 addendum).
+    const GIVE_WAY: [&'static [Column]; 5] = [
+        &[
+            Column::Progress,
+            Column::Items,
+            Column::Stack,
+            Column::Hosting,
+            Column::Sync,
+            Column::Age,
+            Column::Health,
+            Column::Backup,
+        ],
+        &[
+            Column::Progress,
+            Column::Items,
+            Column::Hosting,
+            Column::Sync,
+            Column::Health,
+            Column::Backup,
+        ],
+        &[
+            Column::Progress,
+            Column::Hosting,
+            Column::Sync,
+            Column::Health,
+            Column::Backup,
+        ],
+        &[Column::Progress],
+        &[],
+    ];
+
+    /// The column's name in the header row and what it holds; the expander, the pin and the two
+    /// switches go unnamed.
+    fn header(self) -> Option<(&'static str, &'static str)> {
+        Some(match self {
+            Column::Name => (
+                "Project",
+                "The registry's name; a right click pins it or sets its priority or state",
+            ),
+            Column::State => ("State", "Set by hand (D-6); a bulb marks a proposed change"),
+            Column::Next => (
+                "Next",
+                "The next brief in table order and its size: S about 30 minutes, M about an \
+                 hour, L about two hours",
+            ),
+            Column::Title => ("Brief", "The next brief's one-line summary"),
+            Column::Progress => ("Done", "Rows done of all rows"),
+            Column::Items => ("Waiting", "Open owner items, and open inbox messages"),
+            Column::Stack => ("Stack", "The first stack found, and how many more"),
+            Column::Hosting => ("Hosting", "Where the repository lives"),
+            Column::Sync => ("Sync", "The clone against its origin"),
+            Column::Age => ("Age", "The last commit's age; a dot for a dirty tree"),
+            Column::Health => (
+                "CI",
+                "The latest GitHub Actions run; a gavel for a public repository without a \
+                 license",
+            ),
+            Column::Backup => ("Backup", "The Documents job's last archive"),
+            Column::Session => ("Session", "A session in progress, or git not asked yet"),
+            Column::Expander | Column::Pin | Column::Autopilot | Column::Start => return None,
+        })
+    }
+
+    /// The gap after the column at its least: the expander, the pin and the name sit close.
+    fn gap(self) -> f32 {
+        if self.spreads() { GAP } else { TIGHT }
+    }
+
+    /// Whether the gap after the column widens on a wide row: every gap from the name's on.
+    fn spreads(self) -> bool {
+        !matches!(self, Column::Expander | Column::Pin)
     }
 }
 
-/// The cells of one row; the progress, the counts and the badges only when the row is wide
-/// enough.
-struct Columns {
-    expander: Rect,
-    pin: Rect,
-    name: Rect,
-    state: Rect,
-    next: Rect,
-    title: Rect,
-    progress: Option<Rect>,
-    items: Option<Rect>,
-    badges: Option<(Rect, Form)>,
-    session: Rect,
-    autopilot: Rect,
-    start: Rect,
+/// How wide each column is but the title: the fixed ones, and for the others the widest value
+/// the portfolio holds, at least its header's name.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Widths([f32; Column::ALL.len()]);
+
+impl Widths {
+    fn of(&self, column: Column) -> f32 {
+        self.0[column as usize]
+    }
+
+    fn widen(&mut self, column: Column, width: f32) {
+        let slot = &mut self.0[column as usize];
+        *slot = slot.max(width);
+    }
+
+    /// Widens `column` to what `add` draws.
+    fn fit(&mut self, ui: &mut egui::Ui, column: Column, add: impl FnOnce(&mut egui::Ui)) {
+        let width = style::width_of(ui, add);
+        self.widen(column, width);
+    }
+
+    /// Every project's and unadopted folder's cells laid out by the code that draws them, so no
+    /// column clips its widest value; the rows folded away or filtered out count too, so the
+    /// columns stay put while the owner folds, filters and selects.
+    fn measure(ui: &mut egui::Ui, portfolio: &Portfolio, now: DateTime<Utc>) -> Self {
+        let mut widths = Self([0.0; Column::ALL.len()]);
+        for (column, width) in [
+            (Column::Expander, EXPANDER),
+            (Column::Pin, PIN),
+            (Column::Autopilot, AUTOPILOT),
+            (Column::Start, START),
+        ] {
+            widths.widen(column, width);
+        }
+        for column in Column::ALL {
+            if let Some((name, _)) = column.header() {
+                widths.fit(ui, column, |ui| {
+                    header_label(ui, name);
+                });
+            }
+        }
+        for row in &portfolio.projects {
+            widths.fit(ui, Column::Name, |ui| name_label(ui, row.name()));
+            widths.fit(ui, Column::State, |ui| state_cell(ui, row, now));
+            widths.fit(ui, Column::Session, |ui| session_cell(ui, row));
+            if row.folder.is_none() {
+                continue;
+            }
+            if let Some(next) = row.next() {
+                widths.fit(ui, Column::Next, |ui| next_cell(ui, next));
+            }
+            let counts = row.counts();
+            if counts.total > 0 {
+                let text = style::width_of(ui, |ui| {
+                    ui.label(progress_text(counts));
+                });
+                widths.widen(Column::Progress, text + PILL_PAD);
+            }
+            widths.fit(ui, Column::Items, |ui| counts_cell(ui, row));
+            widths.fit(ui, Column::Stack, |ui| stack_cell(ui, row));
+            widths.fit(ui, Column::Hosting, |ui| hosting_cell(ui, row, now));
+            widths.fit(ui, Column::Sync, |ui| sync_cell(ui, row, now));
+            widths.fit(ui, Column::Age, |ui| age_cell(ui, row, now));
+            widths.fit(ui, Column::Health, |ui| health_cell(ui, row, now));
+            widths.fit(ui, Column::Backup, |ui| backup_cell(ui, row, now));
+        }
+        for folder in &portfolio.unadopted {
+            widths.fit(ui, Column::Name, |ui| name_label(ui, &folder.name));
+            widths.fit(ui, Column::State, unadopted_chip);
+        }
+        widths
+    }
 }
 
-impl Columns {
-    fn of(row: Rect) -> Self {
-        let always = [EXPANDER, PIN, NAME, STATE, NEXT, SESSION, AUTOPILOT, START];
-        // Eight columns and the title: eight gaps.
-        let spare = row.width() - always.iter().sum::<f32>() - GAP * always.len() as f32;
-        // The optional cells, from the most to the least, until the title keeps its room.
-        let choices = [
-            (true, true, Some(Form::Full)),
-            (true, true, Some(Form::Compact)),
-            (true, false, Some(Form::Compact)),
-            (true, false, None),
-            (false, false, None),
-        ];
-        let taken = |(progress, items, badges): (bool, bool, Option<Form>)| {
-            f32::from(u8::from(progress)) * (PROGRESS + GAP)
-                + f32::from(u8::from(items)) * (ITEMS + GAP)
-                + badges.map_or(0.0, |form| form.width() + GAP)
+/// Where each column of a row sits: the measured widths left to right with the gaps between
+/// them. The optional columns give way while the title would have less than its least; then the
+/// gaps after the name share part of the spare width, up to a cap, and the title takes the rest,
+/// so the row is filled to its right edge. One plan serves the header row and every row.
+#[derive(Clone, Debug, PartialEq)]
+struct Plan {
+    /// Each column shown: its left edge from the row's left, and its width.
+    cells: Vec<(Column, f32, f32)>,
+}
+
+impl Plan {
+    fn new(widths: &Widths, width: f32) -> Self {
+        let columns_with = |optional: &[Column]| -> Vec<Column> {
+            Column::LEFT
+                .iter()
+                .chain(optional)
+                .chain(&Column::RIGHT)
+                .copied()
+                .collect()
         };
-        let chosen = choices
-            .into_iter()
-            .find(|&choice| spare - taken(choice) >= TITLE_AT_LEAST)
-            .unwrap_or((false, false, None));
-        let (progress, items, badges) = chosen;
-        let title = spare - taken(chosen);
-        let mut x = row.left();
-        let mut next = |width: f32| {
-            let cell = Rect::from_min_size(egui::pos2(x, row.top()), vec2(width, row.height()));
-            x += width + GAP;
-            cell
+        let columns = Column::GIVE_WAY
+            .iter()
+            .map(|optional| columns_with(optional))
+            .find(|columns| width - Self::least(widths, columns) >= TITLE_AT_LEAST)
+            .unwrap_or_else(|| columns_with(&[]));
+        let room = width - Self::least(widths, &columns);
+        let spreading = columns
+            .iter()
+            .take(columns.len().saturating_sub(1))
+            .filter(|column| column.spreads())
+            .count() as f32;
+        let extra = if spreading > 0.0 {
+            ((room - TITLE_AT_LEAST).max(0.0) * SPREAD_SHARE / spreading).min(SPREAD)
+        } else {
+            0.0
         };
-        Self {
-            expander: next(EXPANDER),
-            pin: next(PIN),
-            name: next(NAME),
-            state: next(STATE),
-            next: next(NEXT),
-            title: next(title.max(40.0)),
-            progress: progress.then(|| next(PROGRESS)),
-            items: items.then(|| next(ITEMS)),
-            badges: badges.map(|form| (next(form.width()), form)),
-            session: next(SESSION),
-            autopilot: next(AUTOPILOT),
-            start: next(START),
+        let title = (room - extra * spreading).max(TITLE_MIN);
+        let mut x = 0.0;
+        let cells = columns
+            .iter()
+            .map(|&column| {
+                let width = match column {
+                    Column::Title => title,
+                    column => widths.of(column),
+                };
+                let cell = (column, x, width);
+                x += width + column.gap();
+                if column.spreads() {
+                    x += extra;
+                }
+                cell
+            })
+            .collect();
+        Self { cells }
+    }
+
+    /// What a row of `columns` takes besides its title: their widths and the gaps between them
+    /// at their least.
+    fn least(widths: &Widths, columns: &[Column]) -> f32 {
+        let cells: f32 = columns
+            .iter()
+            .filter(|&&column| column != Column::Title)
+            .map(|&column| widths.of(column))
+            .sum();
+        let gaps: f32 = columns
+            .iter()
+            .take(columns.len().saturating_sub(1))
+            .map(|column| column.gap())
+            .sum();
+        cells + gaps
+    }
+
+    /// The column's left edge from the row's left and its width, when the row shows it.
+    fn span(&self, column: Column) -> Option<(f32, f32)> {
+        self.cells
+            .iter()
+            .find(|cell| cell.0 == column)
+            .map(|&(_, x, width)| (x, width))
+    }
+
+    /// The column's cell in `row`.
+    fn rect(&self, column: Column, row: Rect) -> Option<Rect> {
+        self.span(column).map(|(x, width)| {
+            Rect::from_min_size(
+                egui::pos2(row.left() + x, row.top()),
+                vec2(width, row.height()),
+            )
+        })
+    }
+
+    /// Draws `add` in the column's cell of `row`, when the row shows the column.
+    fn draw(&self, ui: &mut egui::Ui, row: Rect, column: Column, add: impl FnOnce(&mut egui::Ui)) {
+        if let Some(rect) = self.rect(column, row) {
+            cell(ui, rect, add);
         }
     }
-}
-
-/// `rect` cut into columns of `widths`, left to right.
-fn split(rect: Rect, widths: &[f32]) -> Vec<Rect> {
-    let mut x = rect.left();
-    widths
-        .iter()
-        .map(|&width| {
-            let cell = Rect::from_min_size(egui::pos2(x, rect.top()), vec2(width, rect.height()));
-            x += width + BADGE_GAP;
-            cell
-        })
-        .collect()
 }
 
 /// Draws `add` inside `rect`, left to right and centred on the row's middle line.
@@ -151,6 +364,23 @@ impl Board {
     pub fn projects_pane(&mut self, ui: &mut egui::Ui) {
         self.list_toolbar(ui);
         ui.separator();
+        if self.view.legend {
+            // As tall as the key, up to a share of the pane; a scroll area inside fills only the
+            // height its panel has, so the height is measured first.
+            let key = style::height_of(ui, ui.available_width(), badges::legend);
+            let height = (key + f32::from(LEGEND_TOP)).min(ui.available_height() * LEGEND_AT_MOST);
+            egui::Panel::bottom("legend")
+                .exact_size(height)
+                .frame(egui::Frame::new().inner_margin(egui::Margin {
+                    top: LEGEND_TOP,
+                    ..egui::Margin::ZERO
+                }))
+                .show(ui, |ui| {
+                    egui::ScrollArea::vertical()
+                        .auto_shrink(false)
+                        .show(ui, badges::legend);
+                });
+        }
         if let Some(problem) = &self.portfolio.problem {
             ui.label(RichText::new(problem).color(style::red(ui)));
             return;
@@ -172,6 +402,10 @@ impl Board {
             return;
         }
         let now = chrono::Utc::now();
+        let widths = Widths::measure(ui, &self.portfolio, now);
+        let plan = Plan::new(&widths, ui.available_width());
+        header_row(ui, &plan);
+        ui.separator();
         let mut actions = Vec::new();
         egui::ScrollArea::vertical()
             .auto_shrink(false)
@@ -190,6 +424,7 @@ impl Board {
                                 ui,
                                 &self.portfolio.projects[i],
                                 &self.view,
+                                &plan,
                                 self.scroll_to_selected,
                                 now,
                             )),
@@ -201,6 +436,7 @@ impl Board {
                                     folder.git,
                                     folder.roadmap,
                                     &self.view,
+                                    &plan,
                                     self.scroll_to_selected,
                                 ));
                             }
@@ -295,8 +531,32 @@ impl Board {
                         .weak(),
                 );
             });
+            ui.separator();
+            ui.toggle_value(
+                &mut self.view.legend,
+                format!("{} Legend", icons::ICON_LEGEND_TOGGLE.codepoint),
+            )
+            .on_hover_text("Show or hide the key to every mark of the rows");
         });
     }
+}
+
+/// The header row (EP-7a): each shown column's name over it, small and weak, with what the
+/// column holds as hover text.
+fn header_row(ui: &mut egui::Ui, plan: &Plan) {
+    let height = ui.text_style_height(&egui::TextStyle::Small) + 4.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    for &(column, ..) in &plan.cells {
+        if let Some((name, hover)) = column.header() {
+            plan.draw(ui, rect, column, |ui| {
+                header_label(ui, name).on_hover_text(hover);
+            });
+        }
+    }
+}
+
+fn header_label(ui: &mut egui::Ui, name: &str) -> egui::Response {
+    ui.label(RichText::new(name).small().weak())
 }
 
 /// A group's header: the fold chevron, the state and its count. Returns whether it was clicked.
@@ -367,8 +627,9 @@ fn project_row(
     ui: &mut egui::Ui,
     row: &ProjectRow,
     view: &View,
+    plan: &Plan,
     scroll: bool,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
     let name = row.name();
@@ -383,10 +644,9 @@ fn project_row(
     if selected && scroll {
         response.scroll_to_me(Some(Align::Center));
     }
-    let columns = Columns::of(rect);
     let weak = ui.visuals().weak_text_color();
 
-    cell(ui, columns.expander, |ui| {
+    plan.draw(ui, rect, Column::Expander, |ui| {
         let chevron = if expanded {
             icons::ICON_EXPAND_MORE
         } else {
@@ -402,26 +662,16 @@ fn project_row(
         }
     });
     if row.project.pinned {
-        cell(ui, columns.pin, |ui| {
-            ui.label(style::icon(icons::ICON_PUSH_PIN, Some(weak)))
-                .on_hover_text("Pinned: first in its group");
+        plan.draw(ui, rect, Column::Pin, |ui| {
+            PINNED.show(ui, "Pinned: first in its group");
         });
     }
-    cell(ui, columns.name, |ui| {
-        ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
-    });
-    cell(ui, columns.state, |ui| {
-        let state = row.project.state;
-        style::chip(ui, state.as_str(), style::state_colour(Some(state)));
-        if !row.proposals(now).is_empty() {
-            ui.label(style::icon(icons::ICON_LIGHTBULB, Some(style::amber(ui))))
-                .on_hover_text("A state change is proposed: see the Detail pane");
-        }
-    });
+    plan.draw(ui, rect, Column::Name, |ui| name_label(ui, name));
+    plan.draw(ui, rect, Column::State, |ui| state_cell(ui, row, now));
     let counts = row.counts();
     match (&row.folder, row.next()) {
         (None, _) => {
-            cell(ui, columns.title, |ui| {
+            plan.draw(ui, rect, Column::Title, |ui| {
                 ui.add(
                     egui::Label::new(
                         RichText::new(format!("Folder missing: {}", row.path.display()))
@@ -432,14 +682,8 @@ fn project_row(
             });
         }
         (Some(_), Some(next)) => {
-            cell(ui, columns.next, |ui| {
-                ui.label(RichText::new(next.id.to_string()).monospace());
-                if let Some(size) = next.size {
-                    ui.label(RichText::new(size.as_str()).small().strong())
-                        .on_hover_text(size_hint(size));
-                }
-            });
-            cell(ui, columns.title, |ui| {
+            plan.draw(ui, rect, Column::Next, |ui| next_cell(ui, next));
+            plan.draw(ui, rect, Column::Title, |ui| {
                 let title = markup::job(ui, &next.brief.title, Look::default());
                 ui.add(egui::Label::new(title).truncate());
             });
@@ -452,39 +696,37 @@ fn project_row(
             } else {
                 "No phase table read"
             };
-            cell(ui, columns.next.union(columns.title), |ui| {
-                ui.add(egui::Label::new(RichText::new(text).weak()).truncate());
-            });
+            if let (Some(next), Some(title)) = (
+                plan.rect(Column::Next, rect),
+                plan.rect(Column::Title, rect),
+            ) {
+                cell(ui, next.union(title), |ui| {
+                    ui.add(egui::Label::new(RichText::new(text).weak()).truncate());
+                });
+            }
         }
     }
-    if let Some(progress) = columns.progress
+    if let Some(progress) = plan.rect(Column::Progress, rect)
         && counts.total > 0
     {
         progress_cell(ui, progress, counts);
     }
-    if let Some(cells) = columns.items {
-        cell(ui, cells, |ui| counts_cell(ui, row));
+    plan.draw(ui, rect, Column::Items, |ui| counts_cell(ui, row));
+    if row.folder.is_some() {
+        plan.draw(ui, rect, Column::Stack, |ui| stack_cell(ui, row));
+        plan.draw(ui, rect, Column::Hosting, |ui| hosting_cell(ui, row, now));
+        plan.draw(ui, rect, Column::Sync, |ui| sync_cell(ui, row, now));
+        plan.draw(ui, rect, Column::Age, |ui| age_cell(ui, row, now));
+        plan.draw(ui, rect, Column::Health, |ui| health_cell(ui, row, now));
+        plan.draw(ui, rect, Column::Backup, |ui| backup_cell(ui, row, now));
     }
-    if let Some((rect, form)) = columns.badges {
-        badges_cell(ui, rect, form, row, now);
-    }
-    cell(ui, columns.session, |ui| {
-        let reasons = row.in_progress();
-        if !reasons.is_empty() {
-            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
-            ui.label(style::icon(icons::ICON_EDIT_NOTE, Some(style::amber(ui))))
-                .on_hover_text(format!("Session in progress: {}", texts.join("; ")));
-        } else if row.awaits_git() {
-            ui.label(style::icon(icons::ICON_SCHEDULE, Some(weak)))
-                .on_hover_text("Git has not been asked yet");
-        }
-    });
-    cell(ui, columns.autopilot, |ui| {
+    plan.draw(ui, rect, Column::Session, |ui| session_cell(ui, row));
+    plan.draw(ui, rect, Column::Autopilot, |ui| {
         let mut on = row.project.autopilot.enabled;
         ui.add_enabled(false, Checkbox::without_text(&mut on))
             .on_disabled_hover_text("Autopilot: arrives at EP-19 (A)");
     });
-    cell(ui, columns.start, |ui| {
+    plan.draw(ui, rect, Column::Start, |ui| {
         ui.add_enabled(
             false,
             egui::Button::new(style::icon(icons::ICON_PLAY_ARROW, None)),
@@ -530,16 +772,47 @@ fn project_row(
     });
 
     if expanded {
-        expansion(ui, row);
+        let indent = plan.span(Column::Name).map_or(0.0, |(x, _)| x);
+        expansion(ui, row, indent);
     }
     actions
 }
 
+fn name_label(ui: &mut egui::Ui, name: &str) {
+    ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
+}
+
+/// The state chip, and the bulb of a proposed change.
+fn state_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    let state = row.project.state;
+    style::chip(ui, state.as_str(), style::state_colour(Some(state)));
+    if !row.proposals(now).is_empty() {
+        PROPOSAL.show(ui, "A state change is proposed: see the Detail pane");
+    }
+}
+
+fn unadopted_chip(ui: &mut egui::Ui) {
+    style::chip(ui, "unadopted", style::state_colour(None));
+}
+
+/// The next EP's id and its size.
+fn next_cell(ui: &mut egui::Ui, next: &Row) {
+    ui.label(RichText::new(next.id.to_string()).monospace());
+    if let Some(size) = next.size {
+        ui.label(RichText::new(size.as_str()).small().strong())
+            .on_hover_text(size_hint(size));
+    }
+}
+
+fn progress_text(counts: Counts) -> RichText {
+    RichText::new(format!("{}/{}", counts.done, counts.total)).small()
+}
+
 /// Done over total on a small pill filled to the fraction done, the percent on hover (D-25).
-fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: crw_core::roadmap::table::Counts) {
+fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: Counts) {
     let fraction = counts.done as f32 / counts.total as f32;
     let pill = Rect::from_center_size(
-        egui::pos2(rect.center().x - 2.0, rect.center().y),
+        rect.center(),
         vec2(rect.width() - 4.0, (rect.height() - 8.0).min(18.0)),
     );
     let painter = ui.painter_at(rect);
@@ -549,10 +822,7 @@ fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: crw_core::roadmap::table
         5.0,
         style::green(ui).gamma_multiply(0.3),
     );
-    let response = ui.put(
-        pill,
-        egui::Label::new(RichText::new(format!("{}/{}", counts.done, counts.total)).small()),
-    );
+    let response = ui.put(pill, egui::Label::new(progress_text(counts)));
     response.on_hover_text(format!(
         "{} of {} rows done ({:.0} %){}",
         counts.done,
@@ -565,97 +835,92 @@ fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: crw_core::roadmap::table
     ));
 }
 
-/// The row's badges in their own columns (D-24, D-25), as much of them as `form` has room for.
-fn badges_cell(ui: &mut egui::Ui, rect: Rect, form: Form, row: &ProjectRow, now: DateTime<Utc>) {
-    let cells = match form {
-        Form::Full => split(rect, &FULL),
-        Form::Compact => split(rect, &COMPACT),
-    };
-    let mut cells = cells.into_iter();
-    if form == Form::Full
-        && let Some(stack) = cells.next()
-        && let Some(first) = row.badges.stack.first()
-    {
-        cell(ui, stack, |ui| {
-            let hover = row
-                .badges
-                .stack
-                .iter()
-                .map(|chip| format!("{} ({})", chip.text(), chip.source))
-                .collect::<Vec<_>>()
-                .join("\n");
-            let more = row.badges.stack.len() - 1;
-            let text = match more {
-                0 => first.kind.short().to_owned(),
-                n => format!("{}+{n}", first.kind.short()),
-            };
-            style::chip(ui, &text, style::stack_colour(first.kind)).on_hover_text(hover);
-        });
-    }
-    if row.folder.is_none() {
-        return;
-    }
-    let (Some(hosting), Some(sync)) = (cells.next(), cells.next()) else {
-        return;
-    };
-    cell(ui, hosting, |ui| badges::hosting(row, now).show(ui));
-    if let Some(mark) = badges::sync(row, now) {
-        cell(ui, sync, |ui| mark.show(ui));
-    }
-    if form == Form::Full
-        && let Some(age) = cells.next()
-        && let Some((mark, dirty)) = badges::activity(row, now)
-    {
-        cell(ui, age, |ui| {
-            ui.spacing_mut().item_spacing.x = 3.0;
-            mark.show(ui);
-            if let Some(dirty) = dirty {
-                ui.label(RichText::new("●").small().color(dirty.tone.colour(ui)))
-                    .on_hover_text(&dirty.hover);
-            }
-        });
-    }
-    let (Some(health), Some(backup)) = (cells.next(), cells.next()) else {
-        return;
-    };
-    cell(ui, health, |ui| {
-        ui.spacing_mut().item_spacing.x = 2.0;
-        if let Some(mark) = badges::ci(row, now) {
-            mark.show(ui);
-        }
-        if let Some(mark) = badges::licence_warning(row) {
-            mark.show(ui);
-        }
-    });
-    if let Some(mark) = badges::backup(row, now) {
-        cell(ui, backup, |ui| mark.show(ui));
-    }
-}
-
 /// What waits on the owner: open owner items, open inbox messages (red when one is urgent).
 fn counts_cell(ui: &mut egui::Ui, row: &ProjectRow) {
     // Each icon close to its number, the two pairs apart.
     ui.spacing_mut().item_spacing.x = 3.0;
     let items = row.open_items();
     if items > 0 {
-        ui.label(style::icon(icons::ICON_TASK_ALT, Some(style::amber(ui))))
-            .on_hover_text(format!("{items} open owner items"));
+        OWNER_ITEMS.show(ui, &format!("{items} open owner items"));
         ui.label(items.to_string());
         ui.add_space(6.0);
     }
     let (messages, urgent) = row.open_messages();
     if messages > 0 {
-        let colour = if urgent > 0 {
-            style::red(ui)
-        } else {
-            style::amber(ui)
+        match urgent {
+            0 => MESSAGES.show(ui, &format!("{messages} open inbox messages")),
+            n => URGENT.show(ui, &format!("{messages} open inbox messages, {n} urgent")),
         };
-        ui.label(style::icon(icons::ICON_INBOX, Some(colour)))
-            .on_hover_text(match urgent {
-                0 => format!("{messages} open inbox messages"),
-                n => format!("{messages} open inbox messages, {n} urgent"),
-            });
         ui.label(messages.to_string());
+    }
+}
+
+/// The first stack chip (`RS+1` when there are more), every chip on hover.
+fn stack_cell(ui: &mut egui::Ui, row: &ProjectRow) {
+    let Some(first) = row.badges.stack.first() else {
+        return;
+    };
+    let hover = row
+        .badges
+        .stack
+        .iter()
+        .map(|chip| format!("{} ({})", chip.text(), chip.source))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let text = match row.badges.stack.len() - 1 {
+        0 => first.kind.short().to_owned(),
+        n => format!("{}+{n}", first.kind.short()),
+    };
+    style::chip(ui, &text, style::stack_colour(first.kind)).on_hover_text(hover);
+}
+
+fn hosting_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    badges::hosting(row, now).show(ui);
+}
+
+fn sync_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    if let Some(mark) = badges::sync(row, now) {
+        mark.show(ui);
+    }
+}
+
+/// The last commit's age, and a small dot for a dirty tree.
+fn age_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    let Some((age, dirty)) = badges::activity(row, now) else {
+        return;
+    };
+    ui.spacing_mut().item_spacing.x = 3.0;
+    age.show(ui);
+    if let Some(dirty) = dirty {
+        ui.label(dirty.rich(ui).small()).on_hover_text(&dirty.hover);
+    }
+}
+
+/// The CI run, and the license warning for a public repository.
+fn health_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    ui.spacing_mut().item_spacing.x = 2.0;
+    if let Some(mark) = badges::ci(row, now) {
+        mark.show(ui);
+    }
+    if let Some(mark) = badges::license_warning(row) {
+        mark.show(ui);
+    }
+}
+
+fn backup_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
+    if let Some(mark) = badges::backup(row, now) {
+        mark.show(ui);
+    }
+}
+
+/// A session in progress, or a repository git has not been asked about yet.
+fn session_cell(ui: &mut egui::Ui, row: &ProjectRow) {
+    let reasons = row.in_progress();
+    if !reasons.is_empty() {
+        let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+        SESSION.show(ui, &format!("Session in progress: {}", texts.join("; ")));
+    } else if row.awaits_git() {
+        GIT_PENDING.show(ui, "Git has not been asked yet");
     }
 }
 
@@ -667,9 +932,9 @@ fn size_hint(size: crw_core::roadmap::Size) -> &'static str {
     }
 }
 
-/// The inline expansion: each phase's progress, with the graphs' placeholder (EP-26).
-fn expansion(ui: &mut egui::Ui, row: &ProjectRow) {
-    let indent = EXPANDER + PIN + GAP * 2.0;
+/// The inline expansion under the name: each phase's progress, with the graphs' placeholder
+/// (EP-26).
+fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32) {
     ui.horizontal(|ui| {
         ui.add_space(indent);
         ui.vertical(|ui| {
@@ -726,6 +991,7 @@ fn folder_row(
     git: bool,
     roadmap: bool,
     view: &View,
+    plan: &Plan,
     scroll: bool,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
@@ -739,26 +1005,21 @@ fn folder_row(
     if selected && scroll {
         response.scroll_to_me(Some(Align::Center));
     }
-    let columns = Columns::of(rect);
-    cell(ui, columns.pin, |ui| {
-        ui.label(style::icon(
-            icons::ICON_FOLDER,
-            Some(ui.visuals().weak_text_color()),
-        ));
+    plan.draw(ui, rect, Column::Pin, |ui| {
+        FOLDER.show(ui, "A folder of the data root, not adopted yet");
     });
-    cell(ui, columns.name, |ui| {
-        ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
-    });
-    cell(ui, columns.state, |ui| {
-        style::chip(ui, "unadopted", style::state_colour(None));
-    });
+    plan.draw(ui, rect, Column::Name, |ui| name_label(ui, name));
+    plan.draw(ui, rect, Column::State, unadopted_chip);
     // The two buttons keep their room at the row's end; the description takes the rest.
     let buttons = Rect::from_min_max(
         egui::pos2(rect.right() - FOLDER_BUTTONS, rect.top()),
         rect.right_bottom(),
     );
+    let from = plan
+        .rect(Column::Next, rect)
+        .map_or(rect.left(), |next| next.left());
     let what = Rect::from_min_max(
-        columns.next.left_top(),
+        egui::pos2(from, rect.top()),
         egui::pos2(buttons.left() - GAP, rect.bottom()),
     );
     cell(ui, what, |ui| {
@@ -793,4 +1054,146 @@ fn folder_row(
         actions.push(Action::Select(selection));
     }
     actions
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every measured column `width` wide, the fixed ones as they are.
+    fn widths(width: f32) -> Widths {
+        let mut widths = Widths([width; Column::ALL.len()]);
+        for (column, fixed) in [
+            (Column::Expander, EXPANDER),
+            (Column::Pin, PIN),
+            (Column::Autopilot, AUTOPILOT),
+            (Column::Start, START),
+        ] {
+            widths.0[column as usize] = fixed;
+        }
+        widths
+    }
+
+    fn columns_with(optional: &[Column]) -> Vec<Column> {
+        Column::LEFT
+            .iter()
+            .chain(optional)
+            .chain(&Column::RIGHT)
+            .copied()
+            .collect()
+    }
+
+    fn shown(plan: &Plan) -> Vec<Column> {
+        plan.cells.iter().map(|cell| cell.0).collect()
+    }
+
+    /// No cell narrower than its column's widest value; the title at least its floor; the cells
+    /// in order without overlap.
+    fn check(plan: &Plan, widths: &Widths) {
+        let mut right = 0.0;
+        for &(column, x, width) in &plan.cells {
+            assert!(x >= right, "{column:?} overlaps the cell before it");
+            match column {
+                Column::Title => assert!(width >= TITLE_MIN),
+                column => assert!(width >= widths.of(column), "{column:?} is clipped"),
+            }
+            right = x + width;
+        }
+    }
+
+    fn right_edge(plan: &Plan) -> f32 {
+        plan.cells.last().map_or(0.0, |&(_, x, width)| x + width)
+    }
+
+    #[test]
+    fn a_wide_row_shows_every_column_and_loosens_its_gaps() {
+        let widths = widths(30.0);
+        let plan = Plan::new(&widths, 3000.0);
+        check(&plan, &widths);
+        assert_eq!(shown(&plan), Column::ALL);
+        assert!((right_edge(&plan) - 3000.0).abs() < 0.01);
+        // So much spare width that every gap after the name widens by the cap.
+        let (state, _) = plan.span(Column::State).unwrap();
+        let (name, name_width) = plan.span(Column::Name).unwrap();
+        assert!((state - (name + name_width) - (GAP + SPREAD)).abs() < 0.01);
+        // The expander and the pin stay close to the name.
+        let (pin, _) = plan.span(Column::Pin).unwrap();
+        assert!((name - (pin + PIN) - TIGHT).abs() < 0.01);
+    }
+
+    #[test]
+    fn the_spare_width_is_shared_and_fills_the_row() {
+        let widths = widths(30.0);
+        let full = columns_with(Column::GIVE_WAY[0]);
+        let least = Plan::least(&widths, &full);
+        // A row with the title's least and 100 points to spare: the gaps take 40 of them.
+        let plan = Plan::new(&widths, least + TITLE_AT_LEAST + 100.0);
+        check(&plan, &widths);
+        assert_eq!(shown(&plan), full);
+        let (_, title) = plan.span(Column::Title).unwrap();
+        assert!((title - (TITLE_AT_LEAST + 100.0 * (1.0 - SPREAD_SHARE))).abs() < 0.01);
+        assert!((right_edge(&plan) - (least + TITLE_AT_LEAST + 100.0)).abs() < 0.01);
+        // At the title's least exactly, the gaps keep theirs.
+        let tight = Plan::new(&widths, least + TITLE_AT_LEAST);
+        let (_, title) = tight.span(Column::Title).unwrap();
+        assert!((title - TITLE_AT_LEAST).abs() < 0.01);
+    }
+
+    #[test]
+    fn a_narrowing_row_gives_way_in_d25s_order() {
+        let widths = widths(30.0);
+        let fitting = |choice: usize| {
+            Plan::least(&widths, &columns_with(Column::GIVE_WAY[choice])) + TITLE_AT_LEAST
+        };
+        for choice in 0..Column::GIVE_WAY.len() {
+            let plan = Plan::new(&widths, fitting(choice));
+            check(&plan, &widths);
+            assert_eq!(
+                shown(&plan),
+                columns_with(Column::GIVE_WAY[choice]),
+                "{choice}"
+            );
+            if choice + 1 < Column::GIVE_WAY.len() {
+                // A point less and the next choice takes over.
+                let plan = Plan::new(&widths, fitting(choice) - 1.0);
+                assert_eq!(shown(&plan), columns_with(Column::GIVE_WAY[choice + 1]));
+            }
+        }
+        // Narrower than the fewest columns allow: the title keeps its floor, nothing is clipped.
+        let plan = Plan::new(&widths, 200.0);
+        check(&plan, &widths);
+        assert_eq!(shown(&plan), columns_with(&[]));
+    }
+
+    #[test]
+    fn a_wide_value_widens_its_column_alone() {
+        let mut widths = widths(30.0);
+        widths.widen(Column::Stack, 52.0);
+        widths.widen(Column::Stack, 40.0);
+        assert_eq!(widths.of(Column::Stack), 52.0);
+        let plan = Plan::new(&widths, 3000.0);
+        check(&plan, &widths);
+        let (_, stack) = plan.span(Column::Stack).unwrap();
+        assert_eq!(stack, 52.0);
+        let rect = plan
+            .rect(
+                Column::Stack,
+                Rect::from_min_size(egui::pos2(100.0, 10.0), vec2(3000.0, 26.0)),
+            )
+            .unwrap();
+        assert_eq!(rect.width(), 52.0);
+        assert_eq!(rect.height(), 26.0);
+    }
+
+    #[test]
+    fn every_column_but_the_controls_is_named() {
+        for column in Column::ALL {
+            let named = column.header().is_some();
+            let control = matches!(
+                column,
+                Column::Expander | Column::Pin | Column::Autopilot | Column::Start
+            );
+            assert_eq!(named, !control, "{column:?}");
+        }
+    }
 }

@@ -1,6 +1,6 @@
 //! The badges of a project's row (D-24, D-25): what it is built with ([`stack`]), how lively its
 //! repository is ([`activity`]), where it is hosted and whether that copy is current
-//! ([`hosting`]), whether its CI passes and it carries a licence ([`health`]), and how old its
+//! ([`hosting`]), whether its CI passes and it carries a license ([`health`]), and how old its
 //! last backup is ([`backup`]). The files and the backup job are read with no child, git one
 //! child at a time, GitHub through `gh` daily and on demand ([`online`]), its answers kept in the
 //! ledger's cache with the time they were fetched.

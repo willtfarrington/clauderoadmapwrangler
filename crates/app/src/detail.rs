@@ -313,16 +313,54 @@ fn progress(ui: &mut egui::Ui, snapshot: &Snapshot) {
         });
 }
 
-/// One badge spelt out: its mark, then its sentence.
-fn mark_line(ui: &mut egui::Ui, mark: &Mark) {
-    ui.horizontal_wrapped(|ui| {
-        mark.show(ui);
-        ui.label(&mark.hover);
-    });
+/// The Status section's subsections, in order.
+const SUBSECTIONS: [&str; 5] = ["Stack", "Activity", "Hosting", "Health", "Backup"];
+/// The mark column's least width, so the sentences start at the same place for most projects.
+const MARK_AT_LEAST: f32 = 40.0;
+/// Between a subsection's name and its lines.
+const NAME_GAP: f32 = 10.0;
+
+/// The Status section's three columns (EP-7a): each subsection's name, level with its first
+/// line; a mark; and the mark's sentence, which wraps under itself. The widths are measured in
+/// points from what the section holds, so it reads the same at every window size.
+struct Columns {
+    name: f32,
+    mark: f32,
 }
 
-fn weak_line(ui: &mut egui::Ui, text: impl Into<String>) {
-    ui.add(egui::Label::new(RichText::new(text.into()).weak()).wrap());
+impl Columns {
+    /// A subsection: its name beside its first line, its lines below one another.
+    fn subsection(&self, ui: &mut egui::Ui, name: &str, lines: impl FnOnce(&mut egui::Ui)) {
+        ui.horizontal_top(|ui| {
+            style::padded(ui, self.name, |ui| {
+                ui.label(RichText::new(name).weak());
+            });
+            ui.vertical(lines);
+        });
+    }
+
+    /// One badge spelt out: its mark in the mark column, then its sentence.
+    fn mark_line(&self, ui: &mut egui::Ui, mark: &Mark) {
+        ui.horizontal_top(|ui| {
+            style::padded(ui, self.mark, |ui| {
+                mark.show(ui);
+            });
+            ui.add(egui::Label::new(&mark.hover).wrap());
+        });
+    }
+
+    /// A line without a mark, its text where the sentences start.
+    fn weak_line(&self, ui: &mut egui::Ui, text: impl Into<String>) {
+        ui.horizontal_top(|ui| {
+            style::padded(ui, self.mark, |_| {});
+            ui.add(egui::Label::new(RichText::new(text.into()).weak()).wrap());
+        });
+    }
+}
+
+/// A line between two subsections, in the theme's separator colour.
+fn divider(ui: &mut egui::Ui) {
+    ui.add(egui::Separator::default().horizontal().spacing(9.0));
 }
 
 /// The badges spelt out (D-24, D-25): stack, activity, hosting with the head check, health and
@@ -330,123 +368,149 @@ fn weak_line(ui: &mut egui::Ui, text: impl Into<String>) {
 fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
     let now = Utc::now();
     let badges = &row.badges;
+    let activity = badges::activity(row, now);
+    let hosting = badges::hosting(row, now);
+    let sync = badges::sync(row, now);
+    let ci = badges::ci(row, now);
+    let warning = badges::license_warning(row);
+    let backup = badges::backup(row, now);
     section(ui, "Status");
-    egui::Grid::new(("status", row.name()))
-        .num_columns(2)
-        .spacing([14.0, 5.0])
-        .show(ui, |ui| {
-            ui.label(RichText::new("Stack").weak());
-            ui.horizontal_wrapped(|ui| {
-                if badges.stack.is_empty() {
-                    ui.label(RichText::new("No manifest at the root or one folder down").weak());
-                }
-                for chip in &badges.stack {
-                    style::chip(ui, &chip.text(), style::stack_colour(chip.kind))
-                        .on_hover_text(&chip.source);
-                }
-            });
-            ui.end_row();
+    let name = SUBSECTIONS
+        .iter()
+        .map(|name| {
+            style::width_of(ui, |ui| {
+                ui.label(RichText::new(*name).weak());
+            })
+        })
+        .fold(0.0, f32::max)
+        + NAME_GAP;
+    let marks = [
+        activity.as_ref().map(|(age, _)| age),
+        activity.as_ref().and_then(|(_, dirty)| dirty.as_ref()),
+        Some(&hosting),
+        sync.as_ref(),
+        ci.as_ref(),
+        warning.as_ref(),
+        backup.as_ref(),
+    ];
+    let mark = marks
+        .into_iter()
+        .flatten()
+        .map(|mark| {
+            style::width_of(ui, |ui| {
+                mark.show(ui);
+            })
+        })
+        .fold(MARK_AT_LEAST, f32::max);
+    let columns = Columns { name, mark };
 
-            ui.label(RichText::new("Activity").weak());
-            ui.vertical(|ui| match badges::activity(row, now) {
-                Some((age, dirty)) => {
-                    mark_line(ui, &age);
-                    match dirty {
-                        Some(dirty) => mark_line(ui, &dirty),
-                        None => weak_line(ui, "A clean working tree"),
-                    }
-                }
-                None if row.awaits_git() => weak_line(ui, "Git has not been asked yet"),
-                None => weak_line(ui, "Not a git repository"),
-            });
-            ui.end_row();
-
-            ui.label(RichText::new("Hosting").weak());
-            ui.vertical(|ui| {
-                mark_line(ui, &badges::hosting(row, now));
-                if let Some(remote) = &badges.remote {
-                    weak_line(ui, format!("origin {remote}"));
-                }
-                if let Some(mark) = badges::sync(row, now) {
-                    mark_line(ui, &mark);
-                }
-                match &portfolio.account {
-                    Some(fetched) => {
-                        let age = short_age(now - fetched.at);
-                        match &fetched.value {
-                            Ok(_) => weak_line(
-                                ui,
-                                format!(
-                                    "GitHub read {age} ago; it is asked daily and on F5, never \
-                                     fetched from"
-                                ),
-                            ),
-                            Err(e) => weak_line(ui, format!("GitHub could not be asked: {e}")),
-                        }
-                    }
-                    None => weak_line(ui, "GitHub not read yet: it is asked daily and on F5"),
-                }
-            });
-            ui.end_row();
-
-            ui.label(RichText::new("Health").weak());
-            ui.vertical(|ui| {
-                match badges::ci(row, now) {
-                    Some(mark) => mark_line(ui, &mark),
-                    None => weak_line(ui, "No GitHub Actions workflows"),
-                }
-                match (&badges.licence, badges::licence_warning(row)) {
-                    (_, Some(warning)) => mark_line(ui, &warning),
-                    (Some(file), None) => weak_line(ui, format!("Licence: {file}")),
-                    (None, None) => weak_line(ui, "No licence file at the root"),
-                }
-            });
-            ui.end_row();
-
-            ui.label(RichText::new("Backup").weak());
-            ui.vertical(|ui| {
-                match badges::backup(row, now) {
-                    Some(mark) => mark_line(ui, &mark),
-                    None if portfolio.backup.is_none() => weak_line(
-                        ui,
-                        "No backup job is set: crw setting backup_settings <its settings file>",
-                    ),
-                    None => weak_line(ui, "Not read yet"),
-                }
-                if let Some(backup) = &badges.backup
-                    && !backup.excluded.is_empty()
-                {
-                    weak_line(
-                        ui,
-                        format!("The job leaves out: {}", backup.excluded.join(", ")),
-                    );
-                }
-                if let Some(job) = &portfolio.backup {
-                    let target = match &job.job {
-                        Ok(settings) => format!(
-                            "target {} ({})",
-                            settings.target.display(),
-                            if job.mounted {
-                                "mounted"
-                            } else {
-                                "not mounted"
-                            }
-                        ),
-                        Err(e) => format!("its settings could not be read: {e}"),
-                    };
-                    let run = match job.last_run() {
-                        Some(run) => format!(
-                            "; the last run ended {} ago: {}",
-                            short_age(now - run.at),
-                            run.status
-                        ),
-                        None => String::new(),
-                    };
-                    weak_line(ui, format!("The job's {target}{run}"));
-                }
-            });
-            ui.end_row();
+    columns.subsection(ui, SUBSECTIONS[0], |ui| {
+        ui.horizontal_wrapped(|ui| {
+            if badges.stack.is_empty() {
+                ui.label(RichText::new("No manifest at the root or one folder down").weak());
+            }
+            for chip in &badges.stack {
+                style::chip(ui, &chip.text(), style::stack_colour(chip.kind))
+                    .on_hover_text(&chip.source);
+            }
         });
+    });
+    divider(ui);
+
+    columns.subsection(ui, SUBSECTIONS[1], |ui| match &activity {
+        Some((age, dirty)) => {
+            columns.mark_line(ui, age);
+            match dirty {
+                Some(dirty) => columns.mark_line(ui, dirty),
+                None => columns.weak_line(ui, "A clean working tree"),
+            }
+        }
+        None if row.awaits_git() => columns.weak_line(ui, "Git has not been asked yet"),
+        None => columns.weak_line(ui, "Not a git repository"),
+    });
+    divider(ui);
+
+    columns.subsection(ui, SUBSECTIONS[2], |ui| {
+        columns.mark_line(ui, &hosting);
+        if let Some(remote) = &badges.remote {
+            columns.weak_line(ui, format!("origin {remote}"));
+        }
+        if let Some(mark) = &sync {
+            columns.mark_line(ui, mark);
+        }
+        match &portfolio.account {
+            Some(fetched) => {
+                let age = short_age(now - fetched.at);
+                match &fetched.value {
+                    Ok(_) => columns.weak_line(
+                        ui,
+                        format!(
+                            "GitHub read {age} ago; it is asked daily and on F5, never fetched \
+                             from"
+                        ),
+                    ),
+                    Err(e) => columns.weak_line(ui, format!("GitHub could not be asked: {e}")),
+                }
+            }
+            None => columns.weak_line(ui, "GitHub not read yet: it is asked daily and on F5"),
+        }
+    });
+    divider(ui);
+
+    columns.subsection(ui, SUBSECTIONS[3], |ui| {
+        match &ci {
+            Some(mark) => columns.mark_line(ui, mark),
+            None => columns.weak_line(ui, "No GitHub Actions workflows"),
+        }
+        match (&badges.license, &warning) {
+            (_, Some(warning)) => columns.mark_line(ui, warning),
+            (Some(file), None) => columns.weak_line(ui, format!("License: {file}")),
+            (None, None) => columns.weak_line(ui, "No license file at the root"),
+        }
+    });
+    divider(ui);
+
+    columns.subsection(ui, SUBSECTIONS[4], |ui| {
+        match &backup {
+            Some(mark) => columns.mark_line(ui, mark),
+            None if portfolio.backup.is_none() => columns.weak_line(
+                ui,
+                "No backup job is set: crw setting backup_settings <its settings file>",
+            ),
+            None => columns.weak_line(ui, "Not read yet"),
+        }
+        if let Some(backup) = &badges.backup
+            && !backup.excluded.is_empty()
+        {
+            columns.weak_line(
+                ui,
+                format!("The job leaves out: {}", backup.excluded.join(", ")),
+            );
+        }
+        if let Some(job) = &portfolio.backup {
+            let target = match &job.job {
+                Ok(settings) => format!(
+                    "target {} ({})",
+                    settings.target.display(),
+                    if job.mounted {
+                        "mounted"
+                    } else {
+                        "not mounted"
+                    }
+                ),
+                Err(e) => format!("its settings could not be read: {e}"),
+            };
+            let run = match job.last_run() {
+                Some(run) => format!(
+                    "; the last run ended {} ago: {}",
+                    short_age(now - run.at),
+                    run.status
+                ),
+                None => String::new(),
+            };
+            columns.weak_line(ui, format!("The job's {target}{run}"));
+        }
+    });
 }
 
 /// The item's meta line: its form, file and line, gate, state and origin.

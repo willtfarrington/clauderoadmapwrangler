@@ -1,4 +1,4 @@
-//! Health (D-25): a licence file at the project's root, and for a GitHub repository with
+//! Health (D-25): a license file at the project's root, and for a GitHub repository with
 //! workflows the latest GitHub Actions run, from one `gh run list`. Code scanning and dependency
 //! alerts are parked (v2 notes).
 
@@ -15,8 +15,8 @@ use crate::process;
 /// The fields `gh run list` is asked for.
 const RUN_FIELDS: &str = "conclusion,status,createdAt,workflowName,headSha";
 
-/// The licence file at the root, by name: `LICENSE`, `LICENSE.md`, `LICENCE`, `COPYING`, ….
-pub fn licence(folder: &Path) -> Option<String> {
+/// The license file at the root, by name: `LICENSE`, `LICENSE.md`, `LICENCE`, `COPYING`, ….
+pub fn license(folder: &Path) -> Option<String> {
     let mut names: Vec<String> = fs::read_dir(folder)
         .ok()?
         .flatten()
@@ -126,15 +126,15 @@ mod tests {
     use crate::files::tests::Scratch;
 
     #[test]
-    fn finds_the_licence_and_the_workflows() {
+    fn finds_the_license_and_the_workflows() {
         let scratch = Scratch::new("health-files");
         let root = &scratch.0;
-        assert_eq!(licence(root), None);
+        assert_eq!(license(root), None);
         assert_eq!(workflows(root), 0);
         fs::write(root.join("LICENSE-MIT"), "").unwrap();
         fs::write(root.join("Licence.md"), "").unwrap();
         fs::write(root.join("licensing-notes.txt"), "").unwrap();
-        assert_eq!(licence(root).as_deref(), Some("LICENSE-MIT"));
+        assert_eq!(license(root).as_deref(), Some("LICENSE-MIT"));
         let flows = root.join(".github").join("workflows");
         fs::create_dir_all(&flows).unwrap();
         for name in ["ci.yml", "pages.YAML", "README.md"] {

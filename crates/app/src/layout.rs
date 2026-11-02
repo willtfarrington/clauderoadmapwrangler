@@ -192,7 +192,7 @@ fn placeholder(ui: &mut egui::Ui, text: &str) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::collections::HashMap;
 
     use eframe::Storage as _;
@@ -202,7 +202,7 @@ mod tests {
     /// eframe's file storage without the file, so the tests go through the same RON encoding
     /// the app writes.
     #[derive(Default)]
-    struct MemoryStorage(HashMap<String, String>);
+    pub(crate) struct MemoryStorage(HashMap<String, String>);
 
     impl eframe::Storage for MemoryStorage {
         fn get_string(&self, key: &str) -> Option<String> {

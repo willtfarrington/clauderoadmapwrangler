@@ -72,7 +72,7 @@ pub struct Fetched<T> {
 #[derive(Debug, Clone)]
 pub struct Badges {
     pub stack: Vec<Chip>,
-    pub licence: Option<String>,
+    pub license: Option<String>,
     /// Workflow files in `.github/workflows`.
     pub workflows: usize,
     /// The origin's URL, from `.git/config`.
@@ -89,7 +89,7 @@ impl Default for Badges {
     fn default() -> Self {
         Self {
             stack: Vec::new(),
-            licence: None,
+            license: None,
             workflows: 0,
             remote: None,
             hosting: Hosting::Local,
@@ -106,7 +106,7 @@ impl Badges {
     fn read(folder: &Path) -> Self {
         Self {
             stack: stack::read(folder),
-            licence: health::licence(folder),
+            license: health::license(folder),
             workflows: health::workflows(folder),
             remote: git::remote_url(folder, "origin"),
             ..Self::default()
@@ -1298,7 +1298,7 @@ mod tests {
         let harbor = portfolio.project("harbor").unwrap();
         let kinds: Vec<Kind> = harbor.badges.stack.iter().map(|chip| chip.kind).collect();
         assert_eq!(kinds, [Kind::Rust, Kind::PowerShell]);
-        assert_eq!(harbor.badges.licence.as_deref(), Some("LICENSE"));
+        assert_eq!(harbor.badges.license.as_deref(), Some("LICENSE"));
 
         let shown = |portfolio: &Portfolio, sort, filter: Filter<'_>| -> Vec<Vec<String>> {
             portfolio

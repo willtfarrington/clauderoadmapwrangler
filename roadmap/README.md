@@ -56,7 +56,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-5 | [Owner tasks and inbox files: `owner-tasks.md` and `inbox.md` read and tick by byte range, `Handed on (to …)` extraction, the seven legacy forms read-only](EP-5-owner-tasks-and-inbox.md) (D-10, D-11, D-13) | M | EP-4 | core | ☑ `7bbf169` |
 | EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☑ `1b5bfca` |
 | EP-7 | [Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health](EP-7-badges-and-status.md) (D-24, D-25) | M | EP-6 | core | ☑ `47a2199` |
-| EP-7a | List and detail polish: columns sized to their content under a header row, a toggle for the badges' legend, the Status section laid out by subsection, one spelling of license (D-25) | M | EP-7 | core | ☐ |
+| EP-7a | [List and detail polish: columns sized to their content under a header row, a toggle for the badges' legend, the Status section laid out by subsection, one spelling of license](EP-7a-list-and-detail-polish.md) (D-25) | M | EP-7 | core | ☐ |
 | EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☐ |
 
 Ordering rationale: the dashboard is useful read-only from EP-6 and shows this project's own next EP
@@ -235,6 +235,11 @@ only its own files inside a managed project).
   the counts give way), and the setup gained `sort=`, `stack=` and `hosting=` for the pictures.
   **From IN-4 (2026-11-01):** EP-7a joined P1 at the owner's request, so the plan's totals above
   (32 briefs, 18 M) are recounted here, and the README's pictures show EP-7a's layout.
+  **From EP-7a:** the screenshot setup gained `legend` (the key open at the foot of the Projects
+  pane); at 1600 × 1000 the compact badges show with the counts given way and the key takes two
+  lines, at 2300 × 1000 every column is named and the whole key fits on one line, and at 1100 the
+  optional columns are gone and the key scrolls; OT-3, the owner's look at the real portfolio, is
+  gated before EP-8 so that its notes reach the pictures.
 
 ## Phase P2 — Sessions (planned 2026-10-31)
 
