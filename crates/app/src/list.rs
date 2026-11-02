@@ -221,7 +221,7 @@ impl Widths {
         for row in &portfolio.projects {
             widths.fit(ui, Column::Name, |ui| name_label(ui, row.name()));
             widths.fit(ui, Column::State, |ui| state_cell(ui, row, now));
-            widths.fit(ui, Column::Session, |ui| session_cell(ui, row));
+            widths.fit(ui, Column::Session, |ui| session_cell(ui, row, None));
             if row.folder.is_none() {
                 continue;
             }
@@ -420,14 +420,19 @@ impl Board {
                     }
                     for &member in &group.members {
                         match member {
-                            Member::Project(i) => actions.extend(project_row(
-                                ui,
-                                &self.portfolio.projects[i],
-                                &self.view,
-                                &plan,
-                                self.scroll_to_selected,
-                                now,
-                            )),
+                            Member::Project(i) => {
+                                let row = &self.portfolio.projects[i];
+                                let live = self.sessions.summary(row.name());
+                                actions.extend(project_row(
+                                    ui,
+                                    row,
+                                    &self.view,
+                                    &plan,
+                                    self.scroll_to_selected,
+                                    live.as_deref(),
+                                    now,
+                                ));
+                            }
                             Member::Folder(i) => {
                                 let folder = &self.portfolio.unadopted[i];
                                 actions.extend(folder_row(
@@ -622,13 +627,15 @@ fn background(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) {
     }
 }
 
-/// One project's row, and below it the inline expansion when it is open.
+/// One project's row, and below it the inline expansion when it is open; `scroll` brings it
+/// into view, and `live` is what the window's own sessions say of the project.
 fn project_row(
     ui: &mut egui::Ui,
     row: &ProjectRow,
     view: &View,
     plan: &Plan,
     scroll: bool,
+    live: Option<&str>,
     now: DateTime<Utc>,
 ) -> Vec<Action> {
     let mut actions = Vec::new();
@@ -720,18 +727,31 @@ fn project_row(
         plan.draw(ui, rect, Column::Health, |ui| health_cell(ui, row, now));
         plan.draw(ui, rect, Column::Backup, |ui| backup_cell(ui, row, now));
     }
-    plan.draw(ui, rect, Column::Session, |ui| session_cell(ui, row));
+    plan.draw(ui, rect, Column::Session, |ui| session_cell(ui, row, live));
     plan.draw(ui, rect, Column::Autopilot, |ui| {
         let mut on = row.project.autopilot.enabled;
         ui.add_enabled(false, Checkbox::without_text(&mut on))
             .on_disabled_hover_text("Autopilot: arrives at EP-19 (A)");
     });
     plan.draw(ui, rect, Column::Start, |ui| {
-        ui.add_enabled(
-            false,
+        let next = row.folder.as_ref().and(row.next());
+        let button = ui.add_enabled(
+            next.is_some(),
             egui::Button::new(style::icon(icons::ICON_PLAY_ARROW, None)),
-        )
-        .on_disabled_hover_text("Start: arrives at EP-10 with the launch dialog (S)");
+        );
+        match next {
+            Some(next) => {
+                if button
+                    .on_hover_text(format!("Start {}: the launch dialog (S)", next.id))
+                    .clicked()
+                {
+                    actions.push(Action::OpenLaunch(name.to_owned()));
+                }
+            }
+            None => {
+                button.on_disabled_hover_text("Nothing to start: the project has no next brief");
+            }
+        }
     });
 
     if response.double_clicked() {
@@ -914,10 +934,15 @@ fn backup_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
 }
 
 /// A session in progress, or a repository git has not been asked about yet.
-fn session_cell(ui: &mut egui::Ui, row: &ProjectRow) {
-    let reasons = row.in_progress();
-    if !reasons.is_empty() {
-        let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+/// A session in progress, by the files' evidence (D-9) or because this window runs one (`live`,
+/// the sessions' own words).
+fn session_cell(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>) {
+    let texts: Vec<String> = live
+        .map(str::to_owned)
+        .into_iter()
+        .chain(row.in_progress().iter().map(ToString::to_string))
+        .collect();
+    if !texts.is_empty() {
         SESSION.show(ui, &format!("Session in progress: {}", texts.join("; ")));
     } else if row.awaits_git() {
         GIT_PENDING.show(ui, "Git has not been asked yet");

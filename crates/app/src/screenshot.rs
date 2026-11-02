@@ -21,15 +21,19 @@
 //! - `sort=<key>` (`priority`, `completion`, `remaining`, `last-activity`, `hosting`, `name`);
 //!   `stack=<stack>` (`rust`, `python`, … or the chip's letters) and `hosting=<class>` (`public`,
 //!   `private`, `remote`, `local`), each adding to its filter;
+//! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
 //! readings come from [`FAKES`], set against the run's own clock ([`readings`]); their stack chips
-//! and licenses are read from the fixtures' own files. A run never starts the GitHub pass.
+//! and licenses are read from the fixtures' own files. A run never starts the GitHub pass. The
+//! launch dialog reads the synthetic model catalog in `fixtures/model-catalog` and a canned
+//! preflight, never the real CLI, and a run starts no session.
 
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
 use chrono::{DateTime, TimeDelta, Utc};
@@ -129,6 +133,12 @@ impl Run {
         let board = dashboard.board_mut();
         board.fixtures = true;
         board.home_note = Some("screenshot run".to_owned());
+        board.sessions.canned = Some(Arc::new(crate::launch::canned_preflight()));
+        board.catalog_folder = Some(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .join("model-catalog"),
+        );
         for flag in &self.flags {
             let (name, value) = flag.split_once('=').unwrap_or((flag.as_str(), ""));
             let board = dashboard.board_mut();
@@ -168,6 +178,7 @@ impl Run {
                 "expand" => {
                     board.view.expanded.insert(value.to_owned());
                 }
+                "launch" => board.open_when_read = Some(value.to_owned()),
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),
                     None => eprintln!("screenshot: no pane called {value}"),

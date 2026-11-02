@@ -436,3 +436,73 @@ fn odd_lines_and_a_refused_handshake_do_not_stop_a_run() {
                 && line["response"]["subtype"] == "error")
     );
 }
+
+/// Whether `value` holds the string `text` anywhere inside it.
+fn holds(value: &Value, text: &str) -> bool {
+    match value {
+        Value::String(s) => s == text,
+        Value::Array(items) => items.iter().any(|item| holds(item, text)),
+        Value::Object(map) => map.values().any(|item| holds(item, text)),
+        _ => false,
+    }
+}
+
+/// The way the launch dialog launches (EP-10): a project's draft, its resolution in the launch,
+/// its generated prompt sent whole as the session's first message, the run in the ledger.
+#[test]
+fn a_drafted_prompt_reaches_the_session_whole() {
+    use crw_core::registry::{Project, Registry, State};
+    use crw_core::{prompt, roadmap::snapshot};
+
+    let house = Path::new(env!("CARGO_MANIFEST_DIR")).join("fixtures/projects/house");
+    let registry = Registry {
+        format: 1,
+        ignore: Vec::new(),
+        settings: Default::default(),
+        rules: Vec::new(),
+        projects: vec![Project::new("house", Path::new("house"), State::Active)],
+    };
+    let draft = prompt::draft(
+        &registry,
+        &registry.projects[0],
+        &snapshot::read_tree(&house),
+        Some("# house\n\n1. **Read first:** the roadmap — then the inbox…\n"),
+        &preflight().flags.as_ref().unwrap().efforts,
+        "2026-11-02",
+    )
+    .unwrap();
+    assert!(draft.prompt.text.contains("`roadmap/EP-3-parser.md`"));
+    assert!(draft.prompt.text.contains("the roadmap — then the inbox…"));
+
+    let scratch = Scratch::new("drafted", "prompt-only");
+    let ledger = scratch.0.join("ledger.sqlite");
+    let resolution = &draft.resolution;
+    let mut launch = Launch::new(
+        "house",
+        &scratch.project(),
+        &resolution.model.value,
+        &draft.prompt.text,
+    );
+    launch.ep = Some(draft.ep.to_string());
+    launch.effort = resolution.effort.value.clone();
+    launch.permission_mode = resolution.permission_mode.value.clone();
+    launch.ledger = Some(ledger.clone());
+    let session = Session::start(preflight(), launch).unwrap();
+    let events = to_the_end(&session, |_| None);
+    assert_eq!(ended(&events).outcome, Outcome::Completed);
+
+    let read = scratch.read();
+    assert!(
+        read.iter().any(|line| holds(line, &draft.prompt.text)),
+        "the prompt did not arrive whole: {read:?}"
+    );
+    let record = scratch.record();
+    let args = &record[0]["args"];
+    assert_eq!(after(args, "--model"), ["fable"]);
+    assert_eq!(after(args, "--effort"), ["xhigh"]);
+    assert_eq!(after(args, "--name"), ["house EP-3"]);
+    let rows = Ledger::open(&ledger).unwrap().sessions().unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].ep.as_deref(), Some("EP-3"));
+    assert_eq!(rows[0].outcome.as_deref(), Some("completed"));
+}

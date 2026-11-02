@@ -21,3 +21,10 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   Anything to adjust goes to `roadmap/inbox.md` before EP-8 takes the README's pictures; the gaps'
   share of a wide window is one constant (`list.rs`). The session checked only the fake portfolio
   (rule 5) [before EP-8]
+- [ ] OT-4 (EP-10, 2026-11-02) Open Roadmap Wrangler, select a project and press S (or its row's
+  Start button): the launch dialog should show the model, effort, permission mode and prompt that
+  `target\release\crw.exe prompt <project>` prints, and its Claude line the installed CLI, logged
+  in. A first real headless run is optional and spends usage: Start headless, then watch the
+  Sessions pane; a request waits in the Decisions pane until EP-14, Stop ends the session, and the
+  ledger keeps its row. Notes for the dialog go to `roadmap/inbox.md`. The session checked the
+  dialog only on the fake portfolio and started no real session (rule 5) [before EP-11]

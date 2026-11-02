@@ -133,7 +133,7 @@ fn project(
             });
     }
 
-    next_brief(ui, row);
+    next_brief(ui, row, actions);
     progress(ui, snapshot);
     status(ui, row, portfolio);
     owner_items(ui, row, actions);
@@ -143,7 +143,7 @@ fn project(
     problems(ui, row);
 }
 
-fn next_brief(ui: &mut egui::Ui, row: &ProjectRow) {
+fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
     let snapshot = &row.snapshot;
     let Some(roadmap) = snapshot.current() else {
         section(ui, "Roadmap");
@@ -165,6 +165,13 @@ fn next_brief(ui: &mut egui::Ui, row: &ProjectRow) {
     };
     section(ui, "Next brief");
     ui.horizontal_wrapped(|ui| {
+        if ui
+            .button(style::icon(icons::ICON_PLAY_ARROW, None))
+            .on_hover_text(format!("Start {}: the launch dialog (S)", next.id))
+            .clicked()
+        {
+            actions.push(Action::OpenLaunch(row.name().to_owned()));
+        }
         ui.label(RichText::new(next.id.to_string()).monospace().strong());
         if let Some(size) = next.size {
             ui.label(RichText::new(size.as_str()).strong());

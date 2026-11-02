@@ -673,7 +673,7 @@ fn key_group(ui: &mut egui::Ui, index: usize) {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
 
     use chrono::TimeDelta;
     use crw_core::badges::activity::Activity;
@@ -690,16 +690,7 @@ mod tests {
 
     fn row(badges: Badges) -> ProjectRow {
         ProjectRow {
-            project: Project {
-                name: "alpha".to_owned(),
-                path: PathBuf::from("alpha"),
-                state: State::Active,
-                priority: 3,
-                pinned: false,
-                launch: Default::default(),
-                autopilot: Default::default(),
-                neighbours: Vec::new(),
-            },
+            project: Project::new("alpha", Path::new("alpha"), State::Active),
             path: PathBuf::from("alpha"),
             folder: Some(Folder {
                 name: "alpha".to_owned(),

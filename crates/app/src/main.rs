@@ -1,7 +1,7 @@
 //! clauderoadmapwrangler's desktop window (D-14, D-25): the docking layout over the portfolio,
 //! read-only but for the writes the tool owns (D-11). EP-6 brought the shell, the project list,
-//! the detail pane and the `screenshot` feature's capture, EP-7 the badges; later briefs fill the
-//! other tiles.
+//! the detail pane and the `screenshot` feature's capture, EP-7 the badges, EP-10 the launch
+//! dialog and the headless sessions it starts; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -9,12 +9,14 @@
 mod badges;
 mod board;
 mod detail;
+mod launch;
 mod layout;
 mod list;
 mod markup;
 mod portfolio;
 #[cfg(feature = "screenshot")]
 mod screenshot;
+mod sessions;
 mod style;
 
 use crw_core::paths;

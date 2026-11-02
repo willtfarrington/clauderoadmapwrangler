@@ -253,7 +253,7 @@ only its own files inside a managed project).
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
 | EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☑ `71b2076` |
-| EP-10 | Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☐ |
+| EP-10 | [Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch](EP-10-prompt-and-launch-dialog.md) (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☐ |
 | EP-33 | Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed (D-6, D-7) | S | EP-2 | core | ☐ |
 | EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
 | EP-12 | Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model (D-20, D-23) | M | EP-9 | core | ☐ |
@@ -357,7 +357,12 @@ every commit's added lines are checked before it is made, the repository being p
   the project folder instead of generating one under `%APPDATA%` (the D-16 addendum written at EP-8);
   generate one only when no such file exists. **From EP-8:** every project has its file today (the
   data root holds seventeen: each project's, the vault's and the aggregate), in the form EP-33 writes
-  for an adopted folder; a missing one is generated through EP-33's writer.
+  for an adopted folder; a missing one is generated through EP-33's writer. **From EP-10:** the
+  dialog's Visual button waits, disabled, in its footer (`app::launch::Dialog`); the text to send is
+  `Dialog::prompt` as the owner left it, the same for both launches, and `prompt::draft` with
+  `Dialog::new` opens the dialog; the opener says "launched from clauderoadmapwrangler … with
+  <model> at <effort>", which a visual launch chooses in VS Code instead, so the brief words that
+  sentence for it. Until then `crw prompt <project>` prints the opener for pasting by hand.
 - **EP-12.** `app::server`: axum on `127.0.0.1:<port>` (port in the registry, default 47831), routes
   `POST /hook`, `POST /statusline`, `GET /health`; `cli hook` reads the hook JSON from stdin and posts it
   with a 500 ms timeout, exiting 0 silently on any error; `cli statusline` does the same for the
@@ -376,6 +381,9 @@ every commit's added lines are checked before it is made, the repository being p
   and next-EP row gives on-demand cross-project context (the owner's wish; here, or at EP-20 if it
   needs the mailman's registry lookups). **From EP-8:** a running session joins the snapshot's
   in-progress reasons (`roadmap::snapshot`) as the source D-9's EP-4 addendum left to this brief.
+  **From EP-10:** the sessions the window starts already mark their rows in progress
+  (`app::sessions::Sessions::summary`, joined into the Session cell's reasons), so the state model
+  takes those from `board.sessions` and adds the ones the hooks and `claude agents --json` report.
 - **EP-13.** The sessions tile: one tab per live or recent session; transcript rendering from the stream
   (assistant text, tool calls as one-line summaries, tool results collapsed, partial messages appended);
   Stop (graceful) and Kill; Resume by session id for a headless session that ended with a deferred tool use
@@ -389,7 +397,12 @@ every commit's added lines are checked before it is made, the repository being p
   last `Exited(Ended)` with the outcome, the exit code, the result and stderr's last lines; Stop and
   Kill are `Session::stop()` and `kill()`. A run closes its stdin at its result (D-16 addendum), so
   Resume is a new launch with `--resume <id>`, a `Launch` field this brief adds; the runner starts
-  and finishes the ledger row (`Ledger::sessions()` reads them).
+  and finishes the ledger row (`Ledger::sessions()` reads them). **From EP-10:** the Sessions pane
+  lists the window's sessions in plain lines until this tile (`app::sessions`: a `Live` keeps the
+  handle, the last line, the waiting requests and the notices; `Sessions::receive` drains every
+  session's events each frame and asks for a frame every 250 ms while one runs; a start comes back
+  as `Started` from a worker thread); the tile replaces `session_card` with the transcript and
+  keeps Stop, Kill and Dismiss.
 - **EP-14.** The decisions tile: `control_request` → `can_use_tool` handling in the adapter; for
   `AskUserQuestion` the questions are rendered with their options (single or multi-select, free text),
   the answer sent as `updatedInput` with `answers`; for permission requests Allow / Deny with the tool name
@@ -407,7 +420,9 @@ every commit's added lines are checked before it is made, the repository being p
   `Event::Handshake(Err(_))` is the protocol failure that selects the fallback; a refused tool use is
   `Event::Denied` with the CLI's reason; `Outcome::Deferred` and `Finish::is_deferred()` exist; CLI
   2.1.316 names `ask_user_question_unanswered_v1` among its capabilities, which this brief reads up
-  on.
+  on. **From EP-10:** the Decisions pane lists each waiting request read-only (`sessions::request_card`
+  over `Live::waiting`, the tab's title counting them), so the tile adds the answers there, through
+  `Session::respond` on the `Live`'s handle.
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned
@@ -417,6 +432,10 @@ every commit's added lines are checked before it is made, the repository being p
   ledger. **From EP-7:** the badge events have their readings: `Hosting::needs_attention()` (an orphan
   or a missing repository), `Verdict::{Diverged, NotFetched}` of a current head check, and
   `backup::State::{Stale, Failing, NotCovered}`; they reach the window through `portfolio::Loader`.
+  **From EP-10 (the owner's answer at its close):** closing the window kills every headless session
+  it started (the runner kills a session whose handle is dropped, D-16 addendum), and only the
+  dialog's footer and the start's notice say so; close-to-tray must keep the window's sessions
+  (`board.sessions`) alive, and Quit says how many it stops.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -469,7 +488,10 @@ a running session).
   sessions the owner starts get the status-line cost estimate only. **From EP-7:** the usage-share
   badge joins the row's badge column as one more of its own columns (`list::FULL`, `list::COMPACT`),
   a line of the Detail pane's Status section, and the sort key `SortKey::UsageShare`, which waits
-  for it (`arrives_at`).
+  for it (`arrives_at`). **From EP-10:** the resolver is `rules::resolve` in layers (the default,
+  the project's launch defaults, the first global rule, the first project rule), each value a
+  `Choice` with its `Source`; the downshift is one more layer with a `Source` of its own, its place
+  among the others this brief's call, and the dialog shows `Choice::reason()` as it is.
 - **EP-19.** `core::autopilot`: per-project toggle in the list and the registry; after a headless run's
   result the gate is evaluated and logged (every failed condition named): autopilot on; outcome completed
   and a completion note found in the parsed brief; no open owner task with `before EP-<next>`; next EP not
@@ -483,7 +505,11 @@ a running session).
   a global Pause (tray, window, and automatic at the pause threshold with resume after `resets_at`); a chain
   log tile section (what ran, why it stopped). **From EP-9:** a cap stops a run with
   `Session::stop()` (the interrupt, then the launch's `stop_timeout` before the kill); CLI 2.1.316
-  lists `--max-budget-usd`, passed when `Launch::max_budget_usd` is set.
+  lists `--max-budget-usd`, passed when `Launch::max_budget_usd` is set. **From EP-10:** the commit
+  variant replaces rule 5 of `prompt::session_rules` ("Stop before committing"); a chained run is
+  drafted and launched as the dialog does it (`prompt::draft`, then the `session::Launch` that
+  `launch::Dialog::launch` builds), and the window already holds and drains its sessions
+  (`app::sessions`).
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)

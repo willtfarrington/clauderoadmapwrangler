@@ -51,18 +51,11 @@ impl Pane {
             .find(|p| p.title().eq_ignore_ascii_case(name))
     }
 
-    /// What a pane that later briefs fill will hold.
+    /// What a pane that later briefs fill will hold. The Decisions and Sessions panes list the
+    /// window's headless sessions until their tiles arrive (EP-13, EP-14).
     fn placeholder(self) -> Option<&'static str> {
         match self {
-            Pane::Projects | Pane::Detail => None,
-            Pane::Decisions => Some(
-                "The decisions tile arrives at EP-14: a headless session's questions and \
-                 permission requests, answered here or deferred.",
-            ),
-            Pane::Sessions => Some(
-                "The sessions tile arrives at EP-13: the live transcript of each session the tool \
-                 starts, with Stop and Resume.",
-            ),
+            Pane::Projects | Pane::Detail | Pane::Decisions | Pane::Sessions => None,
             Pane::Chat => Some(
                 "The chat tile arrives at EP-24: a read-only Claude Code session over the whole \
                  portfolio, which hands its writes to a session in the project.",
@@ -155,13 +148,19 @@ pub fn show(tree: &mut Tree<Pane>, pane: Pane) {
 }
 
 impl egui_tiles::Behavior<Pane> for Board {
-    /// The Detail tab carries the selection's name.
+    /// The Detail tab carries the selection's name; Decisions and Sessions their counts.
     fn tab_title_for_pane(&mut self, pane: &Pane) -> egui::WidgetText {
         match pane {
             Pane::Detail => match self.selected_name() {
                 Some(name) => format!("Detail · {name}").into(),
                 None => "Detail".into(),
             },
+            Pane::Decisions if self.sessions.waiting() > 0 => {
+                format!("Decisions · {}", self.sessions.waiting()).into()
+            }
+            Pane::Sessions if !self.sessions.live.is_empty() => {
+                format!("Sessions · {}", self.sessions.live.len()).into()
+            }
             pane => pane.title().into(),
         }
     }
@@ -172,6 +171,8 @@ impl egui_tiles::Behavior<Pane> for Board {
             .show(ui, |ui| match pane {
                 Pane::Projects => self.projects_pane(ui),
                 Pane::Detail => self.detail_pane(ui),
+                Pane::Decisions => self.decisions_pane(ui),
+                Pane::Sessions => self.sessions_pane(ui),
                 pane => placeholder(ui, pane.placeholder().unwrap_or_default()),
             });
         UiResponse::None

@@ -281,6 +281,15 @@ everything.
 > 2.1.261: the adapter is known to need nothing newer. *Alternatives.* A fixed list of markers;
 > probing flags with a made-up option; raising the minimum to 2.1.316, the one version tried.
 
+> **Addendum (2026-11-02, EP-10).** The launch dialog's models come from the catalog Claude Code
+> caches in `~\.claude\cache\model-catalog\` (format 2; the CLI's surface preferred, then the latest
+> fetched; the files' names carry account identifiers, which the tool never keeps or shows): the
+> main section first, each model with its effort levels and the oldest CLI it runs on, the aliases
+> resolved; a built-in list of the four main models stands in when no file reads. The dialog offers
+> the effort levels both the model and the CLI's help list, ultracode only when the help lists it,
+> and the help's permission modes, and says when a model needs a newer CLI than the one asked.
+> *Alternatives.* The built-in list alone; the CLI's current model setting as the default.
+
 ## Sessions
 
 **D-16 Launch surfaces and cwd.** v1 offers **Visual** (the VS Code extension's
@@ -313,6 +322,16 @@ workspace file's first folder.
 > *Alternatives.* Keeping stdin open for further messages to the same process; a stop without the
 > interrupt.
 
+> **Addendum (2026-11-02, EP-10).** Until the sessions tile (EP-13) and the decisions tile (EP-14),
+> the window holds each headless session it starts (the owner's choice): the row's Session column
+> marks it in progress, the Sessions pane lists it in plain lines (running, waiting for an answer,
+> stopping, or how it ended; its last line of text; the wishes the CLI dropped) with Stop, Kill and
+> Dismiss, and the Decisions pane lists what it waits on, read-only. A request waits until the
+> session is stopped, and closing the window kills whatever still runs. A start runs on a worker
+> thread, which waits for the turn and the spacing (D-29); a screenshot run starts nothing.
+> *Alternatives.* Bare answers in the Decisions pane at once (part of EP-14); every request denied
+> at once, the session listing its open decisions in its final message.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -320,6 +339,22 @@ messages and owner tasks with the triage rule; the rules to write the brief firs
 the completion note in the new form, and stop before committing (or commit and record the hash when the
 autopilot holds the standing yes, D-22). *Why.* The prompt is the one place the tool can carry the method
 into a session without editing `CLAUDE.md` files. *Alternatives.* "Execute EP-n" alone; templates only.
+
+> **Addendum (2026-11-02, EP-10).** The opener (`core::prompt`) names the project and its folder and
+> the date, model and effort the session runs with, for its front matter and its completion note;
+> quotes the read-first rule of the project's `CLAUDE.md` (the list item or paragraph that opens with
+> **Read first**, or a section headed read order, load order or read first), else the house
+> default; gives the next row, its brief notes verbatim, its brief when one is written (picked up,
+> not rewritten) and the last completed brief; lists the open owner tasks and inbox messages as
+> written, names the tasks gated at or before this brief as due, and adds the triage rule while a
+> message is open; and ends on five rules: the brief first, the project's `CLAUDE.md`, owner
+> decisions through `AskUserQuestion`, the completion note with owner tasks and hand-offs, and stop
+> before committing. A template in `[project.launch] template` uses the opener's parts as
+> placeholders (`{ep}`, `{note}`, … and `{opener}` for the whole), `{{` and `}}` for braces; a name
+> the tool does not fill stays as written and is reported. The dialog regenerates the prompt as
+> the choices change until the owner edits it, and copies it; `crw prompt <project>` prints it with
+> the resolution. *Alternatives.* The older forms' owner items in the prompt; a template file per
+> project; one global template.
 
 **D-18 Permissions for headless runs.** `--permission-mode acceptEdits --permission-prompts host`: edits
 inside the project pass; shell commands outside the project's allow rules, network and writes elsewhere
@@ -400,6 +435,20 @@ resumes after the reset; a global Pause in the tray and the window. *Why.* Unatt
 owner's commit rule, the owner's attention and the plan's limits. *Alternatives.* Chaining on success
 alone; never chaining without a click; the owner committing in VS Code with the autopilot waiting; the tool
 committing and recording hashes; one model and effort per project; usage thresholds as the only cap.
+
+> **Addendum (2026-11-02, EP-10).** The rule table is `[[rule]]` (global) and `[[project.rule]]`
+> (per project) in `registry.toml`: `match` by `size`, by `phase` (the heading's id) and by `title`
+> keywords, any of which the title holds, case aside (the owner's choice over a regular expression,
+> which would add a crate), every condition given holding; `set` of `model`, `effort` or a relative
+> `effort_step`, and `ultracode`; an optional `name` as its reason. A launch resolves in layers,
+> each value keeping its reason: the tool's default (`fable` at `xhigh`), the project's
+> `[project.launch]` model, effort and permission mode, the first global rule that matches, the
+> first project rule that matches. While the registry lists no global rule, a built-in table stands
+> in: an S brief one effort step lower; it is compiled in and never written into the owner's
+> registry (CLAUDE.md rule 13). A step moves along the CLI's effort levels and holds at their ends;
+> ultracode asked of a CLI that does not list it is turned off, with that reason. *Alternatives.*
+> Title regular expressions; the defaults written into the registry at first use; a project's rules
+> replacing the global table rather than layering over it.
 
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and

@@ -19,8 +19,11 @@ and license, backup age; EP-7a: columns sized to their content under a header ro
 mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. Phase P2, sessions,
 has begun: the session runner (EP-9) starts a headless Claude Code session in a project's folder with
 the project's neighbour folders read-only, reads its stream-json, answers its questions and permission
-requests, stops it with its whole process tree and records it in the ledger; the window starts one from
-EP-10 on. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+requests, stops it with its whole process tree and records it in the ledger; the launch dialog (EP-10)
+generates the house-style opener for a project's next brief, resolves its model, effort and permission
+mode through a rule table with the reason for each, and starts the session from the window, which
+holds it until the sessions and decisions tiles arrive. The roadmap is
+[`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, status, owner tasks and inbox](docs/dashboard-light.png)
@@ -48,6 +51,8 @@ target\release\crw.exe tick <folder> OT-n         # tick an owner task
 target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
 target\release\crw.exe status [--offline]         # every project's badges; asks git, gh, the origins
 target\release\crw.exe setting <key> <value>      # set a registry setting, such as backup_settings
+target\release\crw.exe prompt <folder>  # what a launch of the next brief starts from: the model,
+                                        # effort and permission mode with their reasons, the prompt
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -66,10 +71,16 @@ repository at a time; GitHub (through `gh`) and each origin's head are asked dai
 answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
 only what the tool owns: the registry (Adopt, Ignore, a confirmed state, pin, priority) and the
-ticks in a project's `owner-tasks.md` and `inbox.md`. Built with `--features screenshot` and run with
-`CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio (`crates/app/fixtures/portfolio`), saves a
-picture of its own window and exits; `CRW_SCREENSHOT_SETUP` arranges the view (see
-`crates/app/src/screenshot.rs`).
+ticks in a project's `owner-tasks.md` and `inbox.md`. S, or a row's Start button, opens the launch
+dialog on the selected project's next brief: the generated prompt in an editor, and the model (from
+the catalog Claude Code caches), the effort, ultracode and the permission mode, each with the reason
+the rule table gave it. A project's `[project.launch]` in the registry sets its defaults and a
+prompt `template`; `[[rule]]` tables, global or per project, match a brief by size, phase or title
+words and set its model, effort or an effort step. Start headless runs the session; the Sessions
+pane lists it with Stop and Kill, and the Decisions pane what it waits for. Built with `--features
+screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
+(`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;
+`CRW_SCREENSHOT_SETUP` arranges the view (see `crates/app/src/screenshot.rs`).
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
 desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,

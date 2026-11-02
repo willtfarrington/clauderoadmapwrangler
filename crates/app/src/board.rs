@@ -1,7 +1,8 @@
 //! The window (D-25): a menu bar, the docking layout of panes over one shared [`Board`], and a
 //! status bar. The panes queue what the owner asks for as [`Action`]s, which run after the frame
 //! is drawn: the writes the tool owns (D-7, D-8, D-10, D-11, D-13), each followed by a new read of
-//! the files, and the moves of the selection.
+//! the files, the moves of the selection, and from EP-10 the launch dialog and the headless
+//! sessions it starts (D-16, D-17, D-22).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -11,15 +12,19 @@ use std::time::{Duration, Instant};
 use crw_core::badges::hosting::Class;
 use crw_core::badges::short_age;
 use crw_core::badges::stack::Kind;
+use crw_core::catalog::Catalog;
 use crw_core::discovery::{self, Listing};
 use crw_core::registry::{State, Store};
-use crw_core::{files, inbox, tasks};
+use crw_core::session::cli;
+use crw_core::{files, inbox, prompt, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
 
+use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
+use crate::sessions::{Sessions, Started};
 use crate::style::{self, Density, icons};
 
 const THEME_KEY: &str = "theme";
@@ -119,6 +124,15 @@ pub enum Action {
         id: String,
     },
     Refresh,
+    /// The launch dialog on the project's next brief (S, a row's Start button).
+    OpenLaunch(String),
+    CloseLaunch,
+    /// The dialog's launch, started headless (D-16).
+    StartHeadless,
+    /// The window's sessions, by their number.
+    StopSession(u64),
+    KillSession(u64),
+    DismissSession(u64),
     /// A key or a button of a brief not built yet: a notice that says which.
     NotYet(&'static str),
 }
@@ -144,16 +158,29 @@ pub struct Board {
     /// Dispositions being typed, by project and message id.
     pub drafts: HashMap<(String, String), String>,
     pub actions: Vec<Action>,
+    /// The launch dialog, while it is open.
+    pub launch: Option<Dialog>,
+    /// The headless sessions the window started, and the CLI's preflight.
+    pub sessions: Sessions,
+    /// Where Claude Code caches its model catalog; a screenshot run's is a fixture.
+    pub catalog_folder: Option<PathBuf>,
+    /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
+    pub open_when_read: Option<String>,
+    /// The ledger a session is recorded in.
+    ledger: Option<PathBuf>,
+    ctx: egui::Context,
     notice: Option<(String, Tone, Instant)>,
     error: Option<String>,
     /// The selection moved by a key: the list scrolls it into view once.
     pub scroll_to_selected: bool,
-    bring_detail: bool,
+    /// A pane to bring to the front after the frame.
+    bring: Option<Pane>,
     settle_until: Option<Instant>,
 }
 
 impl Board {
     pub fn new(places: Places, ctx: &egui::Context, view: View, theme: ThemePreference) -> Self {
+        let ledger = places.ledger.clone();
         let mut loader = Loader::new(
             Arc::new(places.store),
             places.ledger,
@@ -172,10 +199,16 @@ impl Board {
             home_note: None,
             drafts: HashMap::new(),
             actions: Vec::new(),
+            launch: None,
+            sessions: Sessions::default(),
+            catalog_folder: Catalog::folder(),
+            open_when_read: None,
+            ledger,
+            ctx: ctx.clone(),
             notice: None,
             error: None,
             scroll_to_selected: false,
-            bring_detail: false,
+            bring: None,
             settle_until: None,
         }
     }
@@ -211,10 +244,36 @@ impl Board {
 
     /// Takes in the worker threads' results and the watcher's news; after a burst of folder
     /// changes settles, reads the files again; once an hour, looks at the GitHub cache's age.
+    /// The sessions' events and a start that came back are taken in too.
     pub fn receive(&mut self, ctx: &egui::Context) {
         if self.loader.receive(&mut self.portfolio) {
             self.settle_until = Some(Instant::now() + SETTLE);
             ctx.request_repaint_after(SETTLE);
+        }
+        match self.sessions.receive(ctx) {
+            Some(Started::Running(text)) => {
+                self.launch = None;
+                self.notify(text);
+                self.bring = Some(Pane::Sessions);
+            }
+            Some(Started::Refused(why)) => {
+                // The CLI may have changed under the tool: the next launch asks it again.
+                self.sessions.forget_preflight();
+                let why = format!("The session did not start: {why}");
+                match self.launch.as_mut() {
+                    Some(dialog) => dialog.error = Some(why),
+                    None => self.fail(why),
+                }
+            }
+            None => {}
+        }
+        if let Some(name) = &self.open_when_read
+            && !self.loader.reading_files
+            && self.portfolio.project(name).is_some()
+        {
+            let name = name.clone();
+            self.open_when_read = None;
+            self.actions.push(Action::OpenLaunch(name));
         }
         #[cfg(feature = "screenshot")]
         if self.fixtures {
@@ -234,10 +293,13 @@ impl Board {
         }
     }
 
-    /// The window's keys (D-25), unless a text field has the keyboard: ↑ ↓ select, → ← expand
-    /// and fold the row, Enter opens the Detail pane, S and A say what is not built yet, F5
-    /// refreshes.
+    /// The window's keys (D-25), unless a text field has the keyboard or the launch dialog is
+    /// open: ↑ ↓ select, → ← expand and fold the row, Enter opens the Detail pane, S opens the
+    /// launch dialog, A says what is not built yet, F5 refreshes.
     pub fn keys(&mut self, ctx: &egui::Context) {
+        if self.launch.is_some() {
+            return;
+        }
         if ctx.input_mut(|i| i.consume_shortcut(&REFRESH)) {
             self.actions.push(Action::Refresh);
         }
@@ -272,9 +334,11 @@ impl Board {
             self.actions.push(Action::Open(selected));
         }
         if pressed(Key::S) {
-            self.actions.push(Action::NotYet(
-                "Start arrives at EP-10, with the launch dialog.",
-            ));
+            match self.view.selected.clone() {
+                Some(Selection::Project(name)) => self.actions.push(Action::OpenLaunch(name)),
+                _ => self
+                    .warn("Select a project first: S opens the launch dialog on its next brief."),
+            }
         }
         if pressed(Key::A) {
             self.actions
@@ -289,8 +353,8 @@ impl Board {
         for action in actions {
             wrote |= self.run(action);
         }
-        if std::mem::take(&mut self.bring_detail) {
-            layout::show(tree, Pane::Detail);
+        if let Some(pane) = self.bring.take() {
+            layout::show(tree, pane);
         }
         if wrote {
             self.loader.read_files();
@@ -304,8 +368,18 @@ impl Board {
             Action::Select(selection) => self.view.selected = Some(selection),
             Action::Open(selection) => {
                 self.view.selected = Some(selection);
-                self.bring_detail = true;
+                self.bring = Some(Pane::Detail);
             }
+            Action::OpenLaunch(name) => self.open_launch(&name),
+            Action::CloseLaunch => {
+                if !self.sessions.is_starting() {
+                    self.launch = None;
+                }
+            }
+            Action::StartHeadless => self.start_headless(),
+            Action::StopSession(key) => self.sessions.stop(key),
+            Action::KillSession(key) => self.sessions.kill(key),
+            Action::DismissSession(key) => self.sessions.dismiss(key),
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -462,6 +536,134 @@ impl Board {
             Err(e) => self.fail(format!("{project} {id}: {e}")),
         }
         true
+    }
+
+    /// Opens the launch dialog on `name`'s next brief (D-17, D-22): the rule table's resolution
+    /// and the prompt, from the registry as it stands and the project's snapshot; or says why
+    /// there is nothing to launch. The CLI's preflight is asked meanwhile.
+    fn open_launch(&mut self, name: &str) {
+        let Some(row) = self.portfolio.project(name) else {
+            self.warn(format!("{name}: no such project to start."));
+            return;
+        };
+        let Some(folder) = row.folder.as_ref().map(|folder| folder.path.clone()) else {
+            self.fail(format!(
+                "{name}: its folder is missing, so nothing can start there."
+            ));
+            return;
+        };
+        let (project, snapshot, reasons) =
+            (row.project.clone(), row.snapshot.clone(), row.in_progress());
+        let registry = match self.store().load() {
+            Ok(loaded) => loaded.registry,
+            Err(e) => {
+                self.fail(format!("The registry could not be read: {e}"));
+                return;
+            }
+        };
+        let program = cli::locate(registry.settings.claude_cli.as_deref())
+            .unwrap_or_else(|| PathBuf::from("claude.exe"));
+        let levels: Vec<String> = self
+            .sessions
+            .preflight(&program, &self.ctx)
+            .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
+            .unwrap_or_default();
+        let claude_md = prompt::claude_md(&folder);
+        let today = files::today();
+        let draft = match prompt::draft(
+            &registry,
+            &project,
+            &snapshot,
+            claude_md.as_deref(),
+            &levels,
+            &today,
+        ) {
+            Ok(draft) => draft,
+            Err(why) => {
+                self.warn(format!("{name}: nothing to launch: {why}."));
+                return;
+            }
+        };
+        let mut warnings = Vec::new();
+        if !draft.parts.due.is_empty() {
+            warnings.push(draft.parts.due.clone());
+        }
+        if !reasons.is_empty() {
+            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+            warnings.push(format!(
+                "A session may be in progress already ({}): a second one would edit the same \
+                 files.",
+                texts.join("; ")
+            ));
+        }
+        if let Some(running) = self.sessions.summary(name) {
+            warnings.push(format!("This window already has {running}."));
+        }
+        let catalog = self.catalog_folder.as_deref().map_or_else(
+            || Catalog::built_in("no profile folder".to_owned()),
+            Catalog::read,
+        );
+        self.launch = Some(Dialog::new(
+            draft,
+            Opening {
+                folder,
+                program,
+                neighbours: project.neighbour_folders(&registry.data_root()),
+                warnings,
+                template: project.launch.template.clone(),
+                catalog,
+                date: today,
+            },
+        ));
+    }
+
+    /// Starts the dialog's launch headless (D-16), off the UI thread; a screenshot run starts
+    /// nothing (rule 5).
+    fn start_headless(&mut self) {
+        if self.fixtures {
+            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            return;
+        }
+        if self.sessions.is_starting() {
+            return;
+        }
+        let Some(dialog) = self.launch.as_mut() else {
+            return;
+        };
+        let Some(preflight) = self.sessions.preflight(&dialog.program, &self.ctx) else {
+            dialog.error = Some("claude has not answered yet: try again in a moment.".to_owned());
+            return;
+        };
+        let refusals = preflight.refusals();
+        if !refusals.is_empty() {
+            dialog.error = Some(refusals.join("; "));
+            return;
+        }
+        dialog.error = None;
+        let launch = dialog.launch(self.ledger.clone());
+        let effort = dialog.effort_words().to_owned();
+        self.sessions.start(preflight, launch, effort, &self.ctx);
+    }
+
+    /// The launch dialog over the window, while it is open. Escape and Cancel close it; a click
+    /// beside it does not, so the prompt's edits are not lost by a stray click.
+    pub fn launch_dialog(&mut self, ctx: &egui::Context) {
+        let Some(dialog) = self.launch.as_mut() else {
+            return;
+        };
+        let preflight = self.sessions.preflight(&dialog.program, ctx);
+        if let Some(preflight) = &preflight {
+            dialog.fit(preflight);
+        }
+        let (asking, starting) = (self.sessions.is_asking(), self.sessions.is_starting());
+        let modal = egui::Modal::new(egui::Id::unique("launch-dialog")).show(ctx, |ui| {
+            dialog.ui(ui, preflight.as_deref(), asking, starting)
+        });
+        let close = !starting && !modal.backdrop_response.clicked() && modal.should_close();
+        self.actions.extend(modal.inner);
+        if close {
+            self.actions.push(Action::CloseLaunch);
+        }
     }
 
     /// Errors stay until the next notice; a notice fades. With nothing to report, the keys.
@@ -665,6 +867,7 @@ impl eframe::App for Dashboard {
         egui::CentralPanel::default()
             .frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0))
             .show(ui, |ui| self.layout.ui(&mut self.board, ui));
+        self.board.launch_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 

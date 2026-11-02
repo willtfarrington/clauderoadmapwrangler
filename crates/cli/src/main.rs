@@ -2,8 +2,8 @@
 //! `adopt`, `ignore` and `set` from EP-2, the console side of the registry until the dashboard
 //! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
 //! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `status` and
-//! `setting` from EP-7, the badges and the registry's settings; `inbox send` and the `hook` and
-//! `statusline` relays arrive with their briefs.
+//! `setting` from EP-7, the badges and the registry's settings; `prompt` from EP-10, what a launch
+//! starts from; `inbox send` and the `hook` and `statusline` relays arrive with their briefs.
 
 use std::collections::HashMap;
 use std::fs;
@@ -18,15 +18,16 @@ use crw_core::badges::hosting::{self, Check, Hosting, Listed};
 use crw_core::badges::online::{self, Reading};
 use crw_core::badges::short_age;
 use crw_core::badges::stack::{self, Chip};
+use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
-use crw_core::registry::{Settings, State, Store};
+use crw_core::registry::{Project, Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, paths, process, proposal};
+use crw_core::{files, git, paths, process, prompt, proposal};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -56,6 +57,10 @@ commands:
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
                                  workspace_file, backup_settings, backup_log, claude_cli
+  prompt <project|folder>        print what a launch of the next brief starts from: the model,
+                                 effort, ultracode and permission mode with their reasons (the
+                                 rule table), the neighbour folders and the prompt; launches
+                                 nothing
   help                           print this text
   --version                      print crw's version
 
@@ -79,6 +84,7 @@ fn main() -> ExitCode {
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
         ["untick", target, id] => tick(target, id, &[], false),
         ["status", rest @ ..] => status(rest),
+        ["prompt", target] => prompt(target),
         ["setting"] => setting(None, None),
         ["setting", key] => setting(Some(key), None),
         ["setting", key, value] => setting(Some(key), Some(value)),
@@ -1322,4 +1328,124 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
         }
         Err(e) => failed(format!("{}: {e}", path.display())),
     }
+}
+
+/// Prints what a launch of a project's next brief starts from (D-17, D-22): the rule table's
+/// resolution with its reasons, the neighbour folders and the prompt. Reads, never launches, and
+/// asks nothing of the CLI: an effort step moves along the built-in levels here.
+fn prompt(target: &str) -> ExitCode {
+    println!("crw {} prompt", env!("CARGO_PKG_VERSION"));
+    let folder = match project_folder(target) {
+        Ok(folder) => std::path::absolute(&folder).unwrap_or(folder),
+        Err(e) => return failed(e),
+    };
+    let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let root = registry.data_root();
+    let registered = registry
+        .projects
+        .iter()
+        .find(|project| paths::same(&project.folder(&root), &folder));
+    let project = registered
+        .cloned()
+        .unwrap_or_else(|| Project::new(&folder_name(&folder), &folder, State::Active));
+    let snapshot = snapshot::take(&folder);
+    let claude_md = prompt::claude_md(&folder);
+    let draft = match prompt::draft(
+        &registry,
+        &project,
+        &snapshot,
+        claude_md.as_deref(),
+        &[],
+        &files::today(),
+    ) {
+        Ok(draft) => draft,
+        Err(e) => return failed(format!("{}: nothing to launch: {e}", project.name)),
+    };
+    let catalog = Catalog::folder().map_or_else(
+        || Catalog::built_in("no profile folder".to_owned()),
+        |folder| Catalog::read(&folder),
+    );
+    let note = if registered.is_some() {
+        ""
+    } else {
+        " (not registered: the global rules and the tool's defaults apply)"
+    };
+    println!("  project    {}{note}", project.name);
+    println!("  folder     {}", folder.display());
+    let size = draft.size.map_or("no size", Size::as_str);
+    println!(
+        "  next       {} ({size}) {}",
+        draft.ep,
+        one_line(&draft.title, 72)
+    );
+    let resolution = &draft.resolution;
+    let named = catalog
+        .model(&resolution.model.value)
+        .filter(|model| !model.id.eq_ignore_ascii_case(&resolution.model.value))
+        .map(|model| format!(" ({}, {})", model.name, model.id))
+        .unwrap_or_default();
+    println!(
+        "  model      {}{named}: {}",
+        resolution.model.value,
+        resolution.model.reason()
+    );
+    println!(
+        "  effort     {}: {}",
+        resolution
+            .effort
+            .value
+            .as_deref()
+            .unwrap_or("the CLI's default"),
+        resolution.effort.reason()
+    );
+    println!(
+        "  ultracode  {}: {}",
+        if resolution.ultracode.value {
+            "yes"
+        } else {
+            "no"
+        },
+        resolution.ultracode.reason()
+    );
+    println!(
+        "  mode       {}: {}",
+        resolution.permission_mode.value,
+        resolution.permission_mode.reason()
+    );
+    let neighbours: Vec<String> = project
+        .neighbour_folders(&root)
+        .iter()
+        .map(|folder| folder.display().to_string())
+        .collect();
+    println!(
+        "  neighbours {}",
+        if neighbours.is_empty() {
+            "none".to_owned()
+        } else {
+            neighbours.join(", ")
+        }
+    );
+    for note in resolution.notes.iter().chain(&draft.prompt.problems) {
+        println!("  note       {note}");
+    }
+    let source = match &catalog.source {
+        catalog::Source::Cached { surface, fetched } => format!(
+            "Claude Code's cache ({surface}{})",
+            fetched.map_or(String::new(), |at| format!(
+                ", fetched {}",
+                at.format("%Y-%m-%d %H:%M UTC")
+            ))
+        ),
+        catalog::Source::BuiltIn(why) => format!("the built-in list ({why})"),
+    };
+    println!("  catalog    {source}");
+    println!(
+        "\nThe prompt ({} characters; the launch dialog opens it in its editor):\n",
+        draft.prompt.text.chars().count()
+    );
+    println!("{}", draft.prompt.text);
+    ExitCode::SUCCESS
 }

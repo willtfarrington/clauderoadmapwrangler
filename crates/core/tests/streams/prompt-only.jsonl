@@ -1,0 +1,5 @@
+{"stub":"handshake"}
+{"stub":"prompt"}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":120,"duration_api_ms":80,"num_turns":1,"session_id":"$SESSION","total_cost_usd":0.001,"result":"The brief is read.","stop_reason":"end_turn","permission_denials":[]}
+{"stub":"eof"}
+{"stub":"exit","code":0}

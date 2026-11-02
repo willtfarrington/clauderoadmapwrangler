@@ -16,6 +16,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value};
 
+use crate::rules::Rule;
 use crate::{files, paths};
 
 /// The registry format this build reads and writes.
@@ -141,6 +142,10 @@ pub struct Registry {
     pub ignore: Vec<String>,
     #[serde(default)]
     pub settings: Settings,
+    /// The global rule table (D-22), `[[rule]]`: the first that matches a brief applies; while
+    /// it is empty, the built-in table stands in (`rules::built_in`).
+    #[serde(default, rename = "rule")]
+    pub rules: Vec<Rule>,
     #[serde(default, rename = "project")]
     pub projects: Vec<Project>,
 }
@@ -205,13 +210,16 @@ pub struct Project {
     /// folders of the data root, or full paths.
     #[serde(default)]
     pub neighbours: Vec<PathBuf>,
+    /// The project's own rules, `[[project.rule]]`, applied over the global table (D-22).
+    #[serde(default, rename = "rule")]
+    pub rules: Vec<Rule>,
 }
 
 fn default_priority() -> u8 {
     DEFAULT_PRIORITY
 }
 
-/// The project's launch defaults; the launch dialog resolves them with the rule table (EP-10).
+/// The project's launch defaults, which the rule table resolves over the tool's own (EP-10).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Launch {
@@ -219,6 +227,8 @@ pub struct Launch {
     pub model: Option<String>,
     pub effort: Option<String>,
     pub permission_mode: Option<String>,
+    /// The launch prompt in the project's own words, with placeholders (D-17; `prompt`).
+    pub template: Option<String>,
 }
 
 /// How a session is started (D-16).
@@ -243,6 +253,7 @@ impl Registry {
             format: FORMAT,
             ignore: Vec::new(),
             settings: Settings::default(),
+            rules: Vec::new(),
             projects: Vec::new(),
         }
     }
@@ -277,8 +288,13 @@ impl Registry {
     }
 
     /// The checks serde cannot make.
-    fn validate(&self) -> Result<(), Error> {
+    pub(crate) fn validate(&self) -> Result<(), Error> {
         let invalid = |message: String| Err(Error::Invalid(message));
+        for (n, rule) in self.rules.iter().enumerate() {
+            if let Err(why) = rule.check() {
+                return invalid(format!("rule {}: {why}", n + 1));
+            }
+        }
         for (key, path) in [
             ("data_root", &self.settings.data_root),
             ("claude_cli", &self.settings.claude_cli),
@@ -324,6 +340,22 @@ impl Registry {
                     return invalid(format!("{name}: its own folder is not a neighbour"));
                 }
             }
+            for (n, rule) in project.rules.iter().enumerate() {
+                if let Err(why) = rule.check() {
+                    return invalid(format!("{name}: rule {}: {why}", n + 1));
+                }
+            }
+            let launch = &project.launch;
+            for (key, value) in [
+                ("model", &launch.model),
+                ("effort", &launch.effort),
+                ("permission_mode", &launch.permission_mode),
+                ("template", &launch.template),
+            ] {
+                if value.as_ref().is_some_and(|value| value.trim().is_empty()) {
+                    return invalid(format!("{name}: launch.{key} is empty"));
+                }
+            }
         }
         for folder in &self.ignore {
             if folder.trim().is_empty() || folder.contains(['/', '\\']) {
@@ -337,6 +369,22 @@ impl Registry {
 }
 
 impl Project {
+    /// A project as a fresh `[[project]]` table reads: the default priority, not pinned, no
+    /// launch defaults, neighbours or rules.
+    pub fn new(name: &str, path: &Path, state: State) -> Self {
+        Self {
+            name: name.to_owned(),
+            path: path.to_owned(),
+            state,
+            priority: DEFAULT_PRIORITY,
+            pinned: false,
+            launch: Launch::default(),
+            autopilot: Autopilot::default(),
+            neighbours: Vec::new(),
+            rules: Vec::new(),
+        }
+    }
+
     /// The project's folder: its path resolved against the data root.
     pub fn folder(&self, data_root: &Path) -> PathBuf {
         data_root.join(&self.path)
@@ -1071,6 +1119,72 @@ state = "paused"
             registry.settings.claude_cli,
             Some(PathBuf::from(r"E:\cli\claude.exe"))
         );
+    }
+
+    #[test]
+    fn rules_and_templates_read_back_and_bad_ones_are_named() {
+        let scratch = Scratch::new("registry-rules");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        let text = HAND_WRITTEN
+            .replace(
+                "ignore = [\"scratch\"]  # never a project\n",
+                "ignore = [\"scratch\"]  # never a project\n\n[[rule]]\nname = \"small\"\n\
+                 match = { size = \"S\" }\nset = { effort_step = -1 }\n",
+            )
+            .replace(
+                "[project.launch]\nmodel = \"fable\"\n",
+                "[project.launch]\nmodel = \"fable\"\ntemplate = \"\"\"\nRun {ep} of {project}.\n\
+                 {opener}\"\"\"\n\n[[project.rule]]\nmatch = { title = [\"re-plan\", \"retro\"] }\n\
+                 set = { model = \"claude-opus-5-5\", ultracode = true }\n",
+            );
+        fs::write(&store.path, &text).unwrap();
+        let registry = store.load().unwrap().registry;
+        assert_eq!(registry.rules.len(), 1);
+        assert_eq!(registry.rules[0].set.effort_step, Some(-1));
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(
+            alpha.launch.template.as_deref(),
+            Some("Run {ep} of {project}.\n{opener}")
+        );
+        assert_eq!(alpha.rules.len(), 1);
+        assert_eq!(alpha.rules[0].when.title.0, ["re-plan", "retro"]);
+        assert!(registry.project("beta").unwrap().rules.is_empty());
+        // A change elsewhere keeps the rules as written.
+        store.change(TODAY, |c| c.set_pinned("beta", true)).unwrap();
+        assert!(
+            fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("[[project.rule]]\nmatch = { title = [\"re-plan\", \"retro\"] }\n")
+        );
+
+        for (from, to, message) in [
+            (
+                "effort_step = -1",
+                "effort_step = 0",
+                "rule 1: its effort_step 0",
+            ),
+            (
+                "size = \"S\"",
+                "size = \"XL\"",
+                "rule 1: its size is S, M or L",
+            ),
+            ("ultracode = true", "ultracode = \"yes\"", "ultracode"),
+            (
+                "model = \"fable\"\n",
+                "model = \"\"\n",
+                "alpha: launch.model is empty",
+            ),
+            (
+                "set = { model = \"claude-opus-5-5\", ultracode = true }",
+                "set = {}",
+                "alpha: rule 1: it sets nothing",
+            ),
+        ] {
+            fs::write(&store.path, text.replacen(from, to, 1)).unwrap();
+            let error = store.load().unwrap_err().to_string();
+            assert!(error.contains(message), "{message}: {error}");
+        }
     }
 
     #[test]
