@@ -64,7 +64,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☑ `1b5bfca` |
 | EP-7 | [Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health](EP-7-badges-and-status.md) (D-24, D-25) | M | EP-6 | core | ☑ `47a2199` |
 | EP-7a | [List and detail polish: columns sized to their content under a header row, a toggle for the badges' legend, the Status section laid out by subsection, one spelling of license](EP-7a-list-and-detail-polish.md) (D-25) | M | EP-7 | core | ☑ `6308fd9` |
-| EP-8 | [Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes](EP-8-replan-p1.md) (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☐ |
+| EP-8 | [Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes](EP-8-replan-p1.md) (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☑ `5f3aa64` |
 
 Ordering rationale: the dashboard is useful read-only from EP-6 and shows this project's own next EP
 (D-5); the parser (EP-3, EP-4) is the risk and comes before any UI; badges need git and `gh` plumbing that
