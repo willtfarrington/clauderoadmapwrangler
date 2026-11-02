@@ -249,3 +249,10 @@ confirm it before the repository goes public." It is written into the inbox as I
 > the fixtures' trap (the environment's memory folder, not this repository).
 >
 > No owner tasks; no messages for other projects. **Next: EP-9** (the session runner).
+> **After the commit (≈ 40 min in all):** `5f3aa64` and the record commit `83f4a1f` pushed together
+> at 00:57 UTC on 2026-11-02; CI run 41369921014 on windows-latest passed in 2 min 29 s (format,
+> clippy with and without the screenshot feature, the tests without and with it); the repository
+> turned public at 01:00 UTC (`gh repo view` reads PUBLIC, with the description as decided, issues
+> on, the wiki off and no topics), and its page and both pictures load without a login. This line is
+> a third commit, on the owner's yes, as at EP-5 … EP-7a, and the first push to the public
+> repository.
