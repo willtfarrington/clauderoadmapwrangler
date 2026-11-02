@@ -15,6 +15,13 @@ session-hours; no calendar estimate, by the owner's rule, D-4). Phase P0 (EP-0) 
 named and not built in v1 is parked in [`v2-notes.md`](v2-notes.md), which every re-plan grows. P1–P4 have
 full brief notes; P5's briefs are charters upgraded at the P4 re-plan (EP-29).
 
+**Re-planned 2026-11-01 (EP-8, the P1 re-plan).** P1 took 6 h 17 min of session against 9 h planned
+(about 70 %; an M about 45 minutes), and the sizes stay the planning unit (D-4 addendum). EP-7a joined
+P1 at the owner's request (IN-4); this re-plan added EP-33 (per-project workspace files, in P2 before
+EP-11) and EP-34 (D-24's hosting and backup actions, in P4 before EP-28), folded D-25's cards view into
+EP-26 and gave P2 its pickup notes. v1 is now **35 briefs, 9 S · 20 M · 6 L ≈ 36.5 session-hours**;
+P2–P5 hold 27 of them, about 19 at P1's pace. The repository is public from EP-8 (D-2, D-3 addenda).
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -57,7 +64,7 @@ Sessions for this project run with cwd = this folder, and from EP-16 they are la
 | EP-6 | [Dashboard shell: egui_tiles layout, dense project list, detail tile, groups and sort keys, filters, density, theme, layout persistence, 4K typography, keys, screenshot feature flag with fake projects](EP-6-dashboard-shell.md) (D-25) | L | EP-2, EP-4 | core | ☑ `1b5bfca` |
 | EP-7 | [Badges and status: stack chips, progress, activity from git, hosting from `gh` with head comparison and orphan detection, backup age from the Documents job, health](EP-7-badges-and-status.md) (D-24, D-25) | M | EP-6 | core | ☑ `47a2199` |
 | EP-7a | [List and detail polish: columns sized to their content under a header row, a toggle for the badges' legend, the Status section laid out by subsection, one spelling of license](EP-7a-list-and-detail-polish.md) (D-25) | M | EP-7 | core | ☑ `6308fd9` |
-| EP-8 | Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☐ |
+| EP-8 | [Re-plan P1: retro and timings, addenda, README with self-screenshots, the remote flips public, P2 confirmed with pickup notes](EP-8-replan-p1.md) (D-2) | S | EP-1, EP-2, EP-3, EP-4, EP-5, EP-6, EP-7, EP-7a | core | ☐ |
 
 Ordering rationale: the dashboard is useful read-only from EP-6 and shows this project's own next EP
 (D-5); the parser (EP-3, EP-4) is the risk and comes before any UI; badges need git and `gh` plumbing that
@@ -245,24 +252,28 @@ only its own files inside a managed project).
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-9 | Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, ledger rows, stub `claude` for tests (D-14, D-15, D-16) | L | EP-2 | core | ☐ |
+| EP-9 | Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☐ |
 | EP-10 | Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☐ |
-| EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10 | core | ☐ |
+| EP-33 | Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed (D-6, D-7) | S | EP-2 | core | ☐ |
+| EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
 | EP-12 | Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model (D-20, D-23) | M | EP-9 | core | ☐ |
 | EP-13 | Sessions tile: live transcript from stream-json, stop, resume by id, ledger rows with outcome and cost estimate (D-16, D-26) | M | EP-12 | core | ☐ |
 | EP-14 | Decisions tile: control-protocol answers to `AskUserQuestion` and permission requests, optional timeout, defer-and-resume fallback, Focus VS Code for visual sessions, answer latency (D-19) | L | EP-13 | core | ☐ |
 | EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-11, EP-12, EP-13, EP-14, EP-15 | core | ☐ |
+| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-15 | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
 server (EP-12) is needed by the sessions tile, the decisions tile, the notifications and later the usage
-feed; the dogfooding switch closes the phase.
+feed; the dogfooding switch closes the phase. *(EP-8, 2026-11-01.)* EP-33 comes before EP-11, which
+opens the per-project workspace file EP-33 teaches Adopt to write; the order is otherwise kept.
 
 Standing decisions for phase P2: D-15 (never `--bare`; `ANTHROPIC_API_KEY` removed from the child
 environment; features detected, not assumed), D-18 (acceptEdits with prompts routed to the host), D-19
 (the protocol first, defer as fallback), D-3 (recorded streams for tests use fake project names and
-contain no real transcript text).
+contain no real transcript text). *(EP-8, 2026-11-01.)* D-16 and D-18 addenda: the project's neighbour
+folders join a headless run by `--add-dir`, read-only through an `Edit` deny rule each; D-3 addendum:
+every commit's added lines are checked before it is made, the repository being public.
 
 **Brief notes.**
 
@@ -282,7 +293,21 @@ contain no real transcript text).
   control responses, used by all runner tests; spacing of spawns ≥ 2 s (D-29). **From EP-7:**
   `process::turn()` is the one lock the threads that start children wait on (the git and GitHub
   passes hold it per child), and `process::output_with` passes extra environment variables, as
-  `git::run_networked` does to keep credential prompts away.
+  `git::run_networked` does to keep credential prompts away. **From EP-8 (re-plan):** `crw doctor`
+  found claude 2.1.316 at `%USERPROFILE%\.local\bin\claude.exe` (it updates itself; the extension
+  bundles 2.1.314), the version of the `claude-codes` pin, which is the crate's newest; its `--help`
+  has `--permission-prompts host|none`, `--session-id`, `--name`, `--add-dir`, `--settings`,
+  `--plugin-dir` and `--max-budget-usd`, still no `--max-turns`, and lists the effort levels low …
+  max without `ultracode`, so ultracode is passed only when detected; the minimum stays 2.1.261
+  unless the adapter needs more (D-15). Each project gains `neighbours` in the registry (folders
+  relative to the data root, or absolute); the spawn passes `--add-dir <folder>` for each,
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1` in the child's environment, and through
+  `--settings` a `permissions.deny` rule `Edit(//<drive>/<path>/**)` per neighbour (Windows paths
+  match in POSIX form), so `acceptEdits` cannot edit there (D-16, D-18 addenda). Whether that deny
+  also stops the `mkdir`, `touch`, `mv` and `cp` that `acceptEdits` accepts in an added folder is not
+  documented: the brief finds out (the documentation, or one supervised run on the owner's yes, since
+  tests never run the CLI) and puts any gap to the owner. The ledger's `session` table (schema V1)
+  already has the columns the runner fills.
 - **EP-10.** `core::prompt`: the opener assembled from the parse — project name and path; the read-first
   order taken from the project's `CLAUDE.md` when it has one (else the house default); the next row (id,
   title, size, depends-on, core) and its brief-notes bullet verbatim; open inbox messages and owner tasks
@@ -299,7 +324,20 @@ contain no real transcript text).
   parenthesis's fields and its text as written; the older forms' items (`snapshot.legacy`) are the
   project session's own reading and need not be in the prompt. **From EP-6:** the S key and each
   row's Start button exist and answer `Action::NotYet`; the dialog takes their place, and the
-  selected project is `Board::view.selected`.
+  selected project is `Board::view.selected`. **From EP-8:** the dialog shows the project's
+  neighbour folders (EP-9's registry key; D-16 addendum) beside the rule table's resolution.
+- **EP-33.** Added at EP-8 (2026-11-01) from IN-1 and EP-2's out-of-scope list (D-6, D-7 addenda).
+  (1) `discovery::adopt` also writes `<data root>\<name>.code-workspace` beside the adopted folder
+  when none exists, in the owner's form (one folder with its `name` and `path`, an empty
+  `settings`), and still appends the folder to the aggregate file `workspace_file` names; it never
+  overwrites a file. (2) A fresh registry's `workspace_file` is the one `.code-workspace` in the
+  data root that lists more than one folder, else none, said in `crw scan`
+  (`registry::only_workspace_file` wants exactly one file today, and the data root holds seventeen).
+  (3) `crw scan` lists per project whether its own workspace file exists, beside the aggregate's
+  listing. (4) A proposed state (D-6: every row checked, a pickup gate, 60 days without a commit)
+  can be dismissed from the chip's menu and from `crw`, remembered in the registry with the facts
+  it rested on, so it returns only when those change. Tests in temp folders with synthetic names;
+  no test or trial touches the owner's registry or workspace files (rule 13).
 - **EP-11.** Visual launch: build `vscode://anthropic.claude-code/open?prompt=<url-encoded opener>`;
   read `~/.claude/ide/*.lock` to learn the running window's `workspaceFolders`; if the first folder is the
   project, run `Code.exe --open-url "<uri>"`; otherwise open `Code.exe <project folder>` (or a generated
@@ -308,7 +346,9 @@ contain no real transcript text).
   handle; a note in the dialog that the prompt is pre-filled and must be sent by hand. **From IN-1
   (2026-10-31, triaged at EP-4):** open the owner's existing `<data root>\<name>.code-workspace` beside
   the project folder instead of generating one under `%APPDATA%` (the D-16 addendum written at EP-8);
-  generate one only when no such file exists.
+  generate one only when no such file exists. **From EP-8:** every project has its file today (the
+  data root holds seventeen: each project's, the vault's and the aggregate), in the form EP-33 writes
+  for an adopted folder; a missing one is generated through EP-33's writer.
 - **EP-12.** `app::server`: axum on `127.0.0.1:<port>` (port in the registry, default 47831), routes
   `POST /hook`, `POST /statusline`, `GET /health`; `cli hook` reads the hook JSON from stdin and posts it
   with a 500 ms timeout, exiting 0 silently on any error; `cli statusline` does the same for the
@@ -325,13 +365,16 @@ contain no real transcript text).
   the session; the installation replaces it (removed or chained, after the owner's yes). A
   `UserPromptSubmit` hook that recognises `@<project>` in a prompt and injects that project's rules
   and next-EP row gives on-demand cross-project context (the owner's wish; here, or at EP-20 if it
-  needs the mailman's registry lookups).
+  needs the mailman's registry lookups). **From EP-8:** a running session joins the snapshot's
+  in-progress reasons (`roadmap::snapshot`) as the source D-9's EP-4 addendum left to this brief.
 - **EP-13.** The sessions tile: one tab per live or recent session; transcript rendering from the stream
   (assistant text, tool calls as one-line summaries, tool results collapsed, partial messages appended);
   Stop (graceful) and Kill; Resume by session id for a headless session that ended with a deferred tool use
   or a stop; the ledger row completed with outcome (completed, stopped, failed, deferred), end time,
   result text, `total_cost_usd` estimate and the status-line `cost`/`context_window` figures received for
-  that session id; a session list with filters.
+  that session id; a session list with filters. **From EP-8:** the Sessions tab is EP-6's placeholder
+  in the right-hand group, and the `session` table's columns (`outcome`, `cost_usd`, `questions`,
+  `answer_latency_s`, `commit_hash`) exist since the ledger's V1.
 - **EP-14.** The decisions tile: `control_request` → `can_use_tool` handling in the adapter; for
   `AskUserQuestion` the questions are rendered with their options (single or multi-select, free text),
   the answer sent as `updatedInput` with `answers`; for permission requests Allow / Deny with the tool name
@@ -341,7 +384,9 @@ contain no real transcript text).
   tool_deferred`, the tile showing `deferred_tool_use`, and Resume re-launching with `--resume <id>` and a
   one-shot hook that returns `allow` with the answer; the fallback is selected automatically when the
   protocol handshake fails or by a setting; visual sessions in `waiting` show "waiting for you in VS Code"
-  with Focus (bring the VS Code window to front); answer latency recorded.
+  with Focus (bring the VS Code window to front); answer latency recorded. **From EP-8:** the
+  Decisions tab is EP-6's placeholder; an edit a neighbour's deny rule refuses (D-18 addendum) comes
+  back as a denied tool use, not a question, and the tile lists it with the session.
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned
@@ -353,7 +398,11 @@ contain no real transcript text).
   `backup::State::{Stale, Failing, NotCovered}`; they reach the window through `portfolio::Loader`.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
-  ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown.
+  ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
+  EP-8 did: each session's transcript under this project's slug, found by the Write or Edit of its
+  own `roadmap\EP-n-*.md` (the fixtures hold briefs of the same names, so match this repository's
+  path), from its first timestamp to the EP's last commit, with gaps over five minutes left out as
+  waits on the owner; timestamps and file paths only.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -461,14 +510,16 @@ a running session).
 |---|---|---|---|---|---|
 | EP-24 | Chat tile: hosted read-only portfolio session in DATA, digest system prompt, resumable conversations, delegation of adopt, formalise and compose actions, Opus default (D-27) | L | EP-14, EP-22 | core | ☐ |
 | EP-25 | History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots (D-26) | M | EP-2, EP-4 | core | ☐ |
-| EP-26 | Analytics: activity heatmap, burn-up per project, velocity and projection, inline row expansion, Expand all and Collapse all (D-26) | M | EP-25 | core | ☐ |
+| EP-26 | Analytics: activity heatmap, burn-up per project, velocity and projection, inline row expansion, Expand all and Collapse all, the cards view (D-25, D-26) | M | EP-25 | core | ☐ |
 | EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
+| EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
 | EP-28 | Operations: `doctor` and the Diagnostics tile, rolling log, install script final, start-at-login entry, single instance, AV hints, start-up reconciliation (D-29) | M | EP-15 | core | ☐ |
-| EP-29 | Re-plan P4; P5 charters upgraded to full briefs | S | EP-24, EP-25, EP-26, EP-27, EP-28 | core | ☐ |
+| EP-29 | Re-plan P4; P5 charters upgraded to full briefs | S | EP-24, EP-25, EP-26, EP-27, EP-34, EP-28 | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
 backfill feeds the graphs and the exports; operations polish lands before the phone view exposes the tool
-beyond the desk.
+beyond the desk. *(EP-8, 2026-11-01.)* EP-34 follows the exports, the other brief that writes outward,
+and comes before operations.
 
 Standing decisions for phase P4: D-27 (read-only chat session; writes delegated), D-26 (no transcript
 parsing), D-3 (exports into `private/`; the site export names public projects only).
@@ -497,7 +548,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   total jumps), velocity (EPs per week over the last 8 weeks) and projection (remaining session-hours from
   the size mix × measured median duration per size; projected finish at the measured weekly pace, shown as
   a range) in the detail tile and as the inline row expansion in the list; Expand all / Collapse all; the
-  model and effort per EP from the new completion-note form shown in the history list.
+  model and effort per EP from the new completion-note form shown in the history list. **From EP-8:**
+  the cards view of D-25, which EP-6 left out with no destination (D-25 addendum): a Cards switch in
+  the Projects toolbar, saved with the view, shows one card per project with its name, state chip,
+  next brief and size, progress pill, badges and the burn-up sparkline, in the list's groups and
+  order; if the brief outgrows its M it splits at pickup (D-4).
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to
@@ -505,6 +560,18 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   `private/export/<date>/`; CSV per project (sessions, snapshots) on demand. **From EP-7:** "whose
   remote is public" is `Hosting::class() == Class::Public`, from the account's list cached in the
   ledger's `badge_cache`.
+- **EP-34.** Added at EP-8 (2026-11-01) for the actions D-24 decided and EP-7 parked (D-24
+  addendum): Create private remote (`gh repo create <owner>/<name> --private --source <folder>
+  --push`), Make public and Make private (`gh repo edit --visibility …
+  --accept-visibility-change-consequences`, the dialog repeating `gh`'s warning), Remove remote
+  (`git remote remove origin`; the GitHub repository is left alone), Archive and Delete for an
+  orphan (`gh repo archive`, `gh repo delete`; Delete needs the `delete_repo` scope the token lacks,
+  so the dialog says how to add it, `gh auth refresh -s delete_repo`), and Back up now (the job's
+  script with `-Force`); each behind one confirmation dialog that names the command, run one child at
+  a time under `process::turn()`, logged as an `event` row of the ledger (`kind`, `project`,
+  `detail`, there since V1) and followed by a refresh of that project's badges; a failure is shown,
+  never retried silently. Tests use an injected runner, never `gh` or the network (D-29). **From
+  EP-7:** the state is read already (`badges::hosting::Hosting`, `badges::backup::Reading`).
 - **EP-28.** `cli doctor` and the Diagnostics tile with the checks of D-29 (Claude Code version vs
   minimum, auth status, extension version from the extensions folder, hooks and status-line entries present
   and pointing at the current exe, Tailscale state via `tailscale status --json`, `D:` mounted with the
@@ -546,11 +613,15 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
   the Diagnostics tile, the URL and a QR code shown, a Disable action (`tailscale serve --https=9443 off`);
-  a check that NordVPN's state does not block the tailnet (hint only).
+  a check that the phone's VPN does not block the tailnet (hint only).
 - **EP-32.** Timings for every EP of v1, the README's "State of the app" and screenshots refreshed,
   addenda, `v2-notes.md` compiled into themes (launch modes, analytics, chat, phone, hosting, conventions),
   the v2 direction (the first candidates: `--bg` background sessions with Attach, worktree-per-session,
-  usage over time, free chat from the phone).
+  usage over time, free chat from the phone). **From EP-8:** the README's pictures come from
+  screenshot runs whose home holds a registry naming a neutral data root (`data_root = "P:\\Projects"`,
+  the letter mapped by `subst` onto a folder with a junction `Projects` to `crates/app/fixtures/portfolio`),
+  so no personal path shows in the Detail pane; drop the mapping and the junction (`rmdir`, never a
+  recursive delete) afterwards.
 
 ## Risks / open items
 
@@ -562,11 +633,15 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    the recorded minimum and the last successful handshake.
 3. **Two CLI versions on the machine** (standalone 2.1.261, extension-bundled 2.1.314). Visual and
    headless sessions may behave differently; the minimum version applies to the standalone binary.
+   *(EP-8, 2026-11-01.)* The standalone binary updates itself (2.1.316 at EP-8, the version of the
+   `claude-codes` pin) while the extension's stays at 2.1.314, so the gap moves either way: the minimum
+   is a floor, and the version is read at every preflight.
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced.
 5. **`--max-budget-usd` is an estimate and `--max-turns` may be absent** (D-22). Wall-clock caps are the
-   reliable limit; the budget flag is passed only when advertised.
+   reliable limit; the budget flag is passed only when advertised. *(EP-8.)* Still absent from
+   2.1.316's `--help`.
 6. **Concurrent sessions edit roadmaps live** (D-9). The parser snapshots HEAD plus status; a project with
    a dirty roadmap is shown as "session in progress" rather than re-counted every few seconds.
 7. **Visual launch cannot submit the prompt** (D-16). The owner presses Enter; the ledger records the
@@ -578,6 +653,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    (v2 notes) and would need `worktree.bgIsolation = none` per project.
 10. **Antivirus** may flag the child-process spawner or the stub `claude` used in tests (D-29): spaced
     spawns, no burst loops, and the quarantine hint in Diagnostics.
+11. **The repository is public** (D-2, D-3 addenda; EP-8). A push publishes at once: a private name or
+    a machine detail in a commit cannot be taken back without rewriting history, and the commits
+    before EP-8 keep the planning record's first wording. The guard is rule 3's check of each
+    commit's added lines against the word list kept in `private/`.
 
 ## Decision record
 

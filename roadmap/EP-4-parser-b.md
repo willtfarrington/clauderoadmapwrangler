@@ -27,8 +27,8 @@ the "session in progress" derivation, and the two facts `crw scan` has been wait
 repository's D-1 … D-8).
 Checked at the start, as the request asked: the cwd is this folder; the user-level `SessionStart`
 hook printed IN-1 and IN-2; the four earlier transcripts (EP-0 … EP-3, identified by the brief each
-one edited) sit under `~\.claude\projects\c--Users-willi-Documents-DATA-clauderoadmapwrangler\`,
-where EP-0 … EP-3 had recorded the filing deviation. Nothing to correct.
+one edited) sit under this project's own slug folder in `~\.claude\projects\` (the path generalised
+at EP-8, D-3 addendum), where EP-0 … EP-3 had recorded the filing deviation. Nothing to correct.
 
 **Verified at pickup (read-only survey of the twelve `roadmap/` folders under the data root).** What
 the brief parser must cope with, all of it named in the planning record §2.6:

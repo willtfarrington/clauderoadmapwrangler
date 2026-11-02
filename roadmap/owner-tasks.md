@@ -13,7 +13,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   Status section should agree with `target\release\crw.exe status`, the backup badge now reading
   the job through the two settings set at EP-7's close. Widen the window to see the full badge form.
   The session checked the window only on the fake portfolio (rule 5)
-- [ ] OT-3 (EP-7a, 2026-11-01) Open Roadmap Wrangler on the real portfolio and look at EP-7a's
+- [x] OT-3 (EP-7a, 2026-11-01) Open Roadmap Wrangler on the real portfolio and look at EP-7a's
   polish: each column as wide as its widest value under a header row (no chip clipped), the badges
   loosening as the window widens and the optional columns giving way as it narrows, the Legend
   button in the Projects toolbar opening the key at the foot of the pane, and the Detail pane's

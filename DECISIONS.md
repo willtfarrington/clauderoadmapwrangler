@@ -44,6 +44,13 @@ Apache-2.0.
 > The app's crate and exe and the window title stay `clauderoadmapwrangler`. *Alternatives.* `crw`
 > everywhere, the shortcuts included; no alias (`clauderoadmapwrangler-cli.exe`).
 
+> **Addendum (2026-11-01, EP-8).** The repository turns public at the P1 re-plan as planned, after the
+> pre-flip audit (D-3 addendum): `gh repo edit willtfarrington/clauderoadmapwrangler --visibility
+> public --accept-visibility-change-consequences`, with a one-line description and no topics, as the
+> owner's other public repositories have; issues stay on and the wiki off. The README shows two
+> pictures of the fake portfolio that the app took of itself (D-29). *Alternatives.* Staying private
+> until v1; topics.
+
 **D-3 Private data boundary.** The published repository must not describe the projects the tool handles.
 Planning records that name the owner's projects live in the git-ignored `private/` folder; the runtime
 **registry lives under `%APPDATA%\clauderoadmapwrangler`** and the **ledger under `%LOCALAPPDATA%`**, never
@@ -54,6 +61,20 @@ handled projects" (owner, 2026-10-31); several managed projects are wholly priva
 *Alternatives.* Tracking the survey (names are public anyway); a settings dotfile in every managed project
 instead of a central registry; everything under `%LOCALAPPDATA%` including planning records.
 
+> **Addendum (2026-11-01, EP-8).** The pre-flip audit (EP-1's addition and IN-5) searched every
+> commit's files and messages for the names kept in `private/` and found none, and read the inbox
+> and owner-task files as generic. It found machine details in the planning record tracked since
+> EP-0 (the backup drive's label, path and schedule, the plan's tier, the phone and its VPN,
+> Tailscale Serve's ports, the security software and the shell's rights, a start-up manager, the
+> probe's figures), the Windows user name in one brief's transcript path and the VPN's name in one
+> brief note. On the owner's choice the tracked files now say these in general words and the
+> private survey keeps them as written; the commits before EP-8 keep the first wording, since
+> rewriting 25 commits would change every recorded hash, and this file keeps its own (D-28, D-29).
+> From EP-8, before each commit, the added lines of the staged diff are checked against a word list
+> in `private/` (the private names and these details; CLAUDE.md rule 3), and the README's pictures
+> name a neutral data root. *Alternatives.* Publishing as written; rewriting the history before the
+> flip; a pre-commit hook script (v2 notes).
+
 **D-4 Cadence, horizon and sizes.** Two to three sessions a week, six to nine hours. Sizes S ≈ 30 min,
 M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger is split at pickup; L is
 reserved for six engines (the tile shell, the session runner, the decisions tile, the autopilot, the chat
@@ -62,6 +83,16 @@ tile, the web pages). v1 is **P1 through P5 including the phone view**, 32 brief
 each phase; everything named and not built is parked in `roadmap/v2-notes.md`, which every re-plan grows.
 *Why.* The house pattern; measured durations re-cut the plan at each re-plan. *Alternatives.* Splitting
 every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone view; a calendar estimate.
+
+> **Addendum (2026-11-01, EP-8).** P1 measured from the session transcripts (each session's first
+> entry to its EP's last commit): EP-1 … EP-7a took 6 h 17 min of session, 5 h 37 min without the
+> gaps over five minutes, against 9 h planned (about 70 %); an M took 28 to 59 minutes (45 on
+> average) and the one L 59. The sizes stay the planning unit (the owner's choice), so D-22's caps
+> keep their margin. With EP-7a (M, IN-4) and this re-plan's EP-33 (S) and EP-34 (M), v1 is 35
+> briefs, 9 S · 20 M · 6 L ≈ 36.5 session-hours, 27 of them in P2–P5 (about 19 at P1's pace). A row
+> added at a re-plan takes the next free number and sits where it is needed (the house rule); EP-7a
+> keeps its letter. *Alternatives.* Downsizing the remaining L engines to M; merging the small rows
+> (EP-11 into EP-10, EP-18 into EP-17).
 
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
@@ -82,11 +113,24 @@ with proposals matches how the owner already classifies projects ("maintenance",
 *Alternatives.* Derived states only; hand-set without proposals; active/inactive plus pinning; the vault as a
 project.
 
+> **Addendum (2026-11-01, EP-8).** A proposed state can be dismissed as well as confirmed; the
+> registry remembers the dismissal with the facts the proposal rested on, so it returns only when
+> they change (EP-33). *Alternatives.* Confirm only (P1's behaviour); proposals that expire.
+
 **D-7 Discovery and the workspace file.** The tool watches `DATA` for new top-level folders and rescans at
 start; a new folder appears as unadopted; **Adopt registers it and appends an entry to the owner's
 `.code-workspace` file**, preserving the existing order and the named entries; Ignore is remembered. *Why.*
 The owner adds projects by creating folders and wants them in the single workspace without hand-editing
 JSON. *Alternatives.* Manual refresh only; silent auto-adoption; never touching the workspace file.
+
+> **Addendum (2026-11-01, EP-8).** Since 2026-10-31 the owner opens each project from its own
+> single-folder `<name>.code-workspace` beside the folders, and the aggregate file stays for
+> browsing (IN-1). Adopt therefore also writes the adopted folder's own file in that form, never over
+> an existing one, and still appends to the aggregate; a fresh registry's `workspace_file` is the one
+> workspace file of the data root that lists more than one folder, else none; and `crw scan` lists
+> which projects have their own file. EP-33 builds this before EP-11, whose Visual launch opens the
+> project's own file (D-16 addendum). *Alternatives.* Folding it into EP-11 (S → M); building it at
+> the re-plan.
 
 **D-8 Storage.** A human-editable **`registry.toml`** under `%APPDATA%\clauderoadmapwrangler` (projects,
 states, priority, pins, launch defaults, autopilot rules, settings) with a format version and a dated backup
@@ -167,6 +211,10 @@ cell as one backticked hash; (4) open each brief with **YAML front matter** (`ep
 effort were recorded nowhere, which the history graphs and effort rules need; the owner asked for front
 matter as well. *Alternatives.* Any subset; a model/effort column in the phase table.
 
+> **Addendum (2026-11-01, EP-8).** A lettered row's brief writes its id in the front matter with or
+> without the prefix (`ep: 7a` or `ep: EP-7a`); the parser reads both (EP-7a's fix). *Alternatives.*
+> The prefix required.
+
 **D-13 Cross-project inbox.** Messages between projects live in the receiver's **`roadmap/inbox.md`**, one
 line each, `- [ ] IN-n (from <project> EP-k, date) text`, tracked in git and mirrored in the registry for
 the UI and the phone. **The tool is the mailman**: a sending session writes `> **Handed on (to
@@ -228,6 +276,15 @@ misfiled; the URI handler exists in the extension. *Alternatives.* `--bg` instea
 surfaces in v1; headless only; keeping one window and naming the project in the prompt; rewriting the
 workspace file's first folder.
 
+> **Addendum (2026-11-01, EP-8).** IN-1 and IN-2 revise "with no extra directories". Cwd stays the
+> project folder. Visual opens the owner's existing `<data root>\<name>.code-workspace` and generates
+> one only where none exists (EP-11, through EP-33's writer). Headless runs add the project's
+> neighbour folders, a list per project in the registry, with `--add-dir` and
+> `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`, so their `CLAUDE.md` and rules load too, which a
+> folder granted in a settings file never does (Claude Code's permissions page, read 2026-11-01);
+> EP-9 passes them and EP-10's dialog shows them. *Alternatives.* No neighbours in headless runs;
+> neighbours granted through settings files only.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -241,6 +298,15 @@ inside the project pass; shell commands outside the project's allow rules, netwo
 reach the decisions tile; each project's own `.claude/settings.json` allow and deny rules still apply; a
 per-project override to `auto` or `bypassPermissions` for projects the owner trusts. *Why.* Fail-safe by
 default with the owner in the loop, without the terminal. *Alternatives.* `auto` everywhere; bypass; `dontAsk`.
+
+> **Addendum (2026-11-01, EP-8).** Under `acceptEdits`, Claude Code's documentation says file edits
+> and the common filesystem commands (`mkdir`, `touch`, `mv`, `cp`) pass without a prompt for paths
+> in the working directory or the added directories, so a neighbour (D-16 addendum) would be
+> editable. Neighbours are read-only: the launcher passes through `--settings` an `Edit` deny rule
+> for each (`Edit(//<drive>/<path>/**)`; Edit rules cover every built-in editing tool, and Windows
+> paths match in POSIX form). The documentation does not say whether that deny also stops those
+> filesystem commands; EP-9 finds out and puts any gap to the owner. *Alternatives.* Writable
+> neighbours, kept read-only only by each project's own rules; no neighbours.
 
 **D-19 Decision routing.** The **control protocol over stream-json first**: the tile shows each
 `AskUserQuestion` with its options and each permission request; the session blocks until the owner answers
@@ -340,6 +406,12 @@ archive mechanism; editing `index.html`.
 > a fetch before the comparison; a cache file of its own; asking GitHub at every start; a setting
 > for the archive folder instead of the job's settings file; no git child in the data repositories.
 
+> **Addendum (2026-11-01, EP-8).** The actions (Create private remote, Make public, Make private,
+> Remove remote, Archive and Delete for an orphan, Back up now) are EP-34, an M row in P4 after the
+> exports and before operations: one confirmation dialog that names the command and repeats `gh`'s
+> warning, one child at a time, each action an `event` row of the ledger; until then the owner uses
+> `gh` and the job by hand. *Alternatives.* An M row early in P2; v2.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with
@@ -392,6 +464,11 @@ state; graphs only in the detail tile or a separate window.
 > The window, `crw` and the README spell license; this file keeps its wording. *Alternatives.*
 > Drag-resizable columns with saved widths (v2 notes); headers clipped to their content's width;
 > the key as hover texts only, or in a window of its own; fixed gaps.
+
+> **Addendum (2026-11-01, EP-8).** The cards view, which EP-6 left out with no destination, joins
+> EP-26: a Cards switch in the Projects toolbar, saved with the view, shows one card per project
+> (name, state, next brief, progress, badges and the burn-up sparkline EP-26 draws) in the list's
+> groups and order. *Alternatives.* An S row of its own; v2.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

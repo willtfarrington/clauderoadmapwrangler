@@ -1,7 +1,8 @@
 # v2 notes — parked at the v1 planning interview (2026-10-31)
 
 Everything named during planning and not built in v1. Every re-plan EP grows this file; the v1 close-out
-(EP-32) compiles it into themes with a v2 direction.
+(EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
+items marked *(EP-8)*.
 
 ## 1 Launch modes
 
@@ -44,6 +45,9 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
   Archive and Delete actions and leaves the scope refresh to the owner).
 - A second backup mechanism (rejected; the Documents job is the one, D-24).
 - Health badges beyond the latest Actions run and licence presence (CodeQL, Dependabot alerts).
+- *(EP-8)* Rewriting this repository's history to drop the planning record's first wording of the
+  owner's machine details (rejected before the public flip: every recorded hash would change; D-3
+  addendum).
 
 ## 6 Conventions and other projects
 
@@ -54,6 +58,8 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
   commits) that overlaps this tool's parser; the vault could consume this tool's daily export instead
   (noted for that project's re-plan).
 - Owner-tasks ticking for the legacy forms (they stay read-only, D-10).
+- *(EP-8)* Eligibility from the dependency graph, and a split set's name (`EP-5` for `EP-5a` and
+  `EP-5b`): the next EP stays the first unchecked row (D-9; left out at EP-3).
 
 ## 7 Stack alternatives considered
 
@@ -68,8 +74,13 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
 - An opt-in live smoke test against the real CLI with a tiny prompt (rejected: tests spend no usage).
 - Scheduled autopilot windows through the Claude desktop app's machine-local scheduled tasks (observed in
   the docs; not needed while the tool runs at login).
+- *(EP-8)* A pre-commit hook script that checks a commit's added lines against the word list kept in
+  `private/` (the alternative to CLAUDE.md rule 3's check by hand; D-3 addendum).
+- *(EP-8)* A `root=` setup flag for screenshot runs that names a neutral data root, instead of the
+  substituted drive and junction EP-8 used for the README's pictures.
 
 ## 9 Views
 
 - Drag-resizable columns in the project list, their widths saved with the layout (the alternative the
   owner did not pick for EP-7a, which sizes the columns to their content; IN-4, 2026-11-01).
+- *(EP-8)* Sorting by a click on a column header (EP-7a kept the Sort menu as the one place).

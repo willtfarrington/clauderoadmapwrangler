@@ -71,3 +71,9 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   points; the owner chose columns sized to their content under a header row, a Legend toggle in the
   Projects pane's toolbar with the key in the pane, and the spelling license; drag-resizable columns
   went to the v2 notes.
+- [x] IN-5 (from the owner, a session before the workspace split, 2026-10-31) EP-8's pre-flip audit
+  should include `roadmap/inbox.md`: IN-1 and IN-2 were kept generic, but the audit is the place to
+  confirm it before the repository goes public. (Carried in the owner's prompt at EP-8.) **Triaged
+  at EP-8 (2026-11-01):** rolled in, as it fits the re-plan's audit and is S-sized; the audit read
+  IN-1 … IN-4 and found no project's name, no path beyond the home-relative ones and no machine
+  detail.

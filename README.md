@@ -8,16 +8,24 @@ cross-project inbox, chains briefs on autopilot within caps, meters the account'
 backup status and history graphs, hosts a chat to Claude Code, ships the roadmap method as a plugin, and
 ends with a phone view over a Tailscale tailnet.
 
-**Status:** early development. The Cargo workspace, `crw doctor` and CI (EP-1), the registry of managed
-projects with discovery and `crw scan` (EP-2), the roadmap parser with `crw roadmap` (EP-3 the phase
-tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree snapshot that tells a session in
-progress), the owner's tasks, the cross-project inbox and the older forms of the owner's to-dos with
-`crw tasks` and `crw tick` (EP-5), the dashboard's shell (EP-6: the docking layout, the project list
-grouped by state, the detail pane, ticks and Adopt from the window) and its badges with `crw status`
-(EP-7: stack, progress, activity, hosting with a check of the origin's head, CI and license, backup age;
-EP-7a: columns sized to their content under a header row, and a legend of every mark) exist; sessions
-arrive in phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the
-decisions [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
+**Status:** phase P1, the read-only dashboard, is done (2026-11-01). The Cargo workspace, `crw doctor`
+and CI (EP-1), the registry of managed projects with discovery and `crw scan` (EP-2), the roadmap parser
+with `crw roadmap` (EP-3 the phase tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree
+snapshot that tells a session in progress), the owner's tasks, the cross-project inbox and the older forms
+of the owner's to-dos with `crw tasks` and `crw tick` (EP-5), the dashboard's shell (EP-6: the docking
+layout, the project list grouped by state, the detail pane, ticks and Adopt from the window) and its
+badges with `crw status` (EP-7: stack, progress, activity, hosting with a check of the origin's head, CI
+and license, backup age; EP-7a: columns sized to their content under a header row, and a legend of every
+mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. Sessions arrive in
+phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+[`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
+
+![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, status, owner tasks and inbox](docs/dashboard-light.png)
+
+![The dashboard in the dark theme: a row expanded to its phases, the legend of every mark open under the list, and the Detail pane of the selected project](docs/dashboard-dark.png)
+
+*Both pictures show the fake portfolio tracked in `crates/app/fixtures/portfolio`, taken by the app of
+its own window (`--features screenshot`, below).*
 
 ## Building
 
@@ -61,9 +69,9 @@ picture of its own window and exits; `CRW_SCREENSHOT_SETUP` arranges the view (s
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
 desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,
-the hook and status-line relays). The checks every change passes: `cargo test`, `cargo clippy
---all-targets --features screenshot`, `cargo fmt --check`. Tests never run the real `claude` CLI and never
-spend usage.
+the hook and status-line relays). The checks every change passes: `cargo test` with and without
+`--features screenshot`, `cargo clippy --all-targets` with and without it, `cargo fmt --check`. Tests never
+run the real `claude` CLI and never spend usage.
 
 ## The roadmap house style
 

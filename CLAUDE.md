@@ -19,7 +19,12 @@
    of projects that are already public; fixtures and recorded streams use synthetic names; screenshots show
    fake projects; never commit the registry, the ledger, exports, tokens or transcripts. The OAuth token is
    read from `~/.claude/.credentials.json` only by the usage poller at poll time, never stored or logged,
-   and sent nowhere but `api.anthropic.com` (D-23).
+   and sent nowhere but `api.anthropic.com` (D-23). The remote is public since EP-8, so a push publishes
+   at once: before each commit, check the staged diff's added lines against the word list in `private/`
+   (the private names and the machine details: drive labels and backup paths, the plan's tier, devices
+   and VPN, tailnet ports, security software, user names in paths), `git diff --cached -U0 | grep '^+' |
+   grep -iFf private/public-check.txt` printing nothing; screenshots name a neutral data root (D-3
+   addendum).
 4. **Managed projects are read-only from here (D-11).** A session in this repository never edits
    another project's roadmap, briefs or `DECISIONS.md`. The tool itself writes only the files it owns in a
    managed project (`owner-tasks.md` ticks, `inbox.md`, the adoption files, the `.code-workspace` entry).
