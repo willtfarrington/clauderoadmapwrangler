@@ -92,3 +92,6 @@ items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, and at EP-10 by those
 - Drag-resizable columns in the project list, their widths saved with the layout (the alternative the
   owner did not pick for EP-7a, which sizes the columns to their content; IN-4, 2026-11-01).
 - *(EP-8)* Sorting by a click on a column header (EP-7a kept the Sort menu as the one place).
+- *(EP-33)* Proposals that expire after a set time, and one list of every dismissal across the
+  projects (EP-33 keeps a dismissal until the fact it rests on changes, shown per project in the
+  Detail pane and in `crw scan`; D-6 addendum).

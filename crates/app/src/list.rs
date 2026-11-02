@@ -789,6 +789,20 @@ fn project_row(
                 }
             }
         });
+        // The bulb's proposals, each dismissed until the fact it rests on changes (D-6).
+        for proposal in row.proposals(now).into_iter().filter(|p| !p.dismissed) {
+            if ui
+                .button(format!("Dismiss: {}", proposal.reason))
+                .on_hover_text(format!(
+                    "Leave the proposal out until {}",
+                    proposal.reason.returns_when()
+                ))
+                .clicked()
+            {
+                actions.push(Action::Dismiss(name.to_owned(), proposal.reason));
+                ui.close();
+            }
+        }
     });
 
     if expanded {
@@ -802,12 +816,15 @@ fn name_label(ui: &mut egui::Ui, name: &str) {
     ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
 }
 
-/// The state chip, and the bulb of a proposed change.
+/// The state chip, and the bulb of a proposed change the owner has not dismissed.
 fn state_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
     let state = row.project.state;
     style::chip(ui, state.as_str(), style::state_colour(Some(state)));
-    if !row.proposals(now).is_empty() {
-        PROPOSAL.show(ui, "A state change is proposed: see the Detail pane");
+    if row.proposes(now) {
+        PROPOSAL.show(
+            ui,
+            "A state change is proposed: see the Detail pane, or dismiss it from the row's menu",
+        );
     }
 }
 

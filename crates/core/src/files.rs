@@ -31,6 +31,18 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     }
 }
 
+/// Writes `bytes` to a new file at `path`, failing with `AlreadyExists` when anything is there,
+/// which is left untouched; a write that fails takes its half-written file away.
+pub fn create_new(path: &Path, bytes: &[u8]) -> io::Result<()> {
+    let mut file = OpenOptions::new().write(true).create_new(true).open(path)?;
+    let written = file.write_all(bytes).and_then(|()| file.sync_all());
+    if written.is_err() {
+        drop(file);
+        let _ = fs::remove_file(path);
+    }
+    written
+}
+
 /// Writes `bytes` to `<dir>\<stem>.<date><ext>`. A copy already there is never overwritten: one
 /// holding the same bytes is reused, any other moves this one on to `<stem>.<date>.2<ext>`, `.3`,
 /// and so on.
@@ -158,6 +170,16 @@ pub(crate) mod tests {
         write_atomic(&path, b"second").unwrap();
         assert_eq!(fs::read(&path).unwrap(), b"second");
         assert_eq!(scratch.names(Path::new("")), ["registry.toml"]);
+    }
+
+    #[test]
+    fn a_new_file_never_replaces_one() {
+        let scratch = Scratch::new("create-new");
+        let path = scratch.0.join("alpha.code-workspace");
+        create_new(&path, b"first").unwrap();
+        let again = create_new(&path, b"second").unwrap_err();
+        assert_eq!(again.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(fs::read(&path).unwrap(), b"first");
     }
 
     #[test]

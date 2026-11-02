@@ -13,7 +13,8 @@ use crw_core::badges::hosting::Class;
 use crw_core::badges::short_age;
 use crw_core::badges::stack::Kind;
 use crw_core::catalog::Catalog;
-use crw_core::discovery::{self, Listing};
+use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
+use crw_core::proposal::{self, Reason};
 use crw_core::registry::{State, Store};
 use crw_core::session::cli;
 use crw_core::{files, inbox, prompt, tasks};
@@ -108,6 +109,10 @@ pub enum Action {
     Adopt(String),
     Ignore(String),
     SetState(String, State),
+    /// A proposal left out until the fact it rests on changes (D-6 addendum).
+    Dismiss(String, Reason),
+    /// A dismissal taken back.
+    Restore(String, proposal::Kind),
     SetPinned(String, bool),
     SetPriority(String, u8),
     Tick {
@@ -401,11 +406,27 @@ impl Board {
             }
             Action::NotYet(text) => self.warn(text),
             Action::Adopt(name) => {
-                match discovery::adopt(self.store(), &[name.as_str()], &today) {
+                // A screenshot run's data root is the tracked fixtures: no file beside them.
+                let own_files = if self.fixtures {
+                    OwnFiles::Skip
+                } else {
+                    OwnFiles::Write
+                };
+                match discovery::adopt(self.store(), &[name.as_str()], &today, own_files) {
                     Ok(adopted) => {
                         let text = adopted
                             .iter()
                             .map(|one| {
+                                let own = match &one.own_file {
+                                    OwnFile::Written(path) => format!("wrote {}", path.display()),
+                                    OwnFile::Kept(path) => {
+                                        format!("kept its own {}", path.display())
+                                    }
+                                    OwnFile::Skipped => {
+                                        "no workspace file of its own in a screenshot run"
+                                            .to_owned()
+                                    }
+                                };
                                 let listing = match &one.workspace {
                                     Listing::Appended { backup } => format!(
                                         "added to the workspace file (the old one is kept as {})",
@@ -418,7 +439,7 @@ impl Board {
                                         "no workspace file is set".to_owned()
                                     }
                                 };
-                                format!("Adopted {} as {}; {listing}.", one.name, one.state)
+                                format!("Adopted {} as {}; {own}; {listing}.", one.name, one.state)
                             })
                             .collect::<Vec<_>>()
                             .join(" ");
@@ -442,6 +463,23 @@ impl Board {
             Action::SetState(name, state) => {
                 let changed = self.store().change(&today, |c| c.set_state(&name, state));
                 self.report_change(changed.map(|_| format!("{name} is {state} now.")));
+                return true;
+            }
+            Action::Dismiss(name, reason) => {
+                let changed = self.store().change(&today, |c| c.dismiss(&name, &reason));
+                self.report_change(changed.map(|_| {
+                    format!(
+                        "{name}: dismissed ({reason}); it returns when {}.",
+                        reason.returns_when()
+                    )
+                }));
+                return true;
+            }
+            Action::Restore(name, kind) => {
+                let changed = self.store().change(&today, |c| c.undismiss(&name, kind));
+                self.report_change(
+                    changed.map(|_| format!("{name}: the dismissed proposal shows again.")),
+                );
                 return true;
             }
             Action::SetPinned(name, pinned) => {

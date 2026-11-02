@@ -212,8 +212,19 @@ impl ProjectRow {
         self.snapshot.in_progress()
     }
 
+    /// The proposals, each saying whether the owner dismissed it (D-6 addendum).
     pub fn proposals(&self, now: DateTime<Utc>) -> Vec<Proposal> {
-        proposal::propose(self.project.state, &self.facts, now)
+        proposal::propose(
+            self.project.state,
+            &self.facts,
+            &self.project.dismissed,
+            now,
+        )
+    }
+
+    /// Whether a proposal the owner has not dismissed waits: the row's bulb.
+    pub fn proposes(&self, now: DateTime<Utc>) -> bool {
+        self.proposals(now).iter().any(|p| !p.dismissed)
     }
 
     /// The folder's own name, which an orphan is matched by as well as the project's.
@@ -1185,7 +1196,18 @@ mod tests {
         let now = Utc::now();
         let quarry = portfolio.project("quarry").unwrap();
         assert_eq!(quarry.proposals(now).len(), 1);
+        assert!(quarry.proposes(now));
         assert!(quarry.in_progress().is_empty());
+        // Dismissed in the run's registry, the gate stays out of the bulb until its brief
+        // changes (D-6 addendum).
+        let reason = quarry.proposals(now)[0].reason;
+        store
+            .change("2026-11-02", |c| c.dismiss("quarry", &reason))
+            .unwrap();
+        let again = read_files(&store);
+        let quarry = again.project("quarry").unwrap();
+        assert!(!quarry.proposes(now));
+        assert!(quarry.proposals(now)[0].dismissed);
         assert!(
             portfolio
                 .project("orchard")

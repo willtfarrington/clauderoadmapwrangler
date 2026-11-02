@@ -117,6 +117,15 @@ project.
 > registry remembers the dismissal with the facts the proposal rested on, so it returns only when
 > they change (EP-33). *Alternatives.* Confirm only (P1's behaviour); proposals that expire.
 
+> **Addendum (2026-11-02, EP-33).** A dismissal is kept on its project as `dismissed = { … }`,
+> one key per kind of proposal holding the fact it rested on: `all_rows_checked` the roadmap's
+> row count, `pickup_gate` the gated brief's id, `no_commit_since` the last commit's time. A newer
+> dismissal of a kind replaces the older, and the proposal returns once its fact differs (rows
+> added at a re-plan, the next brief, a new commit). The row's menu and the Detail pane's proposal
+> frame dismiss, `crw dismiss` too; Restore and `crw undismiss` take a dismissal back; `crw scan`
+> and the Detail pane show the dismissed apart. *Alternatives.* A dated list of every dismissal;
+> dismissals that expire after a set time; no undo.
+
 **D-7 Discovery and the workspace file.** The tool watches `DATA` for new top-level folders and rescans at
 start; a new folder appears as unadopted; **Adopt registers it and appends an entry to the owner's
 `.code-workspace` file**, preserving the existing order and the named entries; Ignore is remembered. *Why.*

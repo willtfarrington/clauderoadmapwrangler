@@ -204,15 +204,17 @@ impl Snapshot {
         reasons
     }
 
-    /// Fills the facts the parsers own (D-6): every row checked, from the current reading; a
-    /// pickup gate, from the next EP's brief.
+    /// Fills the facts the parsers own (D-6): every row checked and the row count, from the
+    /// current reading; a pickup gate, from the next EP's brief, and that EP.
     pub fn fill(&self, facts: &mut Facts) {
         if let Some(roadmap) = self.current() {
-            facts.all_rows_checked = Some(roadmap.counts().all_checked());
+            let counts = roadmap.counts();
+            facts.all_rows_checked = Some(counts.all_checked());
+            facts.rows = counts.total;
+            let next = roadmap.next();
+            facts.next = next.map(|row| row.id);
             facts.pickup_gate = Some(
-                roadmap
-                    .next()
-                    .and_then(|row| self.entry(row.id))
+                next.and_then(|row| self.entry(row.id))
                     .is_some_and(|entry| entry.brief.pickup_gate().is_some()),
             );
         }

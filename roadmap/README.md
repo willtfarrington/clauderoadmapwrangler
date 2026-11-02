@@ -254,7 +254,7 @@ only its own files inside a managed project).
 |---|---|---|---|---|---|
 | EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☑ `71b2076` |
 | EP-10 | [Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch](EP-10-prompt-and-launch-dialog.md) (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☑ `7984abe` |
-| EP-33 | Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed (D-6, D-7) | S | EP-2 | core | ☐ |
+| EP-33 | [Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed](EP-33-per-project-workspace-files.md) (D-6, D-7) | S | EP-2 | core | ☐ |
 | EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
 | EP-12 | Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model (D-20, D-23) | M | EP-9 | core | ☐ |
 | EP-13 | Sessions tile: live transcript from stream-json, stop, resume by id, ledger rows with outcome and cost estimate (D-16, D-26) | M | EP-12 | core | ☐ |
@@ -363,6 +363,12 @@ every commit's added lines are checked before it is made, the repository being p
   `Dialog::new` opens the dialog; the opener says "launched from clauderoadmapwrangler … with
   <model> at <effort>", which a visual launch chooses in VS Code instead, so the brief words that
   sentence for it. Until then `crw prompt <project>` prints the opener for pasting by hand.
+  **From EP-33:** the project's own file is `workspace::own_file(folder)` (`<folder>.code-workspace`
+  beside the folder) and `Folder::own_workspace` says whether it is there; a missing one is
+  written by `discovery::write_own_file(folder)` in the owner's form, created new so that it never
+  replaces a file (`OwnFile::Written` or `Kept`); a screenshot run writes none, its data root being
+  the tracked fixtures (Adopt passes `OwnFiles::Skip` when `board.fixtures`). `crw scan` found
+  every registered project with its own file (2026-11-02).
 - **EP-12.** `app::server`: axum on `127.0.0.1:<port>` (port in the registry, default 47831), routes
   `POST /hook`, `POST /statusline`, `GET /health`; `cli hook` reads the hook JSON from stdin and posts it
   with a 500 ms timeout, exiting 0 silently on any error; `cli statusline` does the same for the
@@ -539,7 +545,9 @@ a running session).
   **From EP-5:** in the files the formalise step writes, every line of work stays a top-level list
   item `- [ ] OT-n (…) text` or `- [ ] IN-n (…) text` below a header paragraph: `checklist::parse`
   reports any other box as a problem, and the header's example line belongs in backticks, as the
-  inbox files already write it.
+  inbox files already write it. **From EP-33:** Adopt (`discovery::adopt`) already writes the
+  folder's own workspace file and the aggregate's entry before it registers the folder, so the
+  formalise step writes the house-style files only and its preview can show Adopt's as done.
 - **EP-22.** `plugins/roadmap-wrangler/` with `.claude-plugin/plugin.json`, `skills/plan/SKILL.md` (the
   interview method as practised in this project's EP-0: research pass, domain map, rounds of four with the
   recommended option first, the planning file written to the repo first and filled per round, close-out

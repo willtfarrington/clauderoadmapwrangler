@@ -697,6 +697,7 @@ mod tests {
                 path: PathBuf::from("alpha"),
                 git: true,
                 roadmap: true,
+                own_workspace: true,
             }),
             snapshot: Snapshot::default(),
             facts: Facts::default(),

@@ -14,10 +14,11 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 use serde::Deserialize;
-use toml_edit::{Array, ArrayOfTables, DocumentMut, Item, Table, Value};
+use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
+use crate::proposal::{Dismissed, Kind, Reason};
 use crate::rules::Rule;
-use crate::{files, paths};
+use crate::{files, paths, workspace};
 
 /// The registry format this build reads and writes.
 pub const FORMAT: u32 = 1;
@@ -213,6 +214,9 @@ pub struct Project {
     /// The project's own rules, `[[project.rule]]`, applied over the global table (D-22).
     #[serde(default, rename = "rule")]
     pub rules: Vec<Rule>,
+    /// The proposals the owner dismissed, each with the fact it rested on (D-6 addendum).
+    #[serde(default)]
+    pub dismissed: Dismissed,
 }
 
 fn default_priority() -> u8 {
@@ -370,7 +374,7 @@ impl Registry {
 
 impl Project {
     /// A project as a fresh `[[project]]` table reads: the default priority, not pinned, no
-    /// launch defaults, neighbours or rules.
+    /// launch defaults, neighbours, rules or dismissals.
     pub fn new(name: &str, path: &Path, state: State) -> Self {
         Self {
             name: name.to_owned(),
@@ -382,6 +386,7 @@ impl Project {
             autopilot: Autopilot::default(),
             neighbours: Vec::new(),
             rules: Vec::new(),
+            dismissed: Dismissed::default(),
         }
     }
 
@@ -575,8 +580,9 @@ impl Store {
     }
 }
 
-/// The text of a registry that does not exist yet: the header, the data root, the workspace file
-/// when the data root holds exactly one, and the repository as the first project (D-5).
+/// The text of a registry that does not exist yet: the header, the data root, the aggregate
+/// workspace file when the data root holds exactly one file that lists more than one folder (D-7
+/// addendum), and the repository as the first project (D-5).
 fn default_text(defaults: &Defaults) -> String {
     let mut document: DocumentMut = format!("{HEADER}format = {FORMAT}\nignore = []\n")
         .parse()
@@ -584,7 +590,7 @@ fn default_text(defaults: &Defaults) -> String {
     let mut settings = Table::new();
     settings.decor_mut().set_prefix("\n");
     settings["data_root"] = toml_edit::value(defaults.data_root.display().to_string());
-    if let Some(file) = only_workspace_file(&defaults.data_root) {
+    if let [file] = workspace::aggregates(&defaults.data_root).as_slice() {
         settings["workspace_file"] = toml_edit::value(file);
     }
     document["settings"] = Item::Table(settings);
@@ -609,18 +615,6 @@ fn default_text(defaults: &Defaults) -> String {
     .add_project(&name, &path, State::Active)
     .expect("an empty registry takes any project");
     document.to_string()
-}
-
-/// The name of the one `.code-workspace` file in `dir`, if there is exactly one.
-fn only_workspace_file(dir: &Path) -> Option<String> {
-    let mut found = fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .filter(|entry| entry.path().is_file())
-        .map(|entry| entry.file_name().to_string_lossy().into_owned())
-        .filter(|name| name.to_lowercase().ends_with(".code-workspace"));
-    let first = found.next()?;
-    found.next().is_none().then_some(first)
 }
 
 /// Sets `key` in `table` to `new`, keeping the spacing and the comment of the value it replaces.
@@ -740,12 +734,76 @@ impl Changes<'_> {
         list.len() != before
     }
 
+    /// Keeps the dismissal of a proposal in the project's `dismissed` key with the fact it rests
+    /// on (D-6 addendum), replacing an earlier dismissal of the same kind.
+    pub fn dismiss(&mut self, name: &str, reason: &Reason) -> Result<(), Error> {
+        let fact = match *reason {
+            Reason::AllRowsChecked { rows } => Value::from(i64::try_from(rows).unwrap_or(i64::MAX)),
+            Reason::PickupGate { ep } => Value::from(ep.to_string()),
+            Reason::NoCommitFor { last, .. } => Value::from(
+                last.format("%Y-%m-%dT%H:%M:%SZ")
+                    .to_string()
+                    .parse::<toml_edit::Datetime>()
+                    .expect("a UTC time in RFC 3339 is a TOML datetime"),
+            ),
+        };
+        let key = reason.kind().key();
+        let item = self
+            .project_table(name)?
+            .entry("dismissed")
+            .or_insert_with(|| {
+                let mut value = Value::InlineTable(InlineTable::new());
+                value
+                    .decor_mut()
+                    .set_suffix("  # proposals left out until their facts change (D-6)");
+                Item::Value(value)
+            });
+        match item {
+            // The tool's own form, laid out afresh at each change.
+            Item::Value(Value::InlineTable(dismissed)) => {
+                dismissed.insert(key, fact);
+                dismissed.fmt();
+            }
+            // A table the owner wrote: its layout and comments stay.
+            Item::Table(dismissed) => set_keeping_decor(dismissed, key, fact),
+            _ => return Err(not_a_table(name)),
+        }
+        Ok(())
+    }
+
+    /// Takes a dismissal of `kind` back, so its proposal shows again; `false` when there was
+    /// none. The `dismissed` key goes when it is left empty.
+    pub fn undismiss(&mut self, name: &str, kind: Kind) -> Result<bool, Error> {
+        let table = self.project_table(name)?;
+        let (removed, empty) = match table.get_mut("dismissed") {
+            None => return Ok(false),
+            Some(Item::Value(Value::InlineTable(dismissed))) => {
+                let removed = dismissed.remove(kind.key()).is_some();
+                dismissed.fmt();
+                (removed, dismissed.is_empty())
+            }
+            Some(Item::Table(dismissed)) => {
+                (dismissed.remove(kind.key()).is_some(), dismissed.is_empty())
+            }
+            Some(_) => return Err(not_a_table(name)),
+        };
+        if empty {
+            table.remove("dismissed");
+        }
+        Ok(removed)
+    }
+
     fn set(&mut self, name: &str, key: &str, value: Value) -> Result<(), Error> {
+        set_keeping_decor(self.project_table(name)?, key, value);
+        Ok(())
+    }
+
+    /// The `[[project]]` table of the project called `name`, in any case.
+    fn project_table(&mut self, name: &str) -> Result<&mut Table, Error> {
         if self.registry.project(name).is_none() {
             return Err(Error::UnknownProject(name.to_owned()));
         }
-        let table = self
-            .document
+        self.document
             .get_mut("project")
             .and_then(Item::as_array_of_tables_mut)
             .and_then(|projects| {
@@ -756,14 +814,16 @@ impl Changes<'_> {
                         .is_some_and(|n| n.eq_ignore_ascii_case(name))
                 })
             })
-            .ok_or_else(written_as_tables)?;
-        set_keeping_decor(table, key, value);
-        Ok(())
+            .ok_or_else(written_as_tables)
     }
 }
 
 fn written_as_tables() -> Error {
     Error::Invalid("the tool changes projects written as [[project]] tables only".to_owned())
+}
+
+fn not_a_table(name: &str) -> Error {
+    Error::Invalid(format!("{name}: dismissed must be a table"))
 }
 
 #[cfg(test)]
@@ -812,8 +872,21 @@ state = "paused"
     fn a_missing_file_reads_as_the_default_with_the_repository_first() {
         let scratch = Scratch::new("registry-default");
         let store = store(&scratch);
-        fs::create_dir_all(&store.defaults.data_root).unwrap();
-        fs::write(store.defaults.data_root.join("main.code-workspace"), "{}").unwrap();
+        let data = &store.defaults.data_root;
+        fs::create_dir_all(data).unwrap();
+        // The projects' own single-folder files beside the one aggregate (D-7 addendum).
+        for name in ["wrangler", "alpha"] {
+            fs::write(
+                data.join(format!("{name}.code-workspace")),
+                workspace::single_folder(name),
+            )
+            .unwrap();
+        }
+        fs::write(
+            data.join("main.code-workspace"),
+            r#"{"folders": [{"path": "wrangler"}, {"path": "alpha"}]}"#,
+        )
+        .unwrap();
         let loaded = store.load().unwrap();
         assert!(!loaded.written);
         let registry = loaded.registry;
@@ -833,6 +906,120 @@ state = "paused"
         // Reading wrote nothing.
         assert!(!scratch.0.join("config").exists());
         assert!(!scratch.0.join("local").exists());
+
+        // Two files listing several folders: neither is chosen; none at all: none either.
+        fs::write(
+            data.join("other.code-workspace"),
+            r#"{"folders": [{"path": "a"}, {"path": "b"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(store.load().unwrap().registry.workspace_file(), None);
+        fs::remove_file(data.join("other.code-workspace")).unwrap();
+        fs::remove_file(data.join("main.code-workspace")).unwrap();
+        assert_eq!(store.load().unwrap().registry.workspace_file(), None);
+    }
+
+    #[test]
+    fn dismissals_are_kept_in_place_with_their_facts() {
+        let scratch = Scratch::new("registry-dismissed");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let last = chrono::DateTime::parse_from_rfc3339("2026-08-15T10:00:00Z")
+            .unwrap()
+            .to_utc();
+        let gate = Reason::PickupGate {
+            ep: "EP-5".parse().unwrap(),
+        };
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.dismiss("alpha", &gate)?;
+                c.dismiss("alpha", &Reason::NoCommitFor { days: 75, last })?;
+                c.dismiss("beta", &Reason::AllRowsChecked { rows: 30 })
+            })
+            .unwrap();
+        let text = fs::read_to_string(&store.path).unwrap();
+        let comment = "  # proposals left out until their facts change (D-6)";
+        assert!(
+            text.contains(&format!(
+                "priority = 2\ndismissed = {{ pickup_gate = \"EP-5\", no_commit_since = \
+                 2026-08-15T10:00:00Z }}{comment}\n\n[project.launch]\n"
+            )),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(&format!(
+                "state = \"paused\"\ndismissed = {{ all_rows_checked = 30 }}{comment}\n"
+            )),
+            "{text}"
+        );
+        let alpha = &registry.project("alpha").unwrap().dismissed;
+        assert!(alpha.covers(&gate));
+        assert!(alpha.covers(&Reason::NoCommitFor { days: 99, last }));
+        assert_eq!(alpha.all_rows_checked, None);
+        assert_eq!(
+            registry.project("beta").unwrap().dismissed.all_rows_checked,
+            Some(30)
+        );
+
+        // A newer dismissal of a kind replaces the older; taking the last one back drops the key.
+        let (registry, removed) = store
+            .change(TODAY, |c| {
+                c.dismiss(
+                    "alpha",
+                    &Reason::PickupGate {
+                        ep: "EP-6".parse().unwrap(),
+                    },
+                )?;
+                c.undismiss("alpha", Kind::NoCommit)?;
+                Ok([
+                    c.undismiss("beta", Kind::AllRowsChecked)?,
+                    c.undismiss("beta", Kind::PickupGate)?,
+                ])
+            })
+            .unwrap();
+        assert_eq!(removed, [true, false]);
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains(&format!(
+                "dismissed = {{ pickup_gate = \"EP-6\" }}{comment}\n"
+            )),
+            "{text}"
+        );
+        assert_eq!(text.matches("dismissed").count(), 1, "{text}");
+        assert_eq!(
+            registry.project("alpha").unwrap().dismissed.pickup_gate,
+            Some("EP-6".parse().unwrap())
+        );
+        assert!(store.change(TODAY, |c| c.dismiss("delta", &gate)).is_err());
+
+        // Written by hand, as a table of its own, and wrong.
+        for (dismissed, message) in [
+            ("dismissed = { pickup_gate = \"5\" }", "is not an EP id"),
+            ("dismissed = { all_rows_checked = -1 }", "all_rows_checked"),
+            (
+                "dismissed = { no_commit_since = 2026-08-15 }",
+                "not a date and a time with its offset",
+            ),
+            ("dismissed = { stale = true }", "stale"),
+        ] {
+            let text =
+                HAND_WRITTEN.replace("priority = 2\n", &format!("priority = 2\n{dismissed}\n"));
+            fs::write(&store.path, &text).unwrap();
+            let error = store.load().unwrap_err().to_string();
+            assert!(error.contains(message), "{message}: {error}");
+        }
+        let table = HAND_WRITTEN.replace(
+            "[project.launch]",
+            "[project.dismissed]\nno_commit_since = 2026-08-15T10:00:00Z\n\n[project.launch]",
+        );
+        fs::write(&store.path, &table).unwrap();
+        let (registry, ()) = store.change(TODAY, |c| c.dismiss("alpha", &gate)).unwrap();
+        let alpha = &registry.project("alpha").unwrap().dismissed;
+        assert!(alpha.covers(&gate) && alpha.no_commit_since == Some(last));
+        assert!(fs::read_to_string(&store.path).unwrap().contains(
+            "[project.dismissed]\nno_commit_since = 2026-08-15T10:00:00Z\npickup_gate = \"EP-5\"\n"
+        ));
     }
 
     #[test]

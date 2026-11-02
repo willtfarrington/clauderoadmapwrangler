@@ -1,9 +1,9 @@
-//! The Detail pane (D-25): everything the files say about the selected project — its proposals,
-//! its next brief with the brief notes verbatim, why a session is taken to be in progress, the
-//! progress per phase, its badges spelt out (EP-7), what waits on the owner (ticked here when it
-//! lives in `owner-tasks.md`), the inbox (ticked here with a disposition), the mail its briefs
-//! hand on, and the problems the readers met. For an unadopted folder: what it holds, Adopt and
-//! Ignore.
+//! The Detail pane (D-25): everything the files say about the selected project — its proposals
+//! (confirmed or dismissed here, a dismissed one restored), its next brief with the brief notes
+//! verbatim, why a session is taken to be in progress, the progress per phase, its badges spelt
+//! out (EP-7), what waits on the owner (ticked here when it lives in `owner-tasks.md`), the inbox
+//! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
+//! met. For an unadopted folder: what it holds, Adopt and Ignore.
 
 use chrono::Utc;
 use crw_core::badges::short_age;
@@ -43,9 +43,11 @@ impl Board {
                             (false, _) => "A folder that is not a git repository.",
                         });
                         ui.label(format!(
-                            "Adopt registers it as {} and adds it to the workspace file; Ignore \
-                             leaves it out of the list (D-7).",
-                            folder.first_state()
+                            "Adopt registers it as {}, writes {}.code-workspace beside it unless \
+                             one is there, and adds it to the workspace file; Ignore leaves it \
+                             out of the list (D-7).",
+                            folder.first_state(),
+                            folder.name
                         ));
                         ui.horizontal(|ui| {
                             if ui.button("Adopt").clicked() {
@@ -110,7 +112,7 @@ fn project(
     }
 
     let proposals = row.proposals(chrono::Utc::now());
-    for proposal in &proposals {
+    for proposal in proposals.iter().filter(|p| !p.dismissed) {
         ui.add_space(6.0);
         egui::Frame::new()
             .fill(style::amber(ui).gamma_multiply(0.12))
@@ -129,8 +131,37 @@ fn project(
                             actions.push(Action::SetState(name.to_owned(), state));
                         }
                     }
+                    if ui
+                        .button("Dismiss")
+                        .on_hover_text(format!(
+                            "Leave it out until {}; the registry keeps the fact (D-6)",
+                            proposal.reason.returns_when()
+                        ))
+                        .clicked()
+                    {
+                        actions.push(Action::Dismiss(name.to_owned(), proposal.reason));
+                    }
                 });
             });
+    }
+    for proposal in proposals.iter().filter(|p| p.dismissed) {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "Dismissed: {}; it returns when {}.",
+                    proposal.reason,
+                    proposal.reason.returns_when()
+                ))
+                .weak(),
+            );
+            if ui
+                .small_button("Restore")
+                .on_hover_text("Show the proposal again")
+                .clicked()
+            {
+                actions.push(Action::Restore(name.to_owned(), proposal.reason.kind()));
+            }
+        });
     }
 
     next_brief(ui, row, actions);

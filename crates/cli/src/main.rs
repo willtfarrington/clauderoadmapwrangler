@@ -3,7 +3,8 @@
 //! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
 //! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `status` and
 //! `setting` from EP-7, the badges and the registry's settings; `prompt` from EP-10, what a launch
-//! starts from; `inbox send` and the `hook` and `statusline` relays arrive with their briefs.
+//! starts from; `dismiss` and `undismiss` from EP-33, the proposals the owner leaves out; `inbox
+//! send` and the `hook` and `statusline` relays arrive with their briefs.
 
 use std::collections::HashMap;
 use std::fs;
@@ -19,15 +20,16 @@ use crw_core::badges::online::{self, Reading};
 use crw_core::badges::short_age;
 use crw_core::badges::stack::{self, Chip};
 use crw_core::catalog::{self, Catalog};
-use crw_core::discovery::{self, Folder, Listing, View};
+use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
+use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{Project, Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, paths, process, prompt, proposal};
+use crw_core::{files, git, paths, process, prompt, proposal, workspace};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -36,11 +38,18 @@ commands:
   doctor                         print the versions of claude, gh, tailscale, code and the extension,
                                  and whether claude would start a headless session (no usage)
   scan                           print the registry: projects, unadopted folders, proposals
-  adopt <folder>...              register folders of the data root and add them to the workspace file
+  adopt <folder>...              register folders of the data root, write each one's own
+                                 <folder>.code-workspace beside it unless one is there, and add
+                                 them to the workspace file
   ignore <folder>...             leave folders of the data root out of the unadopted list
   set <project> state <state>    active, paused, maintenance, done, archived or unformalised
   set <project> priority <1-5>   1 is the highest
   set <project> pinned <yes|no>  pinned projects sort first
+  dismiss <project> [<proposal>] leave a proposed state out until the fact it rests on changes;
+                                 every open proposal of the project, or the one named:
+                                 all_rows_checked, pickup_gate or no_commit_since
+  undismiss <project> [<proposal>]
+                                 bring dismissed proposals back
   roadmap <project|folder>       print a project's snapshot: the README at HEAD and in the working
                                  tree, the next EP with its brief notes and its brief, the briefs
                                  and the decision log found, whether a session is in progress
@@ -79,6 +88,10 @@ fn main() -> ExitCode {
         ["adopt", folders @ ..] if !folders.is_empty() => adopt(folders),
         ["ignore", folders @ ..] if !folders.is_empty() => ignore(folders),
         ["set", project, field, value] => set(project, field, value),
+        ["dismiss", project] => dismiss(project, None),
+        ["dismiss", project, which] => dismiss(project, Some(which)),
+        ["undismiss", project] => undismiss(project, None),
+        ["undismiss", project, which] => undismiss(project, Some(which)),
         ["roadmap", target] => roadmap(target),
         ["tasks", target] => waiting(target),
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
@@ -223,16 +236,33 @@ fn scan() -> ExitCode {
     println!("  registry   {}{note}", store.path.display());
     println!("  data root  {}", view.data_root.display());
     match &view.workspace {
-        None => println!("  workspace  not set"),
-        Some(file) => match &file.entries {
-            Ok(entries) => println!(
-                "  workspace  {} ({} folders)",
-                file.path.display(),
-                entries.len()
-            ),
-            Err(e) => println!("  workspace  {} (unreadable: {e})", file.path.display()),
-        },
+        None => println!("  workspace  {}", unset_workspace(&view.data_root)),
+        Some(file) => {
+            // A default registry chose it (D-7 addendum).
+            let chosen = if loaded.written {
+                ""
+            } else {
+                "; the data root's one file that lists more than one folder"
+            };
+            match &file.entries {
+                Ok(entries) => println!(
+                    "  workspace  {} ({} folders{chosen})",
+                    file.path.display(),
+                    entries.len()
+                ),
+                Err(e) => println!("  workspace  {} (unreadable: {e})", file.path.display()),
+            }
+        }
     }
+    let own = view
+        .registered
+        .iter()
+        .filter(|r| r.folder.as_ref().is_some_and(|f| f.own_workspace))
+        .count();
+    println!(
+        "  own files  {own} of {} registered projects have <folder>.code-workspace beside them",
+        view.registered.len()
+    );
 
     let width = view
         .registered
@@ -271,43 +301,78 @@ fn scan() -> ExitCode {
         println!("  {}", view.ignored.join(", "));
     }
 
-    let proposals: Vec<_> = view
+    let (dismissed, open): (Vec<_>, Vec<_>) = view
         .registered
         .iter()
         .zip(&facts)
         .flat_map(|(registered, facts)| {
-            let state = registered.project.state;
-            proposal::propose(state, facts, now)
+            let project = &registered.project;
+            proposal::propose(project.state, facts, &project.dismissed, now)
                 .into_iter()
-                .map(move |p| (registered, state, p))
+                .map(move |p| (project, p))
         })
-        .collect();
-    println!("\nproposals ({})", proposals.len());
-    for (registered, state, proposal) in &proposals {
+        .partition(|(_, p)| p.dismissed);
+    let line = |(project, proposal): &(&Project, Proposal)| {
         let to: Vec<&str> = proposal.to.iter().map(|s| s.as_str()).collect();
         println!(
-            "  {:<width$}  {state} -> {}  ({})",
-            registered.project.name,
+            "  {:<width$}  {} -> {}  ({})  [{}]",
+            project.name,
+            project.state,
             to.join(" or "),
-            proposal.reason
+            proposal.reason,
+            proposal.reason.kind()
+        );
+    };
+    println!("\nproposals ({})", open.len());
+    open.iter().for_each(line);
+    if !open.is_empty() {
+        println!(
+            "confirm one with: crw set <project> state <state>; or leave it out until its fact \
+             changes: crw dismiss <project> [<proposal>]"
         );
     }
-    if !proposals.is_empty() {
-        println!("confirm one with: crw set <project> state <state>");
+    if !dismissed.is_empty() {
+        println!("\ndismissed ({})", dismissed.len());
+        dismissed.iter().for_each(line);
+        println!("bring one back with: crw undismiss <project> [<proposal>]");
     }
     ExitCode::SUCCESS
 }
 
-/// `git  roadmap  workspace` and the like: what a folder is and where it is listed.
+/// Why the registry names no workspace file, and the setting that would name one (D-7
+/// addendum).
+fn unset_workspace(data_root: &Path) -> String {
+    match workspace::aggregates(data_root).as_slice() {
+        [] => "not set: no workspace file of the data root lists more than one folder".to_owned(),
+        [one] => format!(
+            "not set: {one} is the data root's one file that lists more than one folder; \
+             crw setting workspace_file {one}"
+        ),
+        several => format!(
+            "not set: {} files of the data root list more than one folder ({}); \
+             crw setting workspace_file <file>",
+            several.len(),
+            several.join(", ")
+        ),
+    }
+}
+
+/// `git  roadmap  aggregate  own-file` and the like: what a folder is, whether the aggregate
+/// workspace file lists it, and whether its own workspace file sits beside it.
 fn describe(view: &View, folder: &Folder) -> String {
     let kind = if folder.git { "git" } else { "folder" };
     let roadmap = if folder.roadmap { "roadmap" } else { "-" };
     let listed = match view.in_workspace(&folder.path) {
-        Some(true) => "workspace",
+        Some(true) => "aggregate",
         Some(false) => "-",
         None => "?",
     };
-    format!("{kind:<6}  {roadmap:<7}  {listed:<9}")
+    let own = if folder.own_workspace {
+        "own-file"
+    } else {
+        "-"
+    };
+    format!("{kind:<6}  {roadmap:<7}  {listed:<9}  {own:<8}")
 }
 
 fn days_ago(days: i64) -> String {
@@ -323,9 +388,14 @@ fn adopt(folders: &[&str]) -> ExitCode {
         Ok(store) => store,
         Err(e) => return failed(e),
     };
-    match discovery::adopt(&store, folders, &files::today()) {
+    match discovery::adopt(&store, folders, &files::today(), OwnFiles::Write) {
         Ok(adopted) => {
             for one in adopted {
+                let own = match one.own_file {
+                    OwnFile::Written(path) => format!("wrote {}", path.display()),
+                    OwnFile::Kept(path) => format!("kept its own {}", path.display()),
+                    OwnFile::Skipped => "wrote no workspace file of its own".to_owned(),
+                };
                 let listing = match one.workspace {
                     Listing::Appended { backup } => format!(
                         "added to the workspace file (the old one is kept as {})",
@@ -334,7 +404,7 @@ fn adopt(folders: &[&str]) -> ExitCode {
                     Listing::AlreadyListed => "already in the workspace file".to_owned(),
                     Listing::NoWorkspaceFile => "no workspace file is set".to_owned(),
                 };
-                println!("adopted {} as {}; {listing}", one.name, one.state);
+                println!("adopted {} as {}; {own}; {listing}", one.name, one.state);
             }
             ExitCode::SUCCESS
         }
@@ -391,6 +461,98 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
                 .project(project)
                 .map_or(project, |p| p.name.as_str());
             println!("{name}: {field} {value}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// Dismisses a project's open proposals, or the one named, keeping each one's fact in the
+/// registry so that it returns when the fact changes (D-6 addendum). Asks git for the project's
+/// last commit, as `scan` does.
+fn dismiss(project: &str, which: Option<&str>) -> ExitCode {
+    let kind = match which.map(str::parse::<Kind>).transpose() {
+        Ok(kind) => kind,
+        Err(e) => return usage_error(&e),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let registry = match store.load() {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let Some(entry) = registry.project(project) else {
+        return failed(format!("no project named {project:?} in the registry"));
+    };
+    let folder = entry.folder(&registry.data_root());
+    let Some(folder) = Folder::inspect(&folder) else {
+        return failed(format!("{}: the folder is missing", folder.display()));
+    };
+    let facts = discovery::facts_of(&folder);
+    let open: Vec<Proposal> = proposal::propose(entry.state, &facts, &entry.dismissed, Utc::now())
+        .into_iter()
+        .filter(|p| !p.dismissed && kind.is_none_or(|kind| p.reason.kind() == kind))
+        .collect();
+    let name = entry.name.clone();
+    if open.is_empty() {
+        let named = kind.map(|kind| format!(" {kind}")).unwrap_or_default();
+        return failed(format!(
+            "{name} has no open proposal{named} (crw scan lists them)"
+        ));
+    }
+    let changed = store.change(&files::today(), |c| {
+        open.iter().try_for_each(|p| c.dismiss(&name, &p.reason))
+    });
+    match changed {
+        Ok(_) => {
+            for p in &open {
+                println!(
+                    "{name}: dismissed ({}): it returns when {}",
+                    p.reason,
+                    p.reason.returns_when()
+                );
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// Takes a project's dismissals back, or the one named.
+fn undismiss(project: &str, which: Option<&str>) -> ExitCode {
+    let kinds = match which {
+        Some(which) => match which.parse::<Kind>() {
+            Ok(kind) => vec![kind],
+            Err(e) => return usage_error(&e),
+        },
+        None => Kind::ALL.to_vec(),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let changed = store.change(&files::today(), |c| {
+        let mut taken = Vec::new();
+        for kind in kinds {
+            if c.undismiss(project, kind)? {
+                taken.push(kind);
+            }
+        }
+        Ok(taken)
+    });
+    match changed {
+        Ok((registry, taken)) => {
+            let name = registry
+                .project(project)
+                .map_or(project, |p| p.name.as_str());
+            if taken.is_empty() {
+                println!("{name}: nothing was dismissed");
+            }
+            for kind in taken {
+                println!("{name}: {kind} is no longer dismissed");
+            }
             ExitCode::SUCCESS
         }
         Err(e) => failed(e),

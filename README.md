@@ -22,7 +22,9 @@ the project's neighbour folders read-only, reads its stream-json, answers its qu
 requests, stops it with its whole process tree and records it in the ledger; the launch dialog (EP-10)
 generates the house-style opener for a project's next brief, resolves its model, effort and permission
 mode through a rule table with the reason for each, and starts the session from the window, which
-holds it until the sessions and decisions tiles arrive. The roadmap is
+holds it until the sessions and decisions tiles arrive. Adopt writes a new project's own
+single-folder VS Code workspace file beside it, and a proposed state can be dismissed until the fact
+it rests on changes (EP-33). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -44,6 +46,7 @@ pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and 
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension,
                                         # and whether claude would start a headless session
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
+target\release\crw.exe dismiss <project>          # leave its proposals out until their facts change
 target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,
                                         # the decision log, whether a session is in progress
 target\release\crw.exe tasks <folder>   # what waits on the owner: tasks, inbox, handed-on blocks
@@ -58,9 +61,11 @@ target\release\crw.exe prompt <folder>  # what a launch of the next brief starts
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
 its ledger and the copies it makes before changing a file in `%LOCALAPPDATA%\clauderoadmapwrangler`;
 nothing is kept in a project. The registry lists the folders of one data root (by default the folder
-that holds this repository); `crw adopt` registers a folder and adds it to the VS Code workspace file,
-`crw ignore` hides one, and `crw set` changes a project's state, priority or pin. Set `CRW_HOME` to a
-scratch folder to try the commands without touching those folders.
+that holds this repository); `crw adopt` registers a folder, writes its own single-folder
+`<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
+file; `crw ignore` hides one, `crw set` changes a project's state, priority or pin, and `crw dismiss`
+leaves a proposed state out until the fact it rests on changes (`crw undismiss` brings it back). Set
+`CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
 grouped by state, each with its next brief, its progress, what waits on the owner, its badges and
@@ -70,9 +75,10 @@ status, owner items, inbox and problems. It reads each project's files at once a
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
-only what the tool owns: the registry (Adopt, Ignore, a confirmed state, pin, priority) and the
-ticks in a project's `owner-tasks.md` and `inbox.md`. S, or a row's Start button, opens the launch
-dialog on the selected project's next brief: the generated prompt in an editor, and the model (from
+only what the tool owns: the registry (Adopt, Ignore, a confirmed or dismissed proposal, pin,
+priority), Adopt's workspace files and the ticks in a project's `owner-tasks.md` and `inbox.md`. S,
+or a row's Start button, opens the launch dialog on the selected project's next brief: the
+generated prompt in an editor, and the model (from
 the catalog Claude Code caches), the effort, ultracode and the permission mode, each with the reason
 the rule table gave it. A project's `[project.launch]` in the registry sets its defaults and a
 prompt `template`; `[[rule]]` tables, global or per project, match a brief by size, phase or title

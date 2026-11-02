@@ -1,10 +1,60 @@
-//! The owner's VS Code workspace file (D-7): which folders it lists, and one entry appended without
-//! touching any other byte. The file is JSON with comments and trailing commas (JSONC), so a small
-//! scanner, not a JSON parser, finds the `folders` array, its entries and their layout.
+//! The owner's VS Code workspace files (D-7): the aggregate, which lists every folder, and each
+//! project's own single-folder file beside its folder (the D-7 addendum). For the aggregate:
+//! which folders it lists, and one entry appended without touching any other byte; the file is
+//! JSON with comments and trailing commas (JSONC), so a small scanner, not a JSON parser, finds
+//! the `folders` array, its entries and their layout. For the own file: where it goes and its
+//! text in the owner's form.
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 use crate::paths;
+
+/// Where a folder's own workspace file goes: `<name>.code-workspace` beside it; `None` for a
+/// path without a name or a parent.
+pub fn own_file(folder: &Path) -> Option<PathBuf> {
+    let mut name = folder.file_name()?.to_owned();
+    name.push(".code-workspace");
+    Some(folder.parent()?.join(name))
+}
+
+/// The text of a folder's own workspace file in the owner's form: the one folder under its own
+/// name, beside the file, and empty settings; tabs, LF and a final newline.
+pub fn single_folder(name: &str) -> String {
+    let name = serde_json::to_string(name).expect("a string serializes");
+    format!(
+        "{{\n\t\"folders\": [\n\t\t{{\n\t\t\t\"name\": {name},\n\t\t\t\"path\": {name}\n\t\t}}\n\t],\n\t\"settings\": {{}}\n}}\n"
+    )
+}
+
+/// The `.code-workspace` files of `dir` that list more than one folder, by name in name order:
+/// the candidates for the aggregate a fresh registry names (D-7 addendum). A file that does not
+/// read is passed over.
+pub fn aggregates(dir: &Path) -> Vec<String> {
+    let lists_several = |path: &Path| {
+        fs::read_to_string(path)
+            .ok()
+            .and_then(|text| entries(&text).ok())
+            .is_some_and(|found| found.len() > 1)
+    };
+    let mut found: Vec<String> = fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .to_lowercase()
+                .ends_with(".code-workspace")
+                && entry.path().is_file()
+                && lists_several(&entry.path())
+        })
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .collect();
+    found.sort_by_key(|name| name.to_lowercase());
+    found
+}
 
 /// One entry of the `folders` array.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -441,9 +491,65 @@ impl Parser<'_> {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
     use super::*;
+    use crate::files::tests::Scratch;
+
+    #[test]
+    fn an_own_file_sits_beside_its_folder_in_the_owners_form() {
+        assert_eq!(
+            own_file(Path::new(r"C:\Data\alpha")),
+            Some(PathBuf::from(r"C:\Data\alpha.code-workspace"))
+        );
+        assert_eq!(own_file(Path::new(r"C:\")), None);
+        // The owner's form, as their own files are written.
+        let text = single_folder("alpha");
+        assert_eq!(
+            text,
+            "{\n\t\"folders\": [\n\t\t{\n\t\t\t\"name\": \"alpha\",\n\t\t\t\"path\": \"alpha\"\n\t\t}\n\t],\n\t\"settings\": {}\n}\n"
+        );
+        assert_eq!(
+            entries(&text).unwrap(),
+            [Entry {
+                path: Some("alpha".to_owned()),
+                name: Some("alpha".to_owned()),
+            }]
+        );
+        let odd = single_folder(r#"odd "name""#);
+        assert_eq!(
+            entries(&odd).unwrap()[0].path.as_deref(),
+            Some(r#"odd "name""#)
+        );
+        assert!(lists(
+            &entries(&text).unwrap(),
+            Path::new(r"C:\Data"),
+            Path::new(r"C:\Data\Alpha")
+        ));
+    }
+
+    #[test]
+    fn the_aggregate_is_a_file_that_lists_several_folders() {
+        let scratch = Scratch::new("workspace-aggregates");
+        let dir = &scratch.0;
+        assert!(aggregates(dir).is_empty());
+        for name in ["alpha", "beta"] {
+            fs::write(
+                dir.join(format!("{name}.code-workspace")),
+                single_folder(name),
+            )
+            .unwrap();
+        }
+        fs::write(dir.join("broken.code-workspace"), "{ \"folders\": [").unwrap();
+        fs::create_dir(dir.join("folder.code-workspace")).unwrap();
+        assert!(aggregates(dir).is_empty(), "single-folder files only");
+        fs::write(dir.join("All.code-workspace"), VS_CODE).unwrap();
+        assert_eq!(aggregates(dir), ["All.code-workspace"]);
+        fs::write(dir.join("more.CODE-WORKSPACE"), VS_CODE).unwrap();
+        assert_eq!(
+            aggregates(dir),
+            ["All.code-workspace", "more.CODE-WORKSPACE"]
+        );
+        assert!(aggregates(&dir.join("missing")).is_empty());
+    }
 
     /// The layout VS Code writes, as in the owner's file: tabs, LF, no final newline, older
     /// entries with a name, newer ones without.
