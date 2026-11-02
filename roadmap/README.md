@@ -252,7 +252,7 @@ only its own files inside a managed project).
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-9 | Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☐ |
+| EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☐ |
 | EP-10 | Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☐ |
 | EP-33 | Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed (D-6, D-7) | S | EP-2 | core | ☐ |
 | EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
@@ -326,6 +326,15 @@ every commit's added lines are checked before it is made, the repository being p
   row's Start button exist and answer `Action::NotYet`; the dialog takes their place, and the
   selected project is `Board::view.selected`. **From EP-8:** the dialog shows the project's
   neighbour folders (EP-9's registry key; D-16 addendum) beside the rule table's resolution.
+  **From EP-9:** Headless is `session::Session::start(&preflight, launch)` with
+  `Launch::new(project, folder, model, prompt)` and its fields (`ep`, `effort`, `ultracode`,
+  `permission_mode`, `neighbours`, `max_budget_usd`, `ledger` = `paths::ledger_file()`); a
+  `session::cli::Cache` keeps the preflight of `cli::locate(settings.claude_cli)` for an hour, its
+  `refusals()` disable Headless with the reasons, and its `Flags` give the effort levels to offer,
+  `ultracode()` and the permission modes; `Session::dropped` lists the wishes the CLI could not take,
+  for the dialog to say. The neighbours are `Project::neighbour_folders(&data_root)`, empty in every
+  registry entry today (written by hand, or by the tool on the owner's ask, rule 13). A start waits
+  up to two seconds after the last (D-29), so it runs off the UI thread.
 - **EP-33.** Added at EP-8 (2026-11-01) from IN-1 and EP-2's out-of-scope list (D-6, D-7 addenda).
   (1) `discovery::adopt` also writes `<data root>\<name>.code-workspace` beside the adopted folder
   when none exists, in the owner's form (one folder with its `name` and `path`, an empty
@@ -374,7 +383,13 @@ every commit's added lines are checked before it is made, the repository being p
   result text, `total_cost_usd` estimate and the status-line `cost`/`context_window` figures received for
   that session id; a session list with filters. **From EP-8:** the Sessions tab is EP-6's placeholder
   in the right-hand group, and the `session` table's columns (`outcome`, `cost_usd`, `questions`,
-  `answer_latency_s`, `commit_hash`) exist since the ledger's V1.
+  `answer_latency_s`, `commit_hash`) exist since the ledger's V1. **From EP-9:** the tile reads
+  `Session::events()`: `TextDelta` while text streams, then the whole `Text`, `ToolUse` in one line,
+  `Request`, `Withdrawn`, `Denied`, `Notice`, `Unreadable` (a diagnostics line, not transcript) and
+  last `Exited(Ended)` with the outcome, the exit code, the result and stderr's last lines; Stop and
+  Kill are `Session::stop()` and `kill()`. A run closes its stdin at its result (D-16 addendum), so
+  Resume is a new launch with `--resume <id>`, a `Launch` field this brief adds; the runner starts
+  and finishes the ledger row (`Ledger::sessions()` reads them).
 - **EP-14.** The decisions tile: `control_request` → `can_use_tool` handling in the adapter; for
   `AskUserQuestion` the questions are rendered with their options (single or multi-select, free text),
   the answer sent as `updatedInput` with `answers`; for permission requests Allow / Deny with the tool name
@@ -386,7 +401,13 @@ every commit's added lines are checked before it is made, the repository being p
   protocol handshake fails or by a setting; visual sessions in `waiting` show "waiting for you in VS Code"
   with Focus (bring the VS Code window to front); answer latency recorded. **From EP-8:** the
   Decisions tab is EP-6's placeholder; an edit a neighbour's deny rule refuses (D-18 addendum) comes
-  back as a denied tool use, not a question, and the tile lists it with the session.
+  back as a denied tool use, not a question, and the tile lists it with the session. **From EP-9:**
+  answers go through `Session::respond(id, Response::{Allow, Deny(message), Answers(one per
+  question)})`, the adapter keeping the questions and keying the answers by question text;
+  `Event::Handshake(Err(_))` is the protocol failure that selects the fallback; a refused tool use is
+  `Event::Denied` with the CLI's reason; `Outcome::Deferred` and `Finish::is_deferred()` exist; CLI
+  2.1.316 names `ask_user_question_unanswered_v1` among its capabilities, which this brief reads up
+  on.
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned
@@ -460,7 +481,9 @@ a running session).
   Commit button resumes the finished session with that instruction; per-run wall-clock caps by size (S 45
   min, M 90 min, L 3 h) stop the session gracefully; `--max-budget-usd` passed when advertised by the CLI;
   a global Pause (tray, window, and automatic at the pause threshold with resume after `resets_at`); a chain
-  log tile section (what ran, why it stopped).
+  log tile section (what ran, why it stopped). **From EP-9:** a cap stops a run with
+  `Session::stop()` (the interrupt, then the launch's `stop_timeout` before the kill); CLI 2.1.316
+  lists `--max-budget-usd`, passed when `Launch::max_budget_usd` is set.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -587,7 +610,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   the shim reaches the current exe, and the hook and status-line entries keep the exe's full path.
   **From EP-7:** the backup job's settings name the target drive's label (`VolumeLabel`, not read
   yet), which the `D:` check can set against the drive's own; the last poll times include the
-  GitHub cache's `fetched_at` (`Ledger::cached`).
+  GitHub cache's `fetched_at` (`Ledger::cached`). **From EP-9:** `crw doctor` prints the
+  preflight already (logged in or not, headless ready or the reasons it is refused); the tile can
+  show `session::Preflight` and the last handshake's answer.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -630,7 +655,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
 2. **The stream-json control protocol is unspecified for non-SDK hosts** (D-19). `claude-codes` tracks it
    release by release; the defer-and-resume fallback is documented; EP-9 feature-detects from
    `system/init`. Every CLI update is a potential break — the Diagnostics tile shows the version against
-   the recorded minimum and the last successful handshake.
+   the recorded minimum and the last successful handshake. *(EP-9, 2026-11-02.)* CLI 2.1.316 answered
+   the `initialize` handshake, named its capabilities and ran a supervised probe through the runner to
+   its result; a line the adapter cannot read is an event, and a request it cannot read is refused,
+   so a protocol change shows as events rather than a hung session.
 3. **Two CLI versions on the machine** (standalone 2.1.261, extension-bundled 2.1.314). Visual and
    headless sessions may behave differently; the minimum version applies to the standalone binary.
    *(EP-8, 2026-11-01.)* The standalone binary updates itself (2.1.316 at EP-8, the version of the

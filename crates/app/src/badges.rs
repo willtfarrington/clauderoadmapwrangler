@@ -698,6 +698,7 @@ mod tests {
                 pinned: false,
                 launch: Default::default(),
                 autopilot: Default::default(),
+                neighbours: Vec::new(),
             },
             path: PathBuf::from("alpha"),
             folder: Some(Folder {

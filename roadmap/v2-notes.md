@@ -2,7 +2,7 @@
 
 Everything named during planning and not built in v1. Every re-plan EP grows this file; the v1 close-out
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
-items marked *(EP-8)*.
+items marked *(EP-8)*, and at EP-9 by the one marked *(EP-9)*.
 
 ## 1 Launch modes
 
@@ -15,6 +15,10 @@ items marked *(EP-8)*.
   owner's process edits the main tree and reviews in VS Code).
 - A Windows Terminal tab running `claude --ide` as a visible CLI attached to VS Code (an alternative
   visual launch).
+- *(EP-9)* Claude Code's OS-level sandbox for headless runs that have neighbour folders: the `Edit`
+  deny rule keeps the built-in tools and the file commands Claude Code recognises out of a
+  neighbour, but not a program that opens files itself, which a project's own allow rules may admit
+  (D-18 addendum; the owner's choice at EP-9).
 
 ## 2 Analytics
 

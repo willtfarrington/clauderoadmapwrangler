@@ -16,8 +16,11 @@ of the owner's to-dos with `crw tasks` and `crw tick` (EP-5), the dashboard's sh
 layout, the project list grouped by state, the detail pane, ticks and Adopt from the window) and its
 badges with `crw status` (EP-7: stack, progress, activity, hosting with a check of the origin's head, CI
 and license, backup age; EP-7a: columns sized to their content under a header row, and a legend of every
-mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. Sessions arrive in
-phase P2. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
+mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. Phase P2, sessions,
+has begun: the session runner (EP-9) starts a headless Claude Code session in a project's folder with
+the project's neighbour folders read-only, reads its stream-json, answers its questions and permission
+requests, stops it with its whole process tree and records it in the ledger; the window starts one from
+EP-10 on. The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
 ![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, status, owner tasks and inbox](docs/dashboard-light.png)
@@ -35,7 +38,8 @@ CLI `gh`, VS Code with the Claude Code extension, and Tailscale.
 ```powershell
 cargo build --release                   # target\release\clauderoadmapwrangler.exe and crw.exe
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and a Start-menu entry
-target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension
+target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension,
+                                        # and whether claude would start a headless session
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,
                                         # the decision log, whether a session is in progress
@@ -71,7 +75,8 @@ The workspace has three crates: `crates/core` (the model and engines, no UI type
 desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,
 the hook and status-line relays). The checks every change passes: `cargo test` with and without
 `--features screenshot`, `cargo clippy --all-targets` with and without it, `cargo fmt --check`. Tests never
-run the real `claude` CLI and never spend usage.
+run the real `claude` CLI and never spend usage: the session runner's tests start `stub-claude`, a
+stand-in built with the core crate that replays recorded stream-json with fake names.
 
 ## The roadmap house style
 

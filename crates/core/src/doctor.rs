@@ -113,7 +113,7 @@ pub fn run() -> Vec<Check> {
 }
 
 /// The first file called `name` in a folder on PATH.
-fn on_path(name: &str) -> Option<PathBuf> {
+pub(crate) fn on_path(name: &str) -> Option<PathBuf> {
     let path = env::var_os("PATH")?;
     env::split_paths(&path)
         .map(|dir| dir.join(name))

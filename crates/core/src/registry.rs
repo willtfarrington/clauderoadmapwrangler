@@ -158,15 +158,19 @@ pub struct Settings {
     pub backup_settings: Option<PathBuf>,
     /// The backup job's run log; relative to the data root or a full path.
     pub backup_log: Option<PathBuf>,
+    /// The Claude Code CLI the session runner starts (D-15), a full path; by default the launcher
+    /// in `~\.local\bin`, else `claude.exe` on PATH.
+    pub claude_cli: Option<PathBuf>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 4] = [
+    pub const KEYS: [&str; 5] = [
         "data_root",
         "workspace_file",
         "backup_settings",
         "backup_log",
+        "claude_cli",
     ];
 
     /// A setting's value as written, by its key.
@@ -176,6 +180,7 @@ impl Settings {
             "workspace_file" => self.workspace_file.as_deref(),
             "backup_settings" => self.backup_settings.as_deref(),
             "backup_log" => self.backup_log.as_deref(),
+            "claude_cli" => self.claude_cli.as_deref(),
             _ => None,
         }
     }
@@ -196,6 +201,10 @@ pub struct Project {
     pub launch: Launch,
     #[serde(default)]
     pub autopilot: Autopilot,
+    /// Folders a headless session of this project may read and never edit (D-16, D-18 addenda):
+    /// folders of the data root, or full paths.
+    #[serde(default)]
+    pub neighbours: Vec<PathBuf>,
 }
 
 fn default_priority() -> u8 {
@@ -270,13 +279,18 @@ impl Registry {
     /// The checks serde cannot make.
     fn validate(&self) -> Result<(), Error> {
         let invalid = |message: String| Err(Error::Invalid(message));
-        if let Some(root) = &self.settings.data_root
-            && !root.is_absolute()
-        {
-            return invalid(format!(
-                "settings.data_root must be a full path, not {}",
-                root.display()
-            ));
+        for (key, path) in [
+            ("data_root", &self.settings.data_root),
+            ("claude_cli", &self.settings.claude_cli),
+        ] {
+            if let Some(path) = path
+                && !path.is_absolute()
+            {
+                return invalid(format!(
+                    "settings.{key} must be a full path, not {}",
+                    path.display()
+                ));
+            }
         }
         let root = self.data_root();
         let mut names = HashSet::new();
@@ -299,6 +313,17 @@ impl Registry {
             if !folders.insert(folder.to_string_lossy().to_lowercase()) {
                 return invalid(format!("{name}: another project has the same folder"));
             }
+            for neighbour in &project.neighbours {
+                let text = neighbour.to_string_lossy();
+                if text.trim().is_empty() || text.starts_with(r"\\") || text.starts_with("//") {
+                    return invalid(format!(
+                        "{name}: a neighbour is a folder on a drive, not {text:?}"
+                    ));
+                }
+                if paths::same(&root.join(neighbour), &folder) {
+                    return invalid(format!("{name}: its own folder is not a neighbour"));
+                }
+            }
         }
         for folder in &self.ignore {
             if folder.trim().is_empty() || folder.contains(['/', '\\']) {
@@ -315,6 +340,14 @@ impl Project {
     /// The project's folder: its path resolved against the data root.
     pub fn folder(&self, data_root: &Path) -> PathBuf {
         data_root.join(&self.path)
+    }
+
+    /// The neighbour folders as full paths, resolved against the data root.
+    pub fn neighbour_folders(&self, data_root: &Path) -> Vec<PathBuf> {
+        self.neighbours
+            .iter()
+            .map(|neighbour| paths::normalize(&data_root.join(neighbour)))
+            .collect()
     }
 }
 
@@ -840,6 +873,24 @@ state = "paused"
             ),
             (edit("format = 1\n", ""), "format = 1"),
             (edit(r#"["scratch"]"#, r#"["a\\b"]"#), "folder names"),
+            (
+                edit(
+                    "priority = 2\n",
+                    "priority = 2\nneighbours = ['\\\\server\\share']\n",
+                ),
+                "on a drive",
+            ),
+            (
+                edit("priority = 2\n", "priority = 2\nneighbours = ['ALPHA']\n"),
+                "own folder",
+            ),
+            (
+                edit(
+                    "data_root = 'C:\\Data'\n",
+                    "data_root = 'C:\\Data'\nclaude_cli = 'claude.exe'\n",
+                ),
+                "settings.claude_cli must be a full path",
+            ),
         ];
         for (text, message) in cases {
             fs::write(&store.path, &text).unwrap();
@@ -977,6 +1028,48 @@ state = "paused"
         assert_eq!(
             registry.settings.backup_settings,
             Some(PathBuf::from("job.psd1"))
+        );
+    }
+
+    #[test]
+    fn neighbours_and_the_cli_read_back() {
+        let scratch = Scratch::new("registry-neighbours");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        let text = HAND_WRITTEN
+            .replace(
+                "priority = 2\n",
+                "priority = 2\nneighbours = [\"beta\", 'D:\\Shared\\gamma', \"beta/../delta\"]\n",
+            )
+            .replace(
+                "data_root = 'C:\\Data'\n",
+                "data_root = 'C:\\Data'\nclaude_cli = 'C:\\Tools\\claude.exe'\n",
+            );
+        fs::write(&store.path, &text).unwrap();
+        let registry = store.load().unwrap().registry;
+        assert_eq!(
+            registry
+                .project("alpha")
+                .unwrap()
+                .neighbour_folders(&registry.data_root()),
+            [
+                PathBuf::from(r"C:\Data\beta"),
+                PathBuf::from(r"D:\Shared\gamma"),
+                PathBuf::from(r"C:\Data\delta")
+            ]
+        );
+        assert!(registry.project("beta").unwrap().neighbours.is_empty());
+        assert_eq!(
+            registry.settings.get("claude_cli"),
+            Some(Path::new(r"C:\Tools\claude.exe"))
+        );
+        // `crw setting` sets it like the other paths.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("claude_cli", r"E:\cli\claude.exe"))
+            .unwrap();
+        assert_eq!(
+            registry.settings.claude_cli,
+            Some(PathBuf::from(r"E:\cli\claude.exe"))
         );
     }
 

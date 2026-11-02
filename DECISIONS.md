@@ -252,6 +252,15 @@ Tauri all mid-transition and eframe-wasm still weak at mobile text editing. *Alt
 targets; eframe-wasm for the phone; a server-rendered UI with the desktop as an installed PWA; one crate
 with modules; hand-written protocol types; another community client.
 
+> **Addendum (2026-11-02, EP-9).** Each headless session gets a thread of its own with a
+> single-threaded tokio runtime, so the window's frame loop and `crw` see a channel of events and a
+> handle rather than an async API. `claude-codes` is compiled with its serde models only (`types`):
+> the runner spawns and reads the child itself. process-wrap's tokio flavour is the one used, since
+> only its job object is killed by the system when the tool lets go of it (`KillOnDrop`); its
+> no-window flag takes the `windows` crate's type. `uuid` (v4) and `windows` join the pins at the
+> versions the lock already held. *Alternatives.* One runtime shared by every session; std threads
+> with process-wrap's std job object, which outlives a crashed tool; the crate's own async client.
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -260,6 +269,17 @@ list it). The tool never passes `--bare` (API-key only) and removes `ANTHROPIC_A
 environment so runs bill the subscription. *Why.* CLI flags drift between releases; the extension bundles a
 different CLI version than the standalone binary. *Alternatives.* Tracking latest at every brief; freezing
 everything.
+
+> **Addendum (2026-11-02, EP-9).** A session's child also withholds the markers of a Claude Code
+> session the tool itself may run in (`CLAUDECODE`, `CLAUDE_PID`, `AI_AGENT`,
+> `CLAUDE_AGENT_SDK_VERSION` and every `CLAUDE_CODE_*` variable), with which a nested `claude -p`
+> does not start; a setting meant for every session belongs in the user settings' `env` block, which
+> the child reads itself. The preflight asks `--version`, `auth status` and `--help`, one child after
+> the other, and is kept for an hour; the help is where features come from: a wish it does not list
+> (`--effort ultracode`, `--max-budget-usd`) is left out and said so, and a flag the run needs
+> refuses the launch when it is missing. `crw doctor` prints the preflight. The minimum stays
+> 2.1.261: the adapter is known to need nothing newer. *Alternatives.* A fixed list of markers;
+> probing flags with a made-up option; raising the minimum to 2.1.316, the one version tried.
 
 ## Sessions
 
@@ -285,6 +305,14 @@ workspace file's first folder.
 > EP-9 passes them and EP-10's dialog shows them. *Alternatives.* No neighbours in headless runs;
 > neighbours granted through settings files only.
 
+> **Addendum (2026-11-02, EP-9).** A headless run is one prompt: the runner closes the session's
+> stdin when its result arrives, so the process exits and its ledger row closes; a follow-up resumes
+> the session by its pre-assigned id (EP-13). The session is named `<project> EP-n`. A stop sends the
+> protocol's interrupt, closes stdin and waits 30 seconds before the job is killed; dropping the
+> session's handle kills it, and whatever process the session left behind dies with it.
+> *Alternatives.* Keeping stdin open for further messages to the same process; a stop without the
+> interrupt.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -308,6 +336,16 @@ default with the owner in the loop, without the terminal. *Alternatives.* `auto`
 > filesystem commands; EP-9 finds out and puts any gap to the owner. *Alternatives.* Writable
 > neighbours, kept read-only only by each project's own rules; no neighbours.
 
+> **Addendum (2026-11-02, EP-9).** Found on the owner's yes with one supervised headless run through
+> the runner (CLI 2.1.316, the cheapest model at low effort, scratch folders): under `acceptEdits` the
+> `Edit` deny rule refused `mkdir` (by an absolute and by a relative path), `touch`, `cp` and `mv`
+> into a neighbour, and the Write tool there, each without a prompt (`system/permission_denied`),
+> while `mkdir` in the working folder ran. Claude Code's permissions page says deny rules do not
+> reach a program that opens files itself (a script, say); `acceptEdits` does not accept such
+> commands, so they reach the host as permission requests unless a project's own allow rules admit
+> them, and only an OS-level sandbox would close that. *Alternatives.* Bash deny rules per
+> neighbour; a `PreToolUse` hook that checks paths; the sandbox.
+
 **D-19 Decision routing.** The **control protocol over stream-json first**: the tile shows each
 `AskUserQuestion` with its options and each permission request; the session blocks until the owner answers
 in the tool or on the phone; an optional timeout (default none) defers the run instead. The documented
@@ -316,6 +354,15 @@ in the tool or on the phone; an optional timeout (default none) defers the run i
 sessions show "waiting for you in VS Code" with a Focus button; the tool never answers for them. *Why.* The
 protocol is what community tools use and what `claude-codes` types; the docs guarantee only the defer route.
 *Alternatives.* Defer-and-resume only; no answering in the tool.
+
+> **Addendum (2026-11-02, EP-9).** The handshake is the `initialize` control request the runner
+> sends before the prompt; its answer is an event, and a refusal is what selects EP-14's fallback. A
+> control request the tool does not handle (a hook callback, an MCP message, one the protocol crate
+> cannot read) is answered with an error at once, so that a session never waits on it; an
+> `AskUserQuestion` is answered with its questions kept and the answers keyed by question text. CLI
+> 2.1.316 answered the handshake and named fourteen capabilities in its init, among them
+> `interrupt_receipt_v1` and `ask_user_question_unanswered_v1`. *Alternatives.* No handshake (the
+> CLI asks the host by default); unknown requests left unanswered.
 
 **D-20 Signals.** The tool installs **user-level hooks** (Notification, Stop, SessionStart, SessionEnd) in
 `~/.claude/settings.json` that run its `cli` binary, which posts the event to the loopback server and exits
@@ -541,6 +588,15 @@ an opt-in live smoke test; documented AV exclusions.
 > writes nothing into a project or the owner's files; `CRW_HOME` alone also moves the window state, so
 > a trial never touches the owner's saved layout. *Alternatives.* A scratch copy of the fake projects
 > for each run; screenshots of the real portfolio kept out of git.
+
+> **Addendum (2026-11-02, EP-9).** The stand-in `claude` the runner's tests start is `stub-claude`,
+> a binary target of the core crate, so that integration tests find it through Cargo (a release
+> build makes it too, and nothing uses it there); it plays scripts of synthetic stream-json from
+> `crates/core/tests/streams/` and records what it is sent. Session starts keep two seconds apart in
+> tests as anywhere. A real run happens only on the owner's yes, supervised, through a throwaway
+> driver that is never committed, its transcript purged afterwards (`claude purge`).
+> *Alternatives.* A stub crate of its own, found by path; an example target; an ignored test that
+> runs the real CLI.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

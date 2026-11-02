@@ -17,6 +17,25 @@ rusqlite.workspace = true
 serde.workspace = true
 toml.workspace = true
 toml_edit.workspace = true
-# VS Code's list of installed extensions for `doctor`; strings in the workspace file.
+# VS Code's list of installed extensions for `doctor`; strings in the workspace file; the stream-json
+# a session speaks.
 serde_json.workspace = true
 thiserror.workspace = true
+# The session runner (EP-9): the protocol's types, the child in a job object, a small runtime per
+# session, the pre-assigned session id.
+claude-codes.workspace = true
+process-wrap.workspace = true
+tokio.workspace = true
+uuid.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+# The session child's no-window flag, as process-wrap's creation-flags wrapper takes it.
+windows.workspace = true
+
+# The stand-in `claude` the runner's tests start, never the real CLI (D-29). A binary target, so
+# that integration tests find it through `CARGO_BIN_EXE_stub-claude`; its source sits with them.
+[[bin]]
+name = "stub-claude"
+path = "tests/stub_claude/stub.rs"
+test = false
+doc = false

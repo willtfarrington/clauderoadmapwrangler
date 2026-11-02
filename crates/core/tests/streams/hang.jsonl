@@ -1,0 +1,5 @@
+{"stub":"handshake"}
+{"stub":"prompt"}
+{"stub":"grandchild"}
+{"type":"system","subtype":"init","session_id":"$SESSION","uuid":"00000000-0000-4000-8000-000000000031","cwd":"C:\\Data\\alpha","model":"claude-opus-5-5","permissionMode":"acceptEdits","claude_code_version":"2.1.316","tools":["Bash"],"capabilities":[]}
+{"stub":"hang"}

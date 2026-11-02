@@ -1,8 +1,8 @@
 //! The ledger (D-8, D-26): one SQLite file in the local profile for what the tool records over
 //! time, kept indefinitely: sessions, usage samples, parse snapshots and events, and the cache of
 //! the badges' networked readings (EP-7). EP-2 creates the schema; each brief that records rows
-//! adds its queries, and a numbered migration when it needs a new table or column. Times are
-//! RFC 3339 text in UTC.
+//! adds its queries (EP-9 the sessions'), and a numbered migration when it needs a new table or
+//! column. Times are RFC 3339 text in UTC.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -94,6 +94,39 @@ CREATE TABLE badge_cache (
 );
 ";
 
+/// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewSession<'a> {
+    pub session_id: &'a str,
+    pub project: &'a str,
+    pub ep: Option<&'a str>,
+    /// `visual`, `headless` or `manual`.
+    pub mode: &'a str,
+    pub model: Option<&'a str>,
+    pub effort: Option<&'a str>,
+    pub ultracode: bool,
+    pub started_at: DateTime<Utc>,
+}
+
+/// A session's row as the ledger holds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionRow {
+    pub id: i64,
+    pub session_id: Option<String>,
+    pub project: String,
+    pub ep: Option<String>,
+    pub mode: String,
+    pub model: Option<String>,
+    pub effort: Option<String>,
+    pub ultracode: bool,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    /// `completed`, `stopped`, `failed` or `deferred`; none while it runs.
+    pub outcome: Option<String>,
+    pub cost_usd: Option<f64>,
+    pub questions: u32,
+}
+
 /// One row of the badges' cache.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Cached {
@@ -155,14 +188,72 @@ impl Ledger {
         self.connection.execute(
             "INSERT OR REPLACE INTO badge_cache (project, source, fetched_at, data) \
              VALUES (?1, ?2, ?3, ?4)",
-            (
-                project,
-                source,
-                fetched_at.to_rfc3339_opts(SecondsFormat::Secs, true),
-                data,
-            ),
+            (project, source, rfc3339(fetched_at), data),
         )?;
         Ok(())
+    }
+
+    /// Records a session's start and returns its row's id (EP-9).
+    pub fn start_session(&self, session: &NewSession<'_>) -> Result<i64, Error> {
+        self.connection.execute(
+            "INSERT INTO session (session_id, project, ep, mode, model, effort, ultracode, \
+             started_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            (
+                session.session_id,
+                session.project,
+                session.ep,
+                session.mode,
+                session.model,
+                session.effort,
+                session.ultracode,
+                rfc3339(session.started_at),
+            ),
+        )?;
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    /// Records how a session ended: its end time, its outcome, the CLI's cost estimate and the
+    /// questions it asked.
+    pub fn finish_session(
+        &self,
+        id: i64,
+        ended_at: DateTime<Utc>,
+        outcome: &str,
+        cost_usd: Option<f64>,
+        questions: u32,
+    ) -> Result<(), Error> {
+        self.connection.execute(
+            "UPDATE session SET ended_at = ?2, outcome = ?3, cost_usd = ?4, questions = ?5 \
+             WHERE id = ?1",
+            (id, rfc3339(ended_at), outcome, cost_usd, questions),
+        )?;
+        Ok(())
+    }
+
+    /// Every session, the oldest first.
+    pub fn sessions(&self) -> Result<Vec<SessionRow>, Error> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, session_id, project, ep, mode, model, effort, ultracode, started_at, \
+             ended_at, outcome, cost_usd, questions FROM session ORDER BY started_at, id",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok(SessionRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                project: row.get(2)?,
+                ep: row.get(3)?,
+                mode: row.get(4)?,
+                model: row.get(5)?,
+                effort: row.get(6)?,
+                ultracode: row.get(7)?,
+                started_at: row.get(8)?,
+                ended_at: row.get(9)?,
+                outcome: row.get(10)?,
+                cost_usd: row.get(11)?,
+                questions: row.get(12)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Every cached reading; a row whose time cannot be read is left out.
@@ -192,6 +283,11 @@ impl Ledger {
         }
         Ok(cached)
     }
+}
+
+/// A time as the ledger writes it: RFC 3339 in UTC, to the second.
+fn rfc3339(at: DateTime<Utc>) -> String {
+    at.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
 /// The schema version written in the file; 0 for a new file.
@@ -336,6 +432,66 @@ mod tests {
                 .schema_version()
                 .unwrap(),
             3
+        );
+    }
+
+    #[test]
+    fn a_session_row_is_started_then_finished() {
+        let scratch = Scratch::new("ledger-session");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let at = |text: &str| {
+            DateTime::parse_from_rfc3339(text)
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        let id = ledger
+            .start_session(&NewSession {
+                session_id: "0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+                project: "alpha",
+                ep: Some("EP-3"),
+                mode: "headless",
+                model: Some("claude-fable-5-1"),
+                effort: Some("xhigh"),
+                ultracode: false,
+                started_at: at("2026-11-02T05:00:00Z"),
+            })
+            .unwrap();
+        let running = &ledger.sessions().unwrap()[0];
+        assert_eq!(running.id, id);
+        assert_eq!(running.outcome, None);
+        assert_eq!(running.started_at, "2026-11-02T05:00:00Z");
+        ledger
+            .finish_session(id, at("2026-11-02T05:40:00Z"), "completed", Some(1.25), 2)
+            .unwrap();
+        let row = &ledger.sessions().unwrap()[0];
+        assert_eq!(
+            (
+                row.session_id.as_deref(),
+                row.project.as_str(),
+                row.ep.as_deref(),
+                row.mode.as_str(),
+                row.model.as_deref(),
+                row.effort.as_deref(),
+                row.ultracode,
+            ),
+            (
+                Some("0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b"),
+                "alpha",
+                Some("EP-3"),
+                "headless",
+                Some("claude-fable-5-1"),
+                Some("xhigh"),
+                false
+            )
+        );
+        assert_eq!(row.ended_at.as_deref(), Some("2026-11-02T05:40:00Z"));
+        assert_eq!(row.outcome.as_deref(), Some("completed"));
+        assert_eq!((row.cost_usd, row.questions), (Some(1.25), 2));
+        // The schema's vocabulary holds: no outcome outside D-26's four.
+        assert!(
+            ledger
+                .finish_session(id, at("2026-11-02T05:41:00Z"), "vanished", None, 0)
+                .is_err()
         );
     }
 

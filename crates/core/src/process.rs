@@ -1,9 +1,9 @@
 //! Short-lived child processes (D-29): a tool asked one question, one at a time with a short
 //! spacing and a timeout, with no console window and without `ANTHROPIC_API_KEY` in its
 //! environment (D-15). `doctor` asks for versions, the registry view for the last commit, the
-//! badges git and `gh` (EP-7).
+//! badges git and `gh` (EP-7), the session runner's preflight the CLI (EP-9).
 
-use std::ffi::OsStr;
+use std::ffi::{OsStr, OsString};
 use std::io::Read;
 use std::path::Path;
 use std::process::{Command, Stdio};
@@ -51,9 +51,36 @@ where
     S: AsRef<OsStr>,
 {
     let mut command = Command::new(program);
+    command.envs(env.iter().copied());
+    output(command, args, timeout)
+}
+
+/// [`output_of`] with the variables named in `remove` taken out of the child's environment too:
+/// the session markers a Claude Code child must not inherit (EP-9).
+pub fn output_without<I, S>(
+    program: &Path,
+    args: I,
+    remove: &[OsString],
+    timeout: Duration,
+) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(program);
+    for name in remove {
+        command.env_remove(name);
+    }
+    output(command, args, timeout)
+}
+
+fn output<I, S>(mut command: Command, args: I, timeout: Duration) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
     command
         .args(args)
-        .envs(env.iter().copied())
         .env_remove("ANTHROPIC_API_KEY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())

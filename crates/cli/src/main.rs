@@ -23,6 +23,7 @@ use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
 use crw_core::registry::{Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
+use crw_core::session::{self, Preflight};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{files, git, paths, process, proposal};
@@ -31,7 +32,8 @@ const USAGE: &str = "\
 usage: crw <command>
 
 commands:
-  doctor                         print the versions of claude, gh, tailscale, code and the extension
+  doctor                         print the versions of claude, gh, tailscale, code and the extension,
+                                 and whether claude would start a headless session (no usage)
   scan                           print the registry: projects, unadopted folders, proposals
   adopt <folder>...              register folders of the data root and add them to the workspace file
   ignore <folder>...             leave folders of the data root out of the unadopted list
@@ -53,7 +55,7 @@ commands:
                                  progress, activity, hosting with the head check, CI and license,
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
-                                 workspace_file, backup_settings, backup_log
+                                 workspace_file, backup_settings, backup_log, claude_cli
   help                           print this text
   --version                      print crw's version
 
@@ -102,7 +104,8 @@ fn failed(error: impl std::fmt::Display) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Prints one line per tool and fails when Claude Code is missing or older than the minimum.
+/// Prints one line per tool, then the session runner's preflight (EP-9), and fails when Claude
+/// Code is missing, older than the minimum, or would refuse a headless session.
 fn doctor() -> ExitCode {
     println!("crw {} doctor", env!("CARGO_PKG_VERSION"));
     let checks = doctor::run();
@@ -118,13 +121,61 @@ fn doctor() -> ExitCode {
         };
         println!("  {:<10} {:<9} {detail}", check.name, version);
     }
-    if doctor::claude_meets_minimum(&checks) {
+    let meets = doctor::claude_meets_minimum(&checks);
+    if meets {
         println!("claude meets the minimum version {MIN_CLAUDE_CODE}");
-        ExitCode::SUCCESS
     } else {
         println!(
             "claude is missing or older than {MIN_CLAUDE_CODE}: headless sessions will be refused"
         );
+    }
+    // The CLI the runner would start: the registry's setting, else where the installer puts it.
+    let setting = store()
+        .ok()
+        .and_then(|store| store.load().ok())
+        .and_then(|loaded| loaded.registry.settings.claude_cli);
+    let Some(program) = session::cli::locate(setting.as_deref()) else {
+        println!("  headless   refused: no Claude Code CLI found");
+        return ExitCode::FAILURE;
+    };
+    let preflight = Preflight::run(&program);
+    match &preflight.auth {
+        Ok(auth) if auth.logged_in => {
+            let how: Vec<&str> = [&auth.method, &auth.subscription]
+                .into_iter()
+                .flatten()
+                .map(String::as_str)
+                .collect();
+            println!("  login      logged in ({})", how.join(", "));
+        }
+        Ok(_) => println!("  login      not logged in"),
+        Err(e) => println!("  login      ? {e}"),
+    }
+    let refusals = preflight.refusals();
+    if !refusals.is_empty() {
+        println!("  headless   refused: {}", refusals.join("; "));
+        return ExitCode::FAILURE;
+    }
+    if let Ok(flags) = &preflight.flags {
+        let efforts = match flags.efforts.as_slice() {
+            [] => "effort levels not listed".to_owned(),
+            levels => format!("effort {}", levels.join(", ")),
+        };
+        let budget = if flags.has("--max-budget-usd") {
+            "--max-budget-usd"
+        } else {
+            "no --max-budget-usd"
+        };
+        let ultracode = if flags.ultracode() {
+            "ultracode"
+        } else {
+            "no ultracode"
+        };
+        println!("  headless   ready: {efforts}; {ultracode}; {budget}");
+    }
+    if meets {
+        ExitCode::SUCCESS
+    } else {
         ExitCode::FAILURE
     }
 }
