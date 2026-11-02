@@ -112,6 +112,9 @@ pub enum InProgress {
     /// With git, a committed brief in a clean tree is a pre-written one, and the files a session
     /// is editing show up as the reasons above.
     BriefWithoutCompletion(EpId),
+    /// A session runs in the project, in its own words: one the window started, or one the hooks
+    /// and the poll of live sessions report (EP-12). The files cannot say it; the window adds it.
+    Session(String),
 }
 
 impl fmt::Display for InProgress {
@@ -124,6 +127,7 @@ impl fmt::Display for InProgress {
             InProgress::BriefWithoutCompletion(id) => {
                 write!(f, "the brief of {id} has no completion note")
             }
+            InProgress::Session(words) => f.write_str(words),
         }
     }
 }

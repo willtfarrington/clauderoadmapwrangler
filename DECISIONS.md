@@ -184,6 +184,12 @@ house style only with a regex fallback.
 > profiles (a checked row, the brief's own markers, or the handoff file), since their forms are disjoint.
 > *Alternatives.* The literal rule (two false positives); a separate "brief written" state.
 
+> **Addendum (2026-11-02, EP-12).** A running session is a reason of its own, `InProgress::Session`
+> in the session's words, which the window adds to what the files say: its own headless runs, and
+> the sessions the hooks and the poll of live sessions report in the project's folder or one inside
+> it. `crw roadmap`, which runs no window, reads the files only. *Alternatives.* The snapshot asking
+> for the live sessions itself; a column of its own for sessions.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -269,6 +275,15 @@ with modules; hand-written protocol types; another community client.
 > no-window flag takes the `windows` crate's type. `uuid` (v4) and `windows` join the pins at the
 > versions the lock already held. *Alternatives.* One runtime shared by every session; std threads
 > with process-wrap's std job object, which outlives a crashed tool; the crate's own async client.
+
+> **Addendum (2026-11-02, EP-12).** The loopback server is axum with its `http1`, `json` and `tokio`
+> features only, on a thread with a current-thread runtime of its own (tokio's `net` joins the
+> pinned features), handing what it hears to the frame loop over a channel. The relays post with a
+> hand-written HTTP/1.1 request over a plain socket, no client crate, so `crw hook` starts and ends
+> in milliseconds. serde_json keeps object keys in their order (`preserve_order`, with the
+> `indexmap` the lock held), so the owner's Claude Code settings keep their layout when the tool
+> writes into them. *Alternatives.* axum's default features; a client crate in `crw`; an ordered
+> JSON value of the tool's own.
 
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
@@ -450,6 +465,28 @@ polls `claude agents --json` as reconciliation. The hooks see visual sessions to
 the same events. *Why.* Hooks are the documented event source; polling covers sessions started without the
 tool. *Alternatives.* Polling only; hooks only.
 
+> **Addendum (2026-11-02, EP-12).** Built, and installed on the owner's yes. `crw signals install`
+> writes a group per event into the user settings that runs the release `crw.exe` directly with
+> `hook` (Claude Code's exec form, `command` and `args`: no shell, no quoting) with a 5 s timeout,
+> and the status line (D-23 addendum), after a copy of the file in the tool's backups folder; the
+> file's other keys stay byte for byte. With `--inbox` the start hook prints the project's open
+> inbox messages as written, which replaced the owner's stopgap PowerShell hook (IN-2; its script
+> stays), and a later install keeps it so. The entries are known by the program they run, so a
+> second install changes nothing and `crw signals remove` takes them out; another status line is
+> said, never replaced; a debug build is refused. The relay keeps the session's id, folder, event
+> and its source, reason or notification type, and the session's surface from
+> `CLAUDE_CODE_ENTRYPOINT` (an SDK's marks another program's `-p` run), never a transcript's text,
+> and posts within 500 ms, of which the connection gets 50: Windows refuses a closed loopback port
+> only after its own retries, so with no window a hook costs about 75 ms. The window polls `claude
+> agents --json` every 5 s while it has the focus and every 30 s otherwise (the owner's choice; a
+> listing costs about 0.2 s of a core), the session markers withheld. The state model
+> (`crw_core::sessions`) gives each session the registered project whose folder holds its own, a
+> mode (visual when it claims a launch's row, headless, manual) and a status (busy, waiting with
+> what for, idle, done, failed); a session the poll listed and then leaves out twice has ended, and
+> an ended one leaves the window after ten minutes. *Alternatives.* Shell-form commands through Git
+> Bash; `type: "http"` hooks, whose refused connection is a hook error the session shows; a 5 s
+> poll whatever the focus; the stopgap kept beside.
+
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
 Quit); the Claude app's own push for the phone; **ntfy over the tailnet** (a topic configured in the
@@ -509,6 +546,15 @@ status-line cost estimate is recorded per session for sessions the owner starts;
 chart; transcripts are not parsed. *Why.* The probe on 2026-10-31 showed the Fable-scoped limit only on
 the endpoint; the status line is the documented source. *Alternatives.* Status-line only; endpoint only;
 every minute or on demand; no downshift or downshift for every size; parsing transcripts for tokens.
+
+> **Addendum (2026-11-02, EP-12).** The status line is `<crw.exe> statusline` with
+> `refreshInterval` 30, the path in forward slashes for Git Bash (a status line has no exec form);
+> it posts the session's model, cost, context and `rate_limits` to the window and prints nothing.
+> The VS Code extension (2.1.314) names `statusLine` only in its settings schema and shows plugins'
+> statuses rather than the user's command, so the feed most likely comes from terminal sessions
+> only, where a configured status line also hides most of the footer's key hints; the owner had it
+> installed all the same, and EP-17's degraded meter inherits the finding. *Alternatives.* The
+> hooks only until EP-17; a status line that prints the figures.
 
 ## Hosting, views, history
 
@@ -622,6 +668,13 @@ per week, projected finish and remaining session-hours from the size mix and mea
 Git already holds the dates; the ledger makes the rest cheap. *Alternatives.* Completion-note dates only;
 no backfill; transcript copies; a usage-over-time graph (parked).
 
+> **Addendum (2026-11-02, EP-12).** The hooks complete the ledger: a session's start claims the
+> newest open visual launch of its project from the last 30 minutes (EP-11's row gains its session
+> id), else opens a `manual` row for an interactive session of a registered project; its end
+> closes a visual or manual row as completed. A headless row stays the runner's; another program's
+> `-p` run, a session outside the registry and a session seen only by the poll (its start and end
+> unknown) get none. *Alternatives.* Rows for every session the poll lists; no manual rows.
+
 ## Chat, remote access, operations
 
 **D-27 Chat and the method plugin.** One hosted Claude Code session per conversation (`-p` stream-json,
@@ -655,6 +708,14 @@ commands are path-bound to the tool's `cli` and fail silently. *Why.* The same m
 their other tailnet service; Serve strips forged identity headers and the backend is unreachable except
 through Serve or locally. *Alternatives.* A path mount under the existing hostname; no exposure until v2; a
 PIN for write actions; periodic re-authentication; the tailnet as the only boundary.
+
+> **Addendum (2026-11-02, EP-12).** The server listens on `127.0.0.1` at the registry's `port`
+> (47831 by default, `crw setting port`) with `POST /hook`, `POST /statusline` and `GET /health`,
+> and answers only a request without an `Origin` whose `Host` names the loopback, with a JSON body
+> of at most 256 KiB, so a web page can neither post to it nor reach it through a name pointed at
+> 127.0.0.1. A second window finds the port taken and says so in its status bar. The phone's
+> routes (EP-30) take the identity check in the loopback guard's place. *Alternatives.* No guard
+> beyond the loopback bind; a shared secret in the hook entries.
 
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's

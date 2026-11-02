@@ -26,10 +26,20 @@ pub struct Item {
     /// item's indentation.
     pub text: String,
     pub line: usize,
+    /// Where the item's first line starts.
+    start: usize,
     /// The byte between the box's brackets.
     mark: usize,
     /// Where the item's last line ends, before its trailing spaces and its line break.
     end: usize,
+}
+
+impl Item {
+    /// The item as `text`, the file it was read from, writes it: from its first line's start to
+    /// its last line's end.
+    pub fn written<'a>(&self, text: &'a str) -> &'a str {
+        text.get(self.start..self.end).unwrap_or_default()
+    }
 }
 
 /// A checkbox file as the parser reads it.
@@ -119,6 +129,7 @@ pub fn parse(text: &str, prefix: &str) -> List {
             meta,
             text: text.trim().to_owned(),
             line: first.number,
+            start: first.start,
             mark: at + 1,
             end: last.start + last.text.trim_end().len(),
         });

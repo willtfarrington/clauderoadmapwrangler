@@ -105,6 +105,17 @@ pub fn parse(text: &str) -> (Vec<Message>, Vec<Problem>) {
     (messages, list.problems)
 }
 
+/// The open messages of `text` as the file writes them, each from its box to its last line: what
+/// a session start is given (EP-12, the stopgap hook's job in the tool).
+pub fn open_as_written(text: &str) -> Vec<&str> {
+    checklist::parse(text, PREFIX)
+        .items
+        .iter()
+        .filter(|item| !item.checked)
+        .map(|item| item.written(text))
+        .collect()
+}
+
 /// `from beta EP-4, 2026-10-02` → `beta EP-4`: the parenthesis without `from` and its date.
 fn from_of(meta: &str) -> Option<String> {
     let body = meta.trim();

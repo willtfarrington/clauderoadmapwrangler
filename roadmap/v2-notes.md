@@ -3,7 +3,8 @@
 Everything named during planning and not built in v1. Every re-plan EP grows this file; the v1 close-out
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
 items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
-EP-33 by the one marked *(EP-33)*, and at EP-11 by those marked *(EP-11)*.
+EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, and at EP-12 by those marked
+*(EP-12)*.
 
 ## 1 Launch modes
 
@@ -33,6 +34,15 @@ EP-33 by the one marked *(EP-33)*, and at EP-11 by those marked *(EP-11)*.
   which would also find a window opened from the folder rather than from its own workspace file;
   EP-11 opens the workspace file, which such a window does not answer to.
 - *(EP-11)* A `crw` command that launches visually; `crw prompt --visual` only prints the prompt.
+- *(EP-12)* A status line that chains the owner's own: `crw statusline` running another command and
+  passing its output through. None was configured at EP-12, so an install leaves another status
+  line in place and says so (D-23 addendum).
+- *(EP-12)* A status line that prints the session's figures (cost, context, the rate limits) rather
+  than nothing, which would give the terminal's status row back a use (D-23 addendum).
+- *(EP-12)* A marker file the window writes while it listens, so that a hook with no window to
+  talk to costs no connection attempt at all (EP-12 gives the connection 50 ms; D-20 addendum).
+- *(EP-12)* Ledger rows for sessions the poll of live sessions lists without a start hook (a session
+  started while no window ran), with the start time the listing gives (D-26 addendum).
 
 ## 2 Analytics
 

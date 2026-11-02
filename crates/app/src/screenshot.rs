@@ -22,6 +22,9 @@
 //!   `stack=<stack>` (`rust`, `python`, … or the chip's letters) and `hosting=<class>` (`public`,
 //!   `private`, `remote`, `local`), each adding to its filter;
 //! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read);
+//! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
+//!   permission prompt, quarry's manual one busy with its status line's figures, one outside the
+//!   registry, and the signals listening with their entries installed);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -30,7 +33,8 @@
 //! launch dialog reads the synthetic model catalog in `fixtures/model-catalog`, a canned
 //! preflight and a canned VS Code with no window open, never the real CLI, VS Code or its lock
 //! files, and a run starts no session and opens nothing. In the fixture registry harbor launches
-//! headless and lantern visually.
+//! headless and lantern visually. A run binds no port, polls no live session and reads no Claude
+//! Code settings (EP-12).
 
 use std::fs;
 use std::io;
@@ -46,11 +50,14 @@ use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visib
 use crw_core::badges::stack::Kind;
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
+use crw_core::sessions::{Mode, Seen, Status};
+use crw_core::signals::{self, StatusLine};
 use eframe::egui;
 
-use crate::board::{Action, Dashboard};
+use crate::board::{Action, Board, Dashboard};
 use crate::layout::{self, Pane};
 use crate::portfolio::{Fetched, Portfolio, Selection, SortKey};
+use crate::server::Listening;
 use crate::style::Density;
 
 pub const PICTURE_VAR: &str = "CRW_SCREENSHOT";
@@ -185,6 +192,7 @@ impl Run {
                     board.view.expanded.insert(value.to_owned());
                 }
                 "launch" => board.open_when_read = Some(value.to_owned()),
+                "sessions" => canned_sessions(board),
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),
                     None => eprintln!("screenshot: no pane called {value}"),
@@ -235,6 +243,54 @@ impl Run {
             }
         }
     }
+}
+
+/// The sessions a picture shows Claude Code reporting (EP-12), set against the run's own clock.
+fn canned_sessions(board: &mut Board) {
+    let now = Utc::now();
+    let ago = |minutes| now - TimeDelta::minutes(minutes);
+    let mut lantern = Seen::canned(
+        "5f1c0a2e-lantern",
+        Some("lantern"),
+        Mode::Visual,
+        Status::Waiting,
+        Some("a permission prompt"),
+        ago(12),
+    );
+    lantern.name = Some("lantern EP-6".to_owned());
+    lantern.entrypoint = Some("claude-vscode".to_owned());
+    let mut quarry = Seen::canned(
+        "9a3e7d41-quarry",
+        Some("quarry"),
+        Mode::Manual,
+        Status::Busy,
+        None,
+        ago(41),
+    );
+    quarry.name = Some("Tidy the fixtures".to_owned());
+    quarry.entrypoint = Some("cli".to_owned());
+    quarry.line = Some(StatusLine {
+        model: signals::Model {
+            id: "claude-opus-5-5".to_owned(),
+            display_name: "Opus".to_owned(),
+        },
+        cost: signals::Cost {
+            total_cost_usd: Some(1.84),
+            total_duration_ms: None,
+        },
+        context_window: signals::ContextWindow {
+            used_percentage: Some(37.0),
+            context_window_size: None,
+        },
+        ..StatusLine::default()
+    });
+    let outside = Seen::canned("e7b0c3d9", None, Mode::Manual, Status::Idle, None, ago(5));
+    for mut seen in [lantern, quarry, outside] {
+        seen.heard = now;
+        board.watch.model.insert(seen);
+    }
+    board.watch.listening = Some(Listening::On(signals::DEFAULT_PORT));
+    board.watch.entries = Some(Ok("hooks installed, status line installed".to_owned()));
 }
 
 /// The comma-separated flags of a setup, trimmed, empty ones left out.

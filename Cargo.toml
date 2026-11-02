@@ -32,6 +32,7 @@ image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # `windows` (the version process-wrap locks) names the no-window creation flag; uuid's v4 (the
 # version claude-codes locks) makes the pre-assigned session id. From EP-11, `windows` also asks
 # whether the process of a VS Code lock file still runs (the features process-wrap compiles in).
+# From EP-12, tokio's `net` carries the window's loopback server.
 claude-codes = { version = "=2.1.316", default-features = false, features = ["types"] }
 process-wrap = { version = "=10.0.1", default-features = false, features = [
     "creation-flags",
@@ -39,7 +40,15 @@ process-wrap = { version = "=10.0.1", default-features = false, features = [
     "kill-on-drop",
     "tokio1",
 ] }
-tokio = { version = "=1.54.1", features = ["io-util", "macros", "process", "rt", "sync", "time"] }
+tokio = { version = "=1.54.1", features = [
+    "io-util",
+    "macros",
+    "net",
+    "process",
+    "rt",
+    "sync",
+    "time",
+] }
 uuid = { version = "=1.29.0", features = ["v4"] }
 windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
 
@@ -51,13 +60,16 @@ rusqlite = { version = "=0.41.1", features = ["bundled"] }
 toml = "=1.1.8"
 toml_edit = "=0.25.17"
 
-# The loopback server and the phone pages (D-14, D-28).
+# The loopback server and the phone pages (D-14, D-28). From EP-12, axum serves the signals with
+# HTTP/1.1 and JSON only, on tokio's `net`.
 askama = "=0.16.1"
-axum = "=0.8.9"
+axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 
 anyhow = "=1.0.104"
 chrono = "=0.4.45"
 serde = { version = "=1.0.229", features = ["derive"] }
-serde_json = "=1.0.154"
+# `preserve_order` (EP-12): the owner's Claude Code settings keep their keys' order when the
+# signals are installed into them (`indexmap`, which the lock already holds).
+serde_json = { version = "=1.0.154", features = ["preserve_order"] }
 thiserror = "=2.0.21"
 tracing = "=0.1.44"

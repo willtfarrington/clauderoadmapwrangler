@@ -4,8 +4,8 @@
 //! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `status` and
 //! `setting` from EP-7, the badges and the registry's settings; `prompt` from EP-10, what a launch
 //! starts from, worded for either launch mode from EP-11; `dismiss` and `undismiss` from EP-33,
-//! the proposals the owner leaves out; `inbox
-//! send` and the `hook` and `statusline` relays arrive with their briefs.
+//! the proposals the owner leaves out; the `hook` and `statusline` relays and `signals`, their
+//! entries in Claude Code's user settings, from EP-12; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -29,6 +29,8 @@ use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
+use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
+use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{files, git, paths, process, prompt, proposal, workspace};
@@ -67,13 +69,29 @@ commands:
                                  progress, activity, hosting with the head check, CI and license,
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
-                                 workspace_file, backup_settings, backup_log, claude_cli, vscode
+                                 workspace_file, backup_settings, backup_log, claude_cli, vscode,
+                                 port (the window's loopback port for the signals)
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
                                  their reasons (the rule table), the neighbour folders and the
                                  prompt, worded for the project's launch mode or the one asked;
                                  launches nothing
+  signals [status]               print the tool's hooks and status line in Claude Code's user
+                                 settings, what an install would change, and whether a window
+                                 listens for them
+  signals install [--inbox|--no-inbox] [--no-status-line]
+                                 write the SessionStart, Notification, Stop and SessionEnd hooks
+                                 and the status line into the user settings, running this
+                                 crw.exe, after a dated copy of the file; --inbox has the start
+                                 hook print the project's open inbox messages and takes the
+                                 stopgap inbox hook out (kept at a later install unless
+                                 --no-inbox)
+  signals remove                 take the tool's hooks and status line out of the user settings
+  hook [--inbox]                 the hooks' relay: posts the hook's input to the window and
+                                 prints nothing (with --inbox, a start's open inbox messages)
+  statusline                     the status line's relay: posts its input to the window and
+                                 prints nothing
   help                           print this text
   --version                      print crw's version
 
@@ -107,6 +125,31 @@ fn main() -> ExitCode {
         ["setting"] => setting(None, None),
         ["setting", key] => setting(Some(key), None),
         ["setting", key, value] => setting(Some(key), Some(value)),
+        // The relays never fail and never print an error: a session must not wait on the tool
+        // or show its errors (D-20).
+        ["hook", rest @ ..] => {
+            let mut out = std::io::stdout().lock();
+            let inbox = rest.contains(&"--inbox");
+            let _ = signals::relay_hook(
+                std::io::stdin().lock(),
+                signals::entrypoint(),
+                inbox,
+                &mut out,
+                signals::port(),
+            );
+            ExitCode::SUCCESS
+        }
+        ["statusline", ..] => {
+            let _ = signals::relay_status_line(
+                std::io::stdin().lock(),
+                signals::entrypoint(),
+                signals::port(),
+            );
+            ExitCode::SUCCESS
+        }
+        ["signals"] | ["signals", "status"] => signals_status(),
+        ["signals", "install", flags @ ..] => signals_install(flags),
+        ["signals", "remove"] => signals_remove(),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -1418,8 +1461,13 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
-                if key != "data_root" && !full.exists() {
+                if Settings::is_path(key) && key != "data_root" && !full.exists() {
                     println!("note: {} does not exist yet", full.display());
+                }
+                if key == "port" {
+                    println!(
+                        "note: a window that runs listens on its port until it is started again"
+                    );
                 }
                 ExitCode::SUCCESS
             }
@@ -1436,13 +1484,193 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
         .filter(|name| key.is_none_or(|k| k == **name))
     {
         let value = match (registry.settings.get(name), *name) {
-            (Some(path), _) => path.display().to_string(),
+            (Some(value), _) => value,
             (None, "data_root") => format!("{} (the default)", registry.data_root().display()),
+            (None, "port") => format!("{} (the default)", registry.port()),
             (None, _) => "not set".to_owned(),
         };
         println!("  {name:<16} {value}");
     }
     ExitCode::SUCCESS
+}
+
+/// Claude Code's user settings file and this exe, which the entries run.
+fn signals_places() -> Result<(PathBuf, PathBuf), String> {
+    let settings = signal_entries::settings_file()
+        .ok_or("no profile folder: neither CLAUDE_CONFIG_DIR nor USERPROFILE is set")?;
+    let exe = std::env::current_exe().map_err(|e| format!("this exe's path did not read: {e}"))?;
+    Ok((settings, exe))
+}
+
+/// Prints the tool's entries in Claude Code's user settings (D-20, D-23), whether a window listens
+/// for them, and what an install from this exe would change; reads, never writes.
+fn signals_status() -> ExitCode {
+    println!("crw {} signals", env!("CARGO_PKG_VERSION"));
+    let (path, exe) = match signals_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    println!("  settings     {}", path.display());
+    println!("  this exe     {}", exe.display());
+    let status = match signal_entries::status(&path) {
+        Ok(status) => status,
+        Err(e) => return failed(e),
+    };
+    let which = |theirs: &Path| {
+        if paths::same(theirs, &exe) {
+            "this exe".to_owned()
+        } else {
+            theirs.display().to_string()
+        }
+    };
+    for (event, hooked) in &status.hooks {
+        let text = match hooked {
+            Hooked::Missing => "not installed".to_owned(),
+            Hooked::Ours { exe, inbox } => format!(
+                "runs {} hook{}",
+                which(exe),
+                if *inbox { " --inbox" } else { "" }
+            ),
+            Hooked::Several => {
+                "more than one entry of the tool's: an install puts one back".to_owned()
+            }
+        };
+        println!("  {event:<13}{text}");
+    }
+    let line = match &status.line {
+        Line::Missing => "none".to_owned(),
+        Line::Ours(theirs) => format!("runs {} statusline", which(theirs)),
+        Line::Other(command) => format!("another command, which an install leaves: {command}"),
+    };
+    println!("  {:<13}{line}", "status line");
+    if status.stopgap {
+        println!(
+            "  {:<13}the stopgap SessionStart hook prints the inbox (install --inbox replaces it)",
+            "stopgap"
+        );
+    }
+    let port = signals::port();
+    let window = match relay::request(
+        port,
+        "GET",
+        signals::HEALTH_ROUTE,
+        None,
+        std::time::Duration::from_millis(300),
+    ) {
+        Ok(answer) if answer.status == 200 => format!("listening on 127.0.0.1:{port}"),
+        Ok(answer) => format!("127.0.0.1:{port} answers {}: not the window", answer.status),
+        Err(_) => format!("no window listens on 127.0.0.1:{port}"),
+    };
+    println!("  {:<13}{window}", "window");
+    let options = Options {
+        status_line: true,
+        inbox: status.stopgap || status.prints_inbox(),
+    };
+    match signal_entries::preview(&path, &exe, options) {
+        Ok((changes, _)) if changes.is_empty() => {
+            println!("\nThe entries are installed and run this exe.");
+        }
+        Ok((changes, kept)) => {
+            let flag = if options.inbox { " --inbox" } else { "" };
+            println!(
+                "\nWhat crw signals install{flag} would change, after a dated copy of the file:"
+            );
+            for change in &changes {
+                println!("  - {change}");
+            }
+            println!(
+                "{}",
+                if kept {
+                    "The file's other keys, their order and its layout stay as written."
+                } else {
+                    "The file's other keys stay, but its layout is not the two-space JSON Claude \
+                     Code writes: an install rewrites it so."
+                }
+            );
+        }
+        Err(e) => println!("\nAn install from this exe is refused: {e}"),
+    }
+    ExitCode::SUCCESS
+}
+
+/// Writes the tool's hooks and status line into Claude Code's user settings, after a dated copy of
+/// the file in the backups folder (D-20, D-23; the owner's yes, rule 7).
+fn signals_install(flags: &[&str]) -> ExitCode {
+    let (path, exe) = match signals_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    // The start hook keeps printing the inbox once it does, unless told otherwise: the stopgap
+    // that did it before is gone by then.
+    let prints_inbox = signal_entries::status(&path).is_ok_and(|status| status.prints_inbox());
+    let mut options = Options {
+        status_line: true,
+        inbox: prints_inbox,
+    };
+    for flag in flags {
+        match *flag {
+            "--inbox" => options.inbox = true,
+            "--no-inbox" => options.inbox = false,
+            "--no-status-line" => options.status_line = false,
+            other => return usage_error(&format!("signals install takes no {other}")),
+        }
+    }
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    match signal_entries::install(&path, &exe, options, &store.backups, &files::today()) {
+        Ok(report) => {
+            print_report(
+                &report,
+                "The entries were installed already; nothing changed.",
+            );
+            if options.status_line
+                && let Ok(status) = signal_entries::status(&path)
+                && let Line::Other(command) = status.line
+            {
+                println!("The status line runs another command and stays: {command}");
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// Takes the tool's hooks and status line out of Claude Code's user settings, after a dated copy.
+fn signals_remove() -> ExitCode {
+    let (path, _) = match signals_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    match signal_entries::remove(&path, &store.backups, &files::today()) {
+        Ok(report) => {
+            print_report(
+                &report,
+                "No entry of the tool's was there; nothing changed.",
+            );
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+fn print_report(report: &signal_entries::Report, unchanged: &str) {
+    if report.changes.is_empty() {
+        println!("{unchanged}");
+        return;
+    }
+    println!("{} changed:", report.path.display());
+    for change in &report.changes {
+        println!("  - {change}");
+    }
+    if let Some(copy) = &report.copy {
+        println!("The file as it was is kept as {}", copy.display());
+    }
 }
 
 /// Ticks one line of a project's `owner-tasks.md` or `inbox.md`, or clears an owner task's tick

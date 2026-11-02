@@ -3,12 +3,13 @@
 //! verbatim, why a session is taken to be in progress, the progress per phase, its badges spelt
 //! out (EP-7), what waits on the owner (ticked here when it lives in `owner-tasks.md`), the inbox
 //! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
-//! met. For an unadopted folder: what it holds, Adopt and Ignore.
+//! met. For an unadopted folder: what it holds, Adopt and Ignore. From EP-12 a session that runs
+//! there, by the window's or Claude Code's account, joins the in-progress reasons.
 
 use chrono::Utc;
 use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
-use crw_core::roadmap::snapshot::Snapshot;
+use crw_core::roadmap::snapshot::{InProgress, Snapshot};
 use crw_core::roadmap::table::Done;
 use crw_core::tasks::{self, Form, OwnerItem};
 use eframe::egui::{self, RichText};
@@ -22,11 +23,23 @@ use crate::style::{self, icons};
 impl Board {
     pub fn detail_pane(&mut self, ui: &mut egui::Ui) {
         let mut actions = Vec::new();
+        // The sessions that run there, which the files cannot tell (EP-12).
+        let running = match &self.view.selected {
+            Some(Selection::Project(name)) => self.session_reasons(name),
+            _ => Vec::new(),
+        };
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| match self.view.selected.clone() {
                 Some(Selection::Project(name)) => match self.portfolio.project(&name) {
-                    Some(row) => project(ui, row, &self.portfolio, &mut self.drafts, &mut actions),
+                    Some(row) => project(
+                        ui,
+                        row,
+                        &running,
+                        &self.portfolio,
+                        &mut self.drafts,
+                        &mut actions,
+                    ),
                     None => gone(ui, &name),
                 },
                 Some(Selection::Folder(name)) => match self.portfolio.folder(&name) {
@@ -86,6 +99,7 @@ fn section(ui: &mut egui::Ui, title: &str) {
 fn project(
     ui: &mut egui::Ui,
     row: &ProjectRow,
+    running: &[InProgress],
     portfolio: &Portfolio,
     drafts: &mut std::collections::HashMap<(String, String), String>,
     actions: &mut Vec<Action>,
@@ -164,7 +178,7 @@ fn project(
         });
     }
 
-    next_brief(ui, row, actions);
+    next_brief(ui, row, running, actions);
     progress(ui, snapshot);
     status(ui, row, portfolio);
     owner_items(ui, row, actions);
@@ -174,7 +188,12 @@ fn project(
     problems(ui, row);
 }
 
-fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
+fn next_brief(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    running: &[InProgress],
+    actions: &mut Vec<Action>,
+) {
     let snapshot = &row.snapshot;
     let Some(roadmap) = snapshot.current() else {
         section(ui, "Roadmap");
@@ -259,7 +278,8 @@ fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
         ui.label(RichText::new("No brief file yet.").weak());
     }
 
-    let reasons = row.in_progress();
+    let mut reasons = running.to_vec();
+    reasons.extend(row.in_progress());
     if !reasons.is_empty() {
         let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
         ui.label(

@@ -158,8 +158,11 @@ impl egui_tiles::Behavior<Pane> for Board {
             Pane::Decisions if self.sessions.waiting() > 0 => {
                 format!("Decisions · {}", self.sessions.waiting()).into()
             }
-            Pane::Sessions if !self.sessions.live.is_empty() => {
-                format!("Sessions · {}", self.sessions.live.len()).into()
+            Pane::Sessions
+                if !self.sessions.live.is_empty() || !self.seen_sessions().is_empty() =>
+            {
+                let count = self.sessions.live.len() + self.seen_sessions().len();
+                format!("Sessions · {count}").into()
             }
             pane => pane.title().into(),
         }

@@ -14,6 +14,8 @@ publish.workspace = true
 screenshot = ["dep:image"]
 
 [dependencies]
+# The loopback server the hooks and the status line post to (D-14, D-20, D-28; EP-12).
+axum.workspace = true
 # The age of a project's last commit, the date of a write's copies.
 chrono.workspace = true
 crw-core.workspace = true
@@ -24,3 +26,5 @@ image = { workspace = true, optional = true }
 # The data root's top level, watched for folders that appear or go (D-7).
 notify.workspace = true
 serde.workspace = true
+# The loopback server's small runtime of its own (EP-12).
+tokio.workspace = true

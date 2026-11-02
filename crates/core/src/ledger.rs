@@ -9,7 +9,7 @@ use std::time::Duration;
 use std::{fs, io};
 
 use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::Connection;
+use rusqlite::{Connection, OptionalExtension};
 
 /// The schema this build writes: the number of migrations.
 pub const SCHEMA_VERSION: u32 = 2;
@@ -229,6 +229,59 @@ impl Ledger {
             (id, rfc3339(ended_at), outcome, cost_usd, questions),
         )?;
         Ok(())
+    }
+
+    /// The mode of the row that holds `session_id`, if one does.
+    pub fn mode_of(&self, session_id: &str) -> Result<Option<String>, Error> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT mode FROM session WHERE session_id = ?1 ORDER BY id DESC LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
+    /// Gives `session_id` to the newest visual launch of `project` that has none yet and is
+    /// open, started at `since` or later: a visual launch is recorded before VS Code names its
+    /// session (EP-11), and the session's start hook names it (EP-12). The row's id, when one is
+    /// claimed.
+    pub fn claim_visual(
+        &self,
+        project: &str,
+        session_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<Option<i64>, Error> {
+        let found: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT id FROM session WHERE mode = 'visual' AND session_id IS NULL \
+                 AND ended_at IS NULL AND project = ?1 COLLATE NOCASE AND started_at >= ?2 \
+                 ORDER BY started_at DESC, id DESC LIMIT 1",
+                (project, rfc3339(since)),
+                |row| row.get(0),
+            )
+            .optional()?;
+        let Some(id) = found else {
+            return Ok(None);
+        };
+        self.connection.execute(
+            "UPDATE session SET session_id = ?2 WHERE id = ?1",
+            (id, session_id),
+        )?;
+        Ok(Some(id))
+    }
+
+    /// Closes the open visual or manual row of `session_id` at `at`, as completed: its end hook
+    /// (EP-12). A headless row is the runner's to close; `false` when no row was open.
+    pub fn end_seen(&self, session_id: &str, at: DateTime<Utc>) -> Result<bool, Error> {
+        let changed = self.connection.execute(
+            "UPDATE session SET ended_at = ?2, outcome = 'completed' WHERE session_id = ?1 \
+             AND mode IN ('visual', 'manual') AND ended_at IS NULL",
+            (session_id, rfc3339(at)),
+        )?;
+        Ok(changed > 0)
     }
 
     /// Every session, the oldest first.
@@ -493,6 +546,87 @@ mod tests {
             ledger
                 .finish_session(id, at("2026-11-02T05:41:00Z"), "vanished", None, 0)
                 .is_err()
+        );
+    }
+
+    #[test]
+    fn a_seen_session_claims_its_visual_launch_or_has_a_row_of_its_own() {
+        let scratch = Scratch::new("ledger-seen");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let at = |text: &str| {
+            DateTime::parse_from_rfc3339(text)
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        let launch = |project, started: &str| NewSession {
+            session_id: None,
+            project,
+            ep: Some("EP-4"),
+            mode: "visual",
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: at(started),
+        };
+        let old = ledger
+            .start_session(&launch("alpha", "2026-11-02T08:00:00Z"))
+            .unwrap();
+        let newer = ledger
+            .start_session(&launch("alpha", "2026-11-02T09:50:00Z"))
+            .unwrap();
+        ledger
+            .start_session(&launch("beta", "2026-11-02T09:55:00Z"))
+            .unwrap();
+        let since = at("2026-11-02T09:30:00Z");
+        // The newest open launch of the project within the window, in any case of its name.
+        assert_eq!(
+            ledger.claim_visual("ALPHA", "s-1", since).unwrap(),
+            Some(newer)
+        );
+        assert_eq!(ledger.mode_of("s-1").unwrap().as_deref(), Some("visual"));
+        // The older one is out of the window, and a claimed row is not claimed twice.
+        assert_eq!(ledger.claim_visual("alpha", "s-2", since).unwrap(), None);
+        assert_eq!(ledger.mode_of("s-2").unwrap(), None);
+        // A session with no launch to claim has a manual row; its end closes it, once.
+        ledger
+            .start_session(&NewSession {
+                session_id: Some("s-2"),
+                project: "alpha",
+                ep: None,
+                mode: "manual",
+                model: None,
+                effort: None,
+                ultracode: false,
+                started_at: at("2026-11-02T10:00:00Z"),
+            })
+            .unwrap();
+        assert!(ledger.end_seen("s-2", at("2026-11-02T10:40:00Z")).unwrap());
+        assert!(!ledger.end_seen("s-2", at("2026-11-02T10:41:00Z")).unwrap());
+        assert!(ledger.end_seen("s-1", at("2026-11-02T10:45:00Z")).unwrap());
+        // A headless row is the runner's.
+        ledger
+            .start_session(&NewSession {
+                session_id: Some("s-3"),
+                project: "beta",
+                ep: Some("EP-2"),
+                mode: "headless",
+                model: Some("claude-opus-5-5"),
+                effort: Some("high"),
+                ultracode: false,
+                started_at: at("2026-11-02T11:00:00Z"),
+            })
+            .unwrap();
+        assert!(!ledger.end_seen("s-3", at("2026-11-02T11:10:00Z")).unwrap());
+        let rows = ledger.sessions().unwrap();
+        let row = |id: i64| rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(row(old).session_id, None);
+        assert_eq!(row(newer).outcome.as_deref(), Some("completed"));
+        assert_eq!(row(newer).ended_at.as_deref(), Some("2026-11-02T10:45:00Z"));
+        let manual = rows.iter().find(|r| r.mode == "manual").unwrap();
+        assert_eq!(manual.ended_at.as_deref(), Some("2026-11-02T10:40:00Z"));
+        assert_eq!(
+            rows.iter().find(|r| r.mode == "headless").unwrap().outcome,
+            None
         );
     }
 

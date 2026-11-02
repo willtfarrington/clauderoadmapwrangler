@@ -26,7 +26,9 @@ holds it until the sessions and decisions tiles arrive. Adopt writes a new proje
 single-folder VS Code workspace file beside it, and a proposed state can be dismissed until the fact
 it rests on changes (EP-33). The dialog launches visually too (EP-11): it opens the project's own
 workspace file in VS Code and fills the prompt into a new Claude Code tab of that window, for the
-owner to send. The roadmap is
+owner to send. The window listens on the loopback for Claude Code's hooks and status line, which
+`crw signals install` sets up in the user settings, and asks Claude Code for its live sessions, so
+the sessions started elsewhere show beside its own (EP-12). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -60,6 +62,10 @@ target\release\crw.exe prompt <folder> [--visual|--headless]
                                         # what a launch of the next brief starts from: the launch
                                         # mode, model, effort and permission mode with their
                                         # reasons, the prompt worded for the mode
+target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,
+                                        # whether a window listens, what an install would change
+target\release\crw.exe signals install [--inbox]  # write them, after a dated copy of the file
+target\release\crw.exe signals remove   # take them out again
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -91,17 +97,30 @@ size, phase or title words and set its model, effort or an effort step. Open in 
 Visual (the default), opens the project's own workspace file, which brings its window to the front
 or opens it, and fills the prompt into a new Claude Code tab there, where the owner chooses the
 model and effort and sends it. Start headless runs the session; the Sessions
-pane lists it with Stop and Kill, and the Decisions pane what it waits for. Built with `--features
+pane lists it with Stop and Kill, and the Decisions pane what it waits for.
+
+The window also listens on `127.0.0.1` (the registry's `port`, 47831 by default) for Claude Code's
+hooks (SessionStart, Notification, Stop, SessionEnd) and its status line, which `crw signals install`
+writes into the user settings to run `crw.exe hook` and `crw.exe statusline`: each reads the
+session's input, keeps the session's id, folder and event (or the status line's model, cost, context
+and rate limits, never a transcript's text) and posts them within half a second, printing nothing
+and exiting quietly when no window listens. With `--inbox` the start hook also prints the project's
+open inbox messages into the session. The window asks `claude agents --json` for the live sessions
+every 5 s while it has the focus (every 30 s otherwise), matches each session's folder to a
+registered project, and lists the sessions started elsewhere (visual, headless or by hand; busy,
+waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row; the
+ledger records their starts and ends. Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
 (`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;
 `CRW_SCREENSHOT_SETUP` arranges the view (see `crates/app/src/screenshot.rs`).
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
-desktop window, `clauderoadmapwrangler.exe`) and `crates/cli` (`crw.exe`, the console commands and, later,
-the hook and status-line relays). The checks every change passes: `cargo test` with and without
-`--features screenshot`, `cargo clippy --all-targets` with and without it, `cargo fmt --check`. Tests never
-run the real `claude` CLI and never spend usage: the session runner's tests start `stub-claude`, a
-stand-in built with the core crate that replays recorded stream-json with fake names.
+desktop window, `clauderoadmapwrangler.exe`, with its loopback server) and `crates/cli` (`crw.exe`, the
+console commands and the hook and status-line relays). The checks every change passes: `cargo test`
+with and without `--features screenshot`, `cargo clippy --all-targets` with and without it, `cargo fmt
+--check`. Tests never run the real `claude` CLI and never spend usage: the session runner's tests start
+`stub-claude`, a stand-in built with the core crate that replays recorded stream-json with fake names,
+and the signals' tests bind a free loopback port and write scratch settings files.
 
 ## The roadmap house style
 

@@ -4,7 +4,8 @@
 //! waits, listed read-only in the Decisions pane. The CLI's preflight is asked on a worker thread
 //! and kept an hour (D-15), and a start waits its turn and its spacing on one too (D-29), so the
 //! frame never blocks. Closing the window drops the handles, which kills whatever still runs with
-//! its process tree (D-16 addendum).
+//! its process tree (D-16 addendum). From EP-12 the pane also lists the sessions of the registered
+//! projects that Claude Code reports elsewhere (`watch`), read-only.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -14,6 +15,7 @@ use std::time::Duration;
 
 use chrono::{DateTime, Local};
 use crw_core::session::{Ended, Event, Init, Launch, Outcome, Preflight, Request, Session};
+use crw_core::sessions::{Seen, Status as SeenStatus};
 use eframe::egui::{self, RichText};
 
 use crate::board::{Action, Board};
@@ -413,17 +415,41 @@ impl Sessions {
     pub fn waiting(&self) -> usize {
         self.live.iter().map(|live| live.waiting.len()).sum()
     }
+
+    /// Whether the window started the session `session_id`.
+    pub fn owns(&self, session_id: &str) -> bool {
+        self.live.iter().any(|live| live.session_id == session_id)
+    }
 }
 
 impl Board {
-    /// The Sessions pane until EP-13's tile: the window's headless sessions in plain lines.
+    /// The sessions the hooks and the poll report in registered projects, the window's own left
+    /// out (EP-12), the latest start first.
+    pub fn seen_sessions(&self) -> Vec<&Seen> {
+        self.watch
+            .model
+            .all()
+            .into_iter()
+            .filter(|seen| seen.project.is_some() && !self.sessions.owns(&seen.session_id))
+            .collect()
+    }
+
+    /// The Sessions pane until EP-13's tile: the window's headless sessions in plain lines, then
+    /// the sessions Claude Code reports elsewhere (EP-12).
     pub fn sessions_pane(&mut self, ui: &mut egui::Ui) {
-        if self.sessions.live.is_empty() && !self.sessions.is_starting() {
+        let seen = self.seen_sessions();
+        let outside = self.watch.model.outside();
+        if self.sessions.live.is_empty() && !self.sessions.is_starting() && seen.is_empty() {
             placeholder(
                 ui,
                 "The headless sessions started from the launch dialog (S, or a row's Start \
-                 button) are listed here, with Stop and Kill; their transcripts arrive at EP-13.",
+                 button) are listed here, with Stop and Kill; their transcripts arrive at EP-13. \
+                 The sessions of the registered projects that Claude Code's hooks and its list of \
+                 live sessions report join them.",
             );
+            if outside > 0 {
+                ui.vertical_centered(|ui| ui.label(RichText::new(outside_words(outside)).weak()));
+            }
             return;
         }
         let mut actions = Vec::new();
@@ -440,6 +466,30 @@ impl Board {
                 for live in &self.sessions.live {
                     session_card(ui, live, &mut actions);
                     ui.add_space(6.0);
+                }
+                if !seen.is_empty() {
+                    if !self.sessions.live.is_empty() {
+                        ui.add_space(4.0);
+                    }
+                    ui.label(
+                        RichText::new("Started elsewhere: in VS Code, a terminal or another program")
+                            .weak(),
+                    );
+                    ui.add_space(2.0);
+                    for one in &seen {
+                        seen_card(ui, one);
+                        ui.add_space(6.0);
+                    }
+                }
+                if outside > 0 {
+                    ui.label(RichText::new(outside_words(outside)).weak());
+                }
+                if let Some(problem) = &self.watch.model.poll_problem {
+                    ui.label(
+                        RichText::new(format!("The list of live sessions did not read: {problem}"))
+                            .small()
+                            .color(style::amber(ui)),
+                    );
                 }
             });
         self.actions.extend(actions);
@@ -570,6 +620,66 @@ fn session_card(ui: &mut egui::Ui, live: &Live, actions: &mut Vec<Action>) {
                 actions.push(Action::DismissSession(live.key));
             }
         });
+    });
+}
+
+fn outside_words(count: usize) -> String {
+    match count {
+        1 => "One more session runs outside the registered projects.".to_owned(),
+        n => format!("{n} more sessions run outside the registered projects."),
+    }
+}
+
+/// A session Claude Code reports (EP-12): its project, mode and status, its name, since when, and
+/// the status line's figures when a terminal session sends them (D-23).
+fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
+    card(ui, |ui| {
+        // Two rows, so that a narrow pane never squeezes a chip into a column of letters.
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(seen.project.as_deref().unwrap_or_default()).strong());
+            style::chip(ui, seen.mode.as_str(), ui.visuals().weak_text_color());
+        });
+        ui.horizontal_wrapped(|ui| {
+            let colour = match seen.status {
+                SeenStatus::Waiting => style::amber(ui),
+                SeenStatus::Done => style::green(ui),
+                SeenStatus::Failed => style::red(ui),
+                SeenStatus::Busy | SeenStatus::Idle => ui.visuals().weak_text_color(),
+            };
+            style::chip(ui, seen.status.as_str(), colour);
+            if let Some(started) = seen.started {
+                ui.label(
+                    RichText::new(format!(
+                        "since {}",
+                        started.with_timezone(&Local).format("%H:%M")
+                    ))
+                    .weak(),
+                );
+            }
+        });
+        if seen.status == SeenStatus::Waiting {
+            ui.label(RichText::new(format!("It {}.", seen.doing())).color(style::amber(ui)));
+        }
+        if let Some(name) = &seen.name {
+            ui.add(egui::Label::new(RichText::new(name).weak()).truncate());
+        }
+        let mut figures = Vec::new();
+        if let Some(line) = &seen.line {
+            if !line.model.display_name.is_empty() {
+                figures.push(line.model.display_name.clone());
+            }
+            if let Some(cost) = line.cost.total_cost_usd {
+                figures.push(format!("an estimated ${cost:.2}"));
+            }
+            if let Some(context) = line.context_window.used_percentage {
+                figures.push(format!("context {context:.0} %"));
+            }
+        }
+        if let Some(surface) = &seen.entrypoint {
+            figures.push(surface.clone());
+        }
+        figures.push(format!("session {}", seen.session_id));
+        ui.label(RichText::new(figures.join(" · ")).small().weak());
     });
 }
 

@@ -2,7 +2,8 @@
 //! status bar. The panes queue what the owner asks for as [`Action`]s, which run after the frame
 //! is drawn: the writes the tool owns (D-7, D-8, D-10, D-11, D-13), each followed by a new read of
 //! the files, the moves of the selection, and from EP-10 the launch dialog and the headless
-//! sessions it starts (D-16, D-17, D-22), from EP-11 its visual launches.
+//! sessions it starts (D-16, D-17, D-22), from EP-11 its visual launches; from EP-12 the sessions
+//! the hooks and the poll of live sessions report join the window's own (D-20).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -16,7 +17,9 @@ use crw_core::catalog::Catalog;
 use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
 use crw_core::proposal::{self, Reason};
 use crw_core::registry::{State, Store};
+use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::cli;
+use crw_core::sessions::Registered;
 use crw_core::{files, inbox, prompt, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
@@ -28,6 +31,7 @@ use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey,
 use crate::sessions::{Sessions, Started};
 use crate::style::{self, Density, icons};
 use crate::visual::{self, Visual};
+use crate::watch::Watch;
 
 const THEME_KEY: &str = "theme";
 const VIEW_KEY: &str = "view";
@@ -172,6 +176,9 @@ pub struct Board {
     pub sessions: Sessions,
     /// The visual launch on its way, if one is.
     pub visual: Visual,
+    /// The sessions the hooks, the status lines and the poll report (EP-12); started by `main`,
+    /// never by a screenshot run or a test.
+    pub watch: Watch,
     /// Where Claude Code caches its model catalog; a screenshot run's is a fixture.
     pub catalog_folder: Option<PathBuf>,
     /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
@@ -212,6 +219,7 @@ impl Board {
             launch: None,
             sessions: Sessions::default(),
             visual: Visual::default(),
+            watch: Watch::default(),
             catalog_folder: Catalog::folder(),
             open_when_read: None,
             ledger,
@@ -237,6 +245,28 @@ impl Board {
 
     pub fn busy(&self) -> bool {
         self.loader.busy() || self.settle_until.is_some()
+    }
+
+    /// The sessions that run in the project called `name`, as in-progress reasons (D-9's running
+    /// session, EP-12): the window's own headless runs, then those the hooks and the poll report.
+    pub fn session_reasons(&self, name: &str) -> Vec<InProgress> {
+        let own = |id: &str| self.sessions.owns(id);
+        self.sessions
+            .summary(name)
+            .into_iter()
+            .chain(self.watch.running(name, own).map(|seen| seen.summary()))
+            .map(InProgress::Session)
+            .collect()
+    }
+
+    /// The same in one line for a row's Session cell; `None` when nothing runs there.
+    pub fn session_summary(&self, name: &str) -> Option<String> {
+        let words: Vec<String> = self
+            .session_reasons(name)
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        (!words.is_empty()).then(|| words.join("; "))
     }
 
     pub fn notify(&mut self, text: impl Into<String>) {
@@ -289,6 +319,22 @@ impl Board {
             },
             None => {}
         }
+        let portfolio = &self.portfolio;
+        let registered = || {
+            portfolio
+                .projects
+                .iter()
+                .filter_map(|row| {
+                    Some(Registered {
+                        name: row.name().to_owned(),
+                        folder: row.folder.as_ref()?.path.clone(),
+                    })
+                })
+                .collect()
+        };
+        let focused = ctx.input(|i| i.focused);
+        self.watch
+            .receive(registered, self.ledger.as_deref(), focused);
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()
@@ -422,6 +468,9 @@ impl Board {
                 self.loader.read_files();
                 self.loader.read_git();
                 self.loader.read_online(true);
+                if !self.fixtures {
+                    self.watch.read_entries();
+                }
                 self.notify(
                     "Reading every project again: the files, the backup job, git, then GitHub.",
                 );
@@ -659,6 +708,18 @@ impl Board {
         if let Some(running) = self.sessions.summary(name) {
             warnings.push(format!("This window already has {running}."));
         }
+        let own = |id: &str| self.sessions.owns(id);
+        let seen: Vec<String> = self
+            .watch
+            .running(name, own)
+            .map(|seen| seen.summary())
+            .collect();
+        if !seen.is_empty() {
+            warnings.push(format!(
+                "Claude Code reports {}: a second session would edit the same files.",
+                seen.join("; ")
+            ));
+        }
         let catalog = self.catalog_folder.as_deref().map_or_else(
             || Catalog::built_in("no profile folder".to_owned()),
             Catalog::read,
@@ -798,6 +859,14 @@ impl Board {
                 ui.label(RichText::new(problem).color(style::amber(ui)));
                 quiet = false;
             }
+            if let Some(problem) = &self.watch.problem {
+                ui.label(RichText::new(problem).color(style::amber(ui)));
+                quiet = false;
+            }
+            if let Some((line, true)) = self.watch.line() {
+                ui.label(RichText::new(line).color(style::amber(ui)));
+                quiet = false;
+            }
             if quiet {
                 ui.label(
                     RichText::new(
@@ -830,8 +899,12 @@ impl Board {
                     }
                     None => "GitHub: not read yet".to_owned(),
                 };
+                let signals = self.watch.line().map_or_else(
+                    || "Signals: not started".to_owned(),
+                    |(line, _)| line,
+                );
                 ui.label(RichText::new(reading).weak()).on_hover_text(format!(
-                    "Registry {}\nData root {}\n{github}",
+                    "Registry {}\nData root {}\n{github}\n{signals}",
                     self.portfolio.registry.display(),
                     self.portfolio.data_root.display()
                 ));

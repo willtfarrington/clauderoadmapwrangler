@@ -422,7 +422,7 @@ impl Board {
                         match member {
                             Member::Project(i) => {
                                 let row = &self.portfolio.projects[i];
-                                let live = self.sessions.summary(row.name());
+                                let live = self.session_summary(row.name());
                                 actions.extend(project_row(
                                     ui,
                                     row,
@@ -950,9 +950,9 @@ fn backup_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
     }
 }
 
-/// A session in progress, or a repository git has not been asked about yet.
-/// A session in progress, by the files' evidence (D-9) or because this window runs one (`live`,
-/// the sessions' own words).
+/// A session in progress, by the files' evidence (D-9) or because one runs (`live`, the sessions'
+/// own words: the window's headless runs and those Claude Code reports, EP-12); else a
+/// repository git has not been asked about yet.
 fn session_cell(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>) {
     let texts: Vec<String> = live
         .map(str::to_owned)

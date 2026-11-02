@@ -256,7 +256,7 @@ only its own files inside a managed project).
 | EP-10 | [Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch](EP-10-prompt-and-launch-dialog.md) (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☑ `7984abe` |
 | EP-33 | [Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed](EP-33-per-project-workspace-files.md) (D-6, D-7) | S | EP-2 | core | ☑ `4a25323` |
 | EP-11 | [Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs](EP-11-visual-launch.md) (D-16) | S | EP-10, EP-33 | core | ☑ `0100629` |
-| EP-12 | Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model (D-20, D-23) | M | EP-9 | core | ☐ |
+| EP-12 | [Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model](EP-12-loopback-server-and-signals.md) (D-20, D-23) | M | EP-9 | core | ☐ |
 | EP-13 | Sessions tile: live transcript from stream-json, stop, resume by id, ledger rows with outcome and cost estimate (D-16, D-26) | M | EP-12 | core | ☐ |
 | EP-14 | Decisions tile: control-protocol answers to `AskUserQuestion` and permission requests, optional timeout, defer-and-resume fallback, Focus VS Code for visual sessions, answer latency (D-19) | L | EP-13 | core | ☐ |
 | EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
@@ -417,6 +417,14 @@ every commit's added lines are checked before it is made, the repository being p
   keeps Stop, Kill and Dismiss. **From EP-11:** the extension's link also takes `session=<id>`,
   which resumes a session in the project's VS Code window; `visual::link` writes the `prompt`
   parameter only today, and a visual row has no session id until EP-12's hooks give one.
+  **From EP-12:** the sessions started elsewhere are `crw_core::sessions::Seen` in the window's
+  `watch.model` (mode, status, `waiting_for`, name, surface, start, the latest `signals::StatusLine`),
+  listed read-only under the window's own cards (`sessions::seen_card`, `Board::seen_sessions`); a
+  visual row gains its session id at the session's start (`Ledger::claim_visual`, within 30 minutes
+  of the launch) and closes at its end (`Ledger::end_seen`), and an interactive session of a
+  registered project started by hand has a `manual` row. The status line's `cost` and
+  `context_window` arrive per session id, but most likely from terminal sessions only (D-23
+  addendum), so a headless row's cost stays the result's `total_cost_usd`.
 - **EP-14.** The decisions tile: `control_request` → `can_use_tool` handling in the adapter; for
   `AskUserQuestion` the questions are rendered with their options (single or multi-select, free text),
   the answer sent as `updatedInput` with `answers`; for permission requests Allow / Deny with the tool name
@@ -439,6 +447,10 @@ every commit's added lines are checked before it is made, the repository being p
   `Session::respond` on the `Live`'s handle. **From EP-11:** Focus is the first half of a visual
   launch: `Code.exe <own workspace file>` brings the project's window to the front
   (`workspace::own_file`; `visual::Readiness::window_open` says whether one runs the extension).
+  **From EP-12:** a session started elsewhere that waits is `sessions::Status::Waiting` with what it
+  waits for (`Seen::waiting_for`: a Notification hook's `permission_prompt`, `elicitation_dialog`
+  or `agent_needs_input` in words, or the poll's `waitingFor`), and its project's row says so
+  (`InProgress::Session`); "waiting for you in VS Code" with Focus belongs on that card.
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned
@@ -451,7 +463,11 @@ every commit's added lines are checked before it is made, the repository being p
   **From EP-10 (the owner's answer at its close):** closing the window kills every headless session
   it started (the runner kills a session whose handle is dropped, D-16 addendum), and only the
   dialog's footer and the start's notice say so; close-to-tray must keep the window's sessions
-  (`board.sessions`) alive, and Quit says how many it stops.
+  (`board.sessions`) alive, and Quit says how many it stops. **From EP-12:** waiting, finished and
+  failed reach the window at once through the hooks (`watch::Watch::receive` applies each `Signal`
+  to `sessions::Sessions`, whose `Change::Started` and `Ended` it also records), and the poll of
+  `claude agents --json` covers what they miss; close-to-tray keeps the server and the poll, both
+  threads of the window's (`app::server`, `watch`).
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -461,7 +477,10 @@ every commit's added lines are checked before it is made, the repository being p
   waits on the owner; timestamps and file paths only. **From EP-11 (the owner's answer at its
   close):** revisit the tool's default launch mode, `rules::DEFAULT_LAUNCH_MODE`, Visual while a
   headless session cannot answer the questions a brief ends with (D-16 addendum); the first
-  self-launched session may be visual, its ledger row then of mode `visual`.
+  self-launched session may be visual, its ledger row then of mode `visual`. **From EP-12:** with the
+  hooks installed (2026-11-02), a visual launch's row gains its session id when the session starts
+  and its end when it ends, which is how the ledger verifies the self-launched session; OT-6, the
+  owner's look at a real session in the Sessions pane, comes first.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -498,7 +517,13 @@ a running session).
   breakdown, a 7-day sparkline of samples); toasts at 80 % and 95 % of weekly or Fable (once per crossing
   per window). **From EP-7:** the ledger is at schema 2 (`badge_cache` added) and the window creates it
   at its first start; the usage rows go into V1's `usage_sample`, and the endpoint's poll can follow
-  the GitHub pass's pattern (cache first, a failure shown and not stored).
+  the GitHub pass's pattern (cache first, a failure shown and not stored). **From EP-12:** the
+  status-line feed exists: `crw statusline` posts `signals::StatusLine` (`rate_limits.five_hour` and
+  `seven_day` with `used_percentage` and `resets_at`, cost, context, model) to the window, where
+  `watch.model` keeps each session's latest (`Seen::line`); the installed status line prints
+  nothing and runs every 30 s. The VS Code extension most likely never runs it (D-23 addendum), so
+  the feed comes from terminal sessions and the endpoint is the meter's real source; a `usage_sample`
+  row of source `statusline` is written from `watch::Watch::receive`.
 - **EP-18.** The resolver (EP-10) gains the downshift rule: when the Fable-scoped percent exceeds the
   registry's `fable_downshift_percent` (default 60) and the rule's size is S, propose `claude-opus-5-5` at
   the same effort with the reason shown; the autopilot applies it; attribution: the weekly and Fable
@@ -543,7 +568,14 @@ a running session).
   (`Recipient::Project` or `Unknown`) and leaves out the blocks to the owner, which are owner items;
   the append to the receiver's `inbox.md` can reuse `checklist`'s copy-then-atomic-write, the next
   free id is the highest `IN-n` of `inbox::parse` plus one, and the tick with a disposition exists
-  (`inbox::tick`, `crw tick <project> IN-n <disposition>`).
+  (`inbox::tick`, `crw tick <project> IN-n <disposition>`). **From EP-12 (the owner's answer at its
+  close):** IN-2's `UserPromptSubmit` hook belongs here: it recognises `@<project>` in a prompt and
+  adds that project's `CLAUDE.md` rules and next-EP row to the session (registry lookups, as the
+  mailman's). `crw hook` is the relay to extend (exec form; `--inbox` already prints a start's open
+  messages as written, `inbox::open_as_written`, in place of the owner's stopgap hook), and
+  `signals::install` the installer to add the event to (the user settings' entries are known by
+  the program they run). A visual session's end reaches the window as `SessionEnd` through
+  `watch`, which can start the re-parse.
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -664,7 +696,13 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   show `session::Preflight` and the last handshake's answer. **From EP-11:** the extension leaves
   its lock files in `~\.claude\ide` when VS Code is killed (five of six were stale on 2026-11-02):
   Diagnostics may count them and never deletes them, being the extension's; it can also show where
-  the visual launch finds `Code.exe` (`visual::locate`) and the extension's version.
+  the visual launch finds `Code.exe` (`visual::locate`) and the extension's version. **From EP-12:**
+  the entries' check is `signals::install::status` (`Status::summary(exe)`, `hooks_run`,
+  `prints_inbox`), which `crw signals` prints with the window's `/health`; single instance probes
+  that route. The hooks run `target\release\crw.exe`, so a release build that replaces it while a
+  hook runs it is refused (access denied, rare: a hook lives about 20 ms); the shim IN-3 asks for
+  decides what the entries run, and an install from the shim's path moves them (they are known by
+  the program's name). The poll of `claude agents --json` is the start-up reconciliation's source.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -685,7 +723,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   small Datastar (or htmx 2.0.x) layer for SSE-driven updates; middleware that requires
   `Tailscale-User-Login == owner` for every `/m/` request (owner login in the registry), returns 403
   otherwise, and treats loopback callers as local; every remote action appended to an `event` row with
-  identity, path and time; mobile layout at phone width.
+  identity, path and time; mobile layout at phone width. **From EP-12:** the routes join
+  `app::server`'s router (axum with `http1`, `json` and `tokio` only); its guard refuses a request
+  with an `Origin` or a `Host` other than the loopback, as a phone's request through Tailscale
+  Serve may well carry, so the `/m/` routes take the identity check of D-28 in its place.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
@@ -704,6 +745,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
 
 1. **The usage endpoint is undocumented** (D-23). A schema change or an auth change blanks the meter;
    the status-line feed is the documented fallback and the meter must say when it is degraded.
+   *(EP-12, 2026-11-02.)* The feed is installed, but the VS Code extension most likely never runs
+   the status line (its code names it only in its settings schema), so the fallback holds the
+   figures of terminal sessions only.
 2. **The stream-json control protocol is unspecified for non-SDK hosts** (D-19). `claude-codes` tracks it
    release by release; the defer-and-resume fallback is documented; EP-9 feature-detects from
    `system/init`. Every CLI update is a potential break — the Diagnostics tile shows the version against
@@ -718,7 +762,12 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    is a floor, and the version is read at every preflight.
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
-   existing status line would be chained, not replaced.
+   existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
+   owner's yes with `crw signals install --inbox` (the stopgap start hook replaced), the file as it
+   was kept in the backups folder; `crw signals remove` takes the entries out. A hook costs about
+   75 ms while no window runs (Windows refuses a closed loopback port late, so the relay gives the
+   connection 50 ms of its half second) and a few milliseconds while one does. Another status line
+   is left in place and said, not chained (none was configured).
 5. **`--max-budget-usd` is an estimate and `--max-turns` may be absent** (D-22). Wall-clock caps are the
    reliable limit; the budget flag is passed only when advertised. *(EP-8.)* Still absent from
    2.1.316's `--help`.

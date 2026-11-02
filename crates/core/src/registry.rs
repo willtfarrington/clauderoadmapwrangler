@@ -18,7 +18,7 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 
 use crate::proposal::{Dismissed, Kind, Reason};
 use crate::rules::Rule;
-use crate::{files, paths, workspace};
+use crate::{files, paths, signals, workspace};
 
 /// The registry format this build reads and writes.
 pub const FORMAT: u32 = 1;
@@ -170,28 +170,39 @@ pub struct Settings {
     /// The VS Code a visual launch opens (D-16), a full path to its `Code.exe`; by default the
     /// user install, the system install, else the install whose `bin\code.cmd` is on PATH.
     pub vscode: Option<PathBuf>,
+    /// The loopback port the window listens on for the hooks and the status line (D-20, D-28;
+    /// EP-12); by default `signals::DEFAULT_PORT`.
+    pub port: Option<u16>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 6] = [
+    pub const KEYS: [&str; 7] = [
         "data_root",
         "workspace_file",
         "backup_settings",
         "backup_log",
         "claude_cli",
         "vscode",
+        "port",
     ];
 
+    /// The keys whose value is a path; the others are numbers.
+    pub fn is_path(key: &str) -> bool {
+        key != "port"
+    }
+
     /// A setting's value as written, by its key.
-    pub fn get(&self, key: &str) -> Option<&Path> {
+    pub fn get(&self, key: &str) -> Option<String> {
+        let path = |path: &Option<PathBuf>| path.as_ref().map(|p| p.display().to_string());
         match key {
-            "data_root" => self.data_root.as_deref(),
-            "workspace_file" => self.workspace_file.as_deref(),
-            "backup_settings" => self.backup_settings.as_deref(),
-            "backup_log" => self.backup_log.as_deref(),
-            "claude_cli" => self.claude_cli.as_deref(),
-            "vscode" => self.vscode.as_deref(),
+            "data_root" => path(&self.data_root),
+            "workspace_file" => path(&self.workspace_file),
+            "backup_settings" => path(&self.backup_settings),
+            "backup_log" => path(&self.backup_log),
+            "claude_cli" => path(&self.claude_cli),
+            "vscode" => path(&self.vscode),
+            "port" => self.port.map(|port| port.to_string()),
             _ => None,
         }
     }
@@ -283,6 +294,11 @@ impl Registry {
             .unwrap_or_else(paths::default_data_root)
     }
 
+    /// The loopback port of the signals (EP-12).
+    pub fn port(&self) -> u16 {
+        self.settings.port.unwrap_or(signals::DEFAULT_PORT)
+    }
+
     /// The workspace file's full path, when one is set.
     pub fn workspace_file(&self) -> Option<PathBuf> {
         let file = self.settings.workspace_file.as_ref()?;
@@ -312,6 +328,9 @@ impl Registry {
             if let Err(why) = rule.check() {
                 return invalid(format!("rule {}: {why}", n + 1));
             }
+        }
+        if self.settings.port == Some(0) {
+            return invalid("settings.port must be a port number, not 0".to_owned());
         }
         for (key, path) in [
             ("data_root", &self.settings.data_root),
@@ -699,9 +718,21 @@ impl Changes<'_> {
                 Settings::KEYS.join(", ")
             )));
         }
-        if value.trim().is_empty() {
-            return Err(Error::Invalid(format!("{key} needs a path")));
-        }
+        let value = if Settings::is_path(key) {
+            if value.trim().is_empty() {
+                return Err(Error::Invalid(format!("{key} needs a path")));
+            }
+            Value::from(value)
+        } else {
+            match value.trim().parse::<u16>() {
+                Ok(port) if port > 0 => Value::from(i64::from(port)),
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "{key} needs a port number from 1 to 65535, not {value:?}"
+                    )));
+                }
+            }
+        };
         let settings = self
             .document
             .entry("settings")
@@ -712,7 +743,7 @@ impl Changes<'_> {
             })
             .as_table_mut()
             .ok_or_else(|| Error::Invalid("settings must be a [settings] table".to_owned()))?;
-        set_keeping_decor(settings, key, Value::from(value));
+        set_keeping_decor(settings, key, value);
         Ok(())
     }
 
@@ -1254,8 +1285,8 @@ state = "paused"
             )
         );
         assert_eq!(
-            registry.settings.get("backup_log"),
-            Some(Path::new(r"D:\logs\backup.jsonl"))
+            registry.settings.get("backup_log").as_deref(),
+            Some(r"D:\logs\backup.jsonl")
         );
         assert!(
             store
@@ -1317,8 +1348,8 @@ state = "paused"
         );
         assert!(registry.project("beta").unwrap().neighbours.is_empty());
         assert_eq!(
-            registry.settings.get("claude_cli"),
-            Some(Path::new(r"C:\Tools\claude.exe"))
+            registry.settings.get("claude_cli").as_deref(),
+            Some(r"C:\Tools\claude.exe")
         );
         // `crw setting` sets it like the other paths.
         let (registry, ()) = store
@@ -1335,9 +1366,29 @@ state = "paused"
             })
             .unwrap();
         assert_eq!(
-            registry.settings.get("vscode"),
-            Some(Path::new(r"E:\VS Code\Code - Insiders.exe"))
+            registry.settings.get("vscode").as_deref(),
+            Some(r"E:\VS Code\Code - Insiders.exe")
         );
+        // The signals' port is a number (EP-12): the default until it is set, 0 refused.
+        assert_eq!(registry.port(), crate::signals::DEFAULT_PORT);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("port", "47900"))
+            .unwrap();
+        assert_eq!(
+            (registry.port(), registry.settings.get("port").as_deref()),
+            (47900, Some("47900"))
+        );
+        assert!(
+            fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("port = 47900\n")
+        );
+        for bad in ["0", "70000", "port"] {
+            assert!(
+                store.change(TODAY, |c| c.set_setting("port", bad)).is_err(),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

@@ -1,8 +1,9 @@
 //! clauderoadmapwrangler's desktop window (D-14, D-25): the docking layout over the portfolio,
 //! read-only but for the writes the tool owns (D-11). EP-6 brought the shell, the project list,
 //! the detail pane and the `screenshot` feature's capture, EP-7 the badges, EP-10 the launch
-//! dialog and the headless sessions it starts, EP-11 its visual launch; later briefs fill the
-//! other tiles.
+//! dialog and the headless sessions it starts, EP-11 its visual launch, EP-12 the loopback server
+//! for the hooks and the status line and the sessions they report; later briefs fill the other
+//! tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -17,12 +18,17 @@ mod markup;
 mod portfolio;
 #[cfg(feature = "screenshot")]
 mod screenshot;
+mod server;
 mod sessions;
 mod style;
 mod visual;
+mod watch;
 
-use crw_core::paths;
+use std::path::PathBuf;
+
 use crw_core::registry::Store;
+use crw_core::session::cli;
+use crw_core::{paths, signals};
 use eframe::egui;
 
 use board::{Dashboard, Places};
@@ -50,16 +56,28 @@ fn main() -> eframe::Result {
         options,
         Box::new(|cc| {
             let store = Store::locate().ok_or("no profile folder: APPDATA is not set")?;
+            // The signals' port and the CLI the poll of live sessions asks (EP-12).
+            let registry = store.load().ok().map(|loaded| loaded.registry);
+            let port = registry
+                .as_ref()
+                .map_or(signals::DEFAULT_PORT, |registry| registry.port());
+            let program = cli::locate(
+                registry
+                    .as_ref()
+                    .and_then(|registry| registry.settings.claude_cli.as_deref()),
+            )
+            .unwrap_or_else(|| PathBuf::from("claude.exe"));
             let places = Places {
                 store,
                 ledger: paths::ledger_file(),
                 online: true,
             };
             let mut dashboard = Dashboard::new(cc, places);
+            let board = dashboard.board_mut();
             if let Some(home) = paths::home() {
-                dashboard.board_mut().home_note =
-                    Some(format!("{}={}", paths::HOME_VAR, home.display()));
+                board.home_note = Some(format!("{}={}", paths::HOME_VAR, home.display()));
             }
+            board.watch.start(port, program, &cc.egui_ctx);
             Ok(Box::new(dashboard))
         }),
     )
