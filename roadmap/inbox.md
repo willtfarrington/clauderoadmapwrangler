@@ -77,3 +77,12 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   at EP-8 (2026-11-01):** rolled in, as it fits the re-plan's audit and is S-sized; the audit read
   IN-1 … IN-4 and found no project's name, no path beyond the home-relative ones and no machine
   detail.
+- [ ] IN-6 (from the owner, environment repository EP-1, 2026-11-01) The untracked
+  `.claude\settings.local.json` grants the whole data root, and a local settings file needs no
+  workspace trust, so the grant is live: this project's sessions have the data repositories among
+  their working directories, which the environment's rule for neighbour folders keeps out (a data
+  repository is reached only as a session's own folder or through a relationship declared by the
+  project that depends on it). Since IN-2 the user-level grant covers every other project, so the
+  entry adds only the data repositories and the loose files at the data root: drop it or narrow it,
+  and bring rule 11's sentence along. Auto mode admits reads anywhere, so the gap shows in Manual
+  mode and for edits. Suggested home: EP-9, the neighbour-folder brief.
