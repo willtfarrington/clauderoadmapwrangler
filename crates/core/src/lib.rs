@@ -4,7 +4,7 @@
 //! roadmap README's parser, EP-4 the briefs, the decision log and the snapshot, EP-5 the owner
 //! tasks, the inbox and the older forms of the owner's to-dos, EP-7 the badges and the git
 //! plumbing they share with the snapshot, EP-9 the session runner, EP-10 the launch prompt, the
-//! rule table and the model catalog.
+//! rule table and the model catalog, EP-11 the visual launch.
 
 pub mod badges;
 pub mod catalog;
@@ -26,4 +26,5 @@ pub mod rules;
 pub mod session;
 pub mod tasks;
 pub mod version;
+pub mod visual;
 pub mod workspace;

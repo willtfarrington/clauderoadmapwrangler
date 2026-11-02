@@ -299,6 +299,15 @@ everything.
 > and the help's permission modes, and says when a model needs a newer CLI than the one asked.
 > *Alternatives.* The built-in list alone; the CLI's current model setting as the default.
 
+> **Addendum (2026-11-02, EP-11).** A `Code.exe` the visual launch starts also withholds the
+> `ELECTRON_*` and `VSCODE_*` variables, which the tool inherits when it runs under VS Code (a
+> session's shell holds `ELECTRON_RUN_AS_NODE=1`, with which `Code.exe` starts as Node), besides the
+> API key and the session markers: VS Code hands the asking `Code.exe`'s environment to the windows
+> it opens, where a marker would stop the extension's own CLI. `windows` names `Win32_Foundation`
+> beside `Win32_System_Threading`, both compiled in through process-wrap already (the lock is
+> unchanged), to ask whether a lock file's process still runs. *Alternatives.* A fixed list of VS
+> Code's variables; `code.cmd`, a batch file that reads a link's `%xx` as its own arguments.
+
 ## Sessions
 
 **D-16 Launch surfaces and cwd.** v1 offers **Visual** (the VS Code extension's
@@ -341,6 +350,25 @@ workspace file's first folder.
 > *Alternatives.* Bare answers in the Decisions pane at once (part of EP-14); every request denied
 > at once, the session listing its open decisions in its final message.
 
+> **Addendum (2026-11-02, EP-11).** Visual is built. The dialog's Visual | Headless switch resolves
+> like the permission mode, the project's `[project.launch] mode` over the tool's default, which is
+> Visual until EP-14 lets a headless session answer the questions a brief ends with (the owner's
+> choice; EP-16 revisits it). Open in VS Code writes the project's own `<name>.code-workspace` when
+> it is missing (EP-33's writer) and opens it with `Code.exe`, which brings the project's window to
+> the front or opens it, since the extension's link goes to whichever window has the focus; it
+> waits up to 60 s for the extension's lock file (`~\.claude\ide\<port>.lock`, its process running,
+> the project its first folder; the auth token is never kept), then hands
+> `vscode://anthropic.claude-code/open?prompt=…` to `Code.exe --open-url --`, as Windows' handler
+> does. VS Code decodes the link once and the extension's `URLSearchParams` again, so `%`, `&` and
+> `+` are escaped twice: one supervised launch at this project's window, on the owner's yes, filled
+> a test prompt holding all three into a new tab exactly, unsent. A link over 32,000 characters is
+> refused (a Windows command line holds 32,767). The launch is a `visual` ledger row with no session
+> id, model or effort; a Cancel while it waits hands nothing over; `Code.exe` comes from a `vscode`
+> setting, the user install, the system install or the install of `code.cmd` on PATH.
+> *Alternatives.* The link fired at once when a window lists the project (it reaches the focused
+> window, maybe another project's); `code.cmd` or the shell's `start`; a fixed delay instead of the
+> lock file; Headless as the default.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -364,6 +392,13 @@ into a session without editing `CLAUDE.md` files. *Alternatives.* "Execute EP-n"
 > the choices change until the owner edits it, and copies it; `crw prompt <project>` prints it with
 > the resolution. *Alternatives.* The older forms' owner items in the prompt; a template file per
 > project; one global template.
+
+> **Addendum (2026-11-02, EP-11).** A visual launch's opener says the session was launched into VS
+> Code, whose Claude Code panel chooses its model and effort, names the launch's suggestion and asks
+> the session to record the ones it runs with; the dialog marks the model, effort and ultracode as
+> that suggestion and the permission mode and the neighbours as headless only. `crw prompt
+> <project> [--visual|--headless]` prints either wording, by default the project's mode.
+> *Alternatives.* One wording for both launches; no model sentence in a visual opener.
 
 **D-18 Permissions for headless runs.** `--permission-mode acceptEdits --permission-prompts host`: edits
 inside the project pass; shell commands outside the project's allow rules, network and writes elsewhere

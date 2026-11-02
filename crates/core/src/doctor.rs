@@ -140,7 +140,7 @@ fn version_of(program: &Path, args: &[&str], timeout: Duration) -> Outcome {
 
 /// The Claude Code extension's version from VS Code's `extensions.json` in `folder` (the
 /// extensions folder), else from the newest `anthropic.claude-code-*` folder in it.
-fn extension_version(folder: &Path) -> Outcome {
+pub(crate) fn extension_version(folder: &Path) -> Outcome {
     let list = folder.join("extensions.json");
     if let Some(version) = fs::read_to_string(&list)
         .ok()

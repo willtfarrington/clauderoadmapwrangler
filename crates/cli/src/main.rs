@@ -3,7 +3,8 @@
 //! (EP-6); `roadmap` from EP-3 and EP-4, the parsers' (a project's snapshot, one README or one
 //! brief); `tasks`, `tick` and `untick` from EP-5, the owner's items and the inbox; `status` and
 //! `setting` from EP-7, the badges and the registry's settings; `prompt` from EP-10, what a launch
-//! starts from; `dismiss` and `undismiss` from EP-33, the proposals the owner leaves out; `inbox
+//! starts from, worded for either launch mode from EP-11; `dismiss` and `undismiss` from EP-33,
+//! the proposals the owner leaves out; `inbox
 //! send` and the `hook` and `statusline` relays arrive with their briefs.
 
 use std::collections::HashMap;
@@ -23,8 +24,9 @@ use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
+use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
-use crw_core::registry::{Project, Settings, State, Store};
+use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
 use crw_core::tasks::{self, OwnerItem};
@@ -65,11 +67,13 @@ commands:
                                  progress, activity, hosting with the head check, CI and license,
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
-                                 workspace_file, backup_settings, backup_log, claude_cli
-  prompt <project|folder>        print what a launch of the next brief starts from: the model,
-                                 effort, ultracode and permission mode with their reasons (the
-                                 rule table), the neighbour folders and the prompt; launches
-                                 nothing
+                                 workspace_file, backup_settings, backup_log, claude_cli, vscode
+  prompt <project|folder> [--visual|--headless]
+                                 print what a launch of the next brief starts from: the launch
+                                 mode, the model, effort, ultracode and permission mode with
+                                 their reasons (the rule table), the neighbour folders and the
+                                 prompt, worded for the project's launch mode or the one asked;
+                                 launches nothing
   help                           print this text
   --version                      print crw's version
 
@@ -97,7 +101,9 @@ fn main() -> ExitCode {
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
         ["untick", target, id] => tick(target, id, &[], false),
         ["status", rest @ ..] => status(rest),
-        ["prompt", target] => prompt(target),
+        ["prompt", target] => prompt(target, None),
+        ["prompt", target, "--visual"] => prompt(target, Some(LaunchMode::Visual)),
+        ["prompt", target, "--headless"] => prompt(target, Some(LaunchMode::Headless)),
         ["setting"] => setting(None, None),
         ["setting", key] => setting(Some(key), None),
         ["setting", key, value] => setting(Some(key), Some(value)),
@@ -1493,9 +1499,10 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
 }
 
 /// Prints what a launch of a project's next brief starts from (D-17, D-22): the rule table's
-/// resolution with its reasons, the neighbour folders and the prompt. Reads, never launches, and
-/// asks nothing of the CLI: an effort step moves along the built-in levels here.
-fn prompt(target: &str) -> ExitCode {
+/// resolution with its reasons, the neighbour folders and the prompt, worded for `mode` when one
+/// is asked (EP-11). Reads, never launches, and asks nothing of the CLI: an effort step moves
+/// along the built-in levels here.
+fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
     println!("crw {} prompt", env!("CARGO_PKG_VERSION"));
     let folder = match project_folder(target) {
         Ok(folder) => std::path::absolute(&folder).unwrap_or(folder),
@@ -1515,16 +1522,33 @@ fn prompt(target: &str) -> ExitCode {
         .unwrap_or_else(|| Project::new(&folder_name(&folder), &folder, State::Active));
     let snapshot = snapshot::take(&folder);
     let claude_md = prompt::claude_md(&folder);
-    let draft = match prompt::draft(
+    let today = files::today();
+    let mut draft = match prompt::draft(
         &registry,
         &project,
         &snapshot,
         claude_md.as_deref(),
         &[],
-        &files::today(),
+        &today,
     ) {
         Ok(draft) => draft,
         Err(e) => return failed(format!("{}: nothing to launch: {e}", project.name)),
+    };
+    let mode_reason = match mode {
+        Some(mode) => {
+            draft.resolution.mode.value = mode;
+            let resolution = &draft.resolution;
+            draft.parts.choose(&Chosen {
+                model: &resolution.model.value,
+                effort: resolution.effort.value.as_deref(),
+                ultracode: resolution.ultracode.value,
+                date: &today,
+                visual: mode == LaunchMode::Visual,
+            });
+            draft.prompt = prompt::generate(&draft.parts, project.launch.template.as_deref());
+            format!("--{} on the command line", mode.as_str())
+        }
+        None => draft.resolution.mode.reason(),
     };
     let catalog = Catalog::folder().map_or_else(
         || Catalog::built_in("no profile folder".to_owned()),
@@ -1544,6 +1568,10 @@ fn prompt(target: &str) -> ExitCode {
         one_line(&draft.title, 72)
     );
     let resolution = &draft.resolution;
+    println!(
+        "  launch     {}: {mode_reason}",
+        resolution.mode.value.as_str()
+    );
     let named = catalog
         .model(&resolution.model.value)
         .filter(|model| !model.id.eq_ignore_ascii_case(&resolution.model.value))

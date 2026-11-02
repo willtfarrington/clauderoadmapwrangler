@@ -14,12 +14,18 @@ state = "active"
 priority = 1
 pinned = true
 
+[project.launch]
+mode = "headless"
+
 [[project]]
 name = "lantern"
 path = "lantern"
 state = "active"
 priority = 2
 pinned = false
+
+[project.launch]
+mode = "visual"
 
 [[project]]
 name = "meadow"

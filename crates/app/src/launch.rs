@@ -1,17 +1,23 @@
 //! The launch dialog (D-16, D-17, D-18, D-22): what a session of a project's next brief starts
 //! with, put together by the rule table and the prompt generator (`crw_core::prompt::draft`),
-//! shown for the owner to change, and handed to the runner (EP-9) as a headless session. The
-//! prompt follows the choices until the owner edits it; the models come from Claude Code's
-//! catalog, the effort levels, ultracode and the permission modes from what the CLI's help lists
-//! (D-15), and each choice shows the reason the rules gave it. Visual launch joins at EP-11.
+//! shown for the owner to change, and handed on: to the runner (EP-9) as a headless session, or
+//! to VS Code as a visual one, its prompt filled into a Claude Code tab for the owner to send
+//! (EP-11). The prompt follows the choices, the launch mode among them, until the owner edits it;
+//! the models come from Claude Code's catalog, the effort levels, ultracode and the permission
+//! modes from what the CLI's help lists (D-15), and each choice shows the reason the rules gave
+//! it. A visual launch takes the model and effort as a suggestion, since VS Code's panel chooses
+//! them.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use crw_core::catalog::Catalog;
 use crw_core::prompt::{self, Chosen, Draft, Parts};
+use crw_core::registry::LaunchMode;
 use crw_core::roadmap::{EpId, Size};
 use crw_core::rules::{self, Choice, Resolution, Source};
 use crw_core::session::{self, Preflight};
+use crw_core::visual::{self, Readiness};
 use eframe::egui::{self, RichText};
 
 use crate::board::Action;
@@ -32,6 +38,8 @@ const CHOICES: f32 = 390.0;
 const GAP: f32 = 16.0;
 /// The width of a choice's name.
 const NAME: f32 = 84.0;
+/// How often an open dialog in Visual looks again at VS Code's windows.
+const READINESS_EVERY: Duration = Duration::from_secs(2);
 
 /// The dialog of one launch, open over the window.
 pub struct Dialog {
@@ -56,6 +64,13 @@ pub struct Dialog {
     pub warnings: Vec<String>,
     catalog: Catalog,
     date: String,
+    /// What a visual launch would meet: VS Code, the extension, the own workspace file, the
+    /// project's window.
+    pub readiness: Readiness,
+    /// The registry's `settings.vscode`, for a fresh look at VS Code.
+    pub vscode_setting: Option<PathBuf>,
+    /// When `readiness` was read; none when it is due again.
+    read_at: Option<Instant>,
     /// Why the last start was refused.
     pub error: Option<String>,
 }
@@ -69,6 +84,8 @@ pub struct Opening {
     pub template: Option<String>,
     pub catalog: Catalog,
     pub date: String,
+    pub readiness: Readiness,
+    pub vscode_setting: Option<PathBuf>,
 }
 
 impl Dialog {
@@ -98,8 +115,29 @@ impl Dialog {
             warnings: opening.warnings,
             catalog: opening.catalog,
             date: opening.date,
+            readiness: opening.readiness,
+            vscode_setting: opening.vscode_setting,
+            read_at: Some(Instant::now()),
             error: None,
         }
+    }
+
+    /// Whether the launch is visual (D-16).
+    pub fn visual(&self) -> bool {
+        self.resolution.mode.value == LaunchMode::Visual
+    }
+
+    /// Whether VS Code's windows are worth a fresh look: in Visual, every few seconds.
+    pub fn readiness_due(&self) -> bool {
+        self.visual()
+            && self
+                .read_at
+                .is_none_or(|at| at.elapsed() >= READINESS_EVERY)
+    }
+
+    pub fn set_readiness(&mut self, readiness: Readiness) {
+        self.readiness = readiness;
+        self.read_at = Some(Instant::now());
     }
 
     /// Whether the owner has changed the prompt since it was generated.
@@ -119,6 +157,7 @@ impl Dialog {
             effort: self.resolution.effort.value.as_deref(),
             ultracode: self.resolution.ultracode.value,
             date: &self.date,
+            visual: self.visual(),
         });
         let prompt = prompt::generate(&self.parts, self.template.as_deref());
         self.problems = prompt.problems;
@@ -148,6 +187,21 @@ impl Dialog {
         launch.ultracode = resolution.ultracode.value;
         launch.permission_mode = resolution.permission_mode.value.clone();
         launch.neighbours = self.neighbours.clone();
+        launch.ledger = ledger;
+        launch
+    }
+
+    /// The visual launch (EP-11): `code` opens the project's window, `locks` is where the
+    /// extension's lock files show it.
+    pub fn visual_launch(
+        &self,
+        code: &Path,
+        locks: &Path,
+        ledger: Option<PathBuf>,
+    ) -> visual::Launch {
+        let mut launch =
+            visual::Launch::new(&self.project, &self.folder, &self.prompt, code, locks);
+        launch.ep = Some(self.ep.to_string());
         launch.ledger = ledger;
         launch
     }
@@ -228,7 +282,11 @@ impl Dialog {
                 }
             }
         }
-        if resolution.permission_mode.value == "bypassPermissions" {
+        if self.visual() {
+            if let Err(why) = visual::link(&self.prompt) {
+                found.push(format!("Visual: {why}."));
+            }
+        } else if resolution.permission_mode.value == "bypassPermissions" {
             found.push(
                 "bypassPermissions: every tool runs without asking, the neighbours' deny rules \
                  aside (D-18)."
@@ -238,13 +296,15 @@ impl Dialog {
         found
     }
 
-    /// The dialog's contents; what the owner asked for, to run after the frame.
+    /// The dialog's contents; what the owner asked for, to run after the frame. `starting` is a
+    /// headless start on its way, `opening` a visual launch waiting for its window.
     pub fn ui(
         &mut self,
         ui: &mut egui::Ui,
         preflight: Option<&Preflight>,
         asking: bool,
         starting: bool,
+        opening: bool,
     ) -> Vec<Action> {
         let mut actions = Vec::new();
         let screen = ui.ctx().content_rect();
@@ -289,7 +349,7 @@ impl Dialog {
             ui.visuals().widgets.noninteractive.bg_stroke,
         );
         ui.separator();
-        self.footer(ui, preflight, starting, &mut actions);
+        self.footer(ui, preflight, starting, opening, &mut actions);
         actions
     }
 
@@ -343,7 +403,37 @@ impl Dialog {
         let mut changed = false;
         let combo = ui.available_width() - NAME - 12.0;
 
-        let reason = self.resolution.model.reason();
+        let reason = self.resolution.mode.reason();
+        field(ui, "Launch", &reason, |ui| {
+            let current = self.resolution.mode.value;
+            let mut chosen = current;
+            ui.selectable_value(&mut chosen, LaunchMode::Visual, "Visual")
+                .on_hover_text(
+                    "The VS Code extension: the project's window with the prompt filled into a \
+                     Claude Code tab, for you to send (D-16)",
+                );
+            ui.selectable_value(&mut chosen, LaunchMode::Headless, "Headless")
+                .on_hover_text(
+                    "claude -p in the project's folder, held by this window, its requests in \
+                     the Decisions pane (D-16)",
+                );
+            if chosen != current {
+                self.resolution.mode = owners(chosen);
+                // VS Code's windows are looked at again before the next frame.
+                self.read_at = None;
+                changed = true;
+            }
+        });
+        let visual = self.visual();
+        let suggested = |reason: String| {
+            if visual {
+                format!("a suggestion: VS Code's panel chooses ({reason})")
+            } else {
+                reason
+            }
+        };
+
+        let reason = suggested(self.resolution.model.reason());
         field(ui, "Model", &reason, |ui| {
             let current = self.resolution.model.value.clone();
             let mut chosen = current.clone();
@@ -378,7 +468,7 @@ impl Dialog {
         });
 
         let efforts = self.efforts(preflight);
-        let reason = self.resolution.effort.reason();
+        let reason = suggested(self.resolution.effort.reason());
         field(ui, "Effort", &reason, |ui| {
             let current = self.resolution.effort.value.clone();
             let mut chosen = current.clone();
@@ -406,7 +496,7 @@ impl Dialog {
         });
 
         let listed = flags_of(preflight).is_some_and(|flags| flags.ultracode());
-        let reason = self.resolution.ultracode.reason();
+        let reason = suggested(self.resolution.ultracode.reason());
         field(ui, "Ultracode", &reason, |ui| {
             let mut on = self.resolution.ultracode.value;
             ui.add_enabled(listed, egui::Checkbox::new(&mut on, "--effort ultracode"))
@@ -421,74 +511,84 @@ impl Dialog {
         });
 
         let modes = Self::modes(preflight);
-        let reason = self.resolution.permission_mode.reason();
+        let reason = if visual {
+            "headless only: VS Code's panel sets a visual session's mode".to_owned()
+        } else {
+            self.resolution.permission_mode.reason()
+        };
         field(ui, "Permissions", &reason, |ui| {
             let current = self.resolution.permission_mode.value.clone();
             let mut chosen = current.clone();
-            egui::ComboBox::from_id_salt("launch-mode")
-                .width(combo)
-                .selected_text(&current)
-                .show_ui(ui, |ui| {
-                    for mode in &modes {
-                        ui.selectable_value(&mut chosen, mode.clone(), mode);
-                    }
-                    if !modes.contains(&current) {
-                        ui.selectable_value(&mut chosen, current.clone(), &current);
-                    }
-                });
+            ui.add_enabled_ui(!visual, |ui| {
+                egui::ComboBox::from_id_salt("launch-mode")
+                    .width(combo)
+                    .selected_text(&current)
+                    .show_ui(ui, |ui| {
+                        for mode in &modes {
+                            ui.selectable_value(&mut chosen, mode.clone(), mode);
+                        }
+                        if !modes.contains(&current) {
+                            ui.selectable_value(&mut chosen, current.clone(), &current);
+                        }
+                    });
+            });
             if chosen != current {
                 self.resolution.permission_mode = owners(chosen);
                 changed = true;
             }
         });
 
-        field(
-            ui,
-            "Neighbours",
-            "read, never edited: an Edit deny rule each (D-16, D-18 addenda)",
-            |ui| {
-                if self.neighbours.is_empty() {
-                    ui.label(RichText::new("none in the registry").weak());
-                } else {
-                    ui.vertical(|ui| {
-                        for folder in &self.neighbours {
-                            ui.label(RichText::new(folder.display().to_string()).small());
-                        }
-                    });
-                }
-            },
-        );
+        let reason = if visual {
+            "headless only: a visual session reads the folders the user settings grant"
+        } else {
+            "read, never edited: an Edit deny rule each (D-16, D-18 addenda)"
+        };
+        field(ui, "Neighbours", reason, |ui| {
+            if self.neighbours.is_empty() {
+                ui.label(RichText::new("none in the registry").weak());
+            } else {
+                ui.vertical(|ui| {
+                    for folder in &self.neighbours {
+                        ui.label(RichText::new(folder.display().to_string()).small());
+                    }
+                });
+            }
+        });
 
-        field(
-            ui,
-            "Claude",
-            "its version, login and flags (D-15)",
-            |ui| match preflight {
-                None if asking => {
-                    ui.spinner();
-                    ui.label(RichText::new("asking…").weak());
+        if visual {
+            self.vscode(ui);
+        } else {
+            field(
+                ui,
+                "Claude",
+                "its version, login and flags (D-15)",
+                |ui| match preflight {
+                    None if asking => {
+                        ui.spinner();
+                        ui.label(RichText::new("asking…").weak());
+                    }
+                    None => {
+                        ui.label(RichText::new("not asked yet").weak());
+                    }
+                    Some(preflight) => {
+                        let version = match &preflight.version {
+                            Ok(version) => format!("claude {version}"),
+                            Err(_) => "claude ?".to_owned(),
+                        };
+                        let login = match &preflight.auth {
+                            Ok(auth) if auth.logged_in => "logged in",
+                            Ok(_) => "not logged in",
+                            Err(_) => "login unknown",
+                        };
+                        ui.label(format!("{version}, {login}"))
+                            .on_hover_text(preflight.program.display().to_string());
+                    }
+                },
+            );
+            if let Some(preflight) = preflight {
+                for refusal in preflight.refusals() {
+                    ui.label(RichText::new(refusal).small().color(style::red(ui)));
                 }
-                None => {
-                    ui.label(RichText::new("not asked yet").weak());
-                }
-                Some(preflight) => {
-                    let version = match &preflight.version {
-                        Ok(version) => format!("claude {version}"),
-                        Err(_) => "claude ?".to_owned(),
-                    };
-                    let login = match &preflight.auth {
-                        Ok(auth) if auth.logged_in => "logged in",
-                        Ok(_) => "not logged in",
-                        Err(_) => "login unknown",
-                    };
-                    ui.label(format!("{version}, {login}"))
-                        .on_hover_text(preflight.program.display().to_string());
-                }
-            },
-        );
-        if let Some(preflight) = preflight {
-            for refusal in preflight.refusals() {
-                ui.label(RichText::new(refusal).small().color(style::red(ui)));
             }
         }
         if changed {
@@ -496,11 +596,63 @@ impl Dialog {
         }
     }
 
+    /// What a visual launch meets: VS Code, the extension, the project's own workspace file and
+    /// its window.
+    fn vscode(&self, ui: &mut egui::Ui) {
+        let readiness = &self.readiness;
+        let file = readiness
+            .workspace
+            .as_deref()
+            .and_then(Path::file_name)
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| "the workspace file".to_owned());
+        field(
+            ui,
+            "VS Code",
+            "the project's own workspace file opens its window (D-16 addendum)",
+            |ui| {
+                ui.vertical(|ui| {
+                    match &readiness.code {
+                        Some(code) => {
+                            ui.label("found").on_hover_text(code.display().to_string());
+                        }
+                        None => {
+                            ui.label(
+                                RichText::new("not found: crw setting vscode <its Code.exe>")
+                                    .color(style::red(ui)),
+                            );
+                        }
+                    }
+                    match readiness.extension {
+                        Some(version) => ui.label(format!("Claude Code extension {version}")),
+                        None => ui.label(
+                            RichText::new("no Claude Code extension listed")
+                                .color(style::amber(ui)),
+                        ),
+                    };
+                    let workspace = if readiness.workspace_exists {
+                        format!("{file} beside the folder")
+                    } else {
+                        format!("{file} missing: written in the owner's form")
+                    };
+                    ui.label(RichText::new(workspace).small());
+                    let window = if readiness.window_open {
+                        "its window is open: it comes to the front"
+                    } else {
+                        "no window has it open: one opens"
+                    };
+                    ui.label(RichText::new(window).small());
+                });
+            },
+        );
+    }
+
     fn footer(
         &mut self,
         ui: &mut egui::Ui,
         preflight: Option<&Preflight>,
         starting: bool,
+        opening: bool,
         actions: &mut Vec<Action>,
     ) {
         let notes: Vec<String> = self
@@ -516,62 +668,110 @@ impl Dialog {
         if let Some(error) = &self.error {
             ui.label(RichText::new(error).color(style::red(ui)));
         }
-        let refusals = preflight.map(Preflight::refusals).unwrap_or_default();
-        ui.add(
-            egui::Label::new(
-                RichText::new(format!(
-                    "Runs headless in {}; the ledger records it, and closing the window stops it.",
-                    self.folder.display()
-                ))
-                .small()
-                .weak(),
+        let visual = self.visual();
+        let note = if visual {
+            "Opens the project's own workspace file in VS Code, which brings its window to the \
+             front or opens it, then fills the prompt into a new Claude Code tab there: you send \
+             it with Enter, after choosing the model and effort in its panel. The ledger records \
+             the launch as visual. The first time, VS Code may ask whether Claude Code may open \
+             the link."
+                .to_owned()
+        } else {
+            format!(
+                "Runs headless in {}; the ledger records it, and closing the window stops it.",
+                self.folder.display()
             )
-            .wrap(),
-        );
+        };
+        ui.add(egui::Label::new(RichText::new(note).small().weak()).wrap());
         ui.horizontal(|ui| {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                if ui
+                // A visual launch that waits for its window may be called off; a headless start
+                // on its way may not.
+                let cancel = ui
                     .add_enabled(!starting, egui::Button::new("Cancel"))
-                    .clicked()
-                {
+                    .on_hover_text(if opening {
+                        "Stop waiting for VS Code: nothing is handed over"
+                    } else {
+                        "Close the dialog"
+                    });
+                if cancel.clicked() {
                     actions.push(Action::CloseLaunch);
                 }
-                ui.add_enabled(false, egui::Button::new("Visual"))
-                    .on_disabled_hover_text(
-                        "Visual launch, the VS Code extension with the prompt filled in, arrives \
-                         at EP-11",
-                    );
-                let blocked = if starting {
-                    Some(
-                        "Starting: the runner waits its turn and two seconds after the last start"
-                            .to_owned(),
+                let (label, blocked, hover, action) = if visual {
+                    (
+                        "Open in VS Code",
+                        self.visual_blocked(starting, opening),
+                        "Open the project's window and fill the prompt into a Claude Code tab \
+                         there: you send it (D-16)",
+                        Action::StartVisual,
                     )
-                } else if preflight.is_none() {
-                    Some("Waiting for claude's answers: its version, login and flags".to_owned())
-                } else if !refusals.is_empty() {
-                    Some(refusals.join("; "))
-                } else if self.prompt.trim().is_empty() {
-                    Some("The prompt is empty".to_owned())
                 } else {
-                    None
+                    (
+                        "Start headless",
+                        self.headless_blocked(preflight, starting, opening),
+                        "Start the session: stream-json in and out, its requests waiting for the \
+                         Decisions pane (EP-14)",
+                        Action::StartHeadless,
+                    )
                 };
-                let button = egui::Button::new(RichText::new("Start headless").strong());
+                let button = egui::Button::new(RichText::new(label).strong());
                 let response = ui.add_enabled(blocked.is_none(), button);
                 let response = match &blocked {
                     Some(why) => response.on_disabled_hover_text(why),
-                    None => response.on_hover_text(
-                        "Start the session: stream-json in and out, its requests waiting for the \
-                         Decisions pane (EP-14)",
-                    ),
+                    None => response.on_hover_text(hover),
                 };
                 if response.clicked() {
-                    actions.push(Action::StartHeadless);
+                    actions.push(action);
                 }
-                if starting {
+                if starting || opening {
                     ui.spinner();
+                }
+                if opening {
+                    ui.label(RichText::new("waiting for the project's window in VS Code…").weak());
                 }
             });
         });
+    }
+
+    /// Why Start headless cannot be pressed now, if it cannot.
+    fn headless_blocked(
+        &self,
+        preflight: Option<&Preflight>,
+        starting: bool,
+        opening: bool,
+    ) -> Option<String> {
+        let refusals = preflight.map(Preflight::refusals).unwrap_or_default();
+        if starting {
+            Some(
+                "Starting: the runner waits its turn and two seconds after the last start"
+                    .to_owned(),
+            )
+        } else if opening {
+            Some("A visual launch is waiting for VS Code".to_owned())
+        } else if preflight.is_none() {
+            Some("Waiting for claude's answers: its version, login and flags".to_owned())
+        } else if !refusals.is_empty() {
+            Some(refusals.join("; "))
+        } else if self.prompt.trim().is_empty() {
+            Some("The prompt is empty".to_owned())
+        } else {
+            None
+        }
+    }
+
+    /// Why Open in VS Code cannot be pressed now, if it cannot.
+    fn visual_blocked(&self, starting: bool, opening: bool) -> Option<String> {
+        if opening {
+            Some("Waiting for the project's window to show the Claude Code extension".to_owned())
+        } else if starting {
+            Some("A headless session is starting".to_owned())
+        } else if self.readiness.code.is_none() {
+            Some("VS Code was not found: set its Code.exe with crw setting vscode".to_owned())
+        } else if self.prompt.trim().is_empty() {
+            Some("The prompt is empty".to_owned())
+        } else {
+            visual::link(&self.prompt).err()
+        }
     }
 }
 
@@ -690,13 +890,20 @@ mod tests {
         Dialog::new(
             draft,
             Opening {
-                folder: folder.clone(),
+                readiness: Readiness::of(
+                    &folder,
+                    Some(PathBuf::from(r"C:\Tools\VS Code\Code.exe")),
+                    None,
+                    &[],
+                ),
+                folder,
                 program: PathBuf::from(r"C:\Tools\claude.exe"),
                 neighbours: vec![PathBuf::from(r"C:\Data\beacon")],
                 warnings: Vec::new(),
                 template: registry.projects[0].launch.template.clone(),
                 catalog: Catalog::built_in("for the test".to_owned()),
                 date: "2026-11-02".to_owned(),
+                vscode_setting: None,
             },
         )
     }
@@ -726,11 +933,7 @@ mod tests {
         assert!(!dialog.edited());
         dialog.resolution.model = owners("claude-opus-5-5".to_owned());
         dialog.chose();
-        assert!(
-            dialog
-                .prompt
-                .contains("with claude-opus-5-5 at xhigh effort")
-        );
+        assert!(dialog.prompt.contains("claude-opus-5-5 at xhigh effort"));
         assert!(!dialog.edited());
         dialog.prompt.push_str("\n\nAnd mind the tests.");
         dialog.resolution.effort = owners(Some("low".to_owned()));
@@ -741,7 +944,72 @@ mod tests {
         assert_eq!(dialog.resolution.effort.reason(), "chosen here");
         dialog.regenerate(true);
         assert!(!dialog.edited());
-        assert!(dialog.prompt.contains("with claude-opus-5-5 at low effort"));
+        assert!(dialog.prompt.contains("claude-opus-5-5 at low effort"));
+    }
+
+    #[test]
+    fn the_launch_mode_follows_the_registry_then_the_switch() {
+        let mut registry = registry(Vec::new());
+        registry.projects[0].launch.mode = Some(LaunchMode::Headless);
+        let mut dialog = dialog(registry);
+        assert!(!dialog.visual());
+        assert_eq!(
+            dialog.resolution.mode.reason(),
+            "the project's launch defaults"
+        );
+        assert!(
+            dialog
+                .prompt
+                .contains("with fable at xhigh effort: write those")
+        );
+        assert!(!dialog.readiness_due());
+        // Visual: the prompt says that VS Code's panel chooses, and VS Code is looked at again.
+        dialog.resolution.mode = owners(LaunchMode::Visual);
+        dialog.read_at = None;
+        dialog.chose();
+        assert!(dialog.visual() && dialog.readiness_due());
+        assert!(
+            dialog
+                .prompt
+                .contains("into VS Code, whose Claude Code panel chooses its model and effort")
+        );
+        assert!(
+            dialog
+                .prompt
+                .contains("(the launch suggested fable at xhigh effort)")
+        );
+        assert_eq!(dialog.visual_blocked(false, false), None);
+        assert!(dialog.visual_blocked(false, true).is_some());
+        dialog.readiness.code = None;
+        assert!(
+            dialog
+                .visual_blocked(false, false)
+                .unwrap()
+                .contains("crw setting vscode")
+        );
+
+        let launch = dialog.visual_launch(
+            Path::new(r"C:\Tools\VS Code\Code.exe"),
+            Path::new(r"C:\Users\someone\.claude\ide"),
+            Some(PathBuf::from(r"C:\ledger.sqlite")),
+        );
+        assert_eq!(
+            (launch.project.as_str(), launch.ep.as_deref()),
+            ("harbor", Some("EP-4"))
+        );
+        assert_eq!(launch.folder, dialog.folder);
+        assert_eq!(launch.prompt, dialog.prompt);
+        assert_eq!(launch.code, Path::new(r"C:\Tools\VS Code\Code.exe"));
+        assert_eq!(launch.locks, Path::new(r"C:\Users\someone\.claude\ide"));
+        assert_eq!(launch.ledger, Some(PathBuf::from(r"C:\ledger.sqlite")));
+        assert_eq!(launch.wait, visual::WAIT);
+
+        // An edited prompt stays as the owner left it when the mode changes.
+        dialog.prompt.push_str("\n\nKeep this.");
+        dialog.resolution.mode = owners(LaunchMode::Headless);
+        dialog.chose();
+        assert!(dialog.prompt.ends_with("Keep this."));
+        assert!(dialog.prompt.contains("into VS Code"));
     }
 
     #[test]

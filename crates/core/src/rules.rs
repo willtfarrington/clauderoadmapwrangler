@@ -5,14 +5,15 @@
 //! keywords of the title (every condition it gives must hold), and sets a model, an effort or a
 //! step along the effort levels, and ultracode. While the registry lists no global rule, the
 //! built-in table stands in for it: an S brief one effort step lower. The permission mode is the
-//! project's, else `acceptEdits` (D-18). Nothing here writes the registry: the owner writes rules
-//! by hand (rule 13). The downshift by usage joins at EP-18.
+//! project's, else `acceptEdits` (D-18), and so is the launch mode, else the tool's (EP-11).
+//! Nothing here writes the registry: the owner writes rules by hand (rule 13). The downshift by
+//! usage joins at EP-18.
 
 use std::fmt;
 
 use serde::Deserialize;
 
-use crate::registry::{Project, Registry};
+use crate::registry::{LaunchMode, Project, Registry};
 use crate::roadmap::Size;
 
 /// The model a brief launches with when nothing else is set (D-22): an alias, passed as written.
@@ -20,6 +21,8 @@ pub const DEFAULT_MODEL: &str = "fable";
 pub const DEFAULT_EFFORT: &str = "xhigh";
 /// Edits in the project pass, everything else reaches the host (D-18).
 pub const DEFAULT_PERMISSION_MODE: &str = "acceptEdits";
+/// Visual, while a headless session cannot answer the questions a brief ends with (EP-14).
+pub const DEFAULT_LAUNCH_MODE: LaunchMode = LaunchMode::Visual;
 
 /// The effort levels in order, for a step, when neither the CLI nor the catalog lists them.
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -277,6 +280,8 @@ impl<T> Choice<T> {
 /// A brief's launch values, each with its reason.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resolution {
+    /// Visual or headless (D-16).
+    pub mode: Choice<LaunchMode>,
     pub model: Choice<String>,
     /// `None` leaves the effort to the CLI.
     pub effort: Choice<Option<String>>,
@@ -295,6 +300,7 @@ pub fn resolve(
     levels: &[String],
 ) -> Resolution {
     let mut resolution = Resolution {
+        mode: Choice::new(DEFAULT_LAUNCH_MODE, Source::Default),
         model: Choice::new(DEFAULT_MODEL.to_owned(), Source::Default),
         effort: Choice::new(Some(DEFAULT_EFFORT.to_owned()), Source::Default),
         ultracode: Choice::new(false, Source::Default),
@@ -302,6 +308,9 @@ pub fn resolve(
         notes: Vec::new(),
     };
     let launch = &project.launch;
+    if let Some(mode) = launch.mode {
+        resolution.mode = Choice::new(mode, Source::Project);
+    }
     if let Some(model) = &launch.model {
         resolution.model = Choice::new(model.trim().to_owned(), Source::Project);
     }
@@ -443,6 +452,8 @@ mod tests {
         assert_eq!(m.model.reason(), "the tool's default");
         assert_eq!(m.permission_mode.value, "acceptEdits");
         assert!(!m.ultracode.value);
+        assert_eq!(m.mode.value, DEFAULT_LAUNCH_MODE);
+        assert_eq!(m.mode.reason(), "the tool's default");
         // An S brief, with no global rule written: the built-in table steps one lower.
         let s = resolve(
             &registry,
@@ -462,8 +473,8 @@ mod tests {
     #[test]
     fn layers_from_the_default_to_the_projects_rule() {
         let text = format!(
-            "{PROJECT}\n[project.launch]\nmodel = \"claude-opus-5-5\"\neffort = \"high\"\n\
-             permission_mode = \"auto\"\n\n\
+            "{PROJECT}\n[project.launch]\nmode = \"headless\"\nmodel = \"claude-opus-5-5\"\n\
+             effort = \"high\"\npermission_mode = \"auto\"\n\n\
              [[project.rule]]\nmatch = {{ title = [\"Re-plan\"] }}\nset = {{ effort = \"max\" }}\n"
         );
         let text = text.replacen(
@@ -490,6 +501,11 @@ mod tests {
         assert_eq!(l.effort.value.as_deref(), Some("high"));
         assert_eq!(l.effort.source, Source::Project);
         assert_eq!(l.permission_mode.value, "auto");
+        // The project's launch mode holds over the tool's; no rule sets one.
+        assert_eq!(
+            (l.mode.value, l.mode.source.clone()),
+            (LaunchMode::Headless, Source::Project)
+        );
 
         // A written global rule replaces the built-in table, steps from the project's level.
         let s = resolve(

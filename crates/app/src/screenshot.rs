@@ -27,8 +27,10 @@
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
 //! readings come from [`FAKES`], set against the run's own clock ([`readings`]); their stack chips
 //! and licenses are read from the fixtures' own files. A run never starts the GitHub pass. The
-//! launch dialog reads the synthetic model catalog in `fixtures/model-catalog` and a canned
-//! preflight, never the real CLI, and a run starts no session.
+//! launch dialog reads the synthetic model catalog in `fixtures/model-catalog`, a canned
+//! preflight and a canned VS Code with no window open, never the real CLI, VS Code or its lock
+//! files, and a run starts no session and opens nothing. In the fixture registry harbor launches
+//! headless and lantern visually.
 
 use std::fs;
 use std::io;
@@ -134,6 +136,10 @@ impl Run {
         board.fixtures = true;
         board.home_note = Some("screenshot run".to_owned());
         board.sessions.canned = Some(Arc::new(crate::launch::canned_preflight()));
+        board.visual.canned = Some((
+            PathBuf::from(r"C:\Tools\VS Code\Code.exe"),
+            crw_core::version::Version::new(2, 1, 314),
+        ));
         board.catalog_folder = Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("fixtures")

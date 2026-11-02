@@ -1,6 +1,7 @@
 //! The launch prompt (D-17): the house-style opener a session of a project's next brief starts
-//! from, the same for a headless and a visual launch, generated from the project's snapshot: where
-//! the project is and what the session runs on; the read-first rule of the project's own
+//! from, generated from the project's snapshot: where the project is and what the session runs on
+//! (a visual launch leaves the model and effort to VS Code's panel and says so, EP-11); the
+//! read-first rule of the project's own
 //! `CLAUDE.md`, else the house default; the next row with its brief notes verbatim; its brief when
 //! one is written, and the last completed one; the open owner tasks and inbox messages as written,
 //! with the triage rule (D-13); and the rules every session keeps, ending before the commit (the
@@ -11,7 +12,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::registry::{Project, Registry};
+use crate::registry::{LaunchMode, Project, Registry};
 use crate::roadmap::EpId;
 use crate::roadmap::markdown::{self, Block};
 use crate::roadmap::snapshot::Snapshot;
@@ -43,6 +44,9 @@ pub struct Chosen<'a> {
     pub ultracode: bool,
     /// The launch's date, `YYYY-MM-DD`.
     pub date: &'a str,
+    /// A visual launch, whose model and effort VS Code's panel chooses: the ones above are then
+    /// the launch's suggestion (D-16).
+    pub visual: bool,
 }
 
 /// The pieces an opener is made of; each is also a template's placeholder (`{ep}`), and an empty
@@ -69,6 +73,8 @@ pub struct Parts {
     pub read_first: String,
     /// Whether `read_first` is quoted from the project's `CLAUDE.md` (else the house default).
     pub read_first_quoted: bool,
+    /// Whether the launch is visual, so that `model` and `effort` are a suggestion.
+    pub visual: bool,
     /// What to do with the next brief's file when one is written.
     pub brief: String,
     pub last_brief: String,
@@ -138,6 +144,7 @@ impl Parts {
         self.model = chosen.model.trim().to_owned();
         self.effort = effort_words(chosen.effort, chosen.ultracode);
         self.date = chosen.date.to_owned();
+        self.visual = chosen.visual;
     }
 }
 
@@ -444,12 +451,22 @@ pub fn opener(parts: &Parts) -> String {
         "Run the next brief of {}: {}, {} ({}).",
         parts.project, parts.ep, parts.title, parts.size
     ));
-    out.push(format!(
-        "The project's folder is {}, this session's working folder. The session was launched \
-         from clauderoadmapwrangler on {} with {} at {} effort: write those into the brief's \
-         front matter and its completion note.",
-        parts.folder, parts.date, parts.model, parts.effort
-    ));
+    out.push(if parts.visual {
+        format!(
+            "The project's folder is {}, this session's working folder. The session was launched \
+             from clauderoadmapwrangler on {} into VS Code, whose Claude Code panel chooses its \
+             model and effort (the launch suggested {} at {} effort): write the ones it runs \
+             with into the brief's front matter and its completion note.",
+            parts.folder, parts.date, parts.model, parts.effort
+        )
+    } else {
+        format!(
+            "The project's folder is {}, this session's working folder. The session was launched \
+             from clauderoadmapwrangler on {} with {} at {} effort: write those into the brief's \
+             front matter and its completion note.",
+            parts.folder, parts.date, parts.model, parts.effort
+        )
+    });
     out.push(if parts.read_first_quoted {
         "Read first, as the project's CLAUDE.md says:".to_owned()
     } else {
@@ -617,6 +634,7 @@ pub fn draft(
         effort: resolution.effort.value.as_deref(),
         ultracode: resolution.ultracode.value,
         date,
+        visual: resolution.mode.value == LaunchMode::Visual,
     };
     let parts = parts(&project.name, snapshot, claude_md, &chosen)?;
     let prompt = generate(&parts, project.launch.template.as_deref());
@@ -753,6 +771,7 @@ Intro.
         effort: Some("high"),
         ultracode: false,
         date: "2026-11-02",
+        visual: false,
     };
 
     #[test]
@@ -824,6 +843,11 @@ Intro.
         let draft = draft(&registry, project, &house(), None, &[], "2026-11-02").unwrap();
         assert_eq!(draft.ep, EpId::new(3));
         assert_eq!(draft.resolution.model.value, "fable");
+        // The tool's launch mode, as no `[project.launch] mode` is written.
+        assert_eq!(
+            draft.parts.visual,
+            rules::DEFAULT_LAUNCH_MODE == LaunchMode::Visual
+        );
         assert_eq!(draft.prompt.text, "EP-3 for house on fable/xhigh: {nope}");
         assert_eq!(draft.prompt.problems.len(), 1);
 
@@ -866,5 +890,33 @@ Intro.
         assert!(text.ends_with("5. Stop before committing: the commit is the owner's call."));
         assert_eq!(effort_words(None, false), "the CLI's default");
         assert_eq!(effort_words(Some("high"), true), "ultracode");
+    }
+
+    #[test]
+    fn a_visual_opener_leaves_the_model_and_effort_to_vs_code() {
+        let mut parts = parts_fixture();
+        parts.choose(&Chosen {
+            model: "claude-opus-5-5",
+            effort: Some("high"),
+            ultracode: false,
+            date: "2026-11-02",
+            visual: true,
+        });
+        let text = opener(&parts);
+        assert!(
+            text.contains(
+                "launched from clauderoadmapwrangler on 2026-11-02 into VS Code, whose Claude \
+                 Code panel chooses its model and effort (the launch suggested claude-opus-5-5 \
+                 at high effort): write the ones it runs with into the brief's front matter"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("with claude-opus-5-5 at high effort:"));
+        // The rest of the opener is the headless one's.
+        let mut headless = parts.clone();
+        headless.visual = false;
+        let other = opener(&headless);
+        assert_eq!(text.lines().count(), other.lines().count());
+        assert!(text.ends_with("5. Stop before committing: the commit is the owner's call."));
     }
 }

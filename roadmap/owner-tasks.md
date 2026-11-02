@@ -28,3 +28,11 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   Sessions pane; a request waits in the Decisions pane until EP-14, Stop ends the session, and the
   ledger keeps its row. Notes for the dialog go to `roadmap/inbox.md`. The session checked the
   dialog only on the fake portfolio and started no real session (rule 5) [before EP-11]
+- [ ] OT-5 (EP-11, 2026-11-02) Try a Visual launch from Roadmap Wrangler on a project whose VS
+  Code window is closed: select it and press S; the dialog opens on Visual, its VS Code line
+  saying "no window has it open: one opens"; press Open in VS Code. The project's window should
+  open from its own `<name>.code-workspace` and, once the Claude Code extension is up (within a
+  minute), a new Claude Code tab should hold the prompt, unsent: choose the model and effort in
+  its panel, then send it or close the tab. If VS Code asks "Allow Claude Code extension to open
+  this URI?", tick "Do not ask me again" and Open. The session tried only a window already open,
+  its own, with a test prompt (rule 5). Notes go to `roadmap/inbox.md` [before EP-12]

@@ -30,6 +30,7 @@ use tokio::process::{ChildStdin, Command};
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use cli::Preflight;
+pub(crate) use launch::markers;
 pub use launch::{Launch, NEIGHBOUR_CLAUDE_MD, STOP_TIMEOUT, edit_deny_rule};
 pub use protocol::{
     Choice, Denied, Finish, Init, Question, Request, Response, ToolUse, Unreadable,
@@ -272,7 +273,7 @@ impl Job {
         Ledger::open(path)
             .and_then(|ledger| {
                 ledger.start_session(&NewSession {
-                    session_id: &self.session_id,
+                    session_id: Some(&self.session_id),
                     project: &launch.project,
                     ep: launch.ep.as_deref(),
                     mode: "headless",

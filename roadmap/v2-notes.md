@@ -2,7 +2,8 @@
 
 Everything named during planning and not built in v1. Every re-plan EP grows this file; the v1 close-out
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
-items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, and at EP-10 by those marked *(EP-10)*.
+items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
+EP-33 by the one marked *(EP-33)*, and at EP-11 by those marked *(EP-11)*.
 
 ## 1 Launch modes
 
@@ -23,6 +24,15 @@ items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, and at EP-10 by those
   keywords; D-22 addendum).
 - *(EP-10)* Launch defaults, rules and templates edited from the launch dialog and written into the
   registry; EP-10's dialog only reads them and the owner edits `registry.toml` by hand (rule 13).
+- *(EP-11)* A visual launch's model and effort handed to the extension: its link takes only
+  `prompt` and `session`, so VS Code's panel chooses and the prompt names the launch's suggestion
+  (D-17 addendum).
+- *(EP-11)* The launch mode set by a rule or a global setting; EP-11 resolves it from the project's
+  `[project.launch] mode` over the tool's default only (D-16 addendum).
+- *(EP-11)* A project's VS Code window brought forward by its handle or by VS Code's window id,
+  which would also find a window opened from the folder rather than from its own workspace file;
+  EP-11 opens the workspace file, which such a window does not answer to.
+- *(EP-11)* A `crw` command that launches visually; `crw prompt --visual` only prints the prompt.
 
 ## 2 Analytics
 

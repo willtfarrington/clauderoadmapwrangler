@@ -255,7 +255,7 @@ only its own files inside a managed project).
 | EP-9 | [Session runner core: CLI discovery and preflight, minimum version, `-p` stream-json child with job-object kill, `claude-codes` adapter, capability detection, pre-assigned session id, read-only neighbour folders by `--add-dir`, ledger rows, stub `claude` for tests](EP-9-session-runner-core.md) (D-14, D-15, D-16, D-18) | L | EP-2 | core | ☑ `71b2076` |
 | EP-10 | [Prompt generator and launch dialog: the house-style opener, per-project template, model and effort picker from the catalog cache, rule table resolver, permission mode, Headless launch](EP-10-prompt-and-launch-dialog.md) (D-16, D-17, D-18, D-22) | M | EP-5, EP-9 | core | ☑ `7984abe` |
 | EP-33 | [Per-project workspace files: Adopt writes `<name>.code-workspace` beside the folder, a rule for a fresh registry's `workspace_file`, `crw scan` lists the per-project files, a proposed state can be dismissed](EP-33-per-project-workspace-files.md) (D-6, D-7) | S | EP-2 | core | ☑ `4a25323` |
-| EP-11 | Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs (D-16) | S | EP-10, EP-33 | core | ☐ |
+| EP-11 | [Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs](EP-11-visual-launch.md) (D-16) | S | EP-10, EP-33 | core | ☐ |
 | EP-12 | Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model (D-20, D-23) | M | EP-9 | core | ☐ |
 | EP-13 | Sessions tile: live transcript from stream-json, stop, resume by id, ledger rows with outcome and cost estimate (D-16, D-26) | M | EP-12 | core | ☐ |
 | EP-14 | Decisions tile: control-protocol answers to `AskUserQuestion` and permission requests, optional timeout, defer-and-resume fallback, Focus VS Code for visual sessions, answer latency (D-19) | L | EP-13 | core | ☐ |
@@ -390,6 +390,12 @@ every commit's added lines are checked before it is made, the repository being p
   **From EP-10:** the sessions the window starts already mark their rows in progress
   (`app::sessions::Sessions::summary`, joined into the Session cell's reasons), so the state model
   takes those from `board.sessions` and adds the ones the hooks and `claude agents --json` report.
+  **From EP-11:** a visual launch is a `session` row of mode `visual` with no session id, model or
+  effort, written when the link is handed over (`visual::open`); the SessionStart hook's session
+  id and cwd can complete the newest open visual row of that project, and SessionEnd close it. The
+  extension's lock files are read by `visual::windows` (`pid`, the window's folders, `ideName`; the
+  auth token never kept), and `alive` asks whether VS Code's main process runs, which every window
+  shares.
 - **EP-13.** The sessions tile: one tab per live or recent session; transcript rendering from the stream
   (assistant text, tool calls as one-line summaries, tool results collapsed, partial messages appended);
   Stop (graceful) and Kill; Resume by session id for a headless session that ended with a deferred tool use
@@ -408,7 +414,9 @@ every commit's added lines are checked before it is made, the repository being p
   handle, the last line, the waiting requests and the notices; `Sessions::receive` drains every
   session's events each frame and asks for a frame every 250 ms while one runs; a start comes back
   as `Started` from a worker thread); the tile replaces `session_card` with the transcript and
-  keeps Stop, Kill and Dismiss.
+  keeps Stop, Kill and Dismiss. **From EP-11:** the extension's link also takes `session=<id>`,
+  which resumes a session in the project's VS Code window; `visual::link` writes the `prompt`
+  parameter only today, and a visual row has no session id until EP-12's hooks give one.
 - **EP-14.** The decisions tile: `control_request` → `can_use_tool` handling in the adapter; for
   `AskUserQuestion` the questions are rendered with their options (single or multi-select, free text),
   the answer sent as `updatedInput` with `answers`; for permission requests Allow / Deny with the tool name
@@ -428,7 +436,9 @@ every commit's added lines are checked before it is made, the repository being p
   2.1.316 names `ask_user_question_unanswered_v1` among its capabilities, which this brief reads up
   on. **From EP-10:** the Decisions pane lists each waiting request read-only (`sessions::request_card`
   over `Live::waiting`, the tab's title counting them), so the tile adds the answers there, through
-  `Session::respond` on the `Live`'s handle.
+  `Session::respond` on the `Live`'s handle. **From EP-11:** Focus is the first half of a visual
+  launch: `Code.exe <own workspace file>` brings the project's window to the front
+  (`workspace::own_file`; `visual::Readiness::window_open` says whether one runs the extension).
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned
@@ -448,7 +458,10 @@ every commit's added lines are checked before it is made, the repository being p
   EP-8 did: each session's transcript under this project's slug, found by the Write or Edit of its
   own `roadmap\EP-n-*.md` (the fixtures hold briefs of the same names, so match this repository's
   path), from its first timestamp to the EP's last commit, with gaps over five minutes left out as
-  waits on the owner; timestamps and file paths only.
+  waits on the owner; timestamps and file paths only. **From EP-11 (the owner's answer at its
+  close):** revisit the tool's default launch mode, `rules::DEFAULT_LAUNCH_MODE`, Visual while a
+  headless session cannot answer the questions a brief ends with (D-16 addendum); the first
+  self-launched session may be visual, its ledger row then of mode `visual`.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -515,7 +528,9 @@ a running session).
   variant replaces rule 5 of `prompt::session_rules` ("Stop before committing"); a chained run is
   drafted and launched as the dialog does it (`prompt::draft`, then the `session::Launch` that
   `launch::Dialog::launch` builds), and the window already holds and drains its sessions
-  (`app::sessions`).
+  (`app::sessions`). **From EP-11:** a chained run is headless whatever the project's launch mode
+  (a visual launch waits for the owner to send it), so the chain sets the mode itself rather than
+  take `Resolution::mode`, whose default is Visual.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -646,7 +661,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   yet), which the `D:` check can set against the drive's own; the last poll times include the
   GitHub cache's `fetched_at` (`Ledger::cached`). **From EP-9:** `crw doctor` prints the
   preflight already (logged in or not, headless ready or the reasons it is refused); the tile can
-  show `session::Preflight` and the last handshake's answer.
+  show `session::Preflight` and the last handshake's answer. **From EP-11:** the extension leaves
+  its lock files in `~\.claude\ide` when VS Code is killed (five of six were stale on 2026-11-02):
+  Diagnostics may count them and never deletes them, being the extension's; it can also show where
+  the visual launch finds `Code.exe` (`visual::locate`) and the extension's version.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -707,7 +725,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
 6. **Concurrent sessions edit roadmaps live** (D-9). The parser snapshots HEAD plus status; a project with
    a dirty roadmap is shown as "session in progress" rather than re-counted every few seconds.
 7. **Visual launch cannot submit the prompt** (D-16). The owner presses Enter; the ledger records the
-   session as visual without a process handle; completion is seen through hooks.
+   session as visual without a process handle; completion is seen through hooks. *(EP-11,
+   2026-11-02.)* The link goes to the focused window, so Visual opens the project's own workspace
+   file first and waits for the extension's lock file; a window opened from the folder rather than
+   from its workspace file gets a second window beside it, and VS Code may ask once whether Claude
+   Code may open such links.
 8. **Remote Control stores transcripts on Anthropic's servers while connected** (documented). It is the
    owner's existing posture (`remoteControlAtStartup: true`) and not changed by this tool; noted for the
    wholly-private projects' own decisions.

@@ -97,7 +97,8 @@ CREATE TABLE badge_cache (
 /// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSession<'a> {
-    pub session_id: &'a str,
+    /// None for a visual launch, whose session VS Code names (EP-11).
+    pub session_id: Option<&'a str>,
     pub project: &'a str,
     pub ep: Option<&'a str>,
     /// `visual`, `headless` or `manual`.
@@ -446,7 +447,7 @@ mod tests {
         };
         let id = ledger
             .start_session(&NewSession {
-                session_id: "0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+                session_id: Some("0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b"),
                 project: "alpha",
                 ep: Some("EP-3"),
                 mode: "headless",

@@ -167,16 +167,20 @@ pub struct Settings {
     /// The Claude Code CLI the session runner starts (D-15), a full path; by default the launcher
     /// in `~\.local\bin`, else `claude.exe` on PATH.
     pub claude_cli: Option<PathBuf>,
+    /// The VS Code a visual launch opens (D-16), a full path to its `Code.exe`; by default the
+    /// user install, the system install, else the install whose `bin\code.cmd` is on PATH.
+    pub vscode: Option<PathBuf>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 5] = [
+    pub const KEYS: [&str; 6] = [
         "data_root",
         "workspace_file",
         "backup_settings",
         "backup_log",
         "claude_cli",
+        "vscode",
     ];
 
     /// A setting's value as written, by its key.
@@ -187,6 +191,7 @@ impl Settings {
             "backup_settings" => self.backup_settings.as_deref(),
             "backup_log" => self.backup_log.as_deref(),
             "claude_cli" => self.claude_cli.as_deref(),
+            "vscode" => self.vscode.as_deref(),
             _ => None,
         }
     }
@@ -241,6 +246,15 @@ pub struct Launch {
 pub enum LaunchMode {
     Visual,
     Headless,
+}
+
+impl LaunchMode {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            LaunchMode::Visual => "visual",
+            LaunchMode::Headless => "headless",
+        }
+    }
 }
 
 /// The autopilot's switch; its rules and caps arrive with EP-19.
@@ -302,6 +316,7 @@ impl Registry {
         for (key, path) in [
             ("data_root", &self.settings.data_root),
             ("claude_cli", &self.settings.claude_cli),
+            ("vscode", &self.settings.vscode),
         ] {
             if let Some(path) = path
                 && !path.is_absolute()
@@ -1126,6 +1141,13 @@ state = "paused"
                 ),
                 "settings.claude_cli must be a full path",
             ),
+            (
+                edit(
+                    "data_root = 'C:\\Data'\n",
+                    "data_root = 'C:\\Data'\nvscode = 'Code.exe'\n",
+                ),
+                "settings.vscode must be a full path",
+            ),
         ];
         for (text, message) in cases {
             fs::write(&store.path, &text).unwrap();
@@ -1305,6 +1327,16 @@ state = "paused"
         assert_eq!(
             registry.settings.claude_cli,
             Some(PathBuf::from(r"E:\cli\claude.exe"))
+        );
+        // The VS Code a visual launch opens, likewise (EP-11).
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("vscode", r"E:\VS Code\Code - Insiders.exe")
+            })
+            .unwrap();
+        assert_eq!(
+            registry.settings.get("vscode"),
+            Some(Path::new(r"E:\VS Code\Code - Insiders.exe"))
         );
     }
 

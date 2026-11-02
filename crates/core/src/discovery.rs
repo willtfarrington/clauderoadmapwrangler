@@ -214,6 +214,16 @@ pub enum OwnFile {
     Skipped,
 }
 
+impl OwnFile {
+    /// The file, written or kept.
+    pub fn path(&self) -> Option<&Path> {
+        match self {
+            OwnFile::Written(path) | OwnFile::Kept(path) => Some(path),
+            OwnFile::Skipped => None,
+        }
+    }
+}
+
 /// Whether Adopt writes each folder's own workspace file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnFiles {
@@ -223,8 +233,8 @@ pub enum OwnFiles {
 }
 
 /// Writes `folder`'s own workspace file in the owner's form (`workspace::single_folder`) unless
-/// a file of that name is there, which is never overwritten (D-7 addendum). EP-11's Visual
-/// launch writes a missing one through it.
+/// a file of that name is there, which is never overwritten (D-7 addendum). The visual launch
+/// writes a missing one through it (EP-11).
 pub fn write_own_file(folder: &Path) -> Result<OwnFile, Error> {
     let (Some(name), Some(path)) = (folder.file_name(), workspace::own_file(folder)) else {
         return Err(Error::Invalid(format!(

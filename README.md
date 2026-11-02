@@ -24,7 +24,9 @@ generates the house-style opener for a project's next brief, resolves its model,
 mode through a rule table with the reason for each, and starts the session from the window, which
 holds it until the sessions and decisions tiles arrive. Adopt writes a new project's own
 single-folder VS Code workspace file beside it, and a proposed state can be dismissed until the fact
-it rests on changes (EP-33). The roadmap is
+it rests on changes (EP-33). The dialog launches visually too (EP-11): it opens the project's own
+workspace file in VS Code and fills the prompt into a new Claude Code tab of that window, for the
+owner to send. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -54,8 +56,10 @@ target\release\crw.exe tick <folder> OT-n         # tick an owner task
 target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
 target\release\crw.exe status [--offline]         # every project's badges; asks git, gh, the origins
 target\release\crw.exe setting <key> <value>      # set a registry setting, such as backup_settings
-target\release\crw.exe prompt <folder>  # what a launch of the next brief starts from: the model,
-                                        # effort and permission mode with their reasons, the prompt
+target\release\crw.exe prompt <folder> [--visual|--headless]
+                                        # what a launch of the next brief starts from: the launch
+                                        # mode, model, effort and permission mode with their
+                                        # reasons, the prompt worded for the mode
 ```
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
@@ -76,13 +80,17 @@ repository at a time; GitHub (through `gh`) and each origin's head are asked dai
 answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
 only what the tool owns: the registry (Adopt, Ignore, a confirmed or dismissed proposal, pin,
-priority), Adopt's workspace files and the ticks in a project's `owner-tasks.md` and `inbox.md`. S,
+priority), the workspace files Adopt writes (and a visual launch, when a project's own one is
+missing), the ledger's rows and the ticks in a project's `owner-tasks.md` and `inbox.md`. S,
 or a row's Start button, opens the launch dialog on the selected project's next brief: the
-generated prompt in an editor, and the model (from
+generated prompt in an editor, a Visual | Headless switch, and the model (from
 the catalog Claude Code caches), the effort, ultracode and the permission mode, each with the reason
-the rule table gave it. A project's `[project.launch]` in the registry sets its defaults and a
-prompt `template`; `[[rule]]` tables, global or per project, match a brief by size, phase or title
-words and set its model, effort or an effort step. Start headless runs the session; the Sessions
+the rule table gave it. A project's `[project.launch]` in the registry sets its defaults (`mode`
+among them) and a prompt `template`; `[[rule]]` tables, global or per project, match a brief by
+size, phase or title words and set its model, effort or an effort step. Open in VS Code, for
+Visual (the default), opens the project's own workspace file, which brings its window to the front
+or opens it, and fills the prompt into a new Claude Code tab there, where the owner chooses the
+model and effort and sends it. Start headless runs the session; the Sessions
 pane lists it with Stop and Kill, and the Decisions pane what it waits for. Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
 (`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;

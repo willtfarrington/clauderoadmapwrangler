@@ -2,7 +2,7 @@
 //! status bar. The panes queue what the owner asks for as [`Action`]s, which run after the frame
 //! is drawn: the writes the tool owns (D-7, D-8, D-10, D-11, D-13), each followed by a new read of
 //! the files, the moves of the selection, and from EP-10 the launch dialog and the headless
-//! sessions it starts (D-16, D-17, D-22).
+//! sessions it starts (D-16, D-17, D-22), from EP-11 its visual launches.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -27,6 +27,7 @@ use crate::layout::{self, Pane};
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
 use crate::sessions::{Sessions, Started};
 use crate::style::{self, Density, icons};
+use crate::visual::{self, Visual};
 
 const THEME_KEY: &str = "theme";
 const VIEW_KEY: &str = "view";
@@ -134,6 +135,8 @@ pub enum Action {
     CloseLaunch,
     /// The dialog's launch, started headless (D-16).
     StartHeadless,
+    /// The dialog's launch, its prompt filled into a Claude Code tab in VS Code (D-16, EP-11).
+    StartVisual,
     /// The window's sessions, by their number.
     StopSession(u64),
     KillSession(u64),
@@ -167,6 +170,8 @@ pub struct Board {
     pub launch: Option<Dialog>,
     /// The headless sessions the window started, and the CLI's preflight.
     pub sessions: Sessions,
+    /// The visual launch on its way, if one is.
+    pub visual: Visual,
     /// Where Claude Code caches its model catalog; a screenshot run's is a fixture.
     pub catalog_folder: Option<PathBuf>,
     /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
@@ -206,6 +211,7 @@ impl Board {
             actions: Vec::new(),
             launch: None,
             sessions: Sessions::default(),
+            visual: Visual::default(),
             catalog_folder: Catalog::folder(),
             open_when_read: None,
             ledger,
@@ -270,6 +276,17 @@ impl Board {
                     None => self.fail(why),
                 }
             }
+            None => {}
+        }
+        match self.visual.receive(ctx) {
+            Some(visual::Outcome::Opened(text)) => {
+                self.launch = None;
+                self.notify(text);
+            }
+            Some(visual::Outcome::Refused(why)) => match self.launch.as_mut() {
+                Some(dialog) => dialog.error = Some(why),
+                None => self.fail(why),
+            },
             None => {}
         }
         if let Some(name) = &self.open_when_read
@@ -377,11 +394,16 @@ impl Board {
             }
             Action::OpenLaunch(name) => self.open_launch(&name),
             Action::CloseLaunch => {
+                if self.visual.is_opening() {
+                    self.visual.cancel();
+                    self.notify("The visual launch is called off: nothing was handed to VS Code.");
+                }
                 if !self.sessions.is_starting() {
                     self.launch = None;
                 }
             }
             Action::StartHeadless => self.start_headless(),
+            Action::StartVisual => self.start_visual(),
             Action::StopSession(key) => self.sessions.stop(key),
             Action::KillSession(key) => self.sessions.kill(key),
             Action::DismissSession(key) => self.sessions.dismiss(key),
@@ -641,9 +663,11 @@ impl Board {
             || Catalog::built_in("no profile folder".to_owned()),
             Catalog::read,
         );
+        let vscode_setting = registry.settings.vscode.clone();
         self.launch = Some(Dialog::new(
             draft,
             Opening {
+                readiness: self.visual.readiness(&folder, vscode_setting.as_deref()),
                 folder,
                 program,
                 neighbours: project.neighbour_folders(&registry.data_root()),
@@ -651,8 +675,36 @@ impl Board {
                 template: project.launch.template.clone(),
                 catalog,
                 date: today,
+                vscode_setting,
             },
         ));
+    }
+
+    /// Hands the dialog's prompt to VS Code (D-16, EP-11), off the UI thread, since the project's
+    /// window may take seconds to start; a screenshot run opens nothing (rule 5).
+    fn start_visual(&mut self) {
+        if self.fixtures {
+            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            return;
+        }
+        if self.visual.is_opening() || self.sessions.is_starting() {
+            return;
+        }
+        let Some(dialog) = self.launch.as_mut() else {
+            return;
+        };
+        let Some(code) = dialog.readiness.code.clone() else {
+            dialog.error =
+                Some("VS Code was not found: set its Code.exe with crw setting vscode.".to_owned());
+            return;
+        };
+        let Some(locks) = crw_core::visual::lock_folder() else {
+            dialog.error = Some("No profile folder: USERPROFILE is not set.".to_owned());
+            return;
+        };
+        dialog.error = None;
+        let launch = dialog.visual_launch(&code, &locks, self.ledger.clone());
+        self.visual.start(launch, &self.ctx);
     }
 
     /// Starts the dialog's launch headless (D-16), off the UI thread; a screenshot run starts
@@ -693,9 +745,20 @@ impl Board {
         if let Some(preflight) = &preflight {
             dialog.fit(preflight);
         }
+        if dialog.readiness_due() {
+            let readiness = self
+                .visual
+                .readiness(&dialog.folder, dialog.vscode_setting.as_deref());
+            dialog.set_readiness(readiness);
+        }
+        if dialog.visual() {
+            // So that a window opened or closed meanwhile shows without a mouse move.
+            ctx.request_repaint_after(Duration::from_secs(2));
+        }
         let (asking, starting) = (self.sessions.is_asking(), self.sessions.is_starting());
+        let opening = self.visual.is_opening();
         let modal = egui::Modal::new(egui::Id::unique("launch-dialog")).show(ctx, |ui| {
-            dialog.ui(ui, preflight.as_deref(), asking, starting)
+            dialog.ui(ui, preflight.as_deref(), asking, starting, opening)
         });
         let close = !starting && !modal.backdrop_response.clicked() && modal.should_close();
         self.actions.extend(modal.inner);
