@@ -261,13 +261,18 @@ only its own files inside a managed project).
 | EP-14 | [Decisions tile: answers to `AskUserQuestion` and permission requests through the control protocol, the host named with `--permission-prompt-tool stdio`, a per-project time limit that defers the run, the defer-and-resume route, Focus for sessions waiting in VS Code, answer latency](EP-14-decisions-tile.md) (D-19, D-26) | L | EP-13 | core | ☑ `bcd386b` |
 | EP-14a | [Crash log and the notice's time: a panic hook writing `crash.log`, the next start naming the last report once, the status bar's notice read once so its 8 s cannot underflow, notices cut to one line](EP-14a-crash-log.md) (D-14) | M | EP-14 | core | ☑ `daf2de9` |
 | EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15 | core | ☐ |
+| EP-15a | Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons (D-25) | M | EP-7a, EP-13 | core | ☐ |
+| EP-15b | Revert a session: the project's state recorded at each session's start, Revert from the Sessions pane back to it behind a preview of every commit and file it undoes, the work copied out first, refused while a session runs or once a commit is pushed (D-11, D-26) | M | EP-13 | core | ☐ |
+| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
 server (EP-12) is needed by the sessions tile, the decisions tile, the notifications and later the usage
 feed; the dogfooding switch closes the phase. *(EP-8, 2026-11-01.)* EP-33 comes before EP-11, which
 opens the per-project workspace file EP-33 teaches Adopt to write; the order is otherwise kept.
+*(2026-11-03, the owner's requests.)* EP-15a and EP-15b follow EP-15 and precede the re-plan, so the
+window reads and clicks well and a session can be reverted before EP-16 makes the tool the way this
+project's sessions start.
 
 Standing decisions for phase P2: D-15 (never `--bare`; `ANTHROPIC_API_KEY` removed from the child
 environment; features detected, not assumed), D-18 (acceptEdits with prompts routed to the host), D-19
@@ -492,6 +497,78 @@ every commit's added lines are checked before it is made, the repository being p
   `Event::Request` taken in `Live::take`, an `Event::TimedOut` (a project's time limit deferred the
   run) and a result whose `Finish::deferred` names a call (the defer route), and a toast's click
   can bring `Pane::Decisions` forward.
+- **EP-15a.** Added on 2026-11-03 at the owner's request, with EP-15b, after EP-15 and before the
+  re-plan (the owner's choice): two window fixes in one M, as EP-7a took IN-4's notes, in place
+  before EP-16 makes the window the way this project's sessions start. (1) **Readable notes.** The
+  Detail pane draws the next brief's notes, the items waiting on the owner and the inbox through
+  `markup`, whose `reflow` joins every continuation line into one paragraph and whose `spans` mark
+  bold, code and struck text only, so a bullet such as EP-15's above is one block of some 2,500
+  characters in which the owner loses their place. The renderer learns the notes' shape: a segment
+  that opens with a bold label ending in a colon (`**From EP-7:**`, `**From EP-10 (the owner's
+  answer at its close):**`, `**From IN-1 (…):**`) starts a paragraph under its label, numbered parts
+  `(1) … (2) …` become an indented list, blank lines stay, and lines keep a reading measure (about
+  100 characters) in a wide pane; the runs take colours from `style` that hold in both themes:
+  inline code in the code face with its kind told apart where it is plain (a path, a command such as
+  `crw …` or `git …`, a name in the code such as `list::cell`), the ids `EP-n`, `D-n`, `OT-n` and
+  `IN-n` in a reference colour, bold labels in the accent, a `before EP-m` gate in amber, struck
+  text weak, a link as its text in the link colour. An owner item gets the same renderer, a long one
+  split at its sentences or steps (`Optional, spends usage:`, `Notes go to …`), its gate a chip
+  beside its id; the inbox and the mail share it. Nothing is reworded or dropped, and a form the
+  rules do not know (another project's) draws as today; the launch dialog's prompt stays source
+  text, being what the session is sent. Which of these the owner wants, and whether a segment
+  folds, is the brief's first question. (2) **The whole row answers** (the owner's finding). A row
+  takes its rect with `Sense::click()` before its cells, and egui 0.37 makes every label selectable
+  by default (`style.interaction.selectable_labels`): a selectable label senses click and drag, so
+  over the name, a chip, the title, the counts, a badge or an icon the label takes the pointer, the
+  row is neither hovered nor clicked, and a right click misses the row's menu (`egui-0.37.0`'s
+  `widgets/label.rs` and `interaction.rs`, read 2026-11-03). The fix: a row's labels are not
+  selectable, so they sense hover only, keep their hover texts and leave the click to the row, while
+  the expander, Start and the autopilot box keep their own. Every cell is drawn through
+  `list::cell`, one place for the rule, beside the progress pill's `ui.put`; the folder rows and the
+  group headers are made alike, and the Sessions pane's cards, which add their click to a frame
+  drawn under their labels (`sessions.rs`), are checked too. A row's text can then no longer be
+  selected for copying; the Detail pane's stays selectable. A test drives an `egui::Context` with the
+  pointer over a row's name and expects the row hovered and clicked. Verification: screenshot runs
+  at 1600 × 1000, 2300 × 1000 and 1100 wide, both themes, on a fake project whose next brief has a
+  long note in every form (the fake portfolio may need one), each picture looked at; a D-25 addendum.
+- **EP-15b.** Added on 2026-11-03 at the owner's request, after EP-15a and before the re-plan (the
+  owner's choice): a reliable way in the window to put a project back as it was when a session
+  started, in the house style the end of the last completed brief. On 2026-11-03 the owner reverted
+  a run's work by hand after the window vanished (EP-14a). Claude Code's checkpoints (`/rewind`) are
+  no substitute: they track its file tools' edits only (a file only Bash changed stays, a subagent's
+  edits mostly stay, a commit is untouched) and are swept after about 30 days (its checkpointing
+  page, read 2026-11-03); the revert is git's, to a start the tool records. (1) **The start** (the
+  owner's choice): the project's HEAD, its branch and every file changed or untracked then, those
+  files copied into the backups folder (`paths::backups_dir()`, as a tick's copy, D-10 addendum),
+  nothing written into the project; read at a headless launch, and at the start hook of a visual or
+  manual session (before its first prompt), kept by the window until the session earns its row
+  (EP-13) and then written with it (schema 4); a resumed session keeps its first run's start. With
+  none recorded (no window ran at the start, or before this brief), the target is the commit that
+  recorded the last checked row's hash (`docs(roadmap): record EP-n commit hash`), and the preview
+  says that changes uncommitted before the session cannot be told from its own. (2) **Where:** an
+  ended session's tab and its row in the Sessions pane's All list (a run whose tab a crash took keeps
+  it; EP-14a's note asks EP-16 for a Resume there too), the project's row menu for its latest
+  session, and `crw revert <project> [<session id>]`, which previews and reverts only with `--yes`.
+  (3) **The preview**, one confirmation: the target (recorded or derived), each commit and each file
+  changed, created or deleted since it, what stays (ignored files such as `target\`, the start's own
+  uncommitted files), an idle session still open there, and where the copy goes. (4) **Nothing
+  lost:** the work is first copied out of the project into the backups folder (the brief's choice of
+  form: a `git bundle` of the commits undone, a binary patch, the new files); then `git reset --hard
+  <start>`, the files the session created removed (never an ignored file, no `git clean -x`) and the
+  start's files put back, one child at a time under `process::turn()` (D-29); an `event` row of kind
+  `revert`; the snapshot read again. (5) **Commits** (the owner's choice): those the remote lacks are
+  undone with the rest; one the remote has, read from the remote-tracking ref a push moves, without a
+  fetch (D-24 addendum), refuses the revert, and the tool never force-pushes (v2 notes). (6)
+  **Refused** too while a session works or waits there (the window's, the hooks', the poll's), when
+  the branch changed or the start is no ancestor of HEAD, and in a screenshot run. (7) **The tool's
+  own writes** during the session (a tick; from EP-20 a delivered message) are kept, re-applied after
+  the restore, or named in the preview to redo where that cannot be exact (the brief's choice).
+  Records: a D-11 addendum (the tool's first write into a project beyond its own files, restoring
+  the project's own earlier state: only on the owner's click after the preview, never by the
+  autopilot or a rule, never while a session runs there, never a push) and a D-26 addendum (the
+  start in the ledger, the `revert` event). Tests on scratch repositories in temp folders, as EP-7's
+  git tests make them, never the owner's projects (rule 13); a trial with `CRW_HOME` on a scratch
+  project; if it outgrows its M it splits at pickup (D-4).
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -515,7 +592,11 @@ every commit's added lines are checked before it is made, the repository being p
   Visual became the default; the owner left `rules::DEFAULT_LAUNCH_MODE` for this re-plan to decide
   with the first self-launched session in view. A project's `answer_timeout` and the defer route
   (`crw setting decisions`) are the owner's to set; OT-8, the owner's look at the tile, comes before
-  EP-15.
+  EP-15. **From the owner's requests (2026-11-03):** EP-14a, EP-15a and EP-15b joined P2 at the
+  owner's request, so the plan's totals above (35 briefs, 20 M) are recounted here: 38 briefs, 9 S ·
+  23 M · 6 L ≈ 39.5 session-hours, 21 briefs still open. The retro times the three with the rest, and
+  the first self-launched session can be reverted from the Sessions pane (EP-15b) should it go
+  astray.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -601,7 +682,11 @@ a running session).
   outcome `deferred`, so the gate's "outcome completed" fails and the chain stops there until the
   owner's answer resumes the run (`Sessions::answer_open`); `Sessions::resume` now takes the route
   (`Sessions::route_for`), and a chained start sets `Launch::route` and `Launch::hooks` as
-  `Board::start_headless` does.
+  `Board::start_headless` does. **From the owner's requests (2026-11-03):** a chained run that
+  fails or that a cap stops ends the chain (D-22) and leaves its work in the tree; EP-15b's Revert
+  takes the project back to that run's start on the owner's click, and the autopilot never reverts
+  on its own (EP-15b's D-11 addendum). The brief decides whether a revert also turns the project's
+  autopilot off, since the next chained brief would start from the restored state.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -624,7 +709,10 @@ a running session).
   `watch`, which can start the re-parse. **From EP-13 (the owner's answer at its close):** the
   prompt hook is this brief's to install, on the owner's yes after a dated copy; the state model
   already reads a `UserPromptSubmit` hook as busy and as work, and a headless run's row keeps its
-  result text (`SessionRow::result`).
+  result text (`SessionRow::result`). **From the owner's requests (2026-11-03):** a message
+  delivered into a project while one of its sessions runs is the tool's write, not the session's,
+  so a revert of that session (EP-15b) must keep it: the delivery follows the rule EP-15b sets for
+  the tool's own writes during a session (re-applied after the restore, or named in its preview).
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -716,7 +804,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   the cards view of D-25, which EP-6 left out with no destination (D-25 addendum): a Cards switch in
   the Projects toolbar, saved with the view, shows one card per project with its name, state chip,
   next brief and size, progress pill, badges and the burn-up sparkline, in the list's groups and
-  order; if the brief outgrows its M it splits at pickup (D-4).
+  order; if the brief outgrows its M it splits at pickup (D-4). **From the owner's requests
+  (2026-11-03):** the cards and the inline expansion follow EP-15a's rule that a row's or a card's
+  text never takes its hover and click; the measured duration per size leaves out, or marks, a
+  session whose work was reverted (EP-15b's `revert` events).
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to
@@ -801,7 +892,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   **From EP-14:** the decisions page answers through the window's own calls
   (`Sessions::respond(key, request, Response)`, and `Sessions::answer_open` for a deferred run), its
   forms by `decisions::Draft`'s rules (one answer or several, the owner's own words, a refusal's
-  reason) and its words by `decisions::answer_words`.
+  reason) and its words by `decisions::answer_words`. **From the owner's requests (2026-11-03):**
+  EP-15b's Revert is a desktop action; D-28's phone may read, answer, tick, start and pause, and
+  whether it may also revert is EP-29's question for the owner.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
@@ -874,6 +967,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
     a machine detail in a commit cannot be taken back without rewriting history, and the commits
     before EP-8 keep the planning record's first wording. The guard is rule 3's check of each
     commit's added lines against the word list kept in `private/`.
+12. **A revert discards a session's work** (EP-15b; D-11). Putting a project back to a session's
+    start removes what the session did, and a wrong start would remove more. The guards: the start
+    recorded by the tool with copies of the files uncommitted then, a preview of every commit and
+    file before the owner's click, the work copied out of the project first, a refusal while a
+    session runs there or once a commit is on the remote, and never a revert by the autopilot.
 
 ## Decision record
 

@@ -72,7 +72,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   elsewhere with Focus, which brings its window forward. The session checked the tile on the fake
   portfolio and the routes with a supervised probe of throwaway sessions (rule 5). Notes go to
   `roadmap/inbox.md` [before EP-15]
-- [ ] OT-9 (EP-14a, 2026-11-03) Reopen Roadmap Wrangler from its shortcut and use it as before:
+- [x] OT-9 (EP-14a, 2026-11-03) Reopen Roadmap Wrangler from its shortcut and use it as before:
   nothing new shows unless a panic happened. Should the window ever vanish again, reopen it at once.
   Its status bar's red line then names the panic once (the time, the message's first line, the file
   and line), and `crash.log` in `%LOCALAPPDATA%\clauderoadmapwrangler` holds the whole report with

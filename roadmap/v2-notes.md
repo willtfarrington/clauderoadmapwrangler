@@ -60,6 +60,9 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
   or a defer hook that asks the window at run time whether to defer; EP-14 switches the window's
   later runs only (D-19 addendum).
 - *(EP-14)* One time limit for every project beside each project's own `answer_timeout`.
+- Undoing a session whose commits the remote already has, by new commits that reverse them (`git
+  revert`) or by a force-push: EP-15b refuses such a revert and the tool never force-pushes (the
+  alternative the owner did not pick, 2026-11-03).
 
 ## 2 Analytics
 
