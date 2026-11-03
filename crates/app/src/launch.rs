@@ -6,7 +6,8 @@
 //! the models come from Claude Code's catalog, the effort levels, ultracode and the permission
 //! modes from what the CLI's help lists (D-15), and each choice shows the reason the rules gave
 //! it. A visual launch takes the model and effort as a suggestion, since VS Code's panel chooses
-//! them.
+//! them. A headless launch says how its questions reach the owner: the route and the project's
+//! time limit (D-19; EP-14).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -16,7 +17,7 @@ use crw_core::prompt::{self, Chosen, Draft, Parts};
 use crw_core::registry::LaunchMode;
 use crw_core::roadmap::{EpId, Size};
 use crw_core::rules::{self, Choice, Resolution, Source};
-use crw_core::session::{self, Preflight};
+use crw_core::session::{self, Preflight, Route};
 use crw_core::visual::{self, Readiness};
 use eframe::egui::{self, RichText};
 
@@ -73,6 +74,10 @@ pub struct Dialog {
     read_at: Option<Instant>,
     /// Why the last start was refused.
     pub error: Option<String>,
+    /// How long a headless session's request may wait before the run is deferred (D-19).
+    pub answer_timeout: Option<Duration>,
+    /// How a headless session's questions reach the owner, and why the defer route when it is.
+    pub route: (Route, Option<String>),
 }
 
 /// What a dialog opens on, besides the draft.
@@ -86,6 +91,8 @@ pub struct Opening {
     pub date: String,
     pub readiness: Readiness,
     pub vscode_setting: Option<PathBuf>,
+    pub answer_timeout: Option<Duration>,
+    pub route: (Route, Option<String>),
 }
 
 impl Dialog {
@@ -119,6 +126,8 @@ impl Dialog {
             vscode_setting: opening.vscode_setting,
             read_at: Some(Instant::now()),
             error: None,
+            answer_timeout: opening.answer_timeout,
+            route: opening.route,
         }
     }
 
@@ -188,7 +197,29 @@ impl Dialog {
         launch.permission_mode = resolution.permission_mode.value.clone();
         launch.neighbours = self.neighbours.clone();
         launch.ledger = ledger;
+        launch.answer_timeout = self.answer_timeout;
+        launch.route = self.route.0;
         launch
+    }
+
+    /// How a headless session's questions reach the owner, in words (D-19).
+    pub fn questions_words(&self) -> String {
+        let limit = match self.answer_timeout {
+            Some(limit) => format!(
+                "; a request unanswered for {} defers the run",
+                crate::decisions::minutes(limit)
+            ),
+            None => String::new(),
+        };
+        match &self.route {
+            (Route::Protocol, _) => {
+                format!("answered in the Decisions pane while the session waits{limit}")
+            }
+            (Route::Defer, why) => format!(
+                "the defer route ({}): a question ends the run, and the answer resumes it{limit}",
+                why.as_deref().unwrap_or("chosen")
+            ),
+        }
     }
 
     /// The visual launch (EP-11): `code` opens the project's window, `locks` is where the
@@ -555,6 +586,20 @@ impl Dialog {
             }
         });
 
+        let reason = if visual {
+            "headless only: a visual session asks in VS Code, which the tool never answers"
+        } else {
+            "the route and the project's time limit (D-19)"
+        };
+        field(ui, "Questions", reason, |ui| {
+            let words = if visual {
+                "asked in VS Code".to_owned()
+            } else {
+                self.questions_words()
+            };
+            ui.add(egui::Label::new(RichText::new(words).small()).wrap());
+        });
+
         if visual {
             self.vscode(ui);
         } else {
@@ -904,6 +949,8 @@ mod tests {
                 catalog: Catalog::built_in("for the test".to_owned()),
                 date: "2026-11-02".to_owned(),
                 vscode_setting: None,
+                answer_timeout: None,
+                route: (Route::Protocol, None),
             },
         )
     }
@@ -914,7 +961,20 @@ mod tests {
         // Harbor's next brief is EP-4, an L: the tool's default, no built-in step.
         assert_eq!(dialog.ep, EpId::new(4));
         dialog.resolution.permission_mode = owners("auto".to_owned());
+        assert_eq!(
+            dialog.questions_words(),
+            "answered in the Decisions pane while the session waits"
+        );
+        dialog.answer_timeout = Some(Duration::from_secs(1800));
+        dialog.route = (Route::Defer, Some("settings.decisions".to_owned()));
+        assert_eq!(
+            dialog.questions_words(),
+            "the defer route (settings.decisions): a question ends the run, and the answer \
+             resumes it; a request unanswered for 30 min defers the run"
+        );
         let launch = dialog.launch(Some(PathBuf::from(r"C:\ledger.sqlite")));
+        assert_eq!(launch.answer_timeout, Some(Duration::from_secs(1800)));
+        assert_eq!(launch.route, Route::Defer);
         assert_eq!(launch.project, "harbor");
         assert_eq!(launch.ep.as_deref(), Some("EP-4"));
         assert_eq!(launch.model, "fable");

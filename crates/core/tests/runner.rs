@@ -10,7 +10,8 @@ use std::time::{Duration, Instant};
 
 use crw_core::ledger::Ledger;
 use crw_core::session::{
-    Ended, Event, Launch, Outcome, Preflight, Request, Response, Session, edit_deny_rule,
+    Answered, Ended, Event, Launch, Outcome, Preflight, Request, Response, Route, Session,
+    edit_deny_rule,
 };
 use serde_json::Value;
 
@@ -260,6 +261,7 @@ fn a_whole_run_is_read_answered_and_recorded() {
     assert_eq!(after(args, "--effort"), ["xhigh"]);
     assert_eq!(after(args, "--permission-mode"), ["acceptEdits"]);
     assert_eq!(after(args, "--permission-prompts"), ["host"]);
+    assert_eq!(after(args, "--permission-prompt-tool"), ["stdio"]);
     assert_eq!(after(args, "--add-dir"), [beta.display().to_string()]);
     let settings: Value = serde_json::from_str(&after(args, "--settings")[0]).unwrap();
     assert_eq!(
@@ -309,6 +311,131 @@ fn a_whole_run_is_read_answered_and_recorded() {
     assert_eq!((row.cost_usd, row.questions), (Some(0.42), 1));
     assert_eq!(row.result.as_deref(), Some("EP-3 is done."));
     assert!(row.ended_at.is_some());
+    // Both requests were answered at once: the mean wait is a matter of milliseconds (EP-14).
+    let latency = row.answer_latency_s.expect("the answers' latency");
+    assert!((0.0..5.0).contains(&latency), "{latency}");
+}
+
+/// A request that outlives the launch's time limit is refused with the turn interrupted, and the
+/// run is deferred (D-19; EP-14).
+#[test]
+fn a_request_past_its_time_limit_defers_the_run() {
+    let scratch = Scratch::new("time-limit", "time-limit");
+    let ledger = scratch.0.join("ledger.sqlite");
+    let mut launch = Launch::new("alpha", &scratch.project(), "opus", "Run EP-3 of alpha.");
+    launch.answer_timeout = Some(Duration::from_millis(600));
+    launch.ledger = Some(ledger.clone());
+    let started = Instant::now();
+    let session = Session::start(preflight(), launch).unwrap();
+    let events = to_the_end(&session, |_| None);
+    assert!(started.elapsed() >= Duration::from_millis(600));
+    assert!(
+        events.contains(&Event::TimedOut("req-11".to_owned())),
+        "{events:?}"
+    );
+    assert_eq!(ended(&events).outcome, Outcome::Deferred);
+    // What the runner sent at the limit: a refusal that interrupts, saying the run is deferred.
+    let read = scratch.read();
+    let answer = &read.last().unwrap()["response"];
+    assert_eq!(answer["request_id"], "req-11");
+    assert_eq!(answer["response"]["behavior"], "deny");
+    assert_eq!(answer["response"]["interrupt"], true);
+    assert!(
+        answer["response"]["message"]
+            .as_str()
+            .unwrap()
+            .contains("deferred")
+    );
+    let row = &Ledger::open(&ledger).unwrap().sessions().unwrap()[0];
+    assert_eq!(row.outcome.as_deref(), Some("deferred"));
+    assert_eq!((row.questions, row.answer_latency_s), (1, None));
+}
+
+/// The defer route's run ends at the hook's deferral with the call kept whole; the answer's resume
+/// sends no prompt and hands its answer to the hook through a file it removes afterwards (D-19;
+/// EP-14).
+#[test]
+fn a_deferred_call_is_kept_and_its_answer_resumes_without_a_prompt() {
+    let scratch = Scratch::new("deferred", "deferred");
+    let ledger = scratch.0.join("ledger.sqlite");
+    let crw = scratch.0.join("crw.exe");
+    let mut launch = Launch::new("alpha", &scratch.project(), "opus", "Run EP-3 of alpha.");
+    launch.route = Route::Defer;
+    launch.hooks = Some(crw.clone());
+    launch.ledger = Some(ledger.clone());
+    let first = Session::start(preflight(), launch.clone()).unwrap();
+    let events = to_the_end(&first, |_| None);
+    let ended_first = ended(&events);
+    assert_eq!(ended_first.outcome, Outcome::Deferred);
+    let deferred = ended_first
+        .result
+        .as_ref()
+        .and_then(|result| result.deferred.clone())
+        .expect("the deferred call");
+    assert_eq!(deferred.id, "toolu_21");
+    assert_eq!(deferred.questions[0].header, "Shelf");
+    let settings: Value =
+        serde_json::from_str(&after(&scratch.record()[0]["args"], "--settings")[0]).unwrap();
+    assert_eq!(
+        settings["hooks"]["PreToolUse"][0]["hooks"][0]["args"],
+        serde_json::json!(["hook", "--defer"])
+    );
+
+    // The answer's resume runs another script: no prompt, the one-shot hook.
+    fs::copy(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/streams/answer-resume.jsonl"),
+        scratch.project().join("stub-script.jsonl"),
+    )
+    .unwrap();
+    fs::remove_file(scratch.project().join("stub-record.jsonl")).unwrap();
+    let file = scratch
+        .0
+        .join("answers")
+        .join(format!("{}.json", first.session_id));
+    launch.resume = Some(first.session_id.clone());
+    launch.prompt = String::new();
+    launch.answer = Some(Answered {
+        deferred,
+        response: Response::Answers(vec!["Top".to_owned()]),
+        file: file.clone(),
+    });
+    launch.answered_after = Some(Duration::from_secs(90));
+    let second = Session::start(preflight(), launch).unwrap();
+    let events = to_the_end(&second, |_| None);
+    assert_eq!(ended(&events).outcome, Outcome::Completed);
+    let record = scratch.record();
+    let args = &record[0]["args"];
+    assert_eq!(after(args, "--resume"), [first.session_id.as_str()]);
+    let settings: Value = serde_json::from_str(&after(args, "--settings")[0]).unwrap();
+    let handler = &settings["hooks"]["PreToolUse"][0]["hooks"][0];
+    assert_eq!(handler["command"], crw.display().to_string());
+    assert_eq!(
+        handler["args"],
+        serde_json::json!(["hook", "--answer", file.display().to_string()])
+    );
+    // The file held the answer when the run started, and is gone now.
+    let held: Value =
+        serde_json::from_str(record[0]["answer_file"]["content"].as_str().unwrap()).unwrap();
+    assert_eq!(held["tool_use_id"], "toolu_21");
+    assert_eq!(held["decision"], "allow");
+    assert_eq!(
+        held["updated_input"]["answers"]["Which shelf should the index take?"],
+        "Top"
+    );
+    assert!(!file.exists());
+    // The runner sent the handshake and nothing else: a prompt would drop the deferred call.
+    let read = scratch.read();
+    assert_eq!(read.len(), 1, "{read:?}");
+    assert_eq!(read[0]["request"]["subtype"], "initialize");
+    // Two rows: the deferred run with its question, the resume with the owner's 90 seconds.
+    let rows = Ledger::open(&ledger).unwrap().sessions().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(
+        (rows[0].outcome.as_deref(), rows[0].questions),
+        (Some("deferred"), 1)
+    );
+    assert_eq!(rows[1].outcome.as_deref(), Some("completed"));
+    assert_eq!(rows[1].answer_latency_s, Some(90.0));
 }
 
 /// Resume (EP-13): a follow-up is a run of its own under the session's id, in the ledger as a row

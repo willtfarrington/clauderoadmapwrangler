@@ -1,14 +1,15 @@
 //! The adapter over `claude-codes` (D-14, D-19): the one module that names the protocol crate's
 //! types. It reads each line a session prints in stream-json into the few [`Event`]s the tool uses,
 //! and writes the lines the host sends: the handshake that opens the control protocol, the prompt,
-//! the answers to the session's requests and the interrupt. The protocol is not specified for
-//! hosts other than Anthropic's SDKs and changes with the CLI (risk 2), so a line the crate cannot
-//! read becomes [`Event::Unreadable`] and never stops a session, and a request the tool does not
-//! handle is refused at once, so that the session never waits on it.
+//! the answers to the session's requests, the denial at a request's time limit and the interrupt.
+//! The protocol is not specified for hosts other than Anthropic's SDKs and changes with the CLI
+//! (risk 2), so a line the crate cannot read becomes [`Event::Unreadable`] and never stops a
+//! session, and a request the tool does not handle is refused at once, so that the session never
+//! waits on it.
 
 use std::collections::HashMap;
 
-use claude_codes::io::ResultMessage;
+use claude_codes::io::{DeferredToolUse, ResultMessage};
 use claude_codes::{
     AskUserQuestionInput, ClaudeInput, ClaudeOutput, ContentBlock, ControlRequestMessage,
     ControlRequestPayload, ControlResponse, ControlResponseMessage, ControlResponsePayload,
@@ -25,6 +26,9 @@ const EXCERPT: usize = 200;
 
 /// The longest one-line summary of a tool call.
 const SUMMARY: usize = 120;
+
+/// How much of a permission's input the Decisions tile shows, as indented JSON (EP-14).
+const INPUT_CHARS: usize = 4000;
 
 /// How much of a tool's result the transcript keeps: its first lines, and at most this many
 /// characters of them (EP-13).
@@ -92,6 +96,43 @@ pub struct Request {
     pub reason: Option<String>,
     /// An `AskUserQuestion`'s questions; empty for a permission.
     pub questions: Vec<Question>,
+    /// What a permission is asked for: the tool's input as indented JSON, cut to
+    /// [`INPUT_CHARS`]; empty for a question, whose input its questions are (EP-14).
+    pub input: String,
+}
+
+/// A tool call a `PreToolUse` hook deferred (D-19's fallback; EP-14): the run ended at it, and a
+/// resume without a prompt runs it again for the hook to decide.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Deferred {
+    /// The tool use's id, by which the answer's hook knows it.
+    pub id: String,
+    pub tool: String,
+    /// The call in one line; a question's text for `AskUserQuestion`.
+    pub summary: String,
+    /// An `AskUserQuestion`'s questions; empty for another tool.
+    pub questions: Vec<Question>,
+    /// The input as the session wrote it, which an answer builds on.
+    pub input: Value,
+}
+
+impl Deferred {
+    /// The deferred call as a [`Request`], for the tile's form: its input shown as a
+    /// permission's is.
+    pub fn request(&self) -> Request {
+        Request {
+            id: self.id.clone(),
+            tool: self.tool.clone(),
+            summary: self.summary.clone(),
+            reason: Some("deferred by the tool's PreToolUse hook".to_owned()),
+            questions: self.questions.clone(),
+            input: if self.questions.is_empty() {
+                indented(&self.input)
+            } else {
+                String::new()
+            },
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -132,8 +173,8 @@ pub struct Finish {
     pub cost_usd: f64,
     pub duration_ms: u64,
     pub stop_reason: Option<String>,
-    /// The tool a `PreToolUse` hook deferred (D-19's fallback): the run waits to be resumed.
-    pub deferred: Option<String>,
+    /// The call a `PreToolUse` hook deferred (D-19's fallback): the run waits to be resumed.
+    pub deferred: Option<Deferred>,
     /// How many tool uses were refused during the run.
     pub denials: usize,
     pub errors: Vec<String>,
@@ -231,6 +272,18 @@ impl Protocol {
         };
         self.pending.remove(request_id);
         Ok(line(&ControlResponseMessage::from(message)))
+    }
+
+    /// The line that answers a request at its time limit (EP-14): refused, and the turn
+    /// interrupted, so that the session stops there with `message` to read rather than guess.
+    pub fn time_out(&mut self, request_id: &str, message: &str) -> Result<String, String> {
+        let request = self
+            .pending
+            .remove(request_id)
+            .ok_or_else(|| format!("no request {request_id} is waiting for an answer"))?;
+        Ok(line(&ControlResponseMessage::from(
+            request.deny_and_stop(message, request_id),
+        )))
     }
 
     /// Reads one line the session printed.
@@ -342,10 +395,10 @@ impl Protocol {
             ClaudeOutput::Result(result) => events.push(Event::Result(finish(result))),
             ClaudeOutput::ControlRequest(request) => match request.request {
                 ControlRequestPayload::CanUseTool(tool) => {
-                    let questions = questions(&tool);
-                    let summary = match questions.first() {
-                        Some(question) => shorten(&question.text, SUMMARY),
-                        None => summary(&tool.tool_name, &tool.input),
+                    let questions = questions(&tool.tool_name, &tool.input);
+                    let (summary, input) = match questions.first() {
+                        Some(question) => (shorten(&question.text, SUMMARY), String::new()),
+                        None => (summary(&tool.tool_name, &tool.input), indented(&tool.input)),
                     };
                     events.push(Event::Request(Request {
                         id: request.request_id.clone(),
@@ -353,6 +406,7 @@ impl Protocol {
                         summary,
                         reason: tool.decision_reason.clone(),
                         questions,
+                        input,
                     }));
                     self.pending.insert(request.request_id, tool);
                 }
@@ -413,10 +467,55 @@ fn finish(result: ResultMessage) -> Finish {
         cost_usd: result.total_cost_usd,
         duration_ms: result.duration_ms,
         stop_reason: result.stop_reason,
-        deferred: result.deferred_tool_use.map(|tool| tool.name),
+        deferred: result.deferred_tool_use.map(deferred),
         denials: result.permission_denials.len(),
         errors: result.errors,
     }
+}
+
+/// A deferred tool use as the tile shows it and an answer builds on it.
+fn deferred(tool: DeferredToolUse) -> Deferred {
+    let questions = questions(&tool.name, &tool.input);
+    let summary = match questions.first() {
+        Some(question) => shorten(&question.text, SUMMARY),
+        None => summary(&tool.name, &tool.input),
+    };
+    Deferred {
+        id: tool.id,
+        tool: tool.name,
+        summary,
+        questions,
+        input: tool.input,
+    }
+}
+
+/// An `AskUserQuestion`'s input with the owner's `answers` added (D-19's fallback; EP-14): one
+/// answer per question in their order, keyed by the question's text, an empty one left out as
+/// unanswered, the questions kept as asked. It is what a hook's `allow` hands back as
+/// `updatedInput`, the form the control protocol's answer takes too.
+pub fn answered_input(input: &Value, answers: &[String]) -> Result<Value, String> {
+    let parsed: AskUserQuestionInput = serde_json::from_value(input.clone())
+        .map_err(|e| format!("the questions do not read: {e}"))?;
+    if answers.len() > parsed.questions.len() {
+        return Err(format!(
+            "{} answers to {} questions",
+            answers.len(),
+            parsed.questions.len()
+        ));
+    }
+    let answered: serde_json::Map<String, Value> = parsed
+        .questions
+        .iter()
+        .zip(answers)
+        .filter(|(_, answer)| !answer.is_empty())
+        .map(|(question, answer)| (question.question.clone(), Value::String(answer.clone())))
+        .collect();
+    let mut updated = input.clone();
+    updated
+        .as_object_mut()
+        .ok_or("the questions' input is not an object")?
+        .insert("answers".to_owned(), Value::Object(answered));
+    Ok(updated)
 }
 
 /// A tool's result as the transcript keeps it: a text result as it stands, the text blocks of a
@@ -444,11 +543,11 @@ fn tool_result(block: ToolResultBlock) -> ToolResult {
 }
 
 /// An `AskUserQuestion`'s questions; none for any other tool or an input that does not read.
-fn questions(request: &ToolPermissionRequest) -> Vec<Question> {
-    if request.tool_name != "AskUserQuestion" {
+fn questions(tool: &str, input: &Value) -> Vec<Question> {
+    if tool != "AskUserQuestion" {
         return Vec::new();
     }
-    let Ok(input) = serde_json::from_value::<AskUserQuestionInput>(request.input.clone()) else {
+    let Ok(input) = serde_json::from_value::<AskUserQuestionInput>(input.clone()) else {
         return Vec::new();
     };
     input
@@ -481,6 +580,12 @@ fn summary(tool: &str, input: &Value) -> String {
         Some(detail) => shorten(&format!("{tool} {detail}"), SUMMARY),
         None => tool.to_owned(),
     }
+}
+
+/// A tool's input as indented JSON, cut to [`INPUT_CHARS`].
+fn indented(input: &Value) -> String {
+    let text = serde_json::to_string_pretty(input).unwrap_or_else(|_| input.to_string());
+    shorten(&text, INPUT_CHARS)
 }
 
 /// `text` cut to `max` characters, the last one an ellipsis when it was longer.
@@ -756,6 +861,7 @@ mod tests {
                 summary: "Bash git push".to_owned(),
                 reason: Some("Not in the allow list".to_owned()),
                 questions: Vec::new(),
+                input: "{\n  \"command\": \"git push\",\n  \"description\": \"Push\"\n}".to_owned(),
             })]
         );
         let answer = json_of(
@@ -830,6 +936,96 @@ mod tests {
             .unwrap();
         let answers = &json_of(&answer)["response"]["response"]["updatedInput"]["answers"];
         assert_eq!(answers.as_object().unwrap().len(), 1, "{answers}");
+    }
+
+    #[test]
+    fn a_question_shows_no_input_and_a_long_input_is_cut() {
+        let mut protocol = Protocol::default();
+        let [Event::Request(question)] = &read(&mut protocol, ask("req-9")).events[..] else {
+            panic!()
+        };
+        assert!(question.input.is_empty());
+        let write = json!({"type": "control_request", "request_id": "req-10", "request": {
+            "subtype": "can_use_tool", "tool_name": "Write",
+            "input": {"content": "z".repeat(9000)}}});
+        let [Event::Request(permission)] = &read(&mut protocol, write).events[..] else {
+            panic!()
+        };
+        assert_eq!(permission.input.chars().count(), INPUT_CHARS);
+        assert!(permission.input.starts_with("{\n  \"content\": \"zzz"));
+        assert!(permission.input.ends_with('…'));
+    }
+
+    #[test]
+    fn a_time_limit_refuses_and_interrupts() {
+        let mut protocol = Protocol::default();
+        read(&mut protocol, ask("req-11"));
+        let reply = json_of(
+            &protocol
+                .time_out(
+                    "req-11",
+                    "No answer within 30 minutes: the run is deferred.",
+                )
+                .unwrap(),
+        );
+        let answer = &reply["response"]["response"];
+        assert_eq!(reply["response"]["request_id"], "req-11");
+        assert_eq!(answer["behavior"], "deny");
+        assert_eq!(answer["interrupt"], true);
+        assert!(answer["message"].as_str().unwrap().contains("deferred"));
+        // It is answered: neither the owner nor the limit can answer it again.
+        assert!(protocol.answer("req-11", &Response::Allow).is_err());
+        assert!(protocol.time_out("req-11", "again").is_err());
+    }
+
+    #[test]
+    fn a_deferred_tool_use_is_kept_whole() {
+        let input = ask("req-0")["request"]["input"].clone();
+        let line = json!({"type": "result", "subtype": "success", "is_error": false,
+            "duration_ms": 900, "duration_api_ms": 700, "num_turns": 2, "session_id": "s",
+            "total_cost_usd": 0.05, "result": "", "stop_reason": "tool_deferred",
+            "deferred_tool_use": {"id": "toolu_d", "name": "AskUserQuestion", "input": input}});
+        let [Event::Result(finish)] = &Protocol::default().read(&line.to_string()).events[..]
+        else {
+            panic!()
+        };
+        let deferred = finish.deferred.as_ref().unwrap();
+        assert_eq!(deferred.id, "toolu_d");
+        assert_eq!(deferred.summary, "Which colour should the badge take?");
+        assert_eq!(deferred.questions.len(), 2);
+        assert_eq!(deferred.input, input);
+        let request = deferred.request();
+        assert_eq!(
+            (request.id.as_str(), request.input.as_str()),
+            ("toolu_d", "")
+        );
+        // Another tool's call shows its input as a permission's does.
+        let bash = Deferred {
+            id: "toolu_e".to_owned(),
+            tool: "Bash".to_owned(),
+            summary: "Bash git push".to_owned(),
+            questions: Vec::new(),
+            input: json!({"command": "git push"}),
+        };
+        assert!(bash.request().input.contains("\"command\": \"git push\""));
+    }
+
+    #[test]
+    fn answered_input_keys_answers_by_question_and_keeps_the_questions() {
+        let input = ask("req-0")["request"]["input"].clone();
+        let answered =
+            answered_input(&input, &["Grey".to_owned(), "alpha, beta".to_owned()]).unwrap();
+        assert_eq!(answered["questions"], input["questions"]);
+        assert_eq!(
+            answered["answers"],
+            json!({"Which colour should the badge take?": "Grey", "Which rows?": "alpha, beta"})
+        );
+        // An empty answer leaves its question unanswered; too many answers do not fit.
+        let partly = answered_input(&input, &[String::new(), "beta".to_owned()]).unwrap();
+        assert_eq!(partly["answers"], json!({"Which rows?": "beta"}));
+        let three = ["a", "b", "c"].map(str::to_owned);
+        assert!(answered_input(&input, &three).is_err());
+        assert!(answered_input(&json!({"command": "ls"}), &[]).is_err());
     }
 
     #[test]
@@ -936,7 +1132,10 @@ mod tests {
             panic!()
         };
         assert!(deferred.is_deferred() && !deferred.succeeded());
-        assert_eq!(deferred.deferred.as_deref(), Some("AskUserQuestion"));
+        assert_eq!(
+            deferred.deferred.as_ref().map(|d| d.tool.as_str()),
+            Some("AskUserQuestion")
+        );
         let [Event::Result(failed)] = &result(json!({"subtype": "error_during_execution",
             "is_error": true, "errors": ["it broke"]}))[..]
         else {

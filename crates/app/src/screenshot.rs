@@ -28,6 +28,10 @@
 //!   and the signals listening with their entries installed; from EP-13 also a headless harbor
 //!   EP-4 of the window's with a transcript, and ledger rows of every mode and outcome);
 //! - `transcript` (the canned sessions, the Sessions pane in front with harbor's tab open);
+//! - `decisions` (the canned sessions, the Decisions pane in front: from EP-14 harbor's session
+//!   waits on a pair of questions and a `git push`, under a 30-minute limit; a quarry EP-2 run
+//!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
+//!   harbor's refused edit of a neighbour);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -44,6 +48,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use crw_core::badges::activity::Activity;
@@ -54,7 +59,9 @@ use crw_core::badges::stack::Kind;
 use crw_core::ledger::SessionRow;
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
-use crw_core::session::{Denied, Event, Init, Launch, Request, ToolResult, ToolUse};
+use crw_core::session::{
+    Choice, Denied, Ended, Event, Init, Launch, Outcome, Question, Request, ToolResult, ToolUse,
+};
 use crw_core::sessions::{Mode, Seen, Status};
 use crw_core::signals::{self, StatusLine};
 use eframe::egui;
@@ -203,8 +210,19 @@ impl Run {
                     if board.sessions.live.is_empty() {
                         canned_sessions(board);
                     }
-                    board.sessions.tab = board.sessions.live.first().map(|live| live.key);
+                    board.sessions.tab = board
+                        .sessions
+                        .live
+                        .iter()
+                        .find(|live| live.project == "harbor")
+                        .map(|live| live.key);
                     layout::show(dashboard.layout_mut(), Pane::Sessions);
+                }
+                "decisions" => {
+                    if board.sessions.live.is_empty() {
+                        canned_sessions(board);
+                    }
+                    layout::show(dashboard.layout_mut(), Pane::Decisions);
                 }
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),
@@ -316,9 +334,89 @@ fn canned_sessions(board: &mut Board) {
     }
     board.watch.listening = Some(Listening::On(signals::DEFAULT_PORT));
     board.watch.entries = Some(Ok("hooks installed, status line installed".to_owned()));
+    board.sessions.live.insert(0, canned_deferred());
     board.sessions.live.insert(0, canned_transcript());
     board.sessions.history.rows = canned_rows(now);
     board.sessions.history.canned = true;
+}
+
+/// A question pair as harbor's canned session asks it (EP-14): one answer of two, then several
+/// of three. Synthetic text only.
+fn canned_questions() -> Vec<Question> {
+    let choice = |label: &str, description: &str| Choice {
+        label: label.to_owned(),
+        description: Some(description.to_owned()),
+    };
+    vec![
+        Question {
+            text: "Which length band should the berth filter open on?".to_owned(),
+            header: "Band".to_owned(),
+            options: vec![
+                choice("Under 12 m", "The small craft, most of the register"),
+                choice("Any length", "Every berth, the filter off at first"),
+            ],
+            multi_select: false,
+        },
+        Question {
+            text: "Which columns should the berth list keep?".to_owned(),
+            header: "Columns".to_owned(),
+            options: vec![
+                choice("Length", "Overall length in metres"),
+                choice("Draught", "The deepest point"),
+                choice("Owner", "The holder of the berth"),
+            ],
+            multi_select: true,
+        },
+    ]
+}
+
+/// A quarry EP-2 run of the window's, deferred at its 30-minute limit with its question open
+/// (EP-14). Synthetic text only.
+fn canned_deferred() -> Live {
+    let folder = portfolio_root().join("quarry");
+    let mut launch = Launch::new(
+        "quarry",
+        &folder,
+        "claude-opus-5-5",
+        "You are working in quarry, launched from clauderoadmapwrangler: run EP-2, Seam map.",
+    );
+    launch.ep = Some("EP-2".to_owned());
+    launch.answer_timeout = Some(Duration::from_secs(30 * 60));
+    let question = Request {
+        id: "req-q1".to_owned(),
+        tool: "AskUserQuestion".to_owned(),
+        summary: "Which seam should the map show first?".to_owned(),
+        reason: None,
+        questions: vec![Question {
+            text: "Which seam should the map show first?".to_owned(),
+            header: "Seam".to_owned(),
+            options: vec![
+                Choice {
+                    label: "The upper seam".to_owned(),
+                    description: Some("Surveyed last spring".to_owned()),
+                },
+                Choice {
+                    label: "The lower seam".to_owned(),
+                    description: Some("The older survey, in feet".to_owned()),
+                },
+            ],
+            multi_select: false,
+        }],
+        input: String::new(),
+    };
+    let events = vec![
+        Event::Text("The seam map needs one choice before the layout.".to_owned()),
+        Event::Request(question),
+        Event::TimedOut("req-q1".to_owned()),
+    ];
+    let mut live = Live::canned(901, launch, "medium", events);
+    live.end_canned(Ended {
+        outcome: Outcome::Deferred,
+        exit_code: Some(0),
+        result: None,
+        stderr: Vec::new(),
+    });
+    live
 }
 
 /// A headless harbor EP-4 of the window's as it runs (EP-13): text, tool calls with their results,
@@ -332,6 +430,7 @@ fn canned_transcript() -> Live {
         "You are working in harbor, launched from clauderoadmapwrangler: run EP-4, Ledger view.",
     );
     launch.ep = Some("EP-4".to_owned());
+    launch.answer_timeout = Some(Duration::from_secs(30 * 60));
     let tool = |id: &str, name: &str, summary: &str| {
         Event::ToolUse(ToolUse {
             id: id.to_owned(),
@@ -373,23 +472,41 @@ fn canned_transcript() -> Live {
         ),
         tool("t3", "Edit", "Edit src/view/list.rs"),
         result("t3", 1, "The file src/view/list.rs has been updated."),
-        tool("t4", "Bash", "Bash git push"),
-        Event::Request(Request {
-            id: "req-1".to_owned(),
-            tool: "Bash".to_owned(),
-            summary: "Bash git push".to_owned(),
-            reason: Some("Not in the allow list".to_owned()),
-            questions: Vec::new(),
-        }),
-        Event::Withdrawn("req-1".to_owned()),
         Event::Denied(Denied {
             tool: "Edit".to_owned(),
             message: "Edit to the neighbour lantern is denied".to_owned(),
             reason: Some("deny rule".to_owned()),
         }),
-        Event::TextDelta("Next, the detail pane's keys: ↑ ↓ select, Enter opens".to_owned()),
+        Event::Text("Two choices for the filter first, then the push.".to_owned()),
+        Event::Request(Request {
+            id: "req-2".to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which length band should the berth filter open on?".to_owned(),
+            reason: None,
+            questions: canned_questions(),
+            input: String::new(),
+        }),
+        tool("t4", "Bash", "Bash git push origin main"),
+        Event::Request(Request {
+            id: "req-3".to_owned(),
+            tool: "Bash".to_owned(),
+            summary: "Bash git push origin main".to_owned(),
+            reason: Some("Not in the allow list".to_owned()),
+            questions: Vec::new(),
+            input: "{\n  \"command\": \"git push origin main\",\n  \"description\": \"Push the \
+                    filter's branch\"\n}"
+                .to_owned(),
+        }),
     ];
-    Live::canned(900, launch, "high", events)
+    let mut live = Live::canned(900, launch, "high", events);
+    // Asked two minutes ago, under the project's 30-minute limit.
+    let asked = Instant::now()
+        .checked_sub(Duration::from_secs(120))
+        .unwrap_or_else(Instant::now);
+    for waiting in &mut live.waiting {
+        waiting.since = asked;
+    }
+    live
 }
 
 /// The ledger's rows a picture shows (EP-13), one of each mode and outcome, the latest first.
@@ -413,6 +530,7 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
             questions: 0,
             result: None,
             context_percent: None,
+            answer_latency_s: None,
         }
     };
     let mut quarry = row(5, "quarry", None, "manual", 95, 36);
@@ -431,6 +549,8 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
     done.model = Some("claude-opus-5-5".to_owned());
     done.effort = Some("high".to_owned());
     done.cost_usd = Some(3.10);
+    done.questions = 2;
+    done.answer_latency_s = Some(95.0);
     done.result =
         Some("EP-3 is done: the tide tables are read and cached, and the tests pass.".to_owned());
     vec![quarry, lapsed, lantern, done, stopped]

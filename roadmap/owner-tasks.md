@@ -48,7 +48,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   `~\.claude\hooks\session-start-inbox.ps1` is no longer run (retiring it is your environment
   repository's next brief); `target\release\crw.exe signals remove` takes the tool's entries out.
   Notes go to `roadmap/inbox.md` [before EP-13]
-- [ ] OT-7 (EP-13, 2026-11-02) Open Roadmap Wrangler from its shortcut: its first start brings the
+- [x] OT-7 (EP-13, 2026-11-02) Open Roadmap Wrangler from its shortcut: its first start brings the
   ledger to schema 3 and closes the two visual launches from before the hooks, which
   `target\release\crw.exe sessions` then lists as lapsed (before the window, it already reads them
   so, without writing). In the Sessions pane's All tab, try the project, mode and Running only
@@ -60,3 +60,15 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   message and Resume; the ledger keeps a row per run. The session checked the tile only on the fake
   portfolio and the ledger's rule on scratch ledgers (rule 5). Notes go to `roadmap/inbox.md`
   [before EP-14]
+- [ ] OT-8 (EP-14, 2026-11-02) Open Roadmap Wrangler from its shortcut and look at the Decisions
+  tab: with nothing waiting it says so. Optional, spends usage: start a small brief headless (S,
+  Start headless) whose work asks you something; its question waits in the Decisions tab with its
+  options and an Other field (Send answers, or Decline with a reason), a permission request with
+  its input and Allow or Deny, and the session goes on at once, its transcript in the Sessions pane
+  showing your answer under each request. To try the time limit, run
+  `target\release\crw.exe set <project> answer_timeout 1` first and `... answer_timeout none`
+  afterwards: a request left a minute defers the run, and Answer and resume in the Decisions tab
+  picks it up. A Claude Code tab in VS Code that waits on a permission prompt shows under Waiting
+  elsewhere with Focus, which brings its window forward. The session checked the tile on the fake
+  portfolio and the routes with a supervised probe of throwaway sessions (rule 5). Notes go to
+  `roadmap/inbox.md` [before EP-15]

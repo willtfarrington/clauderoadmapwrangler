@@ -10,6 +10,7 @@
 
 mod badges;
 mod board;
+mod decisions;
 mod detail;
 mod launch;
 mod layout;

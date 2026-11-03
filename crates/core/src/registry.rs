@@ -18,7 +18,11 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 
 use crate::proposal::{Dismissed, Kind, Reason};
 use crate::rules::Rule;
+use crate::session::Route;
 use crate::{files, paths, signals, workspace};
+
+/// The longest time limit a request may have, in minutes: a day (EP-14).
+pub const MAX_ANSWER_TIMEOUT: u32 = 24 * 60;
 
 /// The registry format this build reads and writes.
 pub const FORMAT: u32 = 1;
@@ -173,11 +177,14 @@ pub struct Settings {
     /// The loopback port the window listens on for the hooks and the status line (D-20, D-28;
     /// EP-12); by default `signals::DEFAULT_PORT`.
     pub port: Option<u16>,
+    /// How headless runs' questions reach the owner (D-19; EP-14): `protocol`, the default, or
+    /// `defer`, the documented fallback for a CLI that breaks the protocol.
+    pub decisions: Option<Route>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 7] = [
+    pub const KEYS: [&str; 8] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -185,11 +192,12 @@ impl Settings {
         "claude_cli",
         "vscode",
         "port",
+        "decisions",
     ];
 
-    /// The keys whose value is a path; the others are numbers.
+    /// The keys whose value is a path; `port` is a number and `decisions` a word.
     pub fn is_path(key: &str) -> bool {
-        key != "port"
+        key != "port" && key != "decisions"
     }
 
     /// A setting's value as written, by its key.
@@ -203,6 +211,7 @@ impl Settings {
             "claude_cli" => path(&self.claude_cli),
             "vscode" => path(&self.vscode),
             "port" => self.port.map(|port| port.to_string()),
+            "decisions" => self.decisions.map(|route| route.as_str().to_owned()),
             _ => None,
         }
     }
@@ -233,6 +242,10 @@ pub struct Project {
     /// The proposals the owner dismissed, each with the fact it rested on (D-6 addendum).
     #[serde(default)]
     pub dismissed: Dismissed,
+    /// The minutes a headless session's request may wait for the owner before the tool defers
+    /// the run (D-19; EP-14); none, the default, for no limit.
+    #[serde(default)]
+    pub answer_timeout: Option<u32>,
 }
 
 fn default_priority() -> u8 {
@@ -363,6 +376,13 @@ impl Registry {
             if !names.insert(name.to_lowercase()) {
                 return invalid(format!("{name} is registered twice"));
             }
+            if let Some(minutes) = project.answer_timeout
+                && !(1..=MAX_ANSWER_TIMEOUT).contains(&minutes)
+            {
+                return invalid(format!(
+                    "{name}: answer_timeout is minutes from 1 to {MAX_ANSWER_TIMEOUT}, not {minutes}"
+                ));
+            }
             let folder = paths::normalize(&project.folder(&root));
             if !folders.insert(folder.to_string_lossy().to_lowercase()) {
                 return invalid(format!("{name}: another project has the same folder"));
@@ -421,12 +441,19 @@ impl Project {
             neighbours: Vec::new(),
             rules: Vec::new(),
             dismissed: Dismissed::default(),
+            answer_timeout: None,
         }
     }
 
     /// The project's folder: its path resolved against the data root.
     pub fn folder(&self, data_root: &Path) -> PathBuf {
         data_root.join(&self.path)
+    }
+
+    /// How long a headless session's request may wait for the owner (D-19); none for no limit.
+    pub fn answer_timeout(&self) -> Option<std::time::Duration> {
+        self.answer_timeout
+            .map(|minutes| std::time::Duration::from_secs(u64::from(minutes) * 60))
     }
 
     /// The neighbour folders as full paths, resolved against the data root.
@@ -710,6 +737,21 @@ impl Changes<'_> {
         self.set(name, "pinned", Value::from(pinned))
     }
 
+    /// Sets the minutes a project's requests may wait before the run is deferred, or takes the
+    /// limit away (D-19; EP-14).
+    pub fn set_answer_timeout(&mut self, name: &str, minutes: Option<u32>) -> Result<(), Error> {
+        match minutes {
+            Some(minutes) if !(1..=MAX_ANSWER_TIMEOUT).contains(&minutes) => Err(Error::Invalid(
+                format!("answer_timeout is minutes from 1 to {MAX_ANSWER_TIMEOUT}, not {minutes}"),
+            )),
+            Some(minutes) => self.set(name, "answer_timeout", Value::from(i64::from(minutes))),
+            None => {
+                self.project_table(name)?.remove("answer_timeout");
+                Ok(())
+            }
+        }
+    }
+
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
@@ -718,20 +760,27 @@ impl Changes<'_> {
                 Settings::KEYS.join(", ")
             )));
         }
-        let value = if Settings::is_path(key) {
-            if value.trim().is_empty() {
-                return Err(Error::Invalid(format!("{key} needs a path")));
-            }
-            Value::from(value)
-        } else {
-            match value.trim().parse::<u16>() {
+        let value = match key {
+            "port" => match value.trim().parse::<u16>() {
                 Ok(port) if port > 0 => Value::from(i64::from(port)),
                 _ => {
                     return Err(Error::Invalid(format!(
                         "{key} needs a port number from 1 to 65535, not {value:?}"
                     )));
                 }
+            },
+            "decisions" => match value.trim() {
+                word @ ("protocol" | "defer") => Value::from(word),
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "decisions takes protocol or defer, not {value:?}"
+                    )));
+                }
+            },
+            _ if value.trim().is_empty() => {
+                return Err(Error::Invalid(format!("{key} needs a path")));
             }
+            _ => Value::from(value),
         };
         let settings = self
             .document
@@ -1317,6 +1366,60 @@ state = "paused"
             registry.settings.backup_settings,
             Some(PathBuf::from("job.psd1"))
         );
+    }
+
+    #[test]
+    fn the_decisions_route_and_a_projects_time_limit_read_back() {
+        let scratch = Scratch::new("registry-decisions");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let name = store.load().unwrap().registry.projects[0].name.clone();
+        assert_eq!(store.load().unwrap().registry.settings.decisions, None);
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("decisions", "defer")?;
+                c.set_answer_timeout(&name, Some(30))
+            })
+            .unwrap();
+        assert_eq!(registry.settings.decisions, Some(Route::Defer));
+        assert_eq!(registry.settings.get("decisions").as_deref(), Some("defer"));
+        let project = registry.project(&name).unwrap();
+        assert_eq!(project.answer_timeout, Some(30));
+        assert_eq!(
+            project.answer_timeout(),
+            Some(std::time::Duration::from_secs(1800))
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains("decisions = \"defer\"") && text.contains("answer_timeout = 30"),
+            "{text}"
+        );
+        // A word the route does not know, or a limit out of range, writes nothing.
+        assert!(
+            store
+                .change(TODAY, |c| c.set_setting("decisions", "maybe"))
+                .is_err()
+        );
+        assert!(
+            store
+                .change(TODAY, |c| c.set_answer_timeout(&name, Some(0)))
+                .is_err()
+        );
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        // Taking the limit away removes the key; a hand-written limit out of range is refused.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_answer_timeout(&name, None))
+            .unwrap();
+        assert_eq!(registry.project(&name).unwrap().answer_timeout, None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("answer_timeout")
+        );
+        let wrong = HAND_WRITTEN.replace("priority = 2\n", "priority = 2\nanswer_timeout = 5000\n");
+        fs::write(&store.path, wrong).unwrap();
+        assert!(store.load().is_err());
     }
 
     #[test]

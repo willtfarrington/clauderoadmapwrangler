@@ -4,7 +4,7 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
 items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
 EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 by those marked
-*(EP-12)*, and at EP-13 by those marked *(EP-13)*.
+*(EP-12)*, at EP-13 by those marked *(EP-13)*, and at EP-14 by those marked *(EP-14)*.
 
 ## 1 Launch modes
 
@@ -48,6 +48,18 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
   window (EP-13 resumes the window's own headless sessions only; D-16 addendum).
 - *(EP-13)* Resume of a headless session after the window restarted, from its ledger row: its
   launch's permission mode and neighbours would need keeping in the ledger (D-16 addendum).
+- *(EP-14)* "Allow always" in the Decisions tile: a permission request's suggestions
+  (`permission_suggestions`) offered as an allow that writes the rule (`updatedPermissions`);
+  EP-14 allows or denies one request at a time (D-19 addendum).
+- *(EP-14)* A free reply in place of a question's answers (the Agent SDK's `response`, which the
+  session reads as "The user responded: …"); EP-14 sends the answers or a refusal.
+- *(EP-14)* A waiting or deferred request kept across a restart of the window: the deferred call
+  and the launch's choices would need keeping in the ledger (EP-14's open requests live in the
+  window, as its sessions do).
+- *(EP-14)* A run whose control-protocol handshake is refused restarted at once on the defer route,
+  or a defer hook that asks the window at run time whether to defer; EP-14 switches the window's
+  later runs only (D-19 addendum).
+- *(EP-14)* One time limit for every project beside each project's own `answer_timeout`.
 
 ## 2 Analytics
 

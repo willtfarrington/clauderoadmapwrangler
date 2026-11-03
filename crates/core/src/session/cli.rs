@@ -21,6 +21,10 @@ use crate::version::{MIN_CLAUDE_CODE, Version};
 /// How long a preflight's answers are trusted.
 pub const MAX_AGE: Duration = Duration::from_secs(60 * 60);
 
+/// The flag by which a host takes a `-p` run's permission prompts and questions; the stream-json
+/// host passes `stdio`, as the Agent SDK does (EP-14).
+pub const PROMPT_TOOL: &str = "--permission-prompt-tool";
+
 /// The flags the runner cannot start a session without.
 pub const REQUIRED: [&str; 8] = [
     "--print",
@@ -191,6 +195,10 @@ pub struct Flags {
     pub efforts: Vec<String>,
     /// `--permission-mode`'s choices; empty when the help does not say them.
     pub permission_modes: Vec<String>,
+    /// The help names `--permission-prompt-tool`, by which a host takes a `-p` run's permission
+    /// prompts and questions (EP-14): 2.1.316 names it only in `--permission-prompts`'
+    /// description, so it is looked for there too.
+    prompt_tool: bool,
 }
 
 impl Flags {
@@ -238,18 +246,28 @@ impl Flags {
                 .find(|(names, _)| names.iter().any(|name| name == flag))
                 .map(|(_, description)| description.as_str())
         };
+        let prompt_tool = description("--permission-prompts")
+            .is_some_and(|text| text.contains(PROMPT_TOOL))
+            || description(PROMPT_TOOL).is_some();
         Self {
             efforts: description("--effort").map(listed).unwrap_or_default(),
             permission_modes: description("--permission-mode")
                 .map(listed)
                 .unwrap_or_default(),
             names: options.into_iter().flat_map(|(names, _)| names).collect(),
+            prompt_tool,
         }
     }
 
     /// Whether the help lists `flag` under any of its spellings.
     pub fn has(&self, flag: &str) -> bool {
         self.names.contains(flag)
+    }
+
+    /// Whether the help names `--permission-prompt-tool`, as an option or in `--permission-prompts`'
+    /// description (EP-14).
+    pub fn prompt_tool(&self) -> bool {
+        self.prompt_tool
     }
 
     /// Whether `--effort ultracode` is listed (D-22): passed only then.
@@ -381,6 +399,25 @@ Commands:
         let flags = Flags::parse("Options:\n  --effort <level>  Effort (low, ultracode)\n");
         assert!(flags.ultracode());
         assert!(Flags::parse("").efforts.is_empty());
+    }
+
+    #[test]
+    fn the_prompt_tool_is_found_where_2_1_316_names_it() {
+        // An older help says nothing of it.
+        assert!(!Flags::parse(HELP).prompt_tool());
+        // 2.1.316 names it inside --permission-prompts' description only (EP-14's probe).
+        let named = "Options:
+  --permission-prompts <target>         Who answers permission prompts with
+                                        --print: \"host\" (the SDK host or
+                                        --permission-prompt-tool) or \"none\"
+  -p, --print                           Print response and exit
+";
+        let flags = Flags::parse(named);
+        assert!(flags.prompt_tool());
+        assert!(!flags.has(PROMPT_TOOL));
+        // Listed as an option of its own, it counts too.
+        let listed = "Options:\n  --permission-prompt-tool <tool>  The prompt tool\n";
+        assert!(Flags::parse(listed).prompt_tool());
     }
 
     #[test]

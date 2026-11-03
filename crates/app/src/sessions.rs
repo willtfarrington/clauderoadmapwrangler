@@ -5,10 +5,11 @@
 //! running only. The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
 //! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Closing the
 //! window drops the handles, which kills whatever still runs with its process tree (D-16
-//! addendum). What a session waits on is listed read-only in the Decisions pane until EP-14
-//! answers it.
+//! addendum). What a session waits on is answered in the Decisions tile (`decisions`, EP-14):
+//! the answer goes through the session's handle, and a run deferred at its time limit or by the
+//! defer route's hook resumes with the owner's answer (D-19).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
@@ -17,14 +18,21 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, Utc};
 use crw_core::ledger::{self, Ledger, RowState, SessionRow};
-use crw_core::session::{Ended, Event, Init, Launch, Outcome, Preflight, Request, Session};
+use crw_core::session::{
+    Answered, Deferred, Denied, Ended, Event, Init, Launch, Outcome, Preflight, Request, Response,
+    Route, Session,
+};
 use crw_core::sessions::{Seen, Status as SeenStatus, VISUAL_CLAIM};
 use eframe::egui::{self, Color32, RichText};
 use serde::{Deserialize, Serialize};
 
 use crate::board::{Action, Board};
+use crate::decisions::{self, Draft};
 use crate::style::{self, icons};
 use crate::transcript::Transcript;
+
+/// The refusals a session keeps for the Decisions tile; the count goes on.
+const REFUSALS: usize = 20;
 
 /// How often the window looks at a running session's events.
 const POLL: Duration = Duration::from_millis(250);
@@ -58,9 +66,14 @@ pub struct Live {
     /// The last line of text, or the last tool call, in one line: the All tab's.
     pub last: String,
     pub transcript: Transcript,
-    /// The requests the session waits on (D-19); answered from EP-14.
-    pub waiting: Vec<Request>,
+    /// The requests the session waits on, the Decisions tile's to answer (D-19).
+    pub waiting: Vec<Waiting>,
+    /// The request an ended run left open: deferred at the time limit or by the defer route's
+    /// hook, answered by resuming the session (EP-14).
+    pub open: Option<Open>,
     pub denied: usize,
+    /// The latest of the tool uses refused without asking, for the Decisions tile.
+    pub refusals: Vec<Denied>,
     pub unreadable: usize,
     pub stopping: bool,
     pub ended: Option<Ended>,
@@ -68,18 +81,53 @@ pub struct Live {
     pub runs: u32,
     /// The message the owner types to resume it.
     pub draft: String,
+    /// The answer forms of its requests, by request id.
+    pub drafts: HashMap<String, Draft>,
+    /// The control protocol's handshake was refused in a run (D-19's fallback).
+    pub handshake_refused: bool,
     /// What it was launched with: a resume runs the same with `--resume` (EP-13).
     launch: Launch,
-    /// The CLI it ran, whose preflight a resume asks.
+    /// The CLI it ran, whose preflight a resume asks, and that CLI's version.
     program: PathBuf,
+    version: Option<String>,
     /// A screenshot run's stand-in: shown running, with no process behind it.
     canned: bool,
+}
+
+/// A request a window's session waits on (D-19), and since when.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Waiting {
+    pub request: Request,
+    pub since: Instant,
+}
+
+/// A request an ended run left open (D-19; EP-14).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Open {
+    pub request: Request,
+    /// The call the defer route's hook deferred, which the answer's hook hands back; none for a
+    /// request the time limit deferred, whose answer is the resume's message.
+    pub deferred: Option<Deferred>,
+    /// When the run was deferred.
+    pub at: DateTime<Local>,
+    pub since: Instant,
+}
+
+impl Open {
+    fn now(request: Request, deferred: Option<Deferred>) -> Self {
+        Self {
+            request,
+            deferred,
+            at: Local::now(),
+            since: Instant::now(),
+        }
+    }
 }
 
 impl Live {
     fn new(key: u64, starting: &Starting, session: Session) -> Self {
         let mut transcript = Transcript::default();
-        transcript.prompt(&starting.launch.prompt, false);
+        transcript.prompt(&starting.message, false);
         Self {
             key,
             project: starting.launch.project.clone(),
@@ -94,14 +142,19 @@ impl Live {
             last: String::new(),
             transcript,
             waiting: Vec::new(),
+            open: None,
             denied: 0,
+            refusals: Vec::new(),
             unreadable: 0,
             stopping: false,
             ended: None,
             runs: 1,
             draft: String::new(),
+            drafts: HashMap::new(),
+            handshake_refused: false,
             launch: starting.launch.clone(),
             program: starting.program.clone(),
+            version: starting.version.clone(),
             canned: false,
         }
     }
@@ -123,13 +176,18 @@ impl Live {
             last: String::new(),
             transcript: Transcript::default(),
             waiting: Vec::new(),
+            open: None,
             denied: 0,
+            refusals: Vec::new(),
             unreadable: 0,
             stopping: false,
             ended: None,
             runs: 1,
             draft: String::new(),
+            drafts: HashMap::new(),
+            handshake_refused: false,
             program: PathBuf::from("claude.exe"),
+            version: None,
             canned: true,
             launch,
         };
@@ -138,6 +196,12 @@ impl Live {
             live.take(event);
         }
         live
+    }
+
+    /// A screenshot run's canned session ended: its run deferred at the time limit.
+    #[cfg(feature = "screenshot")]
+    pub fn end_canned(&mut self, ended: Ended) {
+        self.take(Event::Exited(ended));
     }
 
     fn take(&mut self, event: Event) {
@@ -155,12 +219,35 @@ impl Live {
                 }
             }
             Event::ToolUse(tool) => self.last = tool.summary,
-            Event::Request(request) => self.waiting.push(request),
-            Event::Withdrawn(id) => self.waiting.retain(|request| request.id != id),
+            Event::Request(request) => self.waiting.push(Waiting {
+                request,
+                since: Instant::now(),
+            }),
+            Event::Withdrawn(id) => {
+                self.waiting.retain(|waiting| waiting.request.id != id);
+                self.drafts.remove(&id);
+            }
+            // The time limit refused it: the run is deferred with it open (EP-14).
+            Event::TimedOut(id) => {
+                if let Some(at) = self.waiting.iter().position(|w| w.request.id == id) {
+                    let waiting = self.waiting.remove(at);
+                    self.open = Some(Open::now(waiting.request, None));
+                }
+            }
+            Event::Result(finish) => {
+                if let Some(deferred) = finish.deferred {
+                    self.open = Some(Open::now(deferred.request(), Some(deferred)));
+                }
+            }
             Event::Denied(denied) => {
                 self.denied += 1;
                 self.last = format!("refused: {} ({})", denied.tool, denied.message);
+                if self.refusals.len() == REFUSALS {
+                    self.refusals.remove(0);
+                }
+                self.refusals.push(denied);
             }
+            Event::Handshake(Err(_)) => self.handshake_refused = true,
             Event::Unreadable(_) => self.unreadable += 1,
             Event::Exited(ended) => {
                 self.waiting.clear();
@@ -168,8 +255,23 @@ impl Live {
                 self.session = None;
                 self.stopping = false;
             }
-            Event::Handshake(_) | Event::ToolResult(_) | Event::Result(_) | Event::Notice(_) => {}
+            Event::Handshake(Ok(())) | Event::ToolResult(_) | Event::Notice(_) => {}
         }
+    }
+
+    /// `<project> <EP>`, as its tab says it.
+    pub fn title(&self) -> String {
+        format!("{} {}", self.project, self.ep)
+    }
+
+    /// How long its requests may wait before the run is deferred (D-19).
+    pub fn launch_timeout(&self) -> Option<Duration> {
+        self.launch.answer_timeout
+    }
+
+    /// The CLI it ran, whose preflight a resume asks.
+    pub fn program(&self) -> &Path {
+        &self.program
     }
 
     /// Takes in what the session said since the last frame; `true` when its run ended.
@@ -261,9 +363,13 @@ struct Starting {
     receiver: Receiver<Result<Session, String>>,
     launch: Launch,
     program: PathBuf,
+    /// The CLI's version, from its preflight.
+    version: Option<String>,
     effort: String,
     /// The session of the window's this run resumes.
     resumes: Option<u64>,
+    /// What its transcript shows it started with: the prompt, or a deferred call's answer.
+    message: String,
 }
 
 /// What became of a start.
@@ -340,6 +446,11 @@ pub struct Sessions {
     /// The tab in front: All, or one of the window's sessions by its key.
     pub tab: Option<u64>,
     pub history: History,
+    /// The CLI, and its version, whose control-protocol handshake a session refused: its later
+    /// runs take the defer route (D-19's fallback; EP-14).
+    refused: Option<(PathBuf, Option<String>)>,
+    /// A notice for the status bar: the switch to the defer route, once.
+    pub switched: Option<String>,
 }
 
 impl Default for Sessions {
@@ -352,8 +463,15 @@ impl Default for Sessions {
             next_key: 1,
             tab: None,
             history: History::default(),
+            refused: None,
+            switched: None,
         }
     }
+}
+
+/// The version a preflight read, in words.
+fn version_of(preflight: &Preflight) -> Option<String> {
+    preflight.version.as_ref().ok().map(ToString::to_string)
 }
 
 impl Sessions {
@@ -422,16 +540,19 @@ impl Sessions {
         effort: String,
         ctx: &egui::Context,
     ) {
-        self.begin(preflight, launch, effort, None, ctx);
+        let message = launch.prompt.clone();
+        self.begin(preflight, launch, effort, None, message, ctx);
     }
 
     /// Resumes the window's ended session `key` with `message` as its next prompt (EP-13): a new
-    /// run of the same launch under the session's id, in the same tab.
+    /// run of the same launch under the session's id, in the same tab, its questions taking
+    /// `route` (D-19).
     pub fn resume(
         &mut self,
         key: u64,
         preflight: Arc<Preflight>,
         message: &str,
+        route: Route,
         ctx: &egui::Context,
     ) {
         let Some(live) = self.live.iter().find(|live| live.key == key) else {
@@ -440,8 +561,69 @@ impl Sessions {
         let mut launch = live.launch.clone();
         launch.resume = Some(live.session_id.clone());
         launch.prompt = message.to_owned();
+        launch.route = route;
+        launch.answer = None;
+        launch.answered_after = None;
         let effort = live.effort.clone();
-        self.begin(preflight, launch, effort, Some(key), ctx);
+        self.begin(
+            preflight,
+            launch,
+            effort,
+            Some(key),
+            message.to_owned(),
+            ctx,
+        );
+    }
+
+    /// Answers the request a deferred run of `key` left open with `response`, by resuming the
+    /// session (D-19; EP-14): a call the defer route's hook deferred resumes without a prompt, the
+    /// answer handed to it through `answers/<session>.json` in `answers` by a one-shot hook that
+    /// `hooks` (`crw.exe`) runs; a request the time limit deferred resumes with the answer as its
+    /// message, its questions taking `route`. `Err` says why it cannot.
+    pub fn answer_open(
+        &mut self,
+        key: u64,
+        preflight: Arc<Preflight>,
+        response: Response,
+        places: (Route, Option<PathBuf>, &Path),
+        ctx: &egui::Context,
+    ) -> Result<(), String> {
+        let (route, hooks, answers) = places;
+        let live = self
+            .live
+            .iter()
+            .find(|live| live.key == key)
+            .ok_or("no such session")?;
+        let open = live
+            .open
+            .as_ref()
+            .filter(|_| live.ended.is_some())
+            .ok_or("the session has no deferred request to answer")?;
+        let words = decisions::answer_words(&open.request, &response);
+        let mut launch = live.launch.clone();
+        launch.resume = Some(live.session_id.clone());
+        launch.answered_after = Some(open.since.elapsed());
+        launch.hooks = hooks;
+        match &open.deferred {
+            Some(deferred) => {
+                launch.prompt = String::new();
+                launch.route = Route::Defer;
+                launch.answer = Some(Answered {
+                    deferred: deferred.clone(),
+                    response,
+                    file: answers.join(format!("{}.json", live.session_id)),
+                });
+            }
+            None => {
+                launch.prompt = decisions::resume_message(&open.request, &response);
+                launch.route = route;
+                launch.answer = None;
+            }
+        }
+        let effort = live.effort.clone();
+        let message = format!("Your answer to {}: {words}", open.request.summary);
+        self.begin(preflight, launch, effort, Some(key), message, ctx);
+        Ok(())
     }
 
     fn begin(
@@ -450,11 +632,13 @@ impl Sessions {
         launch: Launch,
         effort: String,
         resumes: Option<u64>,
+        message: String,
         ctx: &egui::Context,
     ) {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
         let program = preflight.program.clone();
+        let version = version_of(&preflight);
         let run = launch.clone();
         let spawned = thread::Builder::new()
             .name("session start".to_owned())
@@ -467,9 +651,59 @@ impl Sessions {
                 receiver,
                 launch,
                 program,
+                version,
                 effort,
                 resumes,
+                message,
             });
+        }
+    }
+
+    /// [`Sessions::route`] for the CLI `preflight` read.
+    pub fn route_for(
+        &self,
+        preflight: &Preflight,
+        setting: Option<Route>,
+    ) -> (Route, Option<String>) {
+        self.route(
+            &preflight.program,
+            version_of(preflight).as_deref(),
+            setting,
+        )
+    }
+
+    /// How a headless run of `program` (at `version`, when its preflight has read it) takes its
+    /// questions (D-19): the defer route when the registry's `settings.decisions` says so or when
+    /// a session of this CLI refused the protocol's handshake in this window, with the reason in
+    /// words; else the control protocol.
+    pub fn route(
+        &self,
+        program: &Path,
+        version: Option<&str>,
+        setting: Option<Route>,
+    ) -> (Route, Option<String>) {
+        if setting == Some(Route::Defer) {
+            return (
+                Route::Defer,
+                Some("the registry's settings.decisions".to_owned()),
+            );
+        }
+        match &self.refused {
+            Some((refused, refused_version))
+                if refused == program
+                    && version.is_none_or(|v| refused_version.as_deref() == Some(v)) =>
+            {
+                let which = refused_version
+                    .as_deref()
+                    .map_or("this claude".to_owned(), |v| format!("claude {v}"));
+                (
+                    Route::Defer,
+                    Some(format!(
+                        "{which} refused the control protocol's handshake in this window"
+                    )),
+                )
+            }
+            _ => (Route::Protocol, None),
         }
     }
 
@@ -502,6 +736,26 @@ impl Sessions {
                 self.history.stale = true;
             }
         }
+        // A refused handshake: this CLI's later runs take the defer route (D-19's fallback).
+        let refusing = self
+            .live
+            .iter()
+            .find(|live| live.handshake_refused && !live.canned)
+            .map(|live| (live.program.clone(), live.version.clone()));
+        if let Some(refused) = refusing
+            && self.refused.as_ref() != Some(&refused)
+        {
+            let which = refused
+                .1
+                .as_deref()
+                .map_or("This claude".to_owned(), |v| format!("claude {v}"));
+            self.switched = Some(format!(
+                "{which} refused the control protocol's handshake: the window's later headless \
+                 runs take the defer route, a question ending the run until its answer resumes \
+                 it (D-19)."
+            ));
+            self.refused = Some(refused);
+        }
         if self.is_starting() || self.live.iter().any(Live::is_running) {
             ctx.request_repaint_after(POLL);
         }
@@ -524,12 +778,25 @@ impl Sessions {
             live.stopping = false;
             live.runs += 1;
             live.draft.clear();
-            live.transcript.prompt(&starting.launch.prompt, true);
+            live.waiting.clear();
+            live.drafts.clear();
+            live.handshake_refused = false;
+            live.launch.route = starting.launch.route;
+            live.version = starting.version.clone();
+            let answered = live.open.take().is_some() && starting.launch.answered_after.is_some();
+            live.transcript.prompt(&starting.message, true);
             self.tab = Some(live.key);
-            return Started::Running(format!(
-                "Resumed {project} {ep} under its session id: its tab in the Sessions pane goes \
-                 on, and closing the window stops it."
-            ));
+            return Started::Running(if answered {
+                format!(
+                    "Resumed {project} {ep} with your answer: its tab in the Sessions pane goes on, \
+                     and closing the window stops it."
+                )
+            } else {
+                format!(
+                    "Resumed {project} {ep} under its session id: its tab in the Sessions pane \
+                     goes on, and closing the window stops it."
+                )
+            });
         }
         let key = self.next_key;
         self.next_key += 1;
@@ -616,6 +883,39 @@ impl Sessions {
 
     pub fn waiting(&self) -> usize {
         self.live.iter().map(|live| live.waiting.len()).sum()
+    }
+
+    /// How many ended runs wait for the owner's answer to resume (EP-14).
+    pub fn deferred(&self) -> usize {
+        self.live
+            .iter()
+            .filter(|live| live.open.is_some() && live.ended.is_some())
+            .count()
+    }
+
+    /// Sends the owner's `response` to the request `request` the session `key` waits on (D-19);
+    /// the answer in words, or why it was not sent.
+    pub fn respond(
+        &mut self,
+        key: u64,
+        request: &str,
+        response: Response,
+    ) -> Result<String, String> {
+        let live = self.find(key).ok_or("no such session")?;
+        let at = live
+            .waiting
+            .iter()
+            .position(|waiting| waiting.request.id == request)
+            .ok_or("the session no longer waits on it")?;
+        let session = live.session.as_ref().ok_or("the session has ended")?;
+        let words = decisions::answer_words(&live.waiting[at].request, &response);
+        if !session.respond(request, response) {
+            return Err("the session has ended".to_owned());
+        }
+        live.waiting.remove(at);
+        live.drafts.remove(request);
+        live.transcript.answered(request, &words);
+        Ok(words)
     }
 
     /// Whether the window started the session `session_id`.
@@ -740,7 +1040,7 @@ impl Board {
                 })
                 .collect()
         };
-        let mut open = None;
+        let (mut open, mut focus) = (None, None);
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -771,7 +1071,11 @@ impl Board {
                 if !seen.is_empty() {
                     heading(ui, "Started elsewhere: in VS Code, a terminal or another program");
                     for one in &seen {
-                        seen_card(ui, one);
+                        if seen_card(ui, one)
+                            && let Some(project) = &one.project
+                        {
+                            focus = Some(project.clone());
+                        }
                         ui.add_space(6.0);
                     }
                 }
@@ -799,6 +1103,9 @@ impl Board {
             });
         if open.is_some() {
             self.sessions.tab = open;
+        }
+        if let Some(project) = focus {
+            self.actions.push(Action::Focus(project));
         }
     }
 
@@ -915,37 +1222,6 @@ impl Board {
         }
         self.actions.extend(actions);
     }
-
-    /// The Decisions pane until EP-14's tile: what the window's sessions wait on, read-only.
-    pub fn decisions_pane(&mut self, ui: &mut egui::Ui) {
-        if self.sessions.waiting() == 0 {
-            placeholder(
-                ui,
-                "A headless session's questions and permission requests are listed here while it \
-                 waits; answering them arrives at EP-14, and until then Stop in the Sessions pane \
-                 ends a session that waits.",
-            );
-            return;
-        }
-        egui::ScrollArea::vertical()
-            .auto_shrink(false)
-            .show(ui, |ui| {
-                ui.label(
-                    RichText::new(
-                        "Answering arrives at EP-14: until then a session waits here, and Stop in \
-                         the Sessions pane ends it.",
-                    )
-                    .color(style::amber(ui)),
-                );
-                ui.add_space(6.0);
-                for live in &self.sessions.live {
-                    for request in &live.waiting {
-                        request_card(ui, live, request);
-                        ui.add_space(6.0);
-                    }
-                }
-            });
-    }
 }
 
 /// The All tab's filters: one project or every one, the modes shown, running only.
@@ -1045,8 +1321,11 @@ fn seen_colour(ui: &egui::Ui, seen: &Seen) -> Color32 {
 
 /// A session Claude Code reports (EP-12): its project, mode and status, its name, since when, and
 /// the status line's figures when a terminal session sends them (D-23). The tool reads no
-/// transcript of it (D-26). One open with no prompt yet is marked new (EP-13).
-fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
+/// transcript of it (D-26). One open with no prompt yet is marked new (EP-13); one that waits in
+/// VS Code has Focus, which brings its window forward (D-19; EP-14). `true` when Focus was
+/// pressed.
+fn seen_card(ui: &mut egui::Ui, seen: &Seen) -> bool {
+    let mut focus = false;
     card(ui, |ui| {
         // Two rows, so that a narrow pane never squeezes a chip into a column of letters.
         ui.horizontal(|ui| {
@@ -1071,7 +1350,23 @@ fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
             }
         });
         if seen.status == SeenStatus::Waiting {
-            ui.label(RichText::new(format!("It {}.", seen.doing())).color(style::amber(ui)));
+            let in_code = seen.entrypoint.as_deref() == Some("claude-vscode")
+                || seen.mode == crw_core::sessions::Mode::Visual;
+            let place = if in_code { " in VS Code" } else { "" };
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("It {}{place}.", seen.doing())).color(style::amber(ui)),
+                )
+                .wrap(),
+            );
+            if in_code
+                && ui
+                    .button("Focus")
+                    .on_hover_text("Bring its VS Code window forward")
+                    .clicked()
+            {
+                focus = true;
+            }
         } else if seen.is_new() {
             ui.label(
                 RichText::new(format!(
@@ -1102,6 +1397,7 @@ fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
         figures.push(format!("session {}", seen.session_id));
         ui.label(RichText::new(figures.join(" · ")).small().weak());
     });
+    focus
 }
 
 /// What a ledger row's session came to: a word for its chip, the sentence its hover gives, and its
@@ -1193,6 +1489,7 @@ fn ledger_line(ui: &mut egui::Ui, row: &SessionRow, now: DateTime<Utc>) {
         if let Some(context) = row.context_percent {
             figures.push(format!("context {context:.0} %"));
         }
+        figures.extend(ledger::asked(row));
         if !figures.is_empty() {
             ui.label(RichText::new(figures.join(" · ")).weak());
         }
@@ -1220,32 +1517,6 @@ fn ending(ended: &Ended) -> String {
     parts.join(" · ")
 }
 
-fn request_card(ui: &mut egui::Ui, live: &Live, request: &Request) {
-    card(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("{} {}", live.project, live.ep)).strong());
-            style::chip(ui, &request.tool, style::amber(ui));
-        });
-        if request.questions.is_empty() {
-            ui.label(&request.summary);
-        }
-        if let Some(reason) = &request.reason {
-            ui.label(RichText::new(reason).small().weak());
-        }
-        for question in &request.questions {
-            ui.add_space(4.0);
-            ui.label(RichText::new(&question.text).strong());
-            for choice in &question.options {
-                let text = match &choice.description {
-                    Some(description) => format!("○ {} — {description}", choice.label),
-                    None => format!("○ {}", choice.label),
-                };
-                ui.label(RichText::new(text).weak());
-            }
-        }
-    });
-}
-
 #[cfg(test)]
 mod tests {
     use crw_core::session::{Finish, ToolUse};
@@ -1268,16 +1539,129 @@ mod tests {
             last: String::new(),
             transcript: Transcript::default(),
             waiting: Vec::new(),
+            open: None,
             denied: 0,
+            refusals: Vec::new(),
             unreadable: 0,
             stopping: false,
             ended: None,
             runs: 1,
             draft: String::new(),
+            drafts: HashMap::new(),
+            handshake_refused: false,
             launch: Launch::new("alpha", Path::new("alpha"), "fable", "Run EP-3."),
             program: PathBuf::from("claude.exe"),
+            version: Some("2.1.316".to_owned()),
             canned: false,
         }
+    }
+
+    fn asked(id: &str) -> Request {
+        Request {
+            id: id.to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which shelf?".to_owned(),
+            reason: None,
+            questions: vec![crw_core::session::Question {
+                text: "Which shelf?".to_owned(),
+                header: "Shelf".to_owned(),
+                options: Vec::new(),
+                multi_select: false,
+            }],
+            input: String::new(),
+        }
+    }
+
+    fn exit(outcome: Outcome, result: Option<Finish>) -> Event {
+        Event::Exited(Ended {
+            outcome,
+            exit_code: Some(0),
+            result,
+            stderr: Vec::new(),
+        })
+    }
+
+    #[test]
+    fn a_request_past_its_limit_or_deferred_by_the_hook_stays_open() {
+        // The time limit: the request moves from waiting to open, the run deferred.
+        let mut limited = live();
+        limited.take(Event::Request(asked("req-1")));
+        limited.take(Event::TimedOut("req-1".to_owned()));
+        assert!(limited.waiting.is_empty());
+        assert_eq!(limited.open.as_ref().unwrap().request.id, "req-1");
+        assert!(limited.open.as_ref().unwrap().deferred.is_none());
+        limited.take(exit(Outcome::Deferred, None));
+        assert_eq!(limited.state(), "ended: deferred");
+        let mut sessions = Sessions::default();
+        sessions.live.push(limited);
+        assert_eq!((sessions.waiting(), sessions.deferred()), (0, 1));
+        // The hook: the result's deferred call is the open request.
+        let mut live = live();
+        let deferred = crw_core::session::Deferred {
+            id: "toolu_d".to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which shelf?".to_owned(),
+            questions: asked("x").questions,
+            input: Default::default(),
+        };
+        let finish = Finish {
+            subtype: "success".to_owned(),
+            is_error: false,
+            text: None,
+            turns: 1,
+            cost_usd: 0.01,
+            duration_ms: 900,
+            stop_reason: Some("tool_deferred".to_owned()),
+            deferred: Some(deferred),
+            denials: 0,
+            errors: Vec::new(),
+        };
+        live.take(Event::Result(finish.clone()));
+        live.take(exit(Outcome::Deferred, Some(finish)));
+        let open = live.open.as_ref().unwrap();
+        assert_eq!(open.request.id, "toolu_d");
+        assert_eq!(open.deferred.as_ref().unwrap().id, "toolu_d");
+        // A refusal is kept for the tile, the latest few.
+        for n in 0..REFUSALS + 3 {
+            live.take(Event::Denied(Denied {
+                tool: "Edit".to_owned(),
+                message: format!("edit {n} denied"),
+                reason: Some("deny rule".to_owned()),
+            }));
+        }
+        assert_eq!((live.denied, live.refusals.len()), (REFUSALS + 3, REFUSALS));
+        assert_eq!(live.refusals[0].message, "edit 3 denied");
+    }
+
+    #[test]
+    fn a_refused_handshake_sends_the_clis_later_runs_the_defer_route() {
+        let mut sessions = Sessions::default();
+        let program = PathBuf::from("claude.exe");
+        assert_eq!(
+            sessions.route(&program, Some("2.1.316"), None),
+            (Route::Protocol, None)
+        );
+        let (route, why) = sessions.route(&program, None, Some(Route::Defer));
+        assert_eq!(route, Route::Defer);
+        assert!(why.unwrap().contains("settings.decisions"));
+        let mut live = live();
+        live.take(Event::Handshake(Err("not supported".to_owned())));
+        sessions.live.push(live);
+        sessions.receive(&egui::Context::default());
+        assert!(sessions.switched.take().unwrap().contains("claude 2.1.316"));
+        let (route, why) = sessions.route(&program, Some("2.1.316"), None);
+        assert_eq!(route, Route::Defer);
+        assert!(why.unwrap().contains("refused"));
+        // Another version of the CLI, or another CLI, tries the protocol again.
+        assert_eq!(
+            sessions.route(&program, Some("2.1.320"), None).0,
+            Route::Protocol
+        );
+        let other = PathBuf::from("other.exe");
+        assert_eq!(sessions.route(&other, None, None).0, Route::Protocol);
+        // Said once.
+        sessions.receive(&egui::Context::default());
+        assert!(sessions.switched.is_none());
     }
 
     #[test]
@@ -1300,6 +1684,7 @@ mod tests {
             summary: "Bash git push".to_owned(),
             reason: None,
             questions: Vec::new(),
+            input: "{\"command\": \"git push\"}".to_owned(),
         };
         live.take(Event::Request(request.clone()));
         assert_eq!(live.waiting.len(), 1);
@@ -1337,7 +1722,12 @@ mod tests {
         let entries = &live.transcript.entries;
         assert_eq!(entries.len(), 6, "{entries:?}");
         assert!(matches!(&entries[0], Entry::Text(text) if text.starts_with("Reading")));
-        assert!(matches!(&entries[2], Entry::Asked(_)));
+        // The request withdrawn says so; the one asked again went with the run's end.
+        assert!(
+            matches!(&entries[2], Entry::Asked { answer: Some(words), .. }
+            if words == "withdrawn by the session")
+        );
+        assert!(matches!(&entries[3], Entry::Asked { answer: None, .. }));
         assert!(matches!(&entries[5], Entry::Result(_)));
     }
 
@@ -1400,6 +1790,7 @@ mod tests {
             questions: 0,
             result: None,
             context_percent: None,
+            answer_latency_s: None,
         };
         let start = "2026-11-02T10:00:00Z";
         assert_eq!(

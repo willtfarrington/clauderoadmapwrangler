@@ -1,7 +1,8 @@
 //! The visual launch from the window (D-16, EP-11): VS Code opened on the project's own workspace
 //! file and the prompt filled into a Claude Code tab there, by `crw_core::visual` on a worker
 //! thread, since a window that is not open yet takes seconds to start. The window never holds the
-//! session: the owner sends the prompt in VS Code, and the ledger keeps the launch.
+//! session: the owner sends the prompt in VS Code, and the ledger keeps the launch. Focus brings
+//! forward the window a session waits in, the same way (D-19; EP-14).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -26,16 +27,19 @@ struct Opening {
     ep: String,
 }
 
-/// What became of a visual launch.
+/// What became of a visual launch, or of a Focus.
 pub enum Outcome {
     Opened(String),
+    Focused(String),
     Refused(String),
 }
 
-/// The window's visual launches: at most one on its way.
+/// The window's visual launches: at most one on its way, and a Focus.
 #[derive(Default)]
 pub struct Visual {
     opening: Option<Opening>,
+    /// A Focus on its way: the project, and what `Code.exe` opened or why not.
+    focusing: Option<(String, Receiver<Result<PathBuf, String>>)>,
     /// A screenshot run's stand-in for VS Code, its `Code.exe` and the extension's version, with
     /// no window open: no path of the machine shows, and nothing is opened.
     pub canned: Option<(PathBuf, Version)>,
@@ -89,8 +93,49 @@ impl Visual {
         }
     }
 
-    /// Takes in a launch's answer when it has come; asks for frames while one waits.
+    /// Brings the VS Code window of `project` (in `folder`) forward with `code`, on a worker
+    /// thread: `Code.exe` hands its argument to the running VS Code and exits (EP-14).
+    pub fn focus(&mut self, project: &str, folder: &Path, code: &Path, ctx: &egui::Context) {
+        let (sender, receiver) = mpsc::channel();
+        let (folder, code, ctx) = (folder.to_owned(), code.to_owned(), ctx.clone());
+        let spawned = thread::Builder::new()
+            .name("focus".to_owned())
+            .spawn(move || {
+                let _ = sender.send(visual::focus(&folder, &code));
+                ctx.request_repaint();
+            });
+        if spawned.is_ok() {
+            self.focusing = Some((project.to_owned(), receiver));
+        }
+    }
+
+    /// Takes in a Focus's or a launch's answer when it has come; asks for frames while one waits.
     pub fn receive(&mut self, ctx: &egui::Context) -> Option<Outcome> {
+        if let Some((project, receiver)) = &self.focusing {
+            let outcome = match receiver.try_recv() {
+                Ok(Ok(opened)) => Some(Outcome::Focused(format!(
+                    "{project}: VS Code was asked to bring its window forward ({} opened).",
+                    opened.file_name().map_or_else(
+                        || opened.display().to_string(),
+                        |name| { name.to_string_lossy().into_owned() }
+                    )
+                ))),
+                Ok(Err(why)) => Some(Outcome::Refused(format!(
+                    "{project}: VS Code did not come forward: {why}"
+                ))),
+                Err(TryRecvError::Disconnected) => Some(Outcome::Refused(
+                    "the Focus's thread ended without an answer".to_owned(),
+                )),
+                Err(TryRecvError::Empty) => {
+                    ctx.request_repaint_after(POLL);
+                    None
+                }
+            };
+            if outcome.is_some() {
+                self.focusing = None;
+                return outcome;
+            }
+        }
         let opening = self.opening.as_ref()?;
         let outcome = match opening.receiver.try_recv() {
             Ok(Ok(opened)) => Outcome::Opened(said(&opening.project, &opening.ep, &opened)),

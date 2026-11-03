@@ -93,6 +93,7 @@ fn sessions_reads_the_ledger_without_writing_it() {
                 cost_usd: Some(3.1),
                 questions: 1,
                 result: Some("EP-3 is done: the parser reads the five-column tables."),
+                answer_latency_s: Some(80.0),
             },
         )
         .unwrap();
@@ -135,7 +136,8 @@ fn sessions_reads_the_ledger_without_writing_it() {
             && rows[2].contains("claude-opus-5-5/high")
             && rows[2].contains("52 min")
             && rows[2].contains("completed")
-            && rows[2].contains("$3.10"),
+            && rows[2].contains("$3.10")
+            && rows[2].contains("1 question, answered in 1 min"),
         "{out}"
     );
     assert!(rows[3].contains("EP-3 is done"), "{out}");

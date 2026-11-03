@@ -51,8 +51,8 @@ impl Pane {
             .find(|p| p.title().eq_ignore_ascii_case(name))
     }
 
-    /// What a pane that later briefs fill will hold. The Decisions and Sessions panes list the
-    /// window's headless sessions until their tiles arrive (EP-13, EP-14).
+    /// What a pane that later briefs fill will hold; the Decisions and Sessions tiles are filled
+    /// (EP-13, EP-14).
     fn placeholder(self) -> Option<&'static str> {
         match self {
             Pane::Projects | Pane::Detail | Pane::Decisions | Pane::Sessions => None,
@@ -155,8 +155,8 @@ impl egui_tiles::Behavior<Pane> for Board {
                 Some(name) => format!("Detail · {name}").into(),
                 None => "Detail".into(),
             },
-            Pane::Decisions if self.sessions.waiting() > 0 => {
-                format!("Decisions · {}", self.sessions.waiting()).into()
+            Pane::Decisions if self.decisions_count() > 0 => {
+                format!("Decisions · {}", self.decisions_count()).into()
             }
             Pane::Sessions
                 if !self.sessions.live.is_empty() || !self.seen_sessions().is_empty() =>

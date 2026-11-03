@@ -1,0 +1,9 @@
+{"stub":"handshake"}
+{"stub":"prompt"}
+{"type":"system","subtype":"init","session_id":"$SESSION","uuid":"00000000-0000-4000-8000-000000000011","cwd":"C:\\Data\\alpha","model":"claude-fable-5-1","effort":"high","permissionMode":"acceptEdits","claude_code_version":"2.1.316","tools":["Read","Edit","AskUserQuestion"],"capabilities":["alpha_capability"],"apiKeySource":"none"}
+{"type":"assistant","session_id":"$SESSION","parent_tool_use_id":null,"message":{"id":"msg_11","type":"message","role":"assistant","model":"claude-fable-5-1","content":[{"type":"tool_use","id":"toolu_11","name":"AskUserQuestion","input":{"questions":[{"question":"Which shelf should the index take?","header":"Shelf","multiSelect":false,"options":[{"label":"Top","description":"Read first"},{"label":"Bottom","description":"Read last"}]}]}}]}}
+{"type":"control_request","request_id":"req-11","request":{"subtype":"can_use_tool","tool_name":"AskUserQuestion","tool_use_id":"toolu_11","input":{"questions":[{"question":"Which shelf should the index take?","header":"Shelf","multiSelect":false,"options":[{"label":"Top","description":"Read first"},{"label":"Bottom","description":"Read last"}]}]}}}
+{"stub":"answer","request_id":"req-11"}
+{"type":"result","subtype":"error_during_execution","is_error":true,"duration_ms":1200,"duration_api_ms":800,"num_turns":1,"session_id":"$SESSION","total_cost_usd":0.03,"stop_reason":null,"permission_denials":[{"tool_name":"AskUserQuestion","tool_use_id":"toolu_11","tool_input":{}}]}
+{"stub":"eof"}
+{"stub":"exit","code":0}

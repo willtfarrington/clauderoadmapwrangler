@@ -6,20 +6,22 @@
 //! child runs in a job object the system kills when the tool lets go of it, so no session outlives
 //! the tool or leaves a process behind. Each session has a thread with a small tokio runtime of its
 //! own, and its caller sees a channel of events and a handle, which suits the window's frame loop
-//! and `crw` alike. Tests drive the stub `stub-claude`, never the real CLI (D-29).
+//! and `crw` alike. A request may wait for the owner up to the launch's time limit, after which
+//! the run is deferred (D-19; EP-14). Tests drive the stub `stub-claude`, never the real CLI
+//! (D-29).
 
 pub mod cli;
+pub mod defer;
 mod launch;
 pub mod protocol;
 
-use std::collections::VecDeque;
-use std::io;
+use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
 use std::sync::mpsc;
 use std::sync::{Mutex, PoisonError};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{fs, io, thread};
 
 use chrono::{DateTime, Utc};
 use process_wrap::tokio::{ChildWrapper, CommandWrap, KillOnDrop};
@@ -31,9 +33,10 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use cli::Preflight;
 pub(crate) use launch::markers;
-pub use launch::{Launch, NEIGHBOUR_CLAUDE_MD, STOP_TIMEOUT, edit_deny_rule};
+pub use launch::{Answered, Launch, NEIGHBOUR_CLAUDE_MD, Route, STOP_TIMEOUT, edit_deny_rule};
 pub use protocol::{
-    Choice, Denied, Finish, Init, Question, Request, Response, ToolResult, ToolUse, Unreadable,
+    Choice, Deferred, Denied, Finish, Init, Question, Request, Response, ToolResult, ToolUse,
+    Unreadable, answered_input,
 };
 
 use crate::ledger::{Finished, Ledger, NewSession};
@@ -72,6 +75,9 @@ pub enum Event {
     Request(Request),
     /// The session no longer waits for the answer to this request.
     Withdrawn(String),
+    /// This request waited past the launch's time limit: the runner refused it and interrupted
+    /// the turn, and the run is deferred until the owner answers (D-19; EP-14).
+    TimedOut(String),
     /// A tool use refused without asking (D-18 addendum).
     Denied(Denied),
     Result(Finish),
@@ -88,7 +94,8 @@ pub enum Outcome {
     /// The host stopped or killed it before its result.
     Stopped,
     Failed,
-    /// It waits on a deferred tool use, to be resumed (D-19).
+    /// It waits on a deferred tool use, or on a request that outlived its time limit, to be
+    /// resumed with the owner's answer (D-19).
     Deferred,
 }
 
@@ -241,10 +248,18 @@ impl Job {
                 return;
             }
         };
+        // A deferred call's answer waits in its file for the resume's hook (EP-14).
+        if let Some(answered) = &self.launch.answer
+            && let Err(e) = write_answer(answered)
+        {
+            let _ = started.send(Err(e));
+            return;
+        }
         runtime.block_on(async {
             let child = match spawn(&self.program, &self.line, &self.launch.folder) {
                 Ok(child) => child,
                 Err(e) => {
+                    self.forget_answer();
                     let _ = started.send(Err(format!(
                         "could not start {} in {}: {e}",
                         self.program.display(),
@@ -258,15 +273,23 @@ impl Job {
             if let Err(e) = &row {
                 let _ = events.send(Event::Notice(e.clone()));
             }
-            let (ended, questions) = watch(child, &self.launch, &events, orders).await;
+            let (ended, tally) = watch(child, &self.launch, &events, orders).await;
+            self.forget_answer();
             if let Ok(Some(row)) = row
-                && let Err(e) = self.record_end(row, &ended, questions)
+                && let Err(e) = self.record_end(row, &ended, &tally)
             {
                 let _ = events.send(Event::Notice(e));
             }
             let _ = events.send(Event::Exited(ended));
         });
         runtime.shutdown_timeout(Duration::from_secs(1));
+    }
+
+    /// Removes the answer's file once its run is over: the hook has read it, or never will.
+    fn forget_answer(&self) {
+        if let Some(answered) = &self.launch.answer {
+            let _ = fs::remove_file(&answered.file);
+        }
     }
 
     /// The run's ledger row, from its start: none when no ledger was asked for, `Err` saying why
@@ -293,11 +316,16 @@ impl Job {
             .map_err(|e| format!("the ledger did not record the session: {e}"))
     }
 
-    fn record_end(&self, row: i64, ended: &Ended, questions: u32) -> Result<(), String> {
+    fn record_end(&self, row: i64, ended: &Ended, tally: &Tally) -> Result<(), String> {
         let Some(path) = &self.launch.ledger else {
             return Ok(());
         };
         let result = ended.result.as_ref();
+        // The answers this run carried: the owner's in it, and a deferred request's it resumed with.
+        let mut latencies = tally.latencies.clone();
+        latencies.extend(self.launch.answered_after.map(|after| after.as_secs_f64()));
+        let answer_latency_s =
+            (!latencies.is_empty()).then(|| latencies.iter().sum::<f64>() / latencies.len() as f64);
         Ledger::open(path)
             .and_then(|ledger| {
                 ledger.finish_session(
@@ -306,13 +334,53 @@ impl Job {
                         at: Utc::now(),
                         outcome: ended.outcome.as_str(),
                         cost_usd: result.map(|result| result.cost_usd),
-                        questions,
+                        questions: tally.questions,
                         result: result.and_then(|result| result.text.as_deref()),
+                        answer_latency_s,
                     },
                 )
             })
             .map_err(|e| format!("the ledger did not record the session's end: {e}"))
     }
+}
+
+/// Writes a deferred call's answer where the resume's hook reads it (EP-14).
+fn write_answer(answered: &Answered) -> Result<(), String> {
+    let answer = defer::Answer::new(&answered.deferred, &answered.response)?;
+    let text = serde_json::to_string(&answer).map_err(|e| e.to_string())?;
+    let file = &answered.file;
+    let failed = |e: io::Error| {
+        format!(
+            "the answer for the hook was not written to {}: {e}",
+            file.display()
+        )
+    };
+    if let Some(dir) = file.parent() {
+        fs::create_dir_all(dir).map_err(failed)?;
+    }
+    fs::write(file, text).map_err(failed)
+}
+
+/// What the owner's answers came to in a run, for its ledger row.
+#[derive(Debug, Default)]
+struct Tally {
+    /// How many questions the run asked, a deferred one among them.
+    questions: u32,
+    /// Seconds from each request the owner answered to the answer.
+    latencies: Vec<f64>,
+}
+
+/// What the session reads of a request refused at its time limit (D-19; EP-14).
+fn deferred_message(limit: Duration) -> String {
+    let limit = match limit.as_secs() {
+        s if s < 60 => format!("{s} s"),
+        s => format!("{} min", s / 60),
+    };
+    format!(
+        "No answer came within {limit}, so the owner's tool deferred this run (D-19). Stop here and \
+         take no step that depends on the answer; when the session is resumed, its message carries \
+         the owner's answer."
+    )
 }
 
 /// The child, in the project's folder, without a console window, in a job object that is killed
@@ -347,7 +415,11 @@ fn spawn(program: &Path, line: &CommandLine, folder: &Path) -> io::Result<Box<dy
 struct Watch {
     result: Option<Finish>,
     stderr: VecDeque<String>,
-    questions: u32,
+    tally: Tally,
+    /// The requests that wait for the host, and since when (EP-14).
+    asked: HashMap<String, Instant>,
+    /// A request outlived its time limit: the run is deferred.
+    timed_out: bool,
     stopping: bool,
     /// The host stopped the run before its result.
     stopped_early: bool,
@@ -384,8 +456,24 @@ impl Watch {
         }
         for event in reading.events {
             match &event {
-                Event::Request(request) if !request.questions.is_empty() => self.questions += 1,
+                Event::Request(request) => {
+                    self.asked.insert(request.id.clone(), Instant::now());
+                    if !request.questions.is_empty() {
+                        self.tally.questions += 1;
+                    }
+                }
+                Event::Withdrawn(id) => {
+                    self.asked.remove(id);
+                }
                 Event::Result(finish) => {
+                    // A question the defer route's hook ended the run at was asked too.
+                    if finish
+                        .deferred
+                        .as_ref()
+                        .is_some_and(|deferred| !deferred.questions.is_empty())
+                    {
+                        self.tally.questions += 1;
+                    }
                     self.result = Some(finish.clone());
                     *stdin = None;
                 }
@@ -395,9 +483,41 @@ impl Watch {
         }
     }
 
+    /// The host answered `id`: how long the owner took joins the tally.
+    fn answered(&mut self, id: &str) {
+        if let Some(since) = self.asked.remove(id) {
+            self.tally.latencies.push(since.elapsed().as_secs_f64());
+        }
+    }
+
+    /// When the first waiting request reaches `limit`; none without a limit or a request.
+    fn due(&self, limit: Option<Duration>) -> Option<tokio::time::Instant> {
+        let first = self.asked.values().min()?;
+        Some(tokio::time::Instant::from_std(*first + limit?))
+    }
+
+    /// The requests that have waited `limit` or longer, taken off the waiting list.
+    fn overdue(&mut self, limit: Duration) -> Vec<String> {
+        let mut overdue: Vec<(Instant, String)> = self
+            .asked
+            .iter()
+            .filter(|(_, since)| since.elapsed() >= limit)
+            .map(|(id, since)| (*since, id.clone()))
+            .collect();
+        overdue.sort();
+        overdue
+            .into_iter()
+            .map(|(_, id)| {
+                self.asked.remove(&id);
+                id
+            })
+            .collect()
+    }
+
     fn ended(self, status: Option<ExitStatus>) -> Ended {
         let outcome = match &self.result {
             _ if self.stopped_early => Outcome::Stopped,
+            _ if self.timed_out => Outcome::Deferred,
             Some(result) if result.is_deferred() => Outcome::Deferred,
             Some(result) if result.succeeded() => Outcome::Completed,
             _ => Outcome::Failed,
@@ -411,26 +531,31 @@ impl Watch {
     }
 }
 
-/// Watches the child to its end: the handshake and the prompt first, then its output, the host's
-/// orders, the stop's deadline and its exit, whichever comes; then what is left of its output.
-/// Returns how it ended and how many questions it asked.
+/// Watches the child to its end: the handshake and the prompt first (no prompt for a deferred
+/// call's resume, which a prompt would drop), then its output, the host's orders, the requests'
+/// time limit, the stop's deadline and its exit, whichever comes; then what is left of its output.
+/// Returns how it ended and what its questions came to.
 async fn watch(
     mut child: Box<dyn ChildWrapper>,
     launch: &Launch,
     events: &mpsc::Sender<Event>,
     mut orders: UnboundedReceiver<Order>,
-) -> (Ended, u32) {
+) -> (Ended, Tally) {
     let mut stdin = child.stdin().take();
     let mut lines = BufReader::new(child.stdout().take().expect("stdout is piped")).lines();
     let mut errors = BufReader::new(child.stderr().take().expect("stderr is piped")).lines();
     let mut protocol = Protocol::default();
     let mut watch = Watch::default();
-    let opening = protocol.initialize() + &Protocol::prompt(&launch.prompt);
+    let mut opening = protocol.initialize();
+    if launch.answer.is_none() {
+        opening.push_str(&Protocol::prompt(&launch.prompt));
+    }
     send(&mut stdin, &opening).await;
 
     let (mut reading, mut erroring, mut listening) = (true, true, true);
     let mut deadline: Option<tokio::time::Instant> = None;
     let status = loop {
+        let due = watch.due(launch.answer_timeout);
         tokio::select! {
             line = lines.next_line(), if reading => match line {
                 Ok(Some(line)) => watch.read(&mut protocol, &line, &mut stdin, events).await,
@@ -440,9 +565,27 @@ async fn watch(
                 Ok(Some(line)) => watch.stderr(line),
                 _ => erroring = false,
             },
+            () = tokio::time::sleep_until(due.unwrap_or_else(tokio::time::Instant::now)),
+                if due.is_some() =>
+            {
+                let limit = launch.answer_timeout.expect("a due time comes from a limit");
+                for id in watch.overdue(limit) {
+                    match protocol.time_out(&id, &deferred_message(limit)) {
+                        Ok(reply) => {
+                            send(&mut stdin, &reply).await;
+                            watch.timed_out = true;
+                            let _ = events.send(Event::TimedOut(id));
+                        }
+                        Err(e) => notice(events, e),
+                    }
+                }
+            },
             order = orders.recv(), if listening => match order {
                 Some(Order::Respond(id, response)) => match protocol.answer(&id, &response) {
-                    Ok(answer) => send(&mut stdin, &answer).await,
+                    Ok(answer) => {
+                        watch.answered(&id);
+                        send(&mut stdin, &answer).await;
+                    }
                     Err(e) => notice(events, e),
                 },
                 Some(Order::Stop) => {
@@ -498,8 +641,8 @@ async fn watch(
             "the session's output did not end after its exit".to_owned(),
         );
     }
-    let questions = watch.questions;
-    (watch.ended(status), questions)
+    let tally = std::mem::take(&mut watch.tally);
+    (watch.ended(status), tally)
 }
 
 /// Writes a line to the session's stdin; a pipe that fails is dropped, since the session is gone

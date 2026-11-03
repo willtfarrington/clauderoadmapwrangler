@@ -383,6 +383,21 @@ fn open_with(
     })
 }
 
+/// Brings forward the VS Code window a session of `folder` waits in (D-19; EP-14): `Code.exe`
+/// opens the project's own workspace file, or the folder when it has none, which the window that
+/// has it open answers by coming to the front. Nothing is written; returns what was opened.
+pub fn focus(folder: &Path, code: &Path) -> Result<PathBuf, String> {
+    focus_with(folder, code, &mut Children)
+}
+
+fn focus_with(folder: &Path, code: &Path, starter: &mut dyn Starter) -> Result<PathBuf, String> {
+    let target = workspace::own_file(folder)
+        .filter(|file| file.is_file())
+        .unwrap_or_else(|| folder.to_owned());
+    starter.run(code, &[target.clone().into_os_string()], HANDOVER)?;
+    Ok(target)
+}
+
 /// The launch's ledger row: `visual`, with no session id, model or effort, since VS Code chooses
 /// them; none when no ledger was asked for.
 fn record(launch: &Launch) -> Result<Option<i64>, String> {
@@ -705,6 +720,30 @@ mod tests {
             launch,
             fake,
         }
+    }
+
+    #[test]
+    fn focus_opens_the_own_workspace_file_else_the_folder_and_writes_nothing() {
+        let Setup {
+            scratch,
+            launch,
+            mut fake,
+        } = setup("visual-focus", false);
+        let code = &launch.code;
+        // No workspace file of its own: the folder is opened, and no file is written.
+        let opened = focus_with(&launch.folder, code, &mut fake).unwrap();
+        assert_eq!(opened, launch.folder);
+        let own = scratch.0.join("data").join("alpha.code-workspace");
+        assert!(!own.exists());
+        fs::write(&own, workspace::single_folder("alpha")).unwrap();
+        assert_eq!(focus_with(&launch.folder, code, &mut fake).unwrap(), own);
+        assert_eq!(
+            fake.calls,
+            [
+                vec![launch.folder.to_string_lossy().into_owned()],
+                vec![own.to_string_lossy().into_owned()]
+            ]
+        );
     }
 
     #[test]

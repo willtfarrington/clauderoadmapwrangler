@@ -1,15 +1,19 @@
-//! What a headless run is started with (D-15, D-16, D-18, D-22): the [`Launch`] its caller fills,
-//! and the command line and environment the runner builds from it and from the flags the CLI's
-//! help lists. A feature is passed only when the help lists it (D-15): a wish the CLI cannot take,
-//! `--effort ultracode` or a budget, is left out and said so, and a flag the run cannot do without
-//! refuses the launch. Neighbour folders join with `--add-dir`, kept read-only by an `Edit` deny
-//! rule each in `--settings` (D-16, D-18 addenda).
+//! What a headless run is started with (D-15, D-16, D-18, D-19, D-22): the [`Launch`] its caller
+//! fills, and the command line and environment the runner builds from it and from the flags the
+//! CLI's help lists. A feature is passed only when the help lists it (D-15): a wish the CLI cannot
+//! take, `--effort ultracode` or a budget, is left out and said so, and a flag the run cannot do
+//! without refuses the launch. Neighbour folders join with `--add-dir`, kept read-only by an
+//! `Edit` deny rule each in `--settings` (D-16, D-18 addenda); on the defer route the same
+//! settings carry the `PreToolUse` hook that ends the run at a question, and a deferred call's
+//! resume the one-shot hook that answers it (D-19; EP-14).
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf, Prefix};
 use std::time::Duration;
 
-use super::cli::{Flags, REQUIRED};
+use super::cli::{Flags, PROMPT_TOOL, REQUIRED};
+use super::defer;
+use super::protocol::{Deferred, Response};
 use crate::paths;
 
 /// How long a graceful stop waits for the session to exit before its job is killed.
@@ -63,11 +67,56 @@ pub struct Launch {
     /// new session (EP-13). A resumed run keeps the session's id (the CLI's `--fork-session` is
     /// what would change it).
     pub resume: Option<String>,
+    /// How the run's questions reach the owner (D-19).
+    pub route: Route,
+    /// The `crw.exe` the defer route's hooks run; that route is refused without it.
+    pub hooks: Option<PathBuf>,
+    /// How long a request may wait for the owner before the run is deferred; none for no limit,
+    /// the default (D-19).
+    pub answer_timeout: Option<Duration>,
+    /// A deferred call's answer, which this resume hands to the call through a one-shot hook; the
+    /// run then sends no prompt, which would drop the call (EP-14).
+    pub answer: Option<Answered>,
+    /// For a resume that carries the owner's answer to a deferred request, by the hook or in its
+    /// message: how long the owner took, from the deferral to the resume (EP-14).
+    pub answered_after: Option<Duration>,
+}
+
+/// How a headless run's questions and permission requests reach the owner (D-19; EP-14); the
+/// registry's `settings.decisions` names one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Route {
+    /// The control protocol: the run waits while the owner answers in the tool.
+    #[default]
+    Protocol,
+    /// The documented fallback: a `PreToolUse` hook ends the run at each question, and the answer
+    /// resumes it.
+    Defer,
+}
+
+impl Route {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Route::Protocol => "protocol",
+            Route::Defer => "defer",
+        }
+    }
+}
+
+/// A deferred call's answer, as a resume hands it on (EP-14).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answered {
+    pub deferred: Deferred,
+    pub response: Response,
+    /// Where the runner writes the answer for the hook; removed when the run ends.
+    pub file: PathBuf,
 }
 
 impl Launch {
     /// A run of `prompt` in `folder` with `model`: `acceptEdits` (D-18), no neighbour, a stop
-    /// that waits 30 seconds, nothing recorded, a new session.
+    /// that waits 30 seconds, nothing recorded, a new session whose questions take the control
+    /// protocol with no time limit.
     pub fn new(project: &str, folder: &Path, model: &str, prompt: &str) -> Self {
         Self {
             project: project.to_owned(),
@@ -83,6 +132,11 @@ impl Launch {
             stop_timeout: STOP_TIMEOUT,
             ledger: None,
             resume: None,
+            route: Route::Protocol,
+            hooks: None,
+            answer_timeout: None,
+            answer: None,
+            answered_after: None,
         }
     }
 
@@ -143,6 +197,9 @@ pub(crate) fn command_line(
         }
     }
     // A new session takes its pre-assigned id; a resumed one is named by the id it has.
+    if launch.answer.is_some() && launch.resume.is_none() {
+        return Err("an answer to a deferred call needs the session it resumes".to_owned());
+    }
     match &launch.resume {
         Some(id) if !flags.has("--resume") => {
             return Err(format!(
@@ -196,6 +253,17 @@ pub(crate) fn command_line(
         os("--permission-prompts"),
         os("host"),
     ]);
+    // The stream-json host takes the permission prompts and the questions only once it names
+    // itself, as the Agent SDK does: without it a `-p` run denies what would prompt and offers no
+    // AskUserQuestion (found by EP-14's supervised probe).
+    if flags.prompt_tool() {
+        push(&[os(PROMPT_TOOL), os("stdio")]);
+    } else {
+        dropped.push(format!(
+            "{PROMPT_TOOL} stdio: this claude does not name it, so the session asks no question \
+             and its permission requests are denied, not sent here"
+        ));
+    }
 
     let mut neighbours = Vec::new();
     let mut rules = Vec::new();
@@ -230,7 +298,29 @@ pub(crate) fn command_line(
         for folder in &neighbours {
             push(&[os("--add-dir"), folder.as_os_str()]);
         }
-        let settings = serde_json::json!({"permissions": {"deny": rules}}).to_string();
+    }
+    let mut settings = serde_json::Map::new();
+    if !rules.is_empty() {
+        settings.insert(
+            "permissions".to_owned(),
+            serde_json::json!({ "deny": rules }),
+        );
+    }
+    if let Some(hooks) = decision_hooks(launch)? {
+        if !flags.has("--settings") {
+            return Err(format!(
+                "this claude has no --settings, which the {} hook needs",
+                if launch.answer.is_some() {
+                    "answer's"
+                } else {
+                    "defer route's"
+                }
+            ));
+        }
+        settings.insert("hooks".to_owned(), hooks);
+    }
+    if !settings.is_empty() {
+        let settings = serde_json::Value::Object(settings).to_string();
         push(&[os("--settings"), os(&settings)]);
     }
 
@@ -255,6 +345,28 @@ pub(crate) fn command_line(
         effort: effort.map(str::to_owned),
         dropped,
     })
+}
+
+/// The `PreToolUse` hooks a run's questions take (D-19; EP-14): a deferred call's resume answers
+/// it through `crw.exe hook --answer <file>`, a run on the defer route ends at each question
+/// through `crw.exe hook --defer`, and a run on the protocol needs none. `Err` when a hook is
+/// needed and no `crw.exe` was given.
+fn decision_hooks(launch: &Launch) -> Result<Option<serde_json::Value>, String> {
+    if launch.answer.is_none() && launch.route == Route::Protocol {
+        return Ok(None);
+    }
+    let program = launch
+        .hooks
+        .as_deref()
+        .ok_or("the defer route's hooks run crw.exe, and no crw.exe was found beside the window")?;
+    Ok(Some(match &launch.answer {
+        Some(answered) => defer::hooks(
+            program,
+            &["hook", "--answer", &answered.file.to_string_lossy()],
+            &defer::answer_matcher(&answered.deferred.tool),
+        ),
+        None => defer::hooks(program, &["hook", "--defer"], defer::QUESTION_TOOL),
+    }))
 }
 
 /// The variables among `names` a session's child must not inherit, with the API key always
@@ -338,7 +450,9 @@ mod tests {
   -n, --name <name>  Display name
   --output-format <format>  Output format
   --permission-mode <mode>  Mode (choices: \"acceptEdits\", \"auto\", \"plan\")
-  --permission-prompts <target>  Who answers
+  --permission-prompts <target>  Who answers permission prompts with
+                                 --print: \"host\" (the SDK host or
+                                 --permission-prompt-tool) or \"none\"
   -p, --print  Print
   --replay-user-messages  Echo
   -r, --resume [value]  Resume a conversation by session ID or name
@@ -405,6 +519,7 @@ mod tests {
         assert_eq!(value_after(&args, "--effort"), ["xhigh"]);
         assert_eq!(value_after(&args, "--permission-mode"), ["acceptEdits"]);
         assert_eq!(value_after(&args, "--permission-prompts"), ["host"]);
+        assert_eq!(value_after(&args, "--permission-prompt-tool"), ["stdio"]);
         assert_eq!(value_after(&args, "--max-budget-usd"), ["2.5"]);
         let added: Vec<String> = [&beta, &gamma]
             .iter()
@@ -442,7 +557,11 @@ mod tests {
         launch.max_budget_usd = Some(1.0);
         let bare = HELP
             .lines()
-            .filter(|line| !line.contains("--max-budget-usd") && !line.contains("--name"))
+            .filter(|line| {
+                !line.contains("--max-budget-usd")
+                    && !line.contains("--name")
+                    && !line.contains("--permission-prompt-tool")
+            })
             .collect::<Vec<_>>()
             .join("\n");
         let line = command_line(&launch, &Flags::parse(&bare), "id", []).unwrap();
@@ -451,7 +570,14 @@ mod tests {
         assert!(value_after(&args, "--name").is_empty());
         assert!(value_after(&args, "--max-budget-usd").is_empty());
         assert!(value_after(&args, "--add-dir").is_empty());
-        assert_eq!(line.dropped.len(), 2, "{:?}", line.dropped);
+        // A claude that does not name the prompt tool runs without a host for its questions.
+        assert!(value_after(&args, "--permission-prompt-tool").is_empty());
+        assert!(
+            line.dropped
+                .iter()
+                .any(|wish| wish.contains("--permission-prompt-tool"))
+        );
+        assert_eq!(line.dropped.len(), 3, "{:?}", line.dropped);
         assert_eq!(line.env, [(OsString::from(API_KEY), None)]);
 
         // A CLI that lists ultracode gets it in place of the level.
@@ -490,6 +616,99 @@ mod tests {
                 .unwrap_err()
                 .contains("--resume")
         );
+    }
+
+    #[test]
+    fn the_defer_route_hooks_questions_beside_the_neighbours_rules() {
+        let scratch = Scratch::new("launch-defer");
+        let project = scratch.0.join("alpha");
+        let beta = scratch.0.join("beta");
+        for folder in [&project, &beta] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        let crw = scratch.0.join("crw.exe");
+        let mut launch = Launch::new("alpha", &project, "opus", "Run EP-3.");
+        launch.neighbours = vec![beta.clone()];
+        launch.route = Route::Defer;
+        launch.hooks = Some(crw.clone());
+        let flags = Flags::parse(HELP);
+        let line = command_line(&launch, &flags, "id", []).unwrap();
+        let args = strings(&line);
+        let settings = value_after(&args, "--settings");
+        assert_eq!(settings.len(), 1, "one --settings: {args:?}");
+        let settings: serde_json::Value = serde_json::from_str(settings[0]).unwrap();
+        assert_eq!(
+            settings["permissions"]["deny"],
+            serde_json::json!([edit_deny_rule(&beta)])
+        );
+        let group = &settings["hooks"]["PreToolUse"][0];
+        assert_eq!(group["matcher"], "AskUserQuestion");
+        assert_eq!(group["hooks"][0]["command"], crw.display().to_string());
+        assert_eq!(
+            group["hooks"][0]["args"],
+            serde_json::json!(["hook", "--defer"])
+        );
+
+        // Without crw.exe, or a claude without --settings, the route cannot run; the protocol
+        // needs neither.
+        let mut bare = launch.clone();
+        bare.neighbours.clear();
+        bare.hooks = None;
+        assert!(
+            command_line(&bare, &flags, "id", [])
+                .unwrap_err()
+                .contains("crw.exe")
+        );
+        bare.hooks = Some(crw);
+        let without = Flags::parse(&HELP.replace("--settings", "--other"));
+        assert!(
+            command_line(&bare, &without, "id", [])
+                .unwrap_err()
+                .contains("--settings")
+        );
+        bare.route = Route::Protocol;
+        let line = command_line(&bare, &flags, "id", []).unwrap();
+        assert!(value_after(&strings(&line), "--settings").is_empty());
+    }
+
+    #[test]
+    fn an_answer_resumes_with_its_one_shot_hook() {
+        let scratch = Scratch::new("launch-answer");
+        let deferred = Deferred {
+            id: "toolu_d".to_owned(),
+            tool: "Bash".to_owned(),
+            summary: "Bash git push".to_owned(),
+            questions: Vec::new(),
+            input: serde_json::json!({"command": "git push"}),
+        };
+        let file = scratch.0.join("answers").join("0e1d.json");
+        let mut launch = Launch::new("alpha", &scratch.0, "opus", "");
+        launch.hooks = Some(scratch.0.join("crw.exe"));
+        launch.answer = Some(Answered {
+            deferred,
+            response: Response::Allow,
+            file: file.clone(),
+        });
+        let flags = Flags::parse(HELP);
+        // An answer resumes a session, or there is nothing to answer.
+        assert!(
+            command_line(&launch, &flags, "id", [])
+                .unwrap_err()
+                .contains("resumes")
+        );
+        launch.resume = Some("0e1d".to_owned());
+        let line = command_line(&launch, &flags, "0e1d", []).unwrap();
+        let args = strings(&line);
+        assert_eq!(value_after(&args, "--resume"), ["0e1d"]);
+        let settings: serde_json::Value =
+            serde_json::from_str(value_after(&args, "--settings")[0]).unwrap();
+        let group = &settings["hooks"]["PreToolUse"][0];
+        assert_eq!(group["matcher"], "AskUserQuestion|Bash");
+        assert_eq!(
+            group["hooks"][0]["args"],
+            serde_json::json!(["hook", "--answer", file.display().to_string()])
+        );
+        assert!(settings.get("permissions").is_none());
     }
 
     #[test]

@@ -258,7 +258,7 @@ only its own files inside a managed project).
 | EP-11 | [Visual launch: the extension URI with the prompt pre-filled, per-project window or workspace file when the running window's first folder differs](EP-11-visual-launch.md) (D-16) | S | EP-10, EP-33 | core | ☑ `0100629` |
 | EP-12 | [Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model](EP-12-loopback-server-and-signals.md) (D-20, D-23) | M | EP-9 | core | ☑ `4a27db1` |
 | EP-13 | [Sessions tile: a tab per session with its live transcript, Stop and Kill, Resume by id with a message, a list with filters over the ledger's rows; a row earned by a session's first work, unclaimed visual launches lapsed, `crw sessions`](EP-13-sessions-tile.md) (D-9, D-16, D-20, D-25, D-26) | M | EP-12 | core | ☑ `76a3482` |
-| EP-14 | Decisions tile: control-protocol answers to `AskUserQuestion` and permission requests, optional timeout, defer-and-resume fallback, Focus VS Code for visual sessions, answer latency (D-19) | L | EP-13 | core | ☐ |
+| EP-14 | [Decisions tile: answers to `AskUserQuestion` and permission requests through the control protocol, the host named with `--permission-prompt-tool stdio`, a per-project time limit that defers the run, the defer-and-resume route, Focus for sessions waiting in VS Code, answer latency](EP-14-decisions-tile.md) (D-19, D-26) | L | EP-13 | core | ☐ |
 | EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
 | EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-15 | core | ☐ |
 
@@ -476,7 +476,13 @@ every commit's added lines are checked before it is made, the repository being p
   threads of the window's (`app::server`, `watch`). **From EP-13:** `Change::Started` now marks a
   session's first sign of work, not its start, and a session that ends without working leaves the
   window at once, so neither a helper of the extension's nor a restored tab should toast; a window's
-  run has ended when `Live::drain` returns true (its `Event::Exited`).
+  run has ended when `Live::drain` returns true (its `Event::Exited`). **From EP-14:** what waits
+  for the owner is `Board::decisions_count()` (the requests the window's sessions wait on, the
+  runs deferred with a request open, the sessions waiting elsewhere), which the Decisions tab's
+  title already counts and the tray's badge can show; the moments for a "waiting" toast are an
+  `Event::Request` taken in `Live::take`, an `Event::TimedOut` (a project's time limit deferred the
+  run) and a result whose `Finish::deferred` names a call (the defer route), and a toast's click
+  can bring `Pane::Decisions` forward.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -494,7 +500,13 @@ every commit's added lines are checked before it is made, the repository being p
   minutes of the launch, and an unclaimed launch lapses after 30 (D-26 addendum), so the
   self-launched session's row shows its id once its first turn has run or the poll has seen it busy;
   `crw sessions <project>` prints the rows with each run's length, read only. OT-7, the owner's look
-  at the tile on the real ledger, comes first.
+  at the tile on the real ledger, comes first. **From EP-14 (the owner's answer at its close):** a
+  headless session's questions and permission requests are now answered in the Decisions tile
+  (verified on claude 2.1.316 by a supervised probe, D-19 addendum), which removes the reason
+  Visual became the default; the owner left `rules::DEFAULT_LAUNCH_MODE` for this re-plan to decide
+  with the first self-launched session in view. A project's `answer_timeout` and the defer route
+  (`crw setting decisions`) are the owner's to set; OT-8, the owner's look at the tile, comes before
+  EP-15.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -574,7 +586,13 @@ a running session).
   take `Resolution::mode`, whose default is Visual. **From EP-13:** the Commit button is a Resume
   whose message is the commit instruction: `Sessions::resume(key, preflight, message)` runs the ended
   session again under its id from the `Launch` it kept, as a ledger row of its own, and
-  `Board::resume_session` already says the preflight's refusals.
+  `Board::resume_session` already says the preflight's refusals. **From EP-14:** a chained run's
+  questions wait in the Decisions tile like any headless run's; a project's `answer_timeout`
+  (minutes, `crw set <project> answer_timeout`) defers a run whose request waits that long, its
+  outcome `deferred`, so the gate's "outcome completed" fails and the chain stops there until the
+  owner's answer resumes the run (`Sessions::answer_open`); `Sessions::resume` now takes the route
+  (`Sessions::route_for`), and a chained start sets `Launch::route` and `Launch::hooks` as
+  `Board::start_headless` does.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -662,7 +680,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   Y → opens the EP-21 preview or the launch dialog with a generated prompt), history in the ledger.
   **From EP-7:** `crw status` prints counts and stack names, never paths, but a session runs it on
   named non-data projects only (D-24 addendum), so the digest takes the badges from the window's own
-  readings rather than from a `crw status` over the whole registry.
+  readings rather than from a `crw status` over the whole registry. **From EP-14:** a chat run is a
+  `-p` session like the runner's, so it needs `--permission-prompt-tool stdio` for its questions to
+  reach the host (EP-14's probe: without it a `-p` run offers no `AskUserQuestion` and denies what
+  would prompt); its questions can use the tile's form (`decisions::Draft`, `Sessions::respond`).
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note
@@ -673,6 +694,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   long, several at the same second); from EP-13 a hooks-seen row is a session that worked. A lapsed
   visual launch has no session id, no outcome and no run length (`SessionRow::took` is `None`,
   `RowState::Lapsed`), and each run of a resumed headless session is a row of its own under one id.
+  **From EP-14:** the runner writes `questions` (a question the defer route's hook ended the run
+  at counts) and `answer_latency_s`, the mean seconds from a request to the owner's answer in the
+  run, a deferred request's answer counted on the resume that carries it (`SessionRow`'s fields,
+  worded by `ledger::asked`); rows before EP-14 have no latency.
 - **EP-26.** `app::analytics` with egui_plot 0.38: a calendar heatmap (sessions and completions per day,
   per project and for the portfolio), a burn-up per project (done and total over time; re-plans visible as
   total jumps), velocity (EPs per week over the last 8 weeks) and projection (remaining session-hours from
@@ -733,7 +758,13 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   end seen" in the tile, "open: no end recorded" in `crw sessions`; one from EP-12's own session at
   the time of writing), which the reconciliation closes. A migration step takes the ledger's write
   lock before it reads the version, so the window's threads and `crw` may open it at once; reads go
-  through `Ledger::open_read_only`, which never creates or migrates the file.
+  through `Ledger::open_read_only`, which never creates or migrates the file. **From EP-14:** the
+  tile can show the route the window's headless runs take (`Sessions::route_for`: the registry's
+  `settings.decisions`, or a handshake refused in the window) and whether the preflight's help names
+  `--permission-prompt-tool` (`Flags::prompt_tool`; without it a run's questions are disabled, as a
+  dropped wish says); the defer route's hooks run the `crw.exe` beside the window
+  (`board::crw_exe`), whose absence refuses that route, and an answer's file lives in
+  `%LOCALAPPDATA%\clauderoadmapwrangler\answers\` only while its resume runs.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -758,6 +789,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   `app::server`'s router (axum with `http1`, `json` and `tokio` only); its guard refuses a request
   with an `Origin` or a `Host` other than the loopback, as a phone's request through Tailscale
   Serve may well carry, so the `/m/` routes take the identity check of D-28 in its place.
+  **From EP-14:** the decisions page answers through the window's own calls
+  (`Sessions::respond(key, request, Response)`, and `Sessions::answer_open` for a deferred run), its
+  forms by `decisions::Draft`'s rules (one answer or several, the owner's own words, a refusal's
+  reason) and its words by `decisions::answer_words`.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
@@ -785,7 +820,13 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    the recorded minimum and the last successful handshake. *(EP-9, 2026-11-02.)* CLI 2.1.316 answered
    the `initialize` handshake, named its capabilities and ran a supervised probe through the runner to
    its result; a line the adapter cannot read is an event, and a request it cannot read is refused,
-   so a protocol change shows as events rather than a hung session.
+   so a protocol change shows as events rather than a hung session. *(EP-14, 2026-11-02.)* A
+   supervised probe found that the runner had never named itself the run's permission host: without
+   `--permission-prompt-tool stdio` (the Agent SDK's form, named in 2.1.316's help only inside
+   `--permission-prompts`' description) a `-p` run offers no `AskUserQuestion` and denies whatever
+   would prompt. With it, the probe's question was answered through the protocol, a time limit
+   deferred a run, and the defer route ended a run at its question and resumed it without a prompt;
+   a CLI whose help stops naming the flag runs without a host, which the launch says.
 3. **Two CLI versions on the machine** (standalone 2.1.261, extension-bundled 2.1.314). Visual and
    headless sessions may behave differently; the minimum version applies to the standalone binary.
    *(EP-8, 2026-11-01.)* The standalone binary updates itself (2.1.316 at EP-8, the version of the

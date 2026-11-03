@@ -1,0 +1,7 @@
+{"stub":"handshake"}
+{"stub":"prompt"}
+{"type":"system","subtype":"init","session_id":"$SESSION","uuid":"00000000-0000-4000-8000-000000000021","cwd":"C:\\Data\\alpha","model":"claude-fable-5-1","effort":"high","permissionMode":"acceptEdits","claude_code_version":"2.1.316","tools":["Read","Edit","AskUserQuestion"],"capabilities":["alpha_capability"],"apiKeySource":"none"}
+{"type":"assistant","session_id":"$SESSION","parent_tool_use_id":null,"message":{"id":"msg_21","type":"message","role":"assistant","model":"claude-fable-5-1","content":[{"type":"text","text":"One choice first."},{"type":"tool_use","id":"toolu_21","name":"AskUserQuestion","input":{"questions":[{"question":"Which shelf should the index take?","header":"Shelf","multiSelect":false,"options":[{"label":"Top","description":"Read first"},{"label":"Bottom","description":"Read last"}]}]}}]}}
+{"type":"result","subtype":"success","is_error":false,"duration_ms":900,"duration_api_ms":700,"num_turns":1,"session_id":"$SESSION","total_cost_usd":0.02,"result":"","stop_reason":"tool_deferred","permission_denials":[],"deferred_tool_use":{"id":"toolu_21","name":"AskUserQuestion","input":{"questions":[{"question":"Which shelf should the index take?","header":"Shelf","multiSelect":false,"options":[{"label":"Top","description":"Read first"},{"label":"Bottom","description":"Read last"}]}]}}}
+{"stub":"eof"}
+{"stub":"exit","code":0}

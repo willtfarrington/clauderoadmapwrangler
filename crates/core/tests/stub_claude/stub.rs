@@ -17,8 +17,10 @@
 //! - `{"stub": "grandchild"}` starts a process of its own that beats `heartbeat.txt` until it is
 //!   killed, so the tests can see a job take the whole tree.
 //!
-//! It records its arguments, the environment variables the tests look for and every line it
-//! reads in `stub-record.jsonl`, one JSON object per line.
+//! It records its arguments, the environment variables the tests look for, the answer file a
+//! resume's `PreToolUse` hook would read (its path and what it holds, when `--settings` names one;
+//! EP-14) and every line it reads in `stub-record.jsonl`, one JSON object per line. It runs no
+//! hook.
 
 use std::fs::{self, File, OpenOptions};
 use std::io::{self, BufRead, Lines, StdinLock, Write};
@@ -51,9 +53,11 @@ Options:
                                         (choices: \"acceptEdits\", \"auto\",
                                         \"bypassPermissions\", \"manual\",
                                         \"dontAsk\", \"plan\")
-  --permission-prompts <target>         Who answers permission prompts
-                                        (choices: \"host\", \"none\", default:
-                                        \"host\")
+  --permission-prompts <target>         Who answers permission prompts with
+                                        --print: \"host\" (the SDK host or
+                                        --permission-prompt-tool) or \"none\"
+                                        (nobody: anything that would prompt is
+                                        denied automatically)
   -p, --print                           Print response and exit
   --replay-user-messages                Re-emit user messages from stdin
   -r, --resume [value]                  Resume a conversation by session ID or
@@ -159,7 +163,7 @@ fn play(args: &[String]) {
     let _ = writeln!(
         record,
         "{}",
-        json!({ "args": args, "cwd": cwd, "env": env })
+        json!({ "args": args, "cwd": cwd, "env": env, "answer_file": answer_file(args) })
     );
     let mut input = Input {
         lines: io::stdin().lock().lines(),
@@ -215,6 +219,30 @@ fn play(args: &[String]) {
             "grandchild" => heartbeats.push(grandchild()),
             other => panic!("unknown directive {other:?}"),
         }
+    }
+}
+
+/// The answer file of a `--answer <file>` hook in `--settings`, and what it holds when the run
+/// starts; null when no hook names one.
+fn answer_file(args: &[String]) -> Value {
+    let settings = args
+        .windows(2)
+        .find(|pair| pair[0] == "--settings")
+        .and_then(|pair| serde_json::from_str::<Value>(&pair[1]).ok())
+        .unwrap_or(Value::Null);
+    let path = settings["hooks"]["PreToolUse"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .flat_map(|group| group["hooks"].as_array().into_iter().flatten())
+        .filter_map(|handler| handler["args"].as_array())
+        .find_map(|args| {
+            let at = args.iter().position(|arg| arg == "--answer")?;
+            args.get(at + 1)?.as_str().map(str::to_owned)
+        });
+    match path {
+        Some(path) => json!({ "content": fs::read_to_string(&path).ok(), "path": path }),
+        None => Value::Null,
     }
 }
 

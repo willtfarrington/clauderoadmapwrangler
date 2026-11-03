@@ -4,7 +4,9 @@
 //! the files, the moves of the selection, and from EP-10 the launch dialog and the headless
 //! sessions it starts (D-16, D-17, D-22), from EP-11 its visual launches; from EP-12 the sessions
 //! the hooks and the poll of live sessions report join the window's own (D-20); from EP-13 an
-//! ended headless session resumes in its tab (D-16).
+//! ended headless session resumes in its tab (D-16); from EP-14 the owner answers what a session
+//! asks, a deferred run resumes with the answer, and Focus brings a waiting session's VS Code
+//! window forward (D-19).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -19,9 +21,9 @@ use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
 use crw_core::proposal::{self, Reason};
 use crw_core::registry::{State, Store};
 use crw_core::roadmap::snapshot::InProgress;
-use crw_core::session::cli;
+use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
-use crw_core::{files, inbox, prompt, tasks};
+use crw_core::{files, inbox, paths, prompt, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
@@ -151,6 +153,19 @@ pub enum Action {
     DismissSession(u64),
     /// An ended session run again under its id with the message typed in its tab (EP-13).
     ResumeSession(u64),
+    /// The owner's answer to a request a window's session waits on (D-19; EP-14).
+    Respond {
+        key: u64,
+        request: String,
+        response: Response,
+    },
+    /// A deferred run's open request answered: the session resumes with the answer (EP-14).
+    AnswerDeferred {
+        key: u64,
+        response: Response,
+    },
+    /// The VS Code window of the project a session waits in, brought forward (D-19).
+    Focus(String),
     /// A key or a button of a brief not built yet: a notice that says which.
     NotYet(&'static str),
 }
@@ -319,11 +334,15 @@ impl Board {
             }
             None => {}
         }
+        if let Some(text) = self.sessions.switched.take() {
+            self.warn(text);
+        }
         match self.visual.receive(ctx) {
             Some(visual::Outcome::Opened(text)) => {
                 self.launch = None;
                 self.notify(text);
             }
+            Some(visual::Outcome::Focused(text)) => self.notify(text),
             Some(visual::Outcome::Refused(why)) => match self.launch.as_mut() {
                 Some(dialog) => dialog.error = Some(why),
                 None => self.fail(why),
@@ -468,6 +487,13 @@ impl Board {
             Action::KillSession(key) => self.sessions.kill(key),
             Action::DismissSession(key) => self.sessions.dismiss(key),
             Action::ResumeSession(key) => self.resume_session(key),
+            Action::Respond {
+                key,
+                request,
+                response,
+            } => self.respond(key, &request, response),
+            Action::AnswerDeferred { key, response } => self.answer_deferred(key, response),
+            Action::Focus(name) => self.focus(&name),
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -687,11 +713,17 @@ impl Board {
         };
         let program = cli::locate(registry.settings.claude_cli.as_deref())
             .unwrap_or_else(|| PathBuf::from("claude.exe"));
-        let levels: Vec<String> = self
-            .sessions
-            .preflight(&program, &self.ctx)
+        let preflight = self.sessions.preflight(&program, &self.ctx);
+        let levels: Vec<String> = preflight
+            .as_ref()
             .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
             .unwrap_or_default();
+        let version = preflight
+            .as_ref()
+            .and_then(|preflight| preflight.version.as_ref().ok().map(ToString::to_string));
+        let route = self
+            .sessions
+            .route(&program, version.as_deref(), registry.settings.decisions);
         let claude_md = prompt::claude_md(&folder);
         let today = files::today();
         let draft = match prompt::draft(
@@ -752,6 +784,8 @@ impl Board {
                 catalog,
                 date: today,
                 vscode_setting,
+                answer_timeout: project.answer_timeout(),
+                route,
             },
         ));
     }
@@ -806,9 +840,122 @@ impl Board {
             return;
         }
         dialog.error = None;
-        let launch = dialog.launch(self.ledger.clone());
+        let mut launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
+        // The route as it stands now: a refused handshake since the dialog opened counts (D-19).
+        launch.route = self
+            .sessions
+            .route_for(&preflight, self.decisions_setting())
+            .0;
+        launch.hooks = crw_exe();
         self.sessions.start(preflight, launch, effort, &self.ctx);
+    }
+
+    /// The registry's `settings.decisions`, when it reads.
+    fn decisions_setting(&self) -> Option<Route> {
+        self.store()
+            .load()
+            .ok()
+            .and_then(|loaded| loaded.registry.settings.decisions)
+    }
+
+    /// Sends the owner's answer to the window's session `key` that waits on `request` (D-19,
+    /// EP-14); a screenshot run sends nothing.
+    fn respond(&mut self, key: u64, request: &str, response: Response) {
+        if self.fixtures {
+            self.warn("A screenshot run answers nothing: its sessions are canned.");
+            return;
+        }
+        let title = self
+            .sessions
+            .live
+            .iter()
+            .find(|live| live.key == key)
+            .map(|live| live.title())
+            .unwrap_or_default();
+        match self.sessions.respond(key, request, response) {
+            Ok(words) => self.notify(format!("{title}: {words}; the session goes on.")),
+            Err(why) => self.fail(format!("{title}: the answer was not sent: {why}.")),
+        }
+    }
+
+    /// Resumes the window's deferred run `key` with the owner's answer to its open request (D-19;
+    /// EP-14), off the UI thread as a start is; a screenshot run starts nothing.
+    fn answer_deferred(&mut self, key: u64, response: Response) {
+        if self.fixtures {
+            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            return;
+        }
+        if self.sessions.is_starting() {
+            return;
+        }
+        let Some(program) = self
+            .sessions
+            .live
+            .iter()
+            .find(|live| live.key == key)
+            .map(|live| live.program().to_owned())
+        else {
+            return;
+        };
+        let Some(preflight) = self.sessions.preflight(&program, &self.ctx) else {
+            self.warn("claude has not answered yet: press the button again in a moment.");
+            return;
+        };
+        let refusals = preflight.refusals();
+        if !refusals.is_empty() {
+            self.fail(format!(
+                "The session cannot resume: {}",
+                refusals.join("; ")
+            ));
+            return;
+        }
+        let Some(answers) = paths::local_dir().map(|dir| dir.join("answers")) else {
+            self.fail("No profile folder for the answer: LOCALAPPDATA is not set.");
+            return;
+        };
+        let route = self
+            .sessions
+            .route_for(&preflight, self.decisions_setting())
+            .0;
+        let answered = self.sessions.answer_open(
+            key,
+            preflight,
+            response,
+            (route, crw_exe(), &answers),
+            &self.ctx,
+        );
+        if let Err(why) = answered {
+            self.fail(format!("The session cannot resume: {why}."));
+        }
+    }
+
+    /// Brings forward the VS Code window of `name`, where one of its sessions waits (D-19; EP-14),
+    /// off the UI thread; a screenshot run opens nothing.
+    fn focus(&mut self, name: &str) {
+        if self.fixtures {
+            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            return;
+        }
+        let Some(folder) = self
+            .portfolio
+            .project(name)
+            .and_then(|row| row.folder.as_ref())
+            .map(|folder| folder.path.clone())
+        else {
+            self.fail(format!("{name}: its folder is missing."));
+            return;
+        };
+        let setting = self
+            .store()
+            .load()
+            .ok()
+            .and_then(|loaded| loaded.registry.settings.vscode);
+        let Some(code) = crw_core::visual::locate(setting.as_deref()) else {
+            self.fail("VS Code was not found: set its Code.exe with crw setting vscode.");
+            return;
+        };
+        self.visual.focus(name, &folder, &code, &self.ctx);
     }
 
     /// Resumes the window's ended session `key` with the message typed in its tab (D-16's EP-9
@@ -833,7 +980,12 @@ impl Board {
             ));
             return;
         }
-        self.sessions.resume(key, preflight, &message, &self.ctx);
+        let route = self
+            .sessions
+            .route_for(&preflight, self.decisions_setting())
+            .0;
+        self.sessions
+            .resume(key, preflight, &message, route, &self.ctx);
     }
 
     /// The launch dialog over the window, while it is open. Escape and Cancel close it; a click
@@ -955,6 +1107,14 @@ impl Board {
         });
         ui.add_space(2.0);
     }
+}
+
+/// The `crw.exe` beside the window's own exe, which the defer route's hooks run (D-19; EP-14).
+fn crw_exe() -> Option<PathBuf> {
+    std::env::current_exe()
+        .ok()
+        .map(|exe| exe.with_file_name("crw.exe"))
+        .filter(|path| path.is_file())
 }
 
 fn stored<T: serde::de::DeserializeOwned>(

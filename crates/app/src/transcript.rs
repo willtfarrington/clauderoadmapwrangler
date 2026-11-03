@@ -1,8 +1,9 @@
 //! A headless session's transcript as the Sessions tile shows it (EP-13), built from the runner's
 //! events as they come: the message a run started or resumed with, the assistant's text (its
 //! partial text appended while it streams), each tool call in one line with its result collapsed
-//! under it, the refusals, what the session asked the host, the notices and the result. It lives
-//! in the window's memory only: the tool writes no transcript and reads none from disk (D-3, D-26).
+//! under it, the refusals, what the session asked the host with the owner's answer (EP-14), the
+//! notices and the result. It lives in the window's memory only: the tool writes no transcript
+//! and reads none from disk (D-3, D-26).
 
 use chrono::{DateTime, Local};
 use crw_core::session::{Denied, Event, Finish, Request, ToolResult, ToolUse};
@@ -29,8 +30,12 @@ pub enum Entry {
         result: Option<ToolResult>,
     },
     Denied(Denied),
-    /// A permission or a question the session asked the host (D-19); EP-14 answers it.
-    Asked(Request),
+    /// A permission or a question the session asked the host (D-19), and what became of it in
+    /// words once it is known: the owner's answer, withdrawn, or deferred at the time limit.
+    Asked {
+        request: Request,
+        answer: Option<String>,
+    },
     Notice(String),
     Result(Finish),
 }
@@ -78,7 +83,15 @@ impl Transcript {
                     *slot = Some(came.clone());
                 }
             }
-            Event::Request(request) => self.push(Entry::Asked(request.clone())),
+            Event::Request(request) => self.push(Entry::Asked {
+                request: request.clone(),
+                answer: None,
+            }),
+            Event::Withdrawn(id) => self.answered(id, "withdrawn by the session"),
+            Event::TimedOut(id) => self.answered(
+                id,
+                "no answer within the project's time limit: the run is deferred",
+            ),
             Event::Denied(denied) => self.push(Entry::Denied(denied.clone())),
             Event::Notice(text) => self.push(Entry::Notice(text.clone())),
             Event::Handshake(Err(e)) => self.push(Entry::Notice(format!(
@@ -88,11 +101,21 @@ impl Transcript {
                 self.streaming.clear();
                 self.push(Entry::Result(finish.clone()));
             }
-            Event::Init(_)
-            | Event::Handshake(Ok(()))
-            | Event::Withdrawn(_)
-            | Event::Unreadable(_)
-            | Event::Exited(_) => {}
+            Event::Init(_) | Event::Handshake(Ok(())) | Event::Unreadable(_) | Event::Exited(_) => {
+            }
+        }
+    }
+
+    /// Says under the request `id` what became of it, unless that is said already.
+    pub fn answered(&mut self, id: &str, words: &str) {
+        let slot = self.entries.iter_mut().rev().find_map(|entry| match entry {
+            Entry::Asked { request, answer } if request.id == id => Some(answer),
+            _ => None,
+        });
+        if let Some(answer) = slot
+            && answer.is_none()
+        {
+            *answer = Some(words.to_owned());
         }
     }
 
@@ -193,7 +216,7 @@ fn entry_ui(ui: &mut egui::Ui, entry: &Entry, id: (u64, usize)) {
                 .color(style::red(ui)),
             );
         }
-        Entry::Asked(request) => {
+        Entry::Asked { request, answer } => {
             ui.horizontal_wrapped(|ui| {
                 ui.label(style::icon(
                     icons::ICON_HOURGLASS_TOP,
@@ -204,6 +227,13 @@ fn entry_ui(ui: &mut egui::Ui, entry: &Entry, id: (u64, usize)) {
                         .color(style::amber(ui)),
                 );
             });
+            let (words, colour) = match answer {
+                Some(words) => (words.as_str(), weak),
+                None => ("waiting: the Decisions pane answers it", style::amber(ui)),
+            };
+            ui.indent(id, |ui| {
+                ui.label(RichText::new(format!("→ {words}")).small().color(colour));
+            });
         }
         Entry::Notice(text) => {
             ui.label(RichText::new(text).small().color(style::amber(ui)));
@@ -211,9 +241,20 @@ fn entry_ui(ui: &mut egui::Ui, entry: &Entry, id: (u64, usize)) {
         Entry::Result(finish) => {
             let colour = if finish.succeeded() {
                 style::green(ui)
+            } else if finish.is_deferred() {
+                style::amber(ui)
             } else {
                 style::red(ui)
             };
+            if let Some(deferred) = &finish.deferred {
+                ui.label(
+                    RichText::new(format!(
+                        "Deferred at {}: the Decisions pane answers it and resumes the session.",
+                        deferred.summary
+                    ))
+                    .color(colour),
+                );
+            }
             ui.label(
                 RichText::new(format!(
                     "Result: {} · {} turns · {} s · an estimated ${:.3}",
@@ -348,6 +389,39 @@ mod tests {
             transcript.entries.last(),
             Some(Entry::Prompt { resumed: true, .. })
         ));
+    }
+
+    #[test]
+    fn a_request_says_what_became_of_it_once() {
+        let request = |id: &str| {
+            Event::Request(Request {
+                id: id.to_owned(),
+                tool: "Bash".to_owned(),
+                summary: "Bash git push".to_owned(),
+                reason: None,
+                questions: Vec::new(),
+                input: String::new(),
+            })
+        };
+        let answer = |transcript: &Transcript, at: usize| match &transcript.entries[at] {
+            Entry::Asked { answer, .. } => answer.clone(),
+            other => panic!("{other:?}"),
+        };
+        let mut transcript = Transcript::default();
+        transcript.take(&request("req-1"));
+        transcript.take(&request("req-2"));
+        transcript.take(&request("req-3"));
+        assert_eq!(answer(&transcript, 0), None);
+        transcript.answered("req-1", "allowed");
+        transcript.answered("req-1", "denied: late");
+        transcript.take(&Event::Withdrawn("req-2".to_owned()));
+        transcript.take(&Event::TimedOut("req-3".to_owned()));
+        assert_eq!(answer(&transcript, 0).as_deref(), Some("allowed"));
+        assert_eq!(
+            answer(&transcript, 1).as_deref(),
+            Some("withdrawn by the session")
+        );
+        assert!(answer(&transcript, 2).unwrap().contains("deferred"));
     }
 
     #[test]

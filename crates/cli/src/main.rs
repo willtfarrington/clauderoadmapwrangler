@@ -6,7 +6,8 @@
 //! starts from, worded for either launch mode from EP-11; `dismiss` and `undismiss` from EP-33,
 //! the proposals the owner leaves out; the `hook` and `statusline` relays and `signals`, their
 //! entries in Claude Code's user settings, from EP-12; `sessions`, the ledger's rows read without
-//! a write, from EP-13; `inbox send` arrives with its brief.
+//! a write, from EP-13; `hook --defer` and `hook --answer`, the defer route's decisions, and a
+//! project's `answer_timeout`, from EP-14; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -52,6 +53,9 @@ commands:
   set <project> state <state>    active, paused, maintenance, done, archived or unformalised
   set <project> priority <1-5>   1 is the highest
   set <project> pinned <yes|no>  pinned projects sort first
+  set <project> answer_timeout <minutes|none>
+                                 how long a headless session's question or permission request
+                                 waits for an answer before the run is deferred; none for no limit
   dismiss <project> [<proposal>] leave a proposed state out until the fact it rests on changes;
                                  every open proposal of the project, or the one named:
                                  all_rows_checked, pickup_gate or no_commit_since
@@ -73,7 +77,9 @@ commands:
                                  backup; asks git, gh and the origins (--offline: git only)
   setting [<key> [<value>]]      print the registry's settings, or set one: data_root,
                                  workspace_file, backup_settings, backup_log, claude_cli, vscode,
-                                 port (the window's loopback port for the signals)
+                                 port (the window's loopback port for the signals), decisions
+                                 (protocol, or defer: a headless run ends at a question and the
+                                 answer resumes it)
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
@@ -97,6 +103,9 @@ commands:
   signals remove                 take the tool's hooks and status line out of the user settings
   hook [--inbox]                 the hooks' relay: posts the hook's input to the window and
                                  prints nothing (with --inbox, a start's open inbox messages)
+  hook --defer | --answer <file> the defer route's PreToolUse decisions, which a headless run's
+                                 settings install: defer a question, or answer the deferred call
+                                 the file names
   statusline                     the status line's relay: posts its input to the window and
                                  prints nothing
   help                           print this text
@@ -132,6 +141,19 @@ fn main() -> ExitCode {
         ["setting"] => setting(None, None),
         ["setting", key] => setting(Some(key), None),
         ["setting", key, value] => setting(Some(key), Some(value)),
+        // The defer route's decisions (D-19; EP-14): printed for Claude Code, never an error, so
+        // that the tool never stops a run by failing.
+        ["hook", "--defer"] => {
+            let _ = hook_input();
+            println!("{}", session::defer::defer());
+            ExitCode::SUCCESS
+        }
+        ["hook", "--answer", file] => {
+            if let Some(output) = session::defer::answer(&hook_input(), Path::new(file)) {
+                println!("{output}");
+            }
+            ExitCode::SUCCESS
+        }
         // The relays never fail and never print an error: a session must not wait on the tool
         // or show its errors (D-20).
         ["hook", rest @ ..] => {
@@ -168,6 +190,17 @@ fn main() -> ExitCode {
         }
         _ => usage_error(&format!("unknown command: {}", args.join(" "))),
     }
+}
+
+/// A hook's input from stdin, at most 1 MB of it; whatever reads.
+fn hook_input() -> String {
+    use std::io::Read as _;
+    let mut input = String::new();
+    let _ = std::io::stdin()
+        .lock()
+        .take(1 << 20)
+        .read_to_string(&mut input);
+    input
 }
 
 fn usage_error(message: &str) -> ExitCode {
@@ -506,9 +539,22 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
             "no" | "false" => store.change(&today, |c| c.set_pinned(project, false)),
             _ => return usage_error(&format!("pinned takes yes or no, not {value:?}")),
         },
+        "answer_timeout" => match value {
+            "none" => store.change(&today, |c| c.set_answer_timeout(project, None)),
+            minutes => match minutes.parse::<u32>() {
+                Ok(minutes) => {
+                    store.change(&today, |c| c.set_answer_timeout(project, Some(minutes)))
+                }
+                Err(_) => {
+                    return usage_error(&format!(
+                        "answer_timeout takes minutes or none, not {value:?}"
+                    ));
+                }
+            },
+        },
         _ => {
             return usage_error(&format!(
-                "set changes state, priority or pinned, not {field:?}"
+                "set changes state, priority, pinned or answer_timeout, not {field:?}"
             ));
         }
     };
@@ -1495,6 +1541,7 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (Some(value), _) => value,
             (None, "data_root") => format!("{} (the default)", registry.data_root().display()),
             (None, "port") => format!("{} (the default)", registry.port()),
+            (None, "decisions") => format!("{} (the default)", session::Route::default().as_str()),
             (None, _) => "not set".to_owned(),
         };
         println!("  {name:<16} {value}");
@@ -1557,7 +1604,7 @@ fn sessions(args: &[&str]) -> ExitCode {
         path.display()
     );
     let now = Utc::now();
-    let lines: Vec<[String; 7]> = rows
+    let lines: Vec<[String; 8]> = rows
         .iter()
         .map(|row| {
             let when = row.started().map_or(row.started_at.clone(), |at| {
@@ -1591,10 +1638,11 @@ fn sessions(args: &[&str]) -> ExitCode {
                 row.took().map_or("-".to_owned(), ledger::length),
                 state,
                 cost,
+                ledger::asked(row).unwrap_or_default(),
             ]
         })
         .collect();
-    let mut widths = [0usize; 7];
+    let mut widths = [0usize; 8];
     for line in &lines {
         for (width, cell) in widths.iter_mut().zip(line) {
             *width = (*width).max(cell.chars().count());

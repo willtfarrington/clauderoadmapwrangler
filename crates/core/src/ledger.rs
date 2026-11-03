@@ -107,9 +107,9 @@ ALTER TABLE session ADD COLUMN context_percent REAL;
 /// The `session` columns a [`SessionRow`] reads, in its order; a ledger opened to read at schema 2
 /// has no result or context yet.
 const SESSION_COLUMNS: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, result, context_percent";
+    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s";
 const SESSION_COLUMNS_V2: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL";
+    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL, answer_latency_s";
 
 /// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -137,6 +137,9 @@ pub struct Finished<'a> {
     pub questions: u32,
     /// The run's final text, kept to [`RESULT_CAP`] characters.
     pub result: Option<&'a str>,
+    /// The mean seconds the owner took to answer the run's requests; none when it carried no
+    /// answer (D-26; EP-14).
+    pub answer_latency_s: Option<f64>,
 }
 
 /// A session's row as the ledger holds it.
@@ -161,6 +164,8 @@ pub struct SessionRow {
     pub result: Option<String>,
     /// The share of the context window the session's status line last gave (from EP-13).
     pub context_percent: Option<f64>,
+    /// The mean seconds the owner took to answer the run's requests (from EP-14).
+    pub answer_latency_s: Option<f64>,
 }
 
 impl SessionRow {
@@ -213,6 +218,27 @@ pub enum RowState<'a> {
     Launched,
     /// No end recorded: it runs, or its end was never heard.
     Open,
+}
+
+/// What a row's run asked the owner, in words: `2 questions, answered in 40 s` (EP-14); none when
+/// it asked nothing and carried no answer.
+pub fn asked(row: &SessionRow) -> Option<String> {
+    let questions = match row.questions {
+        0 => None,
+        1 => Some("1 question".to_owned()),
+        n => Some(format!("{n} questions")),
+    };
+    let answered = row.answer_latency_s.map(|seconds| {
+        format!(
+            "answered in {}",
+            length(TimeDelta::seconds(seconds.round() as i64))
+        )
+    });
+    match (questions, answered) {
+        (Some(questions), Some(answered)) => Some(format!("{questions}, {answered}")),
+        (Some(text), None) | (None, Some(text)) => Some(text),
+        (None, None) => None,
+    }
 }
 
 /// A run's length in words: `36 s`, `52 min`, `1 h 04 min`.
@@ -337,11 +363,11 @@ impl Ledger {
     }
 
     /// Records how a run ended: its end time, its outcome, the CLI's cost estimate, the questions
-    /// it asked and its final text.
+    /// it asked, its final text and how long the owner took to answer.
     pub fn finish_session(&self, id: i64, finished: &Finished<'_>) -> Result<(), Error> {
         self.connection.execute(
             "UPDATE session SET ended_at = ?2, outcome = ?3, cost_usd = ?4, questions = ?5, \
-             result = ?6 WHERE id = ?1",
+             result = ?6, answer_latency_s = ?7 WHERE id = ?1",
             (
                 id,
                 rfc3339(finished.at),
@@ -349,6 +375,7 @@ impl Ledger {
                 finished.cost_usd,
                 finished.questions,
                 finished.result.map(|text| capped(text, RESULT_CAP)),
+                finished.answer_latency_s,
             ),
         )?;
         Ok(())
@@ -476,6 +503,7 @@ impl Ledger {
                 questions: row.get(12)?,
                 result: row.get(13)?,
                 context_percent: row.get(14)?,
+                answer_latency_s: row.get(15)?,
             })
         };
         let rows = match limit {
@@ -877,6 +905,7 @@ mod tests {
             cost_usd: Some(1.25),
             questions: 2,
             result: Some("EP-3 is done: the parser reads the five-column tables."),
+            answer_latency_s: Some(42.5),
         };
         ledger
             .finish_session(id, &finished("2026-11-02T05:40:00Z", "completed"))
@@ -905,6 +934,7 @@ mod tests {
         assert_eq!(row.ended_at.as_deref(), Some("2026-11-02T05:40:00Z"));
         assert_eq!(row.outcome.as_deref(), Some("completed"));
         assert_eq!((row.cost_usd, row.questions), (Some(1.25), 2));
+        assert_eq!(row.answer_latency_s, Some(42.5));
         assert_eq!(
             row.result.as_deref(),
             Some("EP-3 is done: the parser reads the five-column tables.")

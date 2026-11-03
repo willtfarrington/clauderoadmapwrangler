@@ -22,7 +22,7 @@ the project's neighbour folders read-only, reads its stream-json, answers its qu
 requests, stops it with its whole process tree and records it in the ledger; the launch dialog (EP-10)
 generates the house-style opener for a project's next brief, resolves its model, effort and permission
 mode through a rule table with the reason for each, and starts the session from the window, which
-holds it until the sessions and decisions tiles arrive. Adopt writes a new project's own
+holds it. Adopt writes a new project's own
 single-folder VS Code workspace file beside it, and a proposed state can be dismissed until the fact
 it rests on changes (EP-33). The dialog launches visually too (EP-11): it opens the project's own
 workspace file in VS Code and fills the prompt into a new Claude Code tab of that window, for the
@@ -30,7 +30,11 @@ owner to send. The window listens on the loopback for Claude Code's hooks and st
 `crw signals install` sets up in the user settings, and asks Claude Code for its live sessions, so
 the sessions started elsewhere show beside its own (EP-12). The Sessions pane is a tile (EP-13): a tab
 per headless session with its transcript as it streams, Stop and Kill, Resume with a message, and a
-list of every session with the ledger's rows, which `crw sessions` prints too. The roadmap is
+list of every session with the ledger's rows, which `crw sessions` prints too. The Decisions pane is
+a tile too (EP-14): a headless session's questions and permission requests are answered there while
+it waits, a project may give them a time limit after which the run is deferred until the answer
+resumes it, a documented defer-and-resume route stands in when a CLI release breaks the control
+protocol, and a session waiting in VS Code is listed with Focus. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -76,7 +80,8 @@ its ledger and the copies it makes before changing a file in `%LOCALAPPDATA%\cla
 nothing is kept in a project. The registry lists the folders of one data root (by default the folder
 that holds this repository); `crw adopt` registers a folder, writes its own single-folder
 `<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
-file; `crw ignore` hides one, `crw set` changes a project's state, priority or pin, and `crw dismiss`
+file; `crw ignore` hides one, `crw set` changes a project's state, priority, pin or time limit for
+its sessions' requests, and `crw dismiss`
 leaves a proposed state out until the fact it rests on changes (`crw undismiss` brings it back). Set
 `CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
@@ -103,9 +108,22 @@ model and effort and sends it. Start headless runs the session and gives it a ta
 pane: its transcript as it streams (the assistant's text, each tool call in one line with its result
 collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs, and,
 once it has ended, Resume, which runs it again under its session id with the message typed there.
-The Decisions pane lists what a session waits for. The pane's All tab lists every session, the
-window's, those started elsewhere and the ledger's latest rows, filtered by project, mode and
-running only. The transcript stays in the window's memory: the tool writes none and reads none.
+The pane's All tab lists every session, the window's, those started elsewhere and the ledger's
+latest rows, filtered by project, mode and running only. The transcript stays in the window's
+memory: the tool writes none and reads none.
+
+The Decisions pane answers what a headless session asks while it waits: a permission request with
+Allow or Deny (its tool, its call, why it asks and its input shown; a reason optional), a question
+with its options, one or several, or the owner's own words, sent or declined. A project's
+`answer_timeout` (`crw set <project> answer_timeout <minutes|none>`, none by default) defers a run
+whose request waits that long: the request is refused, the turn ends, and the answer given later
+in the pane resumes the session with it. With `crw setting decisions defer`, or by itself for the
+later runs of a CLI that refused the control protocol's handshake, the window takes Claude Code's
+documented defer-and-resume route instead: a `PreToolUse` hook (`crw.exe hook --defer`) ends a run
+at each question, and the answer resumes the session without a prompt through a one-shot hook
+(`crw.exe hook --answer <file>`). A session Claude Code reports waiting elsewhere is listed too,
+never answered: Focus brings its VS Code window forward. The ledger keeps how many questions a run
+asked and how long the answers took.
 
 The window also listens on `127.0.0.1` (the registry's `port`, 47831 by default) for Claude Code's
 hooks (SessionStart, Notification, Stop, SessionEnd) and its status line, which `crw signals install`

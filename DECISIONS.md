@@ -474,6 +474,37 @@ protocol is what community tools use and what `claude-codes` types; the docs gua
 > `interrupt_receipt_v1` and `ask_user_question_unanswered_v1`. *Alternatives.* No handshake (the
 > CLI asks the host by default); unknown requests left unanswered.
 
+> **Addendum (2026-11-02, EP-14).** Built. A `-p` run takes the stream-json host's answers only
+> when it is started with `--permission-prompt-tool stdio` (the Agent SDK's form; 2.1.316 names the
+> flag only inside `--permission-prompts`' description): without it, as the runner had run since
+> EP-9, a headless run offers no `AskUserQuestion` and denies whatever would prompt, so D-18's
+> requests never reached the window. The runner passes it whenever the help names it, else says it
+> could not. The Decisions tile answers a window's headless session while it waits: a permission
+> request with Allow or Deny, its tool, call, reason and input shown, a reason optional; an
+> `AskUserQuestion` with each question's options, one or several, and the owner's own words, sent
+> (a question left blank goes unanswered) or declined with a message. A project's
+> `answer_timeout` in minutes (`crw set <project> answer_timeout <minutes|none>`, none by default)
+> defers a run whose request waits that long: the runner refuses it with the turn interrupted, the
+> run's outcome is `deferred`, and the owner's later answer resumes the session with the answer in
+> its message. The defer route is chosen by `settings.decisions = "defer"` (`crw setting decisions
+> defer|protocol`), or by the window for the later runs of a CLI and version whose handshake it saw
+> refused, since a running process takes no new hooks: `--settings` carries a `PreToolUse` hook on
+> `AskUserQuestion` running `crw.exe hook --defer`, the run ends with `tool_deferred`, and the
+> answer resumes the session with no prompt (a prompt would drop the deferred call, Claude Code's
+> hooks page) and a one-shot `crw.exe hook --answer <file>` that allows that call with the
+> questions and their answers as `updatedInput` and defers any later question; the file lives in
+> the tool's local folder while the resume runs. A session Claude Code reports waiting elsewhere is
+> listed with Focus when it waits in VS Code (`Code.exe` opens the project's own workspace file,
+> else its folder); the tool never answers it. Verified on the owner's yes by a supervised probe
+> (the cheapest model at low effort in a scratch folder, its throwaway driver deleted and its
+> transcripts purged): a first round of three runs found the missing host; with the flag a second
+> round answered a question through the protocol, deferred a run at a 5-second limit (the session
+> reads the CLI's own words for an interrupted refusal, not the tool's message), and ended a run at
+> its question on the defer route and resumed it, without a prompt, to the answer. *Alternatives.*
+> A plain refusal at the time limit, the session going on without the answer; one limit for every
+> project; a defer hook that asks the window at run time; restarting a run whose handshake is
+> refused.
+
 **D-20 Signals.** The tool installs **user-level hooks** (Notification, Stop, SessionStart, SessionEnd) in
 `~/.claude/settings.json` that run its `cli` binary, which posts the event to the loopback server and exits
 silently when the tool is not running; it installs a **status-line command** the same way (D-23); and it
@@ -728,6 +759,13 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > ledger at the same moment. The rows written before EP-13 stay (rule 13). *Alternatives.* A row only
 > when a transcript is on disk at the end, which a restored tab has; a row at every start, as EP-12
 > had it; lapsed launches shown but never closed; a longer claim window.
+
+> **Addendum (2026-11-02, EP-14).** The runner writes `questions` (a question the defer route's
+> hook ended the run at counts) and `answer_latency_s`, there since V1: the mean seconds from each
+> request the owner answered in the run to the answer, a deferred request's answer counted on the
+> resume that carries it, from the deferral to the resume; a refusal at the time limit is no
+> answer. The All tab and `crw sessions` say both ("2 questions, answered in 1 min"); no schema
+> change. *Alternatives.* The total wait; the median; the latency kept on the run that asked.
 
 ## Chat, remote access, operations
 
