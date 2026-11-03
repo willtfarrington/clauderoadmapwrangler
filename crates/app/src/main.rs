@@ -21,6 +21,7 @@ mod screenshot;
 mod server;
 mod sessions;
 mod style;
+mod transcript;
 mod visual;
 mod watch;
 

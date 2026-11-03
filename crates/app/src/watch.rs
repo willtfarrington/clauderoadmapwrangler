@@ -1,9 +1,10 @@
 //! The sessions the window sees besides its own (D-20; EP-12): what the loopback server hears from
 //! the hooks and the status lines, a poll of `claude agents --json` (every 5 s while the window has
 //! the focus, every 30 s otherwise: one listing costs about 0.2 s of a core, and the hooks bring a
-//! wait or an end at once), and the state model they feed (`crw_core::sessions`), whose starts and
-//! ends the ledger records. A screenshot run starts neither the server nor the poll: its sessions
-//! and its readings are canned (rule 5).
+//! wait or an end at once), and the state model they feed (`crw_core::sessions`), whose working
+//! sessions and ends the ledger records (EP-13: a row at a session's first sign of work). Once a
+//! minute the visual launches no session took up within their 30 minutes lapse. A screenshot run
+//! starts neither the server nor the poll: its sessions and its readings are canned (rule 5).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -15,7 +16,7 @@ use std::time::{Duration, Instant};
 use chrono::Utc;
 use crw_core::ledger::Ledger;
 use crw_core::sessions::agents::{self, Agent};
-use crw_core::sessions::{self, Change, Registered, Seen, Sessions};
+use crw_core::sessions::{self, Change, Registered, Seen, Sessions, VISUAL_CLAIM};
 use crw_core::signals::{Signal, install};
 use eframe::egui;
 
@@ -27,6 +28,9 @@ const POLL_UNFOCUSED: Duration = Duration::from_secs(30);
 
 /// How often the poll's thread looks at the clock and the focus.
 const STEP: Duration = Duration::from_millis(250);
+
+/// How often the visual launches past their window are closed (EP-13).
+const LAPSE_EVERY: Duration = Duration::from_secs(60);
 
 type Listing = Result<Vec<Agent>, String>;
 
@@ -47,6 +51,9 @@ pub struct Watch {
     pub entries: Option<Result<String, String>>,
     /// A ledger write that failed, until the next one succeeds.
     pub problem: Option<String>,
+    /// The ledger changed since the Sessions pane last read it (EP-13).
+    pub recorded: bool,
+    lapsed_at: Option<Instant>,
 }
 
 impl Watch {
@@ -109,12 +116,17 @@ impl Watch {
             }
             for listing in listings {
                 match listing {
-                    Ok(agents) => self.model.poll(&agents, &projects, now),
+                    Ok(agents) => {
+                        for change in self.model.poll(&agents, &projects, now) {
+                            self.record(&change, ledger);
+                        }
+                    }
                     Err(why) => self.model.poll_failed(why),
                 }
             }
         }
         self.model.expire(now);
+        self.lapse(ledger);
     }
 
     /// Keeps a start or an end in the ledger, and the mode the ledger gives the session.
@@ -125,6 +137,7 @@ impl Watch {
         match Ledger::open(path).and_then(|ledger| sessions::record(&ledger, change)) {
             Ok(mode) => {
                 self.problem = None;
+                self.recorded = true;
                 if let (Some(mode), Change::Started { session_id, .. }) = (mode, change) {
                     self.model.set_mode(session_id, mode);
                 }
@@ -133,7 +146,27 @@ impl Watch {
         }
     }
 
-    /// The sessions that run in the project called `name` and are not the window's own.
+    /// Closes the visual launches no session took up within their window, once a minute and at
+    /// the window's first frame (EP-13).
+    fn lapse(&mut self, ledger: Option<&Path>) {
+        let Some(path) = ledger else {
+            return;
+        };
+        if self.lapsed_at.is_some_and(|at| at.elapsed() < LAPSE_EVERY) {
+            return;
+        }
+        self.lapsed_at = Some(Instant::now());
+        match Ledger::open(path).and_then(|ledger| ledger.lapse_visual(Utc::now(), VISUAL_CLAIM)) {
+            Ok(0) => {}
+            Ok(_) => self.recorded = true,
+            Err(e) => {
+                self.problem = Some(format!("The ledger's visual launches did not lapse: {e}"));
+            }
+        }
+    }
+
+    /// The sessions that work in the project called `name` and are not the window's own: a
+    /// session open with no prompt yet is none (EP-13).
     pub fn running<'a>(
         &'a self,
         name: &'a str,
@@ -142,7 +175,7 @@ impl Watch {
         self.model
             .of_project(name)
             .into_iter()
-            .filter(move |seen| !seen.status.is_over() && !own(&seen.session_id))
+            .filter(move |seen| !seen.status.is_over() && !seen.is_new() && !own(&seen.session_id))
     }
 
     /// The status bar's line on the signals, and whether it is a warning.

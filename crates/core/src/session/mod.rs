@@ -33,10 +33,10 @@ pub use cli::Preflight;
 pub(crate) use launch::markers;
 pub use launch::{Launch, NEIGHBOUR_CLAUDE_MD, STOP_TIMEOUT, edit_deny_rule};
 pub use protocol::{
-    Choice, Denied, Finish, Init, Question, Request, Response, ToolUse, Unreadable,
+    Choice, Denied, Finish, Init, Question, Request, Response, ToolResult, ToolUse, Unreadable,
 };
 
-use crate::ledger::{Ledger, NewSession};
+use crate::ledger::{Finished, Ledger, NewSession};
 use crate::process;
 use launch::CommandLine;
 use protocol::Protocol;
@@ -66,6 +66,8 @@ pub enum Event {
     /// A whole text block of an assistant message.
     Text(String),
     ToolUse(ToolUse),
+    /// What a tool call came back with, its first lines (EP-13).
+    ToolResult(ToolResult),
     /// The session waits for the host's [`Response`] (D-19).
     Request(Request),
     /// The session no longer waits for the answer to this request.
@@ -142,7 +144,11 @@ impl Session {
             return Err(refusals.join("; "));
         }
         let flags = preflight.flags.as_ref().map_err(Clone::clone)?;
-        let session_id = uuid::Uuid::new_v4().to_string();
+        // A resumed run goes on under the session's own id (EP-13).
+        let session_id = launch
+            .resume
+            .clone()
+            .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let line = launch::command_line(
             &launch,
             flags,
@@ -291,14 +297,18 @@ impl Job {
         let Some(path) = &self.launch.ledger else {
             return Ok(());
         };
+        let result = ended.result.as_ref();
         Ledger::open(path)
             .and_then(|ledger| {
                 ledger.finish_session(
                     row,
-                    Utc::now(),
-                    ended.outcome.as_str(),
-                    ended.result.as_ref().map(|result| result.cost_usd),
-                    questions,
+                    &Finished {
+                        at: Utc::now(),
+                        outcome: ended.outcome.as_str(),
+                        cost_usd: result.map(|result| result.cost_usd),
+                        questions,
+                        result: result.and_then(|result| result.text.as_deref()),
+                    },
                 )
             })
             .map_err(|e| format!("the ledger did not record the session's end: {e}"))
@@ -360,7 +370,7 @@ impl Watch {
 
     /// Reads one stdout line: answers what must be answered at once, keeps the result and counts
     /// the questions, passes the events on. After the result stdin closes, so the session exits:
-    /// a run is one prompt, and a follow-up resumes it by id (EP-13).
+    /// a run is one prompt, and a follow-up is a run of its own that resumes it by id (EP-13).
     async fn read(
         &mut self,
         protocol: &mut Protocol,

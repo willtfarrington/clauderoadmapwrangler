@@ -3,8 +3,8 @@
 Everything named during planning and not built in v1. Every re-plan EP grows this file; the v1 close-out
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
 items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
-EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, and at EP-12 by those marked
-*(EP-12)*.
+EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 by those marked
+*(EP-12)*, and at EP-13 by those marked *(EP-13)*.
 
 ## 1 Launch modes
 
@@ -43,6 +43,11 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, and at EP
   talk to costs no connection attempt at all (EP-12 gives the connection 50 ms; D-20 addendum).
 - *(EP-12)* Ledger rows for sessions the poll of live sessions lists without a start hook (a session
   started while no window ran), with the start time the listing gives (D-26 addendum).
+- *(EP-13)* Resume for a visual or manual session from the tool, through the extension's
+  `vscode://anthropic.claude-code/open?session=<id>` link, which opens the session in the project's
+  window (EP-13 resumes the window's own headless sessions only; D-16 addendum).
+- *(EP-13)* Resume of a headless session after the window restarted, from its ledger row: its
+  launch's permission mode and neighbours would need keeping in the ledger (D-16 addendum).
 
 ## 2 Analytics
 
@@ -115,3 +120,6 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, and at EP
 - *(EP-33)* Proposals that expire after a set time, and one list of every dismissal across the
   projects (EP-33 keeps a dismissal until the fact it rests on changes, shown per project in the
   Detail pane and in `crw scan`; D-6 addendum).
+- *(EP-13)* A session's transcript in a tile of its own, dragged out of the Sessions pane as an
+  egui_tiles pane (EP-13 keeps one tab strip inside the pane, so the saved layout never holds a
+  session; D-25 addendum), and a search through a transcript.

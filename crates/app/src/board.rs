@@ -3,10 +3,11 @@
 //! is drawn: the writes the tool owns (D-7, D-8, D-10, D-11, D-13), each followed by a new read of
 //! the files, the moves of the selection, and from EP-10 the launch dialog and the headless
 //! sessions it starts (D-16, D-17, D-22), from EP-11 its visual launches; from EP-12 the sessions
-//! the hooks and the poll of live sessions report join the window's own (D-20).
+//! the hooks and the poll of live sessions report join the window's own (D-20); from EP-13 an
+//! ended headless session resumes in its tab (D-16).
 
 use std::collections::{BTreeSet, HashMap};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -28,7 +29,7 @@ use serde::{Deserialize, Serialize};
 use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
-use crate::sessions::{Sessions, Started};
+use crate::sessions::{SessionFilter, Sessions, Started};
 use crate::style::{self, Density, icons};
 use crate::visual::{self, Visual};
 use crate::watch::Watch;
@@ -61,6 +62,8 @@ pub struct View {
     pub hosting: BTreeSet<Class>,
     /// The key to the row's marks, open at the foot of the Projects pane (EP-7a).
     pub legend: bool,
+    /// What the Sessions pane's All tab lists (EP-13).
+    pub sessions: SessionFilter,
 }
 
 impl Default for View {
@@ -76,6 +79,7 @@ impl Default for View {
             stacks: BTreeSet::new(),
             hosting: BTreeSet::new(),
             legend: false,
+            sessions: SessionFilter::default(),
         }
     }
 }
@@ -145,6 +149,8 @@ pub enum Action {
     StopSession(u64),
     KillSession(u64),
     DismissSession(u64),
+    /// An ended session run again under its id with the message typed in its tab (EP-13).
+    ResumeSession(u64),
     /// A key or a button of a brief not built yet: a notice that says which.
     NotYet(&'static str),
 }
@@ -234,6 +240,11 @@ impl Board {
 
     pub fn store(&self) -> &Store {
         self.loader.store()
+    }
+
+    /// The ledger the window's sessions are recorded in, when it has one.
+    pub fn ledger(&self) -> Option<&Path> {
+        self.ledger.as_deref()
     }
 
     /// The name of the selected project or folder.
@@ -335,6 +346,9 @@ impl Board {
         let focused = ctx.input(|i| i.focused);
         self.watch
             .receive(registered, self.ledger.as_deref(), focused);
+        if std::mem::take(&mut self.watch.recorded) {
+            self.sessions.history.stale = true;
+        }
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()
@@ -453,6 +467,7 @@ impl Board {
             Action::StopSession(key) => self.sessions.stop(key),
             Action::KillSession(key) => self.sessions.kill(key),
             Action::DismissSession(key) => self.sessions.dismiss(key),
+            Action::ResumeSession(key) => self.resume_session(key),
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -794,6 +809,31 @@ impl Board {
         let launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
         self.sessions.start(preflight, launch, effort, &self.ctx);
+    }
+
+    /// Resumes the window's ended session `key` with the message typed in its tab (D-16's EP-9
+    /// addendum, EP-13), off the UI thread as a start is; a screenshot run starts nothing.
+    fn resume_session(&mut self, key: u64) {
+        if self.fixtures {
+            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            return;
+        }
+        let Some((message, program)) = self.sessions.resumable(key) else {
+            return;
+        };
+        let Some(preflight) = self.sessions.preflight(&program, &self.ctx) else {
+            self.warn("claude has not answered yet: press Resume again in a moment.");
+            return;
+        };
+        let refusals = preflight.refusals();
+        if !refusals.is_empty() {
+            self.fail(format!(
+                "The session cannot resume: {}",
+                refusals.join("; ")
+            ));
+            return;
+        }
+        self.sessions.resume(key, preflight, &message, &self.ctx);
     }
 
     /// The launch dialog over the window, while it is open. Escape and Cancel close it; a click

@@ -8,14 +8,17 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, io};
 
-use chrono::{DateTime, SecondsFormat, Utc};
-use rusqlite::{Connection, OptionalExtension};
+use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
+use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 /// The schema this build writes: the number of migrations.
-pub const SCHEMA_VERSION: u32 = 2;
+pub const SCHEMA_VERSION: u32 = 3;
 
 /// `MIGRATIONS[i]` brings the schema from version `i` to `i + 1`, each in one transaction.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3];
+
+/// The most of a run's final text its row keeps, in characters.
+const RESULT_CAP: usize = 8000;
 
 const V1: &str = "
 CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -94,6 +97,20 @@ CREATE TABLE badge_cache (
 );
 ";
 
+const V3: &str = "
+-- A run's final text, capped, and the share of the context window the session's status line last
+-- gave (D-26, EP-13).
+ALTER TABLE session ADD COLUMN result TEXT;
+ALTER TABLE session ADD COLUMN context_percent REAL;
+";
+
+/// The `session` columns a [`SessionRow`] reads, in its order; a ledger opened to read at schema 2
+/// has no result or context yet.
+const SESSION_COLUMNS: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
+    started_at, ended_at, outcome, cost_usd, questions, result, context_percent";
+const SESSION_COLUMNS_V2: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
+    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL";
+
 /// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewSession<'a> {
@@ -109,6 +126,19 @@ pub struct NewSession<'a> {
     pub started_at: DateTime<Utc>,
 }
 
+/// How a run ended, as the runner records it (EP-9, EP-13).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Finished<'a> {
+    pub at: DateTime<Utc>,
+    /// `completed`, `stopped`, `failed` or `deferred`.
+    pub outcome: &'a str,
+    /// The CLI's own estimate at list prices.
+    pub cost_usd: Option<f64>,
+    pub questions: u32,
+    /// The run's final text, kept to [`RESULT_CAP`] characters.
+    pub result: Option<&'a str>,
+}
+
 /// A session's row as the ledger holds it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct SessionRow {
@@ -122,10 +152,76 @@ pub struct SessionRow {
     pub ultracode: bool,
     pub started_at: String,
     pub ended_at: Option<String>,
-    /// `completed`, `stopped`, `failed` or `deferred`; none while it runs.
+    /// `completed`, `stopped`, `failed` or `deferred`; none while it runs, and none for a visual
+    /// launch that lapsed.
     pub outcome: Option<String>,
     pub cost_usd: Option<f64>,
     pub questions: u32,
+    /// The run's final text, capped (from EP-13).
+    pub result: Option<String>,
+    /// The share of the context window the session's status line last gave (from EP-13).
+    pub context_percent: Option<f64>,
+}
+
+impl SessionRow {
+    pub fn started(&self) -> Option<DateTime<Utc>> {
+        parse_time(&self.started_at)
+    }
+
+    pub fn ended(&self) -> Option<DateTime<Utc>> {
+        self.ended_at.as_deref().and_then(parse_time)
+    }
+
+    /// A visual launch no session took up within its window, as of `now`: closed with no session
+    /// and no outcome, or still open past `window` until a window closes it (EP-13).
+    pub fn lapsed(&self, now: DateTime<Utc>, window: TimeDelta) -> bool {
+        self.mode == "visual"
+            && self.session_id.is_none()
+            && self.outcome.is_none()
+            && (self.ended_at.is_some() || self.started().is_some_and(|at| at + window <= now))
+    }
+
+    /// What became of its session as of `now`, a visual launch taken up within `window` (EP-13).
+    pub fn state(&self, now: DateTime<Utc>, window: TimeDelta) -> RowState<'_> {
+        if self.lapsed(now, window) {
+            return RowState::Lapsed;
+        }
+        match self.outcome.as_deref() {
+            Some(outcome) => RowState::Ended(outcome),
+            None if self.mode == "visual" && self.session_id.is_none() => RowState::Launched,
+            None => RowState::Open,
+        }
+    }
+
+    /// How long its run took, once it has ended; a visual launch no session took up had no run.
+    pub fn took(&self) -> Option<TimeDelta> {
+        if self.mode == "visual" && self.session_id.is_none() {
+            return None;
+        }
+        Some(self.ended()? - self.started()?)
+    }
+}
+
+/// What became of a row's session (EP-13).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RowState<'a> {
+    /// `completed`, `stopped`, `failed` or `deferred`.
+    Ended(&'a str),
+    /// A visual launch no session took up within its window: closed with no outcome.
+    Lapsed,
+    /// A visual launch handed to VS Code that no session has taken up yet.
+    Launched,
+    /// No end recorded: it runs, or its end was never heard.
+    Open,
+}
+
+/// A run's length in words: `36 s`, `52 min`, `1 h 04 min`.
+pub fn length(took: TimeDelta) -> String {
+    match took.num_seconds().max(0) {
+        s if s < 60 => format!("{s} s"),
+        s if s < 3600 => format!("{} min", s / 60),
+        s => format!("{} h {:02} min", s / 3600, (s % 3600) / 60),
+    }
 }
 
 /// One row of the badges' cache.
@@ -151,6 +247,8 @@ pub enum Error {
 
 pub struct Ledger {
     connection: Connection,
+    /// The schema it holds: this build's, or an older one opened to read.
+    version: u32,
 }
 
 impl Ledger {
@@ -171,7 +269,32 @@ impl Ledger {
         // The desktop app and `crw` may both have it open.
         connection.busy_timeout(Duration::from_secs(5))?;
         migrate(&mut connection, migrations)?;
-        Ok(Self { connection })
+        Ok(Self {
+            connection,
+            version: migrations.len() as u32,
+        })
+    }
+
+    /// Opens the ledger at `path` to read only: never created, migrated or written, so `crw` and
+    /// the Sessions pane's list read the owner's records as they stand (EP-13). An older schema
+    /// reads with the columns it has; a newer one is refused.
+    pub fn open_read_only(path: &Path) -> Result<Self, Error> {
+        let connection = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )?;
+        connection.busy_timeout(Duration::from_secs(5))?;
+        let found = version(&connection)?;
+        if found > SCHEMA_VERSION {
+            return Err(Error::Newer {
+                found,
+                supported: SCHEMA_VERSION,
+            });
+        }
+        Ok(Self {
+            connection,
+            version: found,
+        })
     }
 
     pub fn schema_version(&self) -> Result<u32, Error> {
@@ -213,20 +336,20 @@ impl Ledger {
         Ok(self.connection.last_insert_rowid())
     }
 
-    /// Records how a session ended: its end time, its outcome, the CLI's cost estimate and the
-    /// questions it asked.
-    pub fn finish_session(
-        &self,
-        id: i64,
-        ended_at: DateTime<Utc>,
-        outcome: &str,
-        cost_usd: Option<f64>,
-        questions: u32,
-    ) -> Result<(), Error> {
+    /// Records how a run ended: its end time, its outcome, the CLI's cost estimate, the questions
+    /// it asked and its final text.
+    pub fn finish_session(&self, id: i64, finished: &Finished<'_>) -> Result<(), Error> {
         self.connection.execute(
-            "UPDATE session SET ended_at = ?2, outcome = ?3, cost_usd = ?4, questions = ?5 \
-             WHERE id = ?1",
-            (id, rfc3339(ended_at), outcome, cost_usd, questions),
+            "UPDATE session SET ended_at = ?2, outcome = ?3, cost_usd = ?4, questions = ?5, \
+             result = ?6 WHERE id = ?1",
+            (
+                id,
+                rfc3339(finished.at),
+                finished.outcome,
+                finished.cost_usd,
+                finished.questions,
+                finished.result.map(|text| capped(text, RESULT_CAP)),
+            ),
         )?;
         Ok(())
     }
@@ -274,23 +397,69 @@ impl Ledger {
     }
 
     /// Closes the open visual or manual row of `session_id` at `at`, as completed: its end hook
-    /// (EP-12). A headless row is the runner's to close; `false` when no row was open.
-    pub fn end_seen(&self, session_id: &str, at: DateTime<Utc>) -> Result<bool, Error> {
+    /// (EP-12), with the cost estimate and the context share its status line last gave when it
+    /// sent one (EP-13). A headless row is the runner's to close; `false` when no row was open.
+    pub fn end_seen(
+        &self,
+        session_id: &str,
+        at: DateTime<Utc>,
+        cost_usd: Option<f64>,
+        context_percent: Option<f64>,
+    ) -> Result<bool, Error> {
         let changed = self.connection.execute(
-            "UPDATE session SET ended_at = ?2, outcome = 'completed' WHERE session_id = ?1 \
-             AND mode IN ('visual', 'manual') AND ended_at IS NULL",
-            (session_id, rfc3339(at)),
+            "UPDATE session SET ended_at = ?2, outcome = 'completed', \
+             cost_usd = COALESCE(?3, cost_usd), context_percent = COALESCE(?4, context_percent) \
+             WHERE session_id = ?1 AND mode IN ('visual', 'manual') AND ended_at IS NULL",
+            (session_id, rfc3339(at), cost_usd, context_percent),
         )?;
         Ok(changed > 0)
     }
 
+    /// Closes the visual launches no session took up within `window` of their launch (EP-13):
+    /// each ends at its launch plus `window`, with no session and no outcome. How many closed.
+    pub fn lapse_visual(&self, now: DateTime<Utc>, window: TimeDelta) -> Result<usize, Error> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, started_at FROM session WHERE mode = 'visual' AND session_id IS NULL \
+             AND ended_at IS NULL AND started_at <= ?1",
+        )?;
+        let open: Vec<(i64, String)> = statement
+            .query_map([rfc3339(now - window)], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })?
+            .collect::<Result<_, _>>()?;
+        let mut closed = 0;
+        for (id, started_at) in open {
+            let Some(started) = parse_time(&started_at) else {
+                continue;
+            };
+            closed += self.connection.execute(
+                "UPDATE session SET ended_at = ?2 WHERE id = ?1 AND ended_at IS NULL",
+                (id, rfc3339(started + window)),
+            )?;
+        }
+        Ok(closed)
+    }
+
     /// Every session, the oldest first.
     pub fn sessions(&self) -> Result<Vec<SessionRow>, Error> {
-        let mut statement = self.connection.prepare(
-            "SELECT id, session_id, project, ep, mode, model, effort, ultracode, started_at, \
-             ended_at, outcome, cost_usd, questions FROM session ORDER BY started_at, id",
-        )?;
-        let rows = statement.query_map([], |row| {
+        self.session_rows("ORDER BY started_at, id", None)
+    }
+
+    /// The latest `limit` sessions, the newest first (EP-13).
+    pub fn recent_sessions(&self, limit: usize) -> Result<Vec<SessionRow>, Error> {
+        self.session_rows("ORDER BY started_at DESC, id DESC LIMIT ?1", Some(limit))
+    }
+
+    fn session_rows(&self, order: &str, limit: Option<usize>) -> Result<Vec<SessionRow>, Error> {
+        let columns = if self.version >= 3 {
+            SESSION_COLUMNS
+        } else {
+            SESSION_COLUMNS_V2
+        };
+        let mut statement = self
+            .connection
+            .prepare(&format!("SELECT {columns} FROM session {order}"))?;
+        let read = |row: &rusqlite::Row<'_>| {
             Ok(SessionRow {
                 id: row.get(0)?,
                 session_id: row.get(1)?,
@@ -305,9 +474,17 @@ impl Ledger {
                 outcome: row.get(10)?,
                 cost_usd: row.get(11)?,
                 questions: row.get(12)?,
+                result: row.get(13)?,
+                context_percent: row.get(14)?,
             })
-        })?;
-        Ok(rows.collect::<Result<_, _>>()?)
+        };
+        let rows = match limit {
+            Some(limit) => statement
+                .query_map([limit as i64], read)?
+                .collect::<Result<_, _>>()?,
+            None => statement.query_map([], read)?.collect::<Result<_, _>>()?,
+        };
+        Ok(rows)
     }
 
     /// Every cached reading; a row whose time cannot be read is left out.
@@ -344,6 +521,23 @@ fn rfc3339(at: DateTime<Utc>) -> String {
     at.to_rfc3339_opts(SecondsFormat::Secs, true)
 }
 
+/// A time the ledger wrote; `None` for text that does not read as one.
+fn parse_time(text: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(text)
+        .ok()
+        .map(|at| at.with_timezone(&Utc))
+}
+
+/// `text` cut to `max` characters, the last one an ellipsis when it was longer.
+fn capped(text: &str, max: usize) -> String {
+    if text.chars().count() <= max {
+        return text.to_owned();
+    }
+    let mut short: String = text.chars().take(max - 1).collect();
+    short.push('…');
+    short
+}
+
 /// The schema version written in the file; 0 for a new file.
 fn version(connection: &Connection) -> rusqlite::Result<u32> {
     let exists: bool = connection.query_row(
@@ -357,23 +551,33 @@ fn version(connection: &Connection) -> rusqlite::Result<u32> {
     connection.query_row("SELECT version FROM schema_version", [], |row| row.get(0))
 }
 
+/// Brings the schema up to `migrations`, one step per transaction. Each step takes the write lock
+/// before it reads the version again, so that two openers at once (the window's threads, `crw`)
+/// never run the same step twice (EP-13).
 fn migrate(connection: &mut Connection, migrations: &[&str]) -> Result<(), Error> {
-    let found = version(connection)?;
     let supported = migrations.len() as u32;
-    if found > supported {
-        return Err(Error::Newer { found, supported });
-    }
-    for (step, sql) in migrations.iter().enumerate().skip(found as usize) {
-        let transaction = connection.transaction()?;
-        transaction.execute_batch(sql)?;
+    loop {
+        let found = version(connection)?;
+        if found > supported {
+            return Err(Error::Newer { found, supported });
+        }
+        if found == supported {
+            return Ok(());
+        }
+        let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let step = version(&transaction)?;
+        if step != found {
+            // Another opener ran it meanwhile: read again.
+            continue;
+        }
+        transaction.execute_batch(migrations[step as usize])?;
         transaction.execute("DELETE FROM schema_version", [])?;
         transaction.execute(
             "INSERT INTO schema_version (version) VALUES (?1)",
-            [step as u32 + 1],
+            [step + 1],
         )?;
         transaction.commit()?;
     }
-    Ok(())
 }
 
 #[cfg(test)]
@@ -452,13 +656,13 @@ mod tests {
             .unwrap();
         drop(first);
         let ledger = Ledger::open(&path).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 2);
+        assert_eq!(ledger.schema_version().unwrap(), SCHEMA_VERSION);
         assert!(tables(&ledger).contains(&"badge_cache".to_owned()));
         drop(ledger);
 
-        let next = [V1, V2, "ALTER TABLE event ADD COLUMN source TEXT;"];
+        let next = [V1, V2, V3, "ALTER TABLE event ADD COLUMN source TEXT;"];
         let ledger = Ledger::open_with(&path, &next).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 3);
+        assert_eq!(ledger.schema_version().unwrap(), 4);
         ledger
             .connection
             .execute(
@@ -472,21 +676,174 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 2, "the migrations kept the earlier row");
         drop(ledger);
-        // This build knows up to version 2 and leaves the file at version 3.
+        // This build knows up to version 3 and leaves the file at version 4.
         assert!(matches!(
             Ledger::open(&path),
             Err(Error::Newer {
-                found: 3,
-                supported: 2
+                found: 4,
+                supported: 3
             })
+        ));
+        assert!(matches!(
+            Ledger::open_read_only(&path),
+            Err(Error::Newer { found: 4, .. })
         ));
         assert_eq!(
             Ledger::open_with(&path, &next)
                 .unwrap()
                 .schema_version()
                 .unwrap(),
-            3
+            4
         );
+    }
+
+    /// The window's loader thread and its first frame both open the ledger at its start: a new
+    /// file, or one a migration is due on, takes every opener (EP-13).
+    #[test]
+    fn openers_at_once_migrate_once() {
+        let scratch = Scratch::new("ledger-race");
+        for round in 0..4 {
+            let path = scratch.0.join(format!("ledger-{round}.sqlite"));
+            if round % 2 == 1 {
+                // A ledger an older build left at schema 2.
+                drop(Ledger::open_with(&path, &[V1, V2]).unwrap());
+            }
+            let start = std::sync::Arc::new(std::sync::Barrier::new(4));
+            let openers: Vec<_> = (0..4)
+                .map(|_| {
+                    let (path, start) = (path.clone(), std::sync::Arc::clone(&start));
+                    std::thread::spawn(move || {
+                        start.wait();
+                        Ledger::open(&path).map(|ledger| ledger.schema_version().unwrap())
+                    })
+                })
+                .collect();
+            for opener in openers {
+                assert_eq!(opener.join().unwrap().unwrap(), SCHEMA_VERSION);
+            }
+        }
+    }
+
+    fn at(text: &str) -> DateTime<Utc> {
+        parse_time(text).unwrap()
+    }
+
+    fn launch<'a>(project: &'a str, mode: &'a str, started: &str) -> NewSession<'a> {
+        NewSession {
+            session_id: None,
+            project,
+            ep: Some("EP-4"),
+            mode,
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: at(started),
+        }
+    }
+
+    #[test]
+    fn schema_2_rows_read_before_and_after_the_migration() {
+        let scratch = Scratch::new("ledger-v2");
+        let path = scratch.0.join("ledger.sqlite");
+        // A ledger EP-12's build wrote: schema 2, a manual row.
+        let older = Ledger::open_with(&path, &[V1, V2]).unwrap();
+        older
+            .connection
+            .execute(
+                "INSERT INTO session (session_id, project, mode, started_at) \
+                 VALUES ('s-1', 'alpha', 'manual', '2026-11-02T10:00:00Z')",
+                [],
+            )
+            .unwrap();
+        drop(older);
+        // Read as it stands: nothing migrated, no result yet.
+        let read = Ledger::open_read_only(&path).unwrap();
+        assert_eq!(read.schema_version().unwrap(), 2);
+        let rows = read.recent_sessions(10).unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].result.as_deref(), rows[0].context_percent),
+            (None, None)
+        );
+        drop(read);
+        assert_eq!(
+            Ledger::open_read_only(&path)
+                .unwrap()
+                .schema_version()
+                .unwrap(),
+            2
+        );
+        // The window's open brings it to schema 3 with the row kept.
+        let ledger = Ledger::open(&path).unwrap();
+        assert_eq!(ledger.schema_version().unwrap(), 3);
+        assert_eq!(
+            ledger.sessions().unwrap()[0].session_id.as_deref(),
+            Some("s-1")
+        );
+        // A ledger that is not there is not made by a read.
+        assert!(Ledger::open_read_only(&scratch.0.join("none.sqlite")).is_err());
+        assert!(!scratch.0.join("none.sqlite").exists());
+    }
+
+    #[test]
+    fn a_visual_launch_no_session_takes_up_lapses() {
+        let scratch = Scratch::new("ledger-lapse");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let window = TimeDelta::minutes(30);
+        let old = ledger
+            .start_session(&launch("alpha", "visual", "2026-11-02T08:00:00Z"))
+            .unwrap();
+        let recent = ledger
+            .start_session(&launch("alpha", "visual", "2026-11-02T09:50:00Z"))
+            .unwrap();
+        let claimed = ledger
+            .start_session(&launch("beta", "visual", "2026-11-02T08:10:00Z"))
+            .unwrap();
+        ledger
+            .claim_visual("beta", "s-9", at("2026-11-02T07:45:00Z"))
+            .unwrap();
+        let now = at("2026-11-02T10:00:00Z");
+        let rows = ledger.recent_sessions(10).unwrap();
+        let row = |id: i64| rows.iter().find(|row| row.id == id).unwrap().clone();
+        // Before a window closes it, a launch past its window reads as lapsed already.
+        assert!(row(old).lapsed(now, window));
+        assert!(!row(recent).lapsed(now, window));
+        assert!(!row(claimed).lapsed(now, window));
+        assert_eq!(row(old).state(now, window), RowState::Lapsed);
+        assert_eq!(row(recent).state(now, window), RowState::Launched);
+        assert_eq!(row(claimed).state(now, window), RowState::Open);
+        assert_eq!(row(old).took(), None);
+        assert_eq!(ledger.lapse_visual(now, window).unwrap(), 1);
+        assert_eq!(ledger.lapse_visual(now, window).unwrap(), 0, "closed once");
+        let rows = ledger.recent_sessions(10).unwrap();
+        let lapsed = rows.iter().find(|row| row.id == old).unwrap();
+        assert_eq!(lapsed.ended_at.as_deref(), Some("2026-11-02T08:30:00Z"));
+        assert_eq!(
+            (lapsed.outcome.as_deref(), lapsed.session_id.as_deref()),
+            (None, None)
+        );
+        assert!(lapsed.lapsed(now, window));
+        assert_eq!(
+            lapsed.took(),
+            None,
+            "a launch no session took up had no run"
+        );
+        assert_eq!(length(window), "30 min");
+        assert_eq!(length(TimeDelta::seconds(36)), "36 s");
+        assert_eq!(length(TimeDelta::minutes(64)), "1 h 04 min");
+        // A lapsed launch is claimed by no session.
+        assert_eq!(
+            ledger
+                .claim_visual("alpha", "s-1", at("2026-11-02T07:00:00Z"))
+                .unwrap(),
+            Some(recent)
+        );
+        // The newest first.
+        assert_eq!(
+            rows.iter().map(|row| row.id).collect::<Vec<_>>(),
+            [recent, claimed, old]
+        );
+        assert_eq!(ledger.recent_sessions(1).unwrap().len(), 1);
     }
 
     #[test]
@@ -514,8 +871,15 @@ mod tests {
         assert_eq!(running.id, id);
         assert_eq!(running.outcome, None);
         assert_eq!(running.started_at, "2026-11-02T05:00:00Z");
+        let finished = |at_text: &str, outcome: &'static str| Finished {
+            at: at(at_text),
+            outcome,
+            cost_usd: Some(1.25),
+            questions: 2,
+            result: Some("EP-3 is done: the parser reads the five-column tables."),
+        };
         ledger
-            .finish_session(id, at("2026-11-02T05:40:00Z"), "completed", Some(1.25), 2)
+            .finish_session(id, &finished("2026-11-02T05:40:00Z", "completed"))
             .unwrap();
         let row = &ledger.sessions().unwrap()[0];
         assert_eq!(
@@ -541,12 +905,30 @@ mod tests {
         assert_eq!(row.ended_at.as_deref(), Some("2026-11-02T05:40:00Z"));
         assert_eq!(row.outcome.as_deref(), Some("completed"));
         assert_eq!((row.cost_usd, row.questions), (Some(1.25), 2));
+        assert_eq!(
+            row.result.as_deref(),
+            Some("EP-3 is done: the parser reads the five-column tables.")
+        );
         // The schema's vocabulary holds: no outcome outside D-26's four.
         assert!(
             ledger
-                .finish_session(id, at("2026-11-02T05:41:00Z"), "vanished", None, 0)
+                .finish_session(id, &finished("2026-11-02T05:41:00Z", "vanished"))
                 .is_err()
         );
+        // A long final text is kept to its cap.
+        let long = "z".repeat(RESULT_CAP + 50);
+        ledger
+            .finish_session(
+                id,
+                &Finished {
+                    result: Some(&long),
+                    ..finished("2026-11-02T05:42:00Z", "completed")
+                },
+            )
+            .unwrap();
+        let kept = ledger.sessions().unwrap()[0].result.clone().unwrap();
+        assert_eq!(kept.chars().count(), RESULT_CAP);
+        assert!(kept.ends_with('…'));
     }
 
     #[test]
@@ -600,9 +982,22 @@ mod tests {
                 started_at: at("2026-11-02T10:00:00Z"),
             })
             .unwrap();
-        assert!(ledger.end_seen("s-2", at("2026-11-02T10:40:00Z")).unwrap());
-        assert!(!ledger.end_seen("s-2", at("2026-11-02T10:41:00Z")).unwrap());
-        assert!(ledger.end_seen("s-1", at("2026-11-02T10:45:00Z")).unwrap());
+        // The end keeps what the status line last gave, when it gave anything.
+        assert!(
+            ledger
+                .end_seen("s-2", at("2026-11-02T10:40:00Z"), Some(0.87), Some(41.0))
+                .unwrap()
+        );
+        assert!(
+            !ledger
+                .end_seen("s-2", at("2026-11-02T10:41:00Z"), None, None)
+                .unwrap()
+        );
+        assert!(
+            ledger
+                .end_seen("s-1", at("2026-11-02T10:45:00Z"), None, None)
+                .unwrap()
+        );
         // A headless row is the runner's.
         ledger
             .start_session(&NewSession {
@@ -616,14 +1011,26 @@ mod tests {
                 started_at: at("2026-11-02T11:00:00Z"),
             })
             .unwrap();
-        assert!(!ledger.end_seen("s-3", at("2026-11-02T11:10:00Z")).unwrap());
+        assert!(
+            !ledger
+                .end_seen("s-3", at("2026-11-02T11:10:00Z"), Some(1.0), None)
+                .unwrap()
+        );
         let rows = ledger.sessions().unwrap();
         let row = |id: i64| rows.iter().find(|row| row.id == id).unwrap();
         assert_eq!(row(old).session_id, None);
         assert_eq!(row(newer).outcome.as_deref(), Some("completed"));
         assert_eq!(row(newer).ended_at.as_deref(), Some("2026-11-02T10:45:00Z"));
+        assert_eq!(
+            (row(newer).cost_usd, row(newer).context_percent),
+            (None, None)
+        );
         let manual = rows.iter().find(|r| r.mode == "manual").unwrap();
         assert_eq!(manual.ended_at.as_deref(), Some("2026-11-02T10:40:00Z"));
+        assert_eq!(
+            (manual.cost_usd, manual.context_percent),
+            (Some(0.87), Some(41.0))
+        );
         assert_eq!(
             rows.iter().find(|r| r.mode == "headless").unwrap().outcome,
             None

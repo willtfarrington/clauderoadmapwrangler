@@ -5,7 +5,8 @@
 //! `setting` from EP-7, the badges and the registry's settings; `prompt` from EP-10, what a launch
 //! starts from, worded for either launch mode from EP-11; `dismiss` and `undismiss` from EP-33,
 //! the proposals the owner leaves out; the `hook` and `statusline` relays and `signals`, their
-//! entries in Claude Code's user settings, from EP-12; `inbox send` arrives with its brief.
+//! entries in Claude Code's user settings, from EP-12; `sessions`, the ledger's rows read without
+//! a write, from EP-13; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -24,11 +25,13 @@ use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
+use crw_core::ledger::{self, Ledger, RowState, SessionRow};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
+use crw_core::sessions::VISUAL_CLAIM;
 use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
@@ -77,6 +80,10 @@ commands:
                                  their reasons (the rule table), the neighbour folders and the
                                  prompt, worded for the project's launch mode or the one asked;
                                  launches nothing
+  sessions [<project>] [--all]   print the ledger's sessions, the newest first: the last 20, or
+                                 every one with --all, of every project or one: when, the project
+                                 and EP, the mode, model and effort, how long, how it ended, the
+                                 cost estimate and the result's last line; reads only
   signals [status]               print the tool's hooks and status line in Claude Code's user
                                  settings, what an install would change, and whether a window
                                  listens for them
@@ -147,6 +154,7 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        ["sessions", rest @ ..] => sessions(rest),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
@@ -1495,6 +1503,120 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
 }
 
 /// Claude Code's user settings file and this exe, which the entries run.
+/// How many of the latest sessions `crw sessions` prints without `--all`.
+const SESSIONS_SHOWN: usize = 20;
+
+/// Prints the ledger's sessions (D-26; EP-13), the newest first, read without migrating or
+/// writing it: a visual launch past its 30 minutes reads as lapsed before a window closes it.
+fn sessions(args: &[&str]) -> ExitCode {
+    let all = args.contains(&"--all");
+    if let Some(flag) = args
+        .iter()
+        .find(|arg| arg.starts_with("--") && **arg != "--all")
+    {
+        return usage_error(&format!("sessions takes --all, not {flag}"));
+    }
+    let names: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with("--"))
+        .collect();
+    let project = match names.as_slice() {
+        [] => None,
+        [one] => Some(*one),
+        _ => return usage_error("sessions takes one project at most"),
+    };
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if !path.exists() {
+        println!(
+            "No ledger yet at {}: the window makes it at its first start.",
+            path.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+    let rows = match Ledger::open_read_only(&path).and_then(|ledger| ledger.sessions()) {
+        Ok(rows) => rows,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let mut rows: Vec<SessionRow> = rows
+        .into_iter()
+        .rev()
+        .filter(|row| project.is_none_or(|name| row.project.eq_ignore_ascii_case(name)))
+        .collect();
+    let total = rows.len();
+    if !all {
+        rows.truncate(SESSIONS_SHOWN);
+    }
+    let whose = project.map_or("every project".to_owned(), str::to_owned);
+    println!(
+        "crw {} sessions: {} of {total} for {whose}, the newest first ({})",
+        env!("CARGO_PKG_VERSION"),
+        rows.len(),
+        path.display()
+    );
+    let now = Utc::now();
+    let lines: Vec<[String; 7]> = rows
+        .iter()
+        .map(|row| {
+            let when = row.started().map_or(row.started_at.clone(), |at| {
+                at.with_timezone(&chrono::Local)
+                    .format("%Y-%m-%d %H:%M")
+                    .to_string()
+            });
+            let title = match &row.ep {
+                Some(ep) => format!("{} {ep}", row.project),
+                None => row.project.clone(),
+            };
+            let model = match (&row.model, &row.effort) {
+                (Some(model), Some(effort)) => format!("{model}/{effort}"),
+                (Some(model), None) => model.clone(),
+                _ => "-".to_owned(),
+            };
+            let state = match row.state(now, VISUAL_CLAIM) {
+                RowState::Ended(outcome) => outcome.to_owned(),
+                RowState::Lapsed => "lapsed: no session took it up".to_owned(),
+                RowState::Launched => "handed to VS Code, not taken up yet".to_owned(),
+                RowState::Open => "open: no end recorded".to_owned(),
+            };
+            let cost = row
+                .cost_usd
+                .map_or(String::new(), |cost| format!("${cost:.2}"));
+            [
+                when,
+                title,
+                row.mode.clone(),
+                model,
+                row.took().map_or("-".to_owned(), ledger::length),
+                state,
+                cost,
+            ]
+        })
+        .collect();
+    let mut widths = [0usize; 7];
+    for line in &lines {
+        for (width, cell) in widths.iter_mut().zip(line) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    for (row, line) in rows.iter().zip(&lines) {
+        let cells: Vec<String> = line
+            .iter()
+            .zip(widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect();
+        println!("  {}", cells.join("  ").trim_end());
+        if let Some(result) = &row.result {
+            println!("      {}", one_line(result, 100));
+        }
+    }
+    if !all && total > rows.len() {
+        println!("  … {} older: crw sessions --all", total - rows.len());
+    }
+    ExitCode::SUCCESS
+}
+
 fn signals_places() -> Result<(PathBuf, PathBuf), String> {
     let settings = signal_entries::settings_file()
         .ok_or("no profile folder: neither CLAUDE_CONFIG_DIR nor USERPROFILE is set")?;

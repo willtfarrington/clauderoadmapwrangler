@@ -28,7 +28,9 @@ it rests on changes (EP-33). The dialog launches visually too (EP-11): it opens 
 workspace file in VS Code and fills the prompt into a new Claude Code tab of that window, for the
 owner to send. The window listens on the loopback for Claude Code's hooks and status line, which
 `crw signals install` sets up in the user settings, and asks Claude Code for its live sessions, so
-the sessions started elsewhere show beside its own (EP-12). The roadmap is
+the sessions started elsewhere show beside its own (EP-12). The Sessions pane is a tile (EP-13): a tab
+per headless session with its transcript as it streams, Stop and Kill, Resume with a message, and a
+list of every session with the ledger's rows, which `crw sessions` prints too. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -62,6 +64,7 @@ target\release\crw.exe prompt <folder> [--visual|--headless]
                                         # what a launch of the next brief starts from: the launch
                                         # mode, model, effort and permission mode with their
                                         # reasons, the prompt worded for the mode
+target\release\crw.exe sessions [<folder>] [--all]  # the ledger's sessions, the newest first; reads only
 target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,
                                         # whether a window listens, what an install would change
 target\release\crw.exe signals install [--inbox]  # write them, after a dated copy of the file
@@ -96,8 +99,13 @@ among them) and a prompt `template`; `[[rule]]` tables, global or per project, m
 size, phase or title words and set its model, effort or an effort step. Open in VS Code, for
 Visual (the default), opens the project's own workspace file, which brings its window to the front
 or opens it, and fills the prompt into a new Claude Code tab there, where the owner chooses the
-model and effort and sends it. Start headless runs the session; the Sessions
-pane lists it with Stop and Kill, and the Decisions pane what it waits for.
+model and effort and sends it. Start headless runs the session and gives it a tab in the Sessions
+pane: its transcript as it streams (the assistant's text, each tool call in one line with its result
+collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs, and,
+once it has ended, Resume, which runs it again under its session id with the message typed there.
+The Decisions pane lists what a session waits for. The pane's All tab lists every session, the
+window's, those started elsewhere and the ledger's latest rows, filtered by project, mode and
+running only. The transcript stays in the window's memory: the tool writes none and reads none.
 
 The window also listens on `127.0.0.1` (the registry's `port`, 47831 by default) for Claude Code's
 hooks (SessionStart, Notification, Stop, SessionEnd) and its status line, which `crw signals install`
@@ -108,8 +116,11 @@ and exiting quietly when no window listens. With `--inbox` the start hook also p
 open inbox messages into the session. The window asks `claude agents --json` for the live sessions
 every 5 s while it has the focus (every 30 s otherwise), matches each session's folder to a
 registered project, and lists the sessions started elsewhere (visual, headless or by hand; busy,
-waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row; the
-ledger records their starts and ends. Built with `--features
+waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row. A
+session gets its ledger row at its first sign of work (a finished turn, a wait for the owner, or the
+poll seeing it busy), so a tab opened and left unused, a helper the extension starts and a tab a
+window restores leave none; a visual launch no session takes up within 30 minutes lapses. Built with
+`--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
 (`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;
 `CRW_SCREENSHOT_SETUP` arranges the view (see `crates/app/src/screenshot.rs`).

@@ -12,7 +12,8 @@ use claude_codes::io::ResultMessage;
 use claude_codes::{
     AskUserQuestionInput, ClaudeInput, ClaudeOutput, ContentBlock, ControlRequestMessage,
     ControlRequestPayload, ControlResponse, ControlResponseMessage, ControlResponsePayload,
-    PermissionDeniedMessage, SystemSubtype, ToolPermissionRequest,
+    PermissionDeniedMessage, SystemSubtype, ToolPermissionRequest, ToolResultBlock,
+    ToolResultContent,
 };
 use serde::Serialize;
 use serde_json::Value;
@@ -24,6 +25,11 @@ const EXCERPT: usize = 200;
 
 /// The longest one-line summary of a tool call.
 const SUMMARY: usize = 120;
+
+/// How much of a tool's result the transcript keeps: its first lines, and at most this many
+/// characters of them (EP-13).
+const RESULT_LINES: usize = 12;
+const RESULT_CHARS: usize = 1500;
 
 /// The input fields that say what a tool call works on, in the order they are looked for.
 const DETAIL_KEYS: [&str; 8] = [
@@ -59,6 +65,19 @@ pub struct ToolUse {
     pub tool: String,
     /// The tool and what it works on: `Bash cargo test`, `Edit src/lib.rs`.
     pub summary: String,
+}
+
+/// What a tool call came back with, as a transcript shows it collapsed under the call (EP-13):
+/// its first lines only, held in the window's memory and never written (D-3, D-26).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ToolResult {
+    /// The [`ToolUse::id`] it answers.
+    pub tool_use_id: String,
+    pub is_error: bool,
+    /// How many lines the result held.
+    pub lines: usize,
+    /// Its first [`RESULT_LINES`] lines, cut to [`RESULT_CHARS`] characters.
+    pub excerpt: String,
 }
 
 /// The session asks the host before a tool runs (D-18, D-19): a permission, or the owner's choice
@@ -222,8 +241,8 @@ impl Protocol {
         }
         match ClaudeOutput::parse_json(text) {
             Ok(output) => self.output(output),
-            // The tool reads no user line (the prompt's echo, tool results): one the crate cannot
-            // read is no news.
+            // Of a user line the tool reads only the tool results: one the crate cannot read (the
+            // prompt's echo without its session) is no news.
             Err(error)
                 if error
                     .raw_json
@@ -300,6 +319,14 @@ impl Protocol {
                             tool: call.name,
                         })),
                         _ => {}
+                    }
+                }
+            }
+            // The tools' results come back as the user's turn; the prompt's echo holds none.
+            ClaudeOutput::User(message) if message.parent_tool_use_id.is_none() => {
+                for block in message.message.content {
+                    if let ContentBlock::ToolResult(result) = block {
+                        events.push(Event::ToolResult(tool_result(result)));
                     }
                 }
             }
@@ -389,6 +416,30 @@ fn finish(result: ResultMessage) -> Finish {
         deferred: result.deferred_tool_use.map(|tool| tool.name),
         denials: result.permission_denials.len(),
         errors: result.errors,
+    }
+}
+
+/// A tool's result as the transcript keeps it: a text result as it stands, the text blocks of a
+/// structured one joined (another block named by its kind, `[image]`), then the first lines.
+fn tool_result(block: ToolResultBlock) -> ToolResult {
+    let text = match block.content {
+        None => String::new(),
+        Some(ToolResultContent::Text(text)) => text,
+        Some(ToolResultContent::Structured(blocks)) => blocks
+            .iter()
+            .filter_map(|block| match block["type"].as_str()? {
+                "text" => block["text"].as_str().map(str::to_owned),
+                kind => Some(format!("[{kind}]")),
+            })
+            .collect::<Vec<_>>()
+            .join("\n"),
+    };
+    let first: Vec<&str> = text.lines().take(RESULT_LINES).collect();
+    ToolResult {
+        tool_use_id: block.tool_use_id,
+        is_error: block.is_error.unwrap_or(false),
+        lines: text.lines().count(),
+        excerpt: shorten(&first.join("\n"), RESULT_CHARS),
     }
 }
 
@@ -612,6 +663,62 @@ mod tests {
         );
         let subagent = message(json!("toolu_agent")).to_string();
         assert!(Protocol::default().read(&subagent).events.is_empty());
+    }
+
+    #[test]
+    fn reads_tool_results_collapsed_and_leaves_subagents_out() {
+        let line = |content: Value, parent: Value, error: Value| {
+            json!({"type": "user", "session_id": "0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+                "parent_tool_use_id": parent, "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "toolu_1", "content": content,
+                     "is_error": error}]}})
+            .to_string()
+        };
+        let read = |text: String| Protocol::default().read(&text).events;
+        assert_eq!(
+            read(line(
+                json!("cargo test\nok: 31 passed"),
+                Value::Null,
+                json!(false)
+            )),
+            [Event::ToolResult(ToolResult {
+                tool_use_id: "toolu_1".to_owned(),
+                is_error: false,
+                lines: 2,
+                excerpt: "cargo test\nok: 31 passed".to_owned(),
+            })]
+        );
+        // Blocks are joined, a block that is not text named by its kind; an error is said.
+        let blocks = json!([{"type": "text", "text": "one\ntwo"},
+            {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": "x"}}]);
+        let [Event::ToolResult(result)] = &read(line(blocks, Value::Null, json!(true)))[..] else {
+            panic!()
+        };
+        assert_eq!(
+            (result.excerpt.as_str(), result.lines),
+            ("one\ntwo\n[image]", 3)
+        );
+        assert!(result.is_error);
+        // A long result keeps its first lines, and at most so many characters of them.
+        let long: Vec<String> = (1..=40).map(|n| format!("line {n}")).collect();
+        let [Event::ToolResult(result)] =
+            &read(line(json!(long.join("\n")), Value::Null, Value::Null))[..]
+        else {
+            panic!()
+        };
+        assert_eq!(result.lines, 40);
+        assert_eq!(result.excerpt.lines().count(), RESULT_LINES);
+        let wide = "y".repeat(RESULT_CHARS * 2);
+        let [Event::ToolResult(result)] = &read(line(json!(wide), Value::Null, Value::Null))[..]
+        else {
+            panic!()
+        };
+        assert_eq!(result.excerpt.chars().count(), RESULT_CHARS);
+        // A subagent's results belong to its own transcript; the prompt's echo holds none.
+        assert!(read(line(json!("x"), json!("toolu_agent"), Value::Null)).is_empty());
+        let echo = json!({"type": "user", "session_id": "0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b",
+            "message": {"role": "user", "content": [{"type": "text", "text": "Run EP-3."}]}});
+        assert!(read(echo.to_string()).is_empty());
     }
 
     #[test]

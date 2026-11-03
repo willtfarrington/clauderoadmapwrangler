@@ -4,7 +4,8 @@
 //! out (EP-7), what waits on the owner (ticked here when it lives in `owner-tasks.md`), the inbox
 //! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
 //! met. For an unadopted folder: what it holds, Adopt and Ignore. From EP-12 a session that runs
-//! there, by the window's or Claude Code's account, joins the in-progress reasons.
+//! there, by the window's or Claude Code's account, joins the in-progress reasons, which from
+//! EP-13 show whatever the roadmap holds.
 
 use chrono::Utc;
 use crw_core::badges::short_age;
@@ -178,7 +179,8 @@ fn project(
         });
     }
 
-    next_brief(ui, row, running, actions);
+    in_progress(ui, row, running);
+    next_brief(ui, row, actions);
     progress(ui, snapshot);
     status(ui, row, portfolio);
     owner_items(ui, row, actions);
@@ -188,12 +190,25 @@ fn project(
     problems(ui, row);
 }
 
-fn next_brief(
-    ui: &mut egui::Ui,
-    row: &ProjectRow,
-    running: &[InProgress],
-    actions: &mut Vec<Action>,
-) {
+/// Why a session is taken to be in progress: the sessions that run there and what the files say
+/// (D-9), for every project, whether or not it has a next brief (EP-13).
+fn in_progress(ui: &mut egui::Ui, row: &ProjectRow, running: &[InProgress]) {
+    let mut reasons = running.to_vec();
+    reasons.extend(row.in_progress());
+    if !reasons.is_empty() {
+        let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+        ui.add_space(6.0);
+        ui.label(
+            RichText::new(format!("Session in progress: {}.", texts.join("; ")))
+                .color(style::amber(ui)),
+        );
+    } else if row.awaits_git() {
+        ui.add_space(6.0);
+        ui.label(RichText::new("Git has not been asked yet.").weak());
+    }
+}
+
+fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
     let snapshot = &row.snapshot;
     let Some(roadmap) = snapshot.current() else {
         section(ui, "Roadmap");
@@ -278,17 +293,6 @@ fn next_brief(
         ui.label(RichText::new("No brief file yet.").weak());
     }
 
-    let mut reasons = running.to_vec();
-    reasons.extend(row.in_progress());
-    if !reasons.is_empty() {
-        let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
-        ui.label(
-            RichText::new(format!("Session in progress: {}.", texts.join("; ")))
-                .color(style::amber(ui)),
-        );
-    } else if row.awaits_git() {
-        ui.label(RichText::new("Git has not been asked yet.").weak());
-    }
     if snapshot.differs()
         && let Some(head) = &snapshot.head
     {

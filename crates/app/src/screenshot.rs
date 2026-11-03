@@ -23,8 +23,11 @@
 //!   `private`, `remote`, `local`), each adding to its filter;
 //! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
-//!   permission prompt, quarry's manual one busy with its status line's figures, one outside the
-//!   registry, and the signals listening with their entries installed);
+//!   permission prompt, orchard's manual one busy with its status line's figures though every
+//!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,
+//!   and the signals listening with their entries installed; from EP-13 also a headless harbor
+//!   EP-4 of the window's with a transcript, and ledger rows of every mode and outcome);
+//! - `transcript` (the canned sessions, the Sessions pane in front with harbor's tab open);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -42,14 +45,16 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
-use chrono::{DateTime, TimeDelta, Utc};
+use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use crw_core::badges::activity::Activity;
 use crw_core::badges::backup::{Archive, Backup};
 use crw_core::badges::health;
 use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visibility};
 use crw_core::badges::stack::Kind;
+use crw_core::ledger::SessionRow;
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
+use crw_core::session::{Denied, Event, Init, Launch, Request, ToolResult, ToolUse};
 use crw_core::sessions::{Mode, Seen, Status};
 use crw_core::signals::{self, StatusLine};
 use eframe::egui;
@@ -58,6 +63,7 @@ use crate::board::{Action, Board, Dashboard};
 use crate::layout::{self, Pane};
 use crate::portfolio::{Fetched, Portfolio, Selection, SortKey};
 use crate::server::Listening;
+use crate::sessions::Live;
 use crate::style::Density;
 
 pub const PICTURE_VAR: &str = "CRW_SCREENSHOT";
@@ -193,6 +199,13 @@ impl Run {
                 }
                 "launch" => board.open_when_read = Some(value.to_owned()),
                 "sessions" => canned_sessions(board),
+                "transcript" => {
+                    if board.sessions.live.is_empty() {
+                        canned_sessions(board);
+                    }
+                    board.sessions.tab = board.sessions.live.first().map(|live| live.key);
+                    layout::show(dashboard.layout_mut(), Pane::Sessions);
+                }
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),
                     None => eprintln!("screenshot: no pane called {value}"),
@@ -259,17 +272,18 @@ fn canned_sessions(board: &mut Board) {
     );
     lantern.name = Some("lantern EP-6".to_owned());
     lantern.entrypoint = Some("claude-vscode".to_owned());
-    let mut quarry = Seen::canned(
-        "9a3e7d41-quarry",
-        Some("quarry"),
+    // Every row of orchard's is checked: its Detail pane still says the session (EP-13).
+    let mut orchard = Seen::canned(
+        "9a3e7d41-orchard",
+        Some("orchard"),
         Mode::Manual,
         Status::Busy,
         None,
         ago(41),
     );
-    quarry.name = Some("Tidy the fixtures".to_owned());
-    quarry.entrypoint = Some("cli".to_owned());
-    quarry.line = Some(StatusLine {
+    orchard.name = Some("Tidy the fixtures".to_owned());
+    orchard.entrypoint = Some("cli".to_owned());
+    orchard.line = Some(StatusLine {
         model: signals::Model {
             id: "claude-opus-5-5".to_owned(),
             display_name: "Opus".to_owned(),
@@ -284,13 +298,142 @@ fn canned_sessions(board: &mut Board) {
         },
         ..StatusLine::default()
     });
+    // A tab open with no prompt yet: new, no row and no session in progress (EP-13).
+    let mut fresh = Seen::canned(
+        "41d8e2c0-beacon",
+        Some("beacon"),
+        Mode::Manual,
+        Status::Idle,
+        None,
+        ago(1),
+    );
+    fresh.worked = false;
+    fresh.entrypoint = Some("claude-vscode".to_owned());
     let outside = Seen::canned("e7b0c3d9", None, Mode::Manual, Status::Idle, None, ago(5));
-    for mut seen in [lantern, quarry, outside] {
+    for mut seen in [lantern, orchard, fresh, outside] {
         seen.heard = now;
         board.watch.model.insert(seen);
     }
     board.watch.listening = Some(Listening::On(signals::DEFAULT_PORT));
     board.watch.entries = Some(Ok("hooks installed, status line installed".to_owned()));
+    board.sessions.live.insert(0, canned_transcript());
+    board.sessions.history.rows = canned_rows(now);
+    board.sessions.history.canned = true;
+}
+
+/// A headless harbor EP-4 of the window's as it runs (EP-13): text, tool calls with their results,
+/// a request withdrawn, a refused edit of a neighbour, and text streaming in. Synthetic text only.
+fn canned_transcript() -> Live {
+    let folder = portfolio_root().join("harbor");
+    let mut launch = Launch::new(
+        "harbor",
+        &folder,
+        "claude-opus-5-5",
+        "You are working in harbor, launched from clauderoadmapwrangler: run EP-4, Ledger view.",
+    );
+    launch.ep = Some("EP-4".to_owned());
+    let tool = |id: &str, name: &str, summary: &str| {
+        Event::ToolUse(ToolUse {
+            id: id.to_owned(),
+            tool: name.to_owned(),
+            summary: summary.to_owned(),
+        })
+    };
+    let result = |id: &str, lines: usize, excerpt: &str| {
+        Event::ToolResult(ToolResult {
+            tool_use_id: id.to_owned(),
+            is_error: false,
+            lines,
+            excerpt: excerpt.to_owned(),
+        })
+    };
+    let events = vec![
+        Event::Init(Init {
+            version: Some("2.1.316".to_owned()),
+            ..Init::default()
+        }),
+        Event::Text(
+            "Reading the roadmap first: EP-4 is the next row, an L with its brief notes."
+                .to_owned(),
+        ),
+        tool("t1", "Read", "Read roadmap/README.md"),
+        result(
+            "t1",
+            41,
+            "# harbor — Roadmap\n\nMaster roadmap for the berth register.",
+        ),
+        tool("t2", "Bash", "Bash cargo test"),
+        result(
+            "t2",
+            31,
+            "running 24 tests\ntest berths::reads_the_register ... ok\ntest result: ok. 24 passed; 0 failed",
+        ),
+        Event::Text(
+            "The berth list needs a filter by length band; its test comes first.".to_owned(),
+        ),
+        tool("t3", "Edit", "Edit src/view/list.rs"),
+        result("t3", 1, "The file src/view/list.rs has been updated."),
+        tool("t4", "Bash", "Bash git push"),
+        Event::Request(Request {
+            id: "req-1".to_owned(),
+            tool: "Bash".to_owned(),
+            summary: "Bash git push".to_owned(),
+            reason: Some("Not in the allow list".to_owned()),
+            questions: Vec::new(),
+        }),
+        Event::Withdrawn("req-1".to_owned()),
+        Event::Denied(Denied {
+            tool: "Edit".to_owned(),
+            message: "Edit to the neighbour lantern is denied".to_owned(),
+            reason: Some("deny rule".to_owned()),
+        }),
+        Event::TextDelta("Next, the detail pane's keys: ↑ ↓ select, Enter opens".to_owned()),
+    ];
+    Live::canned(900, launch, "high", events)
+}
+
+/// The ledger's rows a picture shows (EP-13), one of each mode and outcome, the latest first.
+fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
+    let time = |at: DateTime<Utc>| at.to_rfc3339_opts(SecondsFormat::Secs, true);
+    let row = |id: i64, project: &str, ep: Option<&str>, mode: &str, start: i64, minutes: i64| {
+        let started = now - TimeDelta::minutes(start);
+        SessionRow {
+            id,
+            session_id: Some(format!("{id:08x}-0000-4000-8000-00000000000{id}")),
+            project: project.to_owned(),
+            ep: ep.map(str::to_owned),
+            mode: mode.to_owned(),
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: time(started),
+            ended_at: Some(time(started + TimeDelta::minutes(minutes))),
+            outcome: Some("completed".to_owned()),
+            cost_usd: None,
+            questions: 0,
+            result: None,
+            context_percent: None,
+        }
+    };
+    let mut quarry = row(5, "quarry", None, "manual", 95, 36);
+    quarry.cost_usd = Some(0.87);
+    quarry.context_percent = Some(41.0);
+    let mut lapsed = row(4, "lantern", Some("EP-6"), "visual", 200, 30);
+    lapsed.session_id = None;
+    lapsed.outcome = None;
+    let lantern = row(3, "lantern", Some("EP-5"), "visual", 1500, 64);
+    let mut stopped = row(2, "harbor", Some("EP-3"), "headless", 1700, 12);
+    stopped.outcome = Some("stopped".to_owned());
+    stopped.model = Some("claude-opus-5-5".to_owned());
+    stopped.effort = Some("high".to_owned());
+    stopped.cost_usd = Some(0.95);
+    let mut done = row(1, "harbor", Some("EP-3"), "headless", 1650, 52);
+    done.model = Some("claude-opus-5-5".to_owned());
+    done.effort = Some("high".to_owned());
+    done.cost_usd = Some(3.10);
+    done.result =
+        Some("EP-3 is done: the tide tables are read and cached, and the tests pass.".to_owned());
+    vec![quarry, lapsed, lantern, done, stopped]
 }
 
 /// The comma-separated flags of a setup, trimmed, empty ones left out.

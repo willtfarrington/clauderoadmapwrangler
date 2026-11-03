@@ -2,7 +2,8 @@
 //! never the real CLI and spends nothing. Asked `--version`, `auth status` or `--help`, it answers
 //! with synthetic text. Otherwise it plays `stub-script.jsonl` from its working folder: lines of
 //! stream-json with fake names, printed as they stand (`$SESSION` becomes the `--session-id` it
-//! was given), between directives that stand for the CLI's side of the conversation:
+//! was given, or the id it `--resume`s), between directives that stand for the CLI's side of the
+//! conversation:
 //!
 //! - `{"stub": "handshake"}` reads up to the host's `initialize` and answers it, with an error
 //!   when the directive carries `"error": "<text>"`;
@@ -55,6 +56,8 @@ Options:
                                         \"host\")
   -p, --print                           Print response and exit
   --replay-user-messages                Re-emit user messages from stdin
+  -r, --resume [value]                  Resume a conversation by session ID or
+                                        name
   --session-id <uuid>                   Use a specific session ID
   --settings <file-or-json>             Path to a settings JSON file or a JSON
                                         string
@@ -133,7 +136,7 @@ impl Input {
 fn play(args: &[String]) {
     let session = args
         .windows(2)
-        .find(|pair| pair[0] == "--session-id")
+        .find(|pair| pair[0] == "--session-id" || pair[0] == "--resume")
         .map(|pair| pair[1].clone())
         .unwrap_or_default();
     let script =

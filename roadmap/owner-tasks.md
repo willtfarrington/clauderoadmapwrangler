@@ -36,7 +36,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   its panel, then send it or close the tab. If VS Code asks "Allow Claude Code extension to open
   this URI?", tick "Do not ask me again" and Open. The session tried only a window already open,
   its own, with a test prompt (rule 5). Notes go to `roadmap/inbox.md` [before EP-12]
-- [ ] OT-6 (EP-12, 2026-11-02) Open Roadmap Wrangler from its shortcut and hover over "Up to date"
+- [x] OT-6 (EP-12, 2026-11-02) Open Roadmap Wrangler from its shortcut and hover over "Up to date"
   in the status bar: it should end "Signals: listening on 127.0.0.1:47831; hooks installed, status
   line installed". Then open a new Claude Code tab in a registered project's VS Code window: within
   a few seconds the Sessions pane should list it under "Started elsewhere" as manual and idle, the
@@ -48,3 +48,15 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   `~\.claude\hooks\session-start-inbox.ps1` is no longer run (retiring it is your environment
   repository's next brief); `target\release\crw.exe signals remove` takes the tool's entries out.
   Notes go to `roadmap/inbox.md` [before EP-13]
+- [ ] OT-7 (EP-13, 2026-11-02) Open Roadmap Wrangler from its shortcut: its first start brings the
+  ledger to schema 3 and closes the two visual launches from before the hooks, which
+  `target\release\crw.exe sessions` then lists as lapsed (before the window, it already reads them
+  so, without writing). In the Sessions pane's All tab, try the project, mode and Running only
+  filters over the ledger's rows. Open a new Claude Code tab in a registered project's window: it
+  should show as new, with no row and no session in progress; send a prompt, and within 30 s (at
+  once if you switch to the window) it turns busy, in blue, the project's row shows it in progress,
+  and `crw sessions` shows its row from its start. A real headless run is optional and spends
+  usage: Start headless from the launch dialog, watch its tab's transcript, Stop it, then type a
+  message and Resume; the ledger keeps a row per run. The session checked the tile only on the fake
+  portfolio and the ledger's rule on scratch ledgers (rule 5). Notes go to `roadmap/inbox.md`
+  [before EP-14]

@@ -190,6 +190,13 @@ house style only with a regex fallback.
 > it. `crw roadmap`, which runs no window, reads the files only. *Alternatives.* The snapshot asking
 > for the live sessions itself; a column of its own for sessions.
 
+> **Addendum (2026-11-02, EP-13).** A session open with no prompt yet (the hooks saw it start and it
+> has not worked since) is no reason: it edits nothing, so the row's Session cell, the Detail pane and
+> the launch dialog's warning leave it out until its first sign of work (the owner's choice). The
+> Detail pane says the reasons for every project, whether or not its roadmap has a next row, as the
+> list's Session cell did already (the owner's finding after OT-6). *Alternatives.* Any open tab a
+> reason at once, as EP-12 had it.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -384,6 +391,15 @@ workspace file's first folder.
 > window, maybe another project's); `code.cmd` or the shell's `start`; a fixed delay instead of the
 > lock file; Headless as the default.
 
+> **Addendum (2026-11-02, EP-13).** Resume is built: an ended headless session of the window's runs
+> again with `--resume <its id>` in place of `--session-id` (the CLI keeps the id unless asked to fork
+> it), with the launch's model, effort, permission mode and neighbours and the message the owner types
+> in its tab as the prompt; the launch is refused when the CLI's help lists no `--resume`. Each run is
+> a ledger row of its own under the same id, and the session's tab keeps one transcript across its
+> runs. A visual or manual session is not resumed from the tool, nor a headless one after the window
+> restarted, whose launch's choices lived in the window (v2 notes). *Alternatives.* The session's row
+> reopened for each run; a tab per run; resume from the ledger's rows.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -486,6 +502,12 @@ tool. *Alternatives.* Polling only; hooks only.
 > an ended one leaves the window after ten minutes. *Alternatives.* Shell-form commands through Git
 > Bash; `type: "http"` hooks, whose refused connection is a hook error the session shows; a 5 s
 > poll whatever the focus; the stopgap kept beside.
+
+> **Addendum (2026-11-02, EP-13).** The `UserPromptSubmit` hook waits for EP-20, which adds its
+> `@<project>` text to it (the owner's choice): busy comes from the poll, which asks at once when the
+> window gains the focus, and the state model reads the event as busy and as work when it arrives. A
+> session that ends without having worked leaves the window at once, not after ten minutes.
+> *Alternatives.* The prompt hook installed now, for busy at once whatever the window's focus.
 
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
@@ -656,6 +678,21 @@ state; graphs only in the detail tile or a separate window.
 > (name, state, next brief, progress, badges and the burn-up sparkline EP-26 draws) in the list's
 > groups and order. *Alternatives.* An S row of its own; v2.
 
+> **Addendum (2026-11-02, EP-13).** The sessions tile is a tab strip in the Sessions pane: All, then a
+> tab per headless session of the window's. A session's tab has its header (the state chip, model,
+> effort, start and runs; Stop and Kill while it runs, Dismiss after) and its transcript as it streams:
+> the prompt folded, the assistant's text with its partial text appended, each tool call in one line
+> with its result folded under it (the first lines only), what it asked the host, the refusals, the
+> notices, the result; once it has ended, Resume with a message (D-16 addendum). All lists the
+> window's sessions, those started elsewhere and the ledger's latest 200 rows, filtered by project,
+> mode and running only, the filter saved with the view. Busy is blue, waiting amber, an ending green
+> or red, idle grey (busy and idle shared the grey before, the owner's finding). In a narrow pane a
+> chip has a row of its own and no row is wider than the pane: one wider row widens everything after
+> it past the pane's edge, and a folding header's text never wraps. The transcript lives in the
+> window's memory only, 2,000 entries at most (D-3, D-26). *Alternatives.* An egui_tiles pane per
+> session, which the saved layout would keep; the list in a window of its own; a transcript file per
+> session.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates
@@ -674,6 +711,23 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > closes a visual or manual row as completed. A headless row stays the runner's; another program's
 > `-p` run, a session outside the registry and a session seen only by the poll (its start and end
 > unknown) get none. *Alternatives.* Rows for every session the poll lists; no manual rows.
+
+> **Addendum (2026-11-02, EP-13).** A session the hooks report earns its row at its first sign of
+> work (a finished turn, a wait for the owner, a prompt, or the poll listing it busy or waiting), and
+> only when the hooks saw it start; the row starts at the session's own start, and a compaction's
+> start is no start (the owner's choice after OT-6, where opening a tab wrote three rows: a helper of
+> the extension's, a tab the window restored and the owner's session). A visual launch is taken up
+> only by a session that starts as a new conversation within its 30 minutes and works before they run
+> out; a launch no session took up lapses, closed by the window at its launch plus 30 minutes with no
+> session and no outcome, which a run length leaves out (the owner's choice: the two launches recorded
+> before the hooks close at the window's next start). Schema 3 adds `result`, a run's final text kept
+> to 8,000 characters, and `context_percent`, which an end keeps with the cost from the session's last
+> status line. `crw sessions` and the Sessions pane read the ledger without a write
+> (`Ledger::open_read_only`, an older schema read with the columns it has), and a migration step takes
+> the write lock before it reads the version, since the window's loader and its first frame open the
+> ledger at the same moment. The rows written before EP-13 stay (rule 13). *Alternatives.* A row only
+> when a transcript is on disk at the end, which a restored tab has; a row at every start, as EP-12
+> had it; lapsed launches shown but never closed; a longer claim window.
 
 ## Chat, remote access, operations
 

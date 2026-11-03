@@ -1,38 +1,47 @@
-//! The headless sessions the window starts (D-16), held until EP-13's tile shows their transcripts
-//! and EP-14's answers their requests (the owner's choice at EP-10): each session's state, its last
-//! line and what it waits for, in plain lines in the Sessions pane with Stop and Kill; a request
-//! waits, listed read-only in the Decisions pane. The CLI's preflight is asked on a worker thread
-//! and kept an hour (D-15), and a start waits its turn and its spacing on one too (D-29), so the
-//! frame never blocks. Closing the window drops the handles, which kills whatever still runs with
-//! its process tree (D-16 addendum). From EP-12 the pane also lists the sessions of the registered
-//! projects that Claude Code reports elsewhere (`watch`), read-only.
+//! The Sessions tile (D-16, D-25; EP-13): one tab per headless session the window started, with
+//! its transcript as it streams (`transcript`), Stop and Kill while it runs and Resume with a
+//! message once it has ended; and an All tab that lists every session, the window's, those Claude
+//! Code reports elsewhere (EP-12) and the ledger's recent rows, with filters by project, mode and
+//! running only. The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
+//! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Closing the
+//! window drops the handles, which kills whatever still runs with its process tree (D-16
+//! addendum). What a session waits on is listed read-only in the Decisions pane until EP-14
+//! answers it.
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
+use crw_core::ledger::{self, Ledger, RowState, SessionRow};
 use crw_core::session::{Ended, Event, Init, Launch, Outcome, Preflight, Request, Session};
-use crw_core::sessions::{Seen, Status as SeenStatus};
-use eframe::egui::{self, RichText};
+use crw_core::sessions::{Seen, Status as SeenStatus, VISUAL_CLAIM};
+use eframe::egui::{self, Color32, RichText};
+use serde::{Deserialize, Serialize};
 
 use crate::board::{Action, Board};
 use crate::style::{self, icons};
+use crate::transcript::Transcript;
 
 /// How often the window looks at a running session's events.
 const POLL: Duration = Duration::from_millis(250);
 
-/// The notices a session keeps, the latest last.
-const NOTICES: usize = 5;
-
 /// The longest line of a session's text shown.
 const LINE: usize = 220;
 
+/// The ledger's rows the All tab reads, and how often while the pane shows.
+const HISTORY_ROWS: usize = 200;
+const HISTORY_EVERY: Duration = Duration::from_secs(30);
+
+/// The modes a session may have, in the order the filters show them (D-16, D-26).
+const MODES: [&str; 3] = ["headless", "visual", "manual"];
+
 /// A headless session the window started.
 pub struct Live {
-    /// The window's own number for it, for the buttons.
+    /// The window's own number for it, for the buttons and its tab.
     pub key: u64,
     pub project: String,
     pub ep: String,
@@ -41,39 +50,106 @@ pub struct Live {
     pub effort: String,
     pub started: DateTime<Local>,
     pub session_id: String,
-    /// The handle; `None` once the session has exited.
+    /// The handle; `None` once the run has exited.
     session: Option<Session>,
     /// What the launch asked for and the CLI could not take.
     pub dropped: Vec<String>,
     pub init: Option<Init>,
-    /// The last line of text, or the last tool call, in one line.
+    /// The last line of text, or the last tool call, in one line: the All tab's.
     pub last: String,
-    streaming: String,
+    pub transcript: Transcript,
     /// The requests the session waits on (D-19); answered from EP-14.
     pub waiting: Vec<Request>,
-    pub notices: Vec<String>,
     pub denied: usize,
     pub unreadable: usize,
     pub stopping: bool,
     pub ended: Option<Ended>,
+    /// How many runs it has had: one, and one more for each resume.
+    pub runs: u32,
+    /// The message the owner types to resume it.
+    pub draft: String,
+    /// What it was launched with: a resume runs the same with `--resume` (EP-13).
+    launch: Launch,
+    /// The CLI it ran, whose preflight a resume asks.
+    program: PathBuf,
+    /// A screenshot run's stand-in: shown running, with no process behind it.
+    canned: bool,
 }
 
 impl Live {
+    fn new(key: u64, starting: &Starting, session: Session) -> Self {
+        let mut transcript = Transcript::default();
+        transcript.prompt(&starting.launch.prompt, false);
+        Self {
+            key,
+            project: starting.launch.project.clone(),
+            ep: starting.launch.ep.clone().unwrap_or_default(),
+            model: starting.launch.model.clone(),
+            effort: starting.effort.clone(),
+            started: Local::now(),
+            session_id: session.session_id.clone(),
+            dropped: session.dropped.clone(),
+            session: Some(session),
+            init: None,
+            last: String::new(),
+            transcript,
+            waiting: Vec::new(),
+            denied: 0,
+            unreadable: 0,
+            stopping: false,
+            ended: None,
+            runs: 1,
+            draft: String::new(),
+            launch: starting.launch.clone(),
+            program: starting.program.clone(),
+            canned: false,
+        }
+    }
+
+    /// A session as a screenshot run shows it: running, its transcript made of `events`.
+    #[cfg(feature = "screenshot")]
+    pub fn canned(key: u64, launch: Launch, effort: &str, events: Vec<Event>) -> Self {
+        let mut live = Self {
+            key,
+            project: launch.project.clone(),
+            ep: launch.ep.clone().unwrap_or_default(),
+            model: launch.model.clone(),
+            effort: effort.to_owned(),
+            started: Local::now() - chrono::TimeDelta::minutes(18),
+            session_id: "3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned(),
+            session: None,
+            dropped: Vec::new(),
+            init: None,
+            last: String::new(),
+            transcript: Transcript::default(),
+            waiting: Vec::new(),
+            denied: 0,
+            unreadable: 0,
+            stopping: false,
+            ended: None,
+            runs: 1,
+            draft: String::new(),
+            program: PathBuf::from("claude.exe"),
+            canned: true,
+            launch,
+        };
+        live.transcript.prompt(&live.launch.prompt, false);
+        for event in events {
+            live.take(event);
+        }
+        live
+    }
+
     fn take(&mut self, event: Event) {
+        self.transcript.take(&event);
         match event {
             Event::Init(init) => self.init = Some(init),
-            Event::Handshake(Ok(())) => {}
-            Event::Handshake(Err(e)) => {
-                self.notice(format!("the control protocol's handshake was refused: {e}"));
-            }
-            Event::TextDelta(text) => {
-                self.streaming.push_str(&text);
-                if let Some(line) = last_line(&self.streaming) {
+            Event::TextDelta(_) => {
+                if let Some(line) = last_line(&self.transcript.streaming) {
                     self.last = line;
                 }
             }
             Event::Text(text) => {
-                self.streaming.clear();
                 if let Some(line) = last_line(&text) {
                     self.last = line;
                 }
@@ -85,26 +161,19 @@ impl Live {
                 self.denied += 1;
                 self.last = format!("refused: {} ({})", denied.tool, denied.message);
             }
-            Event::Result(_) => {}
-            Event::Notice(text) => self.notice(text),
             Event::Unreadable(_) => self.unreadable += 1,
             Event::Exited(ended) => {
                 self.waiting.clear();
                 self.ended = Some(ended);
                 self.session = None;
+                self.stopping = false;
             }
+            Event::Handshake(_) | Event::ToolResult(_) | Event::Result(_) | Event::Notice(_) => {}
         }
     }
 
-    fn notice(&mut self, text: String) {
-        if self.notices.len() == NOTICES {
-            self.notices.remove(0);
-        }
-        self.notices.push(text);
-    }
-
-    /// Takes in what the session said since the last frame.
-    fn drain(&mut self) {
+    /// Takes in what the session said since the last frame; `true` when its run ended.
+    fn drain(&mut self) -> bool {
         let mut events = Vec::new();
         let mut gone = false;
         if let Some(session) = &self.session {
@@ -119,27 +188,45 @@ impl Live {
                 }
             }
         }
+        let mut ended = false;
         for event in events {
+            ended |= matches!(event, Event::Exited(_));
             self.take(event);
         }
         if gone && self.ended.is_none() {
-            self.notice("the session's thread ended without saying how".to_owned());
+            self.take(Event::Notice(
+                "the session's thread ended without saying how".to_owned(),
+            ));
             self.session = None;
+            ended = true;
         }
+        ended
     }
 
     pub fn is_running(&self) -> bool {
-        self.ended.is_none() && self.session.is_some()
+        self.ended.is_none() && (self.session.is_some() || self.canned)
     }
 
     /// The state in words: running, waiting for an answer, stopping, or how it ended.
     pub fn state(&self) -> String {
         match &self.ended {
             Some(ended) => format!("ended: {}", ended.outcome.as_str()),
-            None if self.session.is_none() => "gone".to_owned(),
+            None if !self.is_running() => "gone".to_owned(),
             None if self.stopping => "stopping".to_owned(),
             None if !self.waiting.is_empty() => "waiting for an answer".to_owned(),
             None => "running".to_owned(),
+        }
+    }
+
+    /// The colour of its state: at work in blue, waiting in amber, ended well in green.
+    fn colour(&self, ui: &egui::Ui) -> Color32 {
+        match &self.ended {
+            Some(ended) if ended.outcome == Outcome::Completed => style::green(ui),
+            Some(ended) if ended.outcome == Outcome::Deferred => style::amber(ui),
+            Some(_) => style::red(ui),
+            None if !self.is_running() || self.stopping => ui.visuals().weak_text_color(),
+            None if !self.waiting.is_empty() => style::amber(ui),
+            None => style::blue(ui),
         }
     }
 }
@@ -172,16 +259,73 @@ enum Asked {
 /// A start on its way: the runner waits for its turn and the spacing on a worker thread.
 struct Starting {
     receiver: Receiver<Result<Session, String>>,
-    project: String,
-    ep: String,
-    model: String,
+    launch: Launch,
+    program: PathBuf,
     effort: String,
+    /// The session of the window's this run resumes.
+    resumes: Option<u64>,
 }
 
 /// What became of a start.
 pub enum Started {
     Running(String),
     Refused(String),
+}
+
+/// What the All tab lists, saved with the view (EP-13).
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SessionFilter {
+    /// One project's sessions, or every project's.
+    pub project: Option<String>,
+    /// The modes left out: `headless`, `visual`, `manual`.
+    pub hidden_modes: BTreeSet<String>,
+    /// Only the sessions that run now: the ledger's rows stay out.
+    pub running_only: bool,
+}
+
+impl SessionFilter {
+    fn keeps(&self, project: &str, mode: &str) -> bool {
+        self.project
+            .as_deref()
+            .is_none_or(|wanted| wanted.eq_ignore_ascii_case(project))
+            && !self.hidden_modes.contains(mode)
+    }
+}
+
+/// The ledger's recent rows for the All tab, read without writing (EP-13): again when the ledger
+/// changed, and every half minute while the pane shows.
+#[derive(Default)]
+pub struct History {
+    pub rows: Vec<SessionRow>,
+    pub problem: Option<String>,
+    read_at: Option<Instant>,
+    /// The ledger changed since the last read.
+    pub stale: bool,
+    /// A screenshot run's rows: the ledger is not read.
+    pub canned: bool,
+}
+
+impl History {
+    fn refresh(&mut self, ledger: Option<&Path>) {
+        let due = self.stale || self.read_at.is_none_or(|at| at.elapsed() >= HISTORY_EVERY);
+        let Some(path) = ledger.filter(|_| due && !self.canned) else {
+            return;
+        };
+        self.read_at = Some(Instant::now());
+        self.stale = false;
+        if !path.exists() {
+            self.rows.clear();
+            return;
+        }
+        match Ledger::open_read_only(path).and_then(|ledger| ledger.recent_sessions(HISTORY_ROWS)) {
+            Ok(rows) => {
+                self.rows = rows;
+                self.problem = None;
+            }
+            Err(e) => self.problem = Some(format!("The ledger did not read: {e}")),
+        }
+    }
 }
 
 /// The window's sessions and what their launches need from the CLI.
@@ -193,6 +337,9 @@ pub struct Sessions {
     /// A screenshot run's stand-in for the CLI's answers: the real CLI is never asked there.
     pub canned: Option<Arc<Preflight>>,
     next_key: u64,
+    /// The tab in front: All, or one of the window's sessions by its key.
+    pub tab: Option<u64>,
+    pub history: History,
 }
 
 impl Default for Sessions {
@@ -203,6 +350,8 @@ impl Default for Sessions {
             asked: Asked::Not,
             canned: None,
             next_key: 1,
+            tab: None,
+            history: History::default(),
         }
     }
 }
@@ -273,26 +422,53 @@ impl Sessions {
         effort: String,
         ctx: &egui::Context,
     ) {
+        self.begin(preflight, launch, effort, None, ctx);
+    }
+
+    /// Resumes the window's ended session `key` with `message` as its next prompt (EP-13): a new
+    /// run of the same launch under the session's id, in the same tab.
+    pub fn resume(
+        &mut self,
+        key: u64,
+        preflight: Arc<Preflight>,
+        message: &str,
+        ctx: &egui::Context,
+    ) {
+        let Some(live) = self.live.iter().find(|live| live.key == key) else {
+            return;
+        };
+        let mut launch = live.launch.clone();
+        launch.resume = Some(live.session_id.clone());
+        launch.prompt = message.to_owned();
+        let effort = live.effort.clone();
+        self.begin(preflight, launch, effort, Some(key), ctx);
+    }
+
+    fn begin(
+        &mut self,
+        preflight: Arc<Preflight>,
+        launch: Launch,
+        effort: String,
+        resumes: Option<u64>,
+        ctx: &egui::Context,
+    ) {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
-        let (project, ep, model) = (
-            launch.project.clone(),
-            launch.ep.clone().unwrap_or_default(),
-            launch.model.clone(),
-        );
+        let program = preflight.program.clone();
+        let run = launch.clone();
         let spawned = thread::Builder::new()
             .name("session start".to_owned())
             .spawn(move || {
-                let _ = sender.send(Session::start(&preflight, launch));
+                let _ = sender.send(Session::start(&preflight, run));
                 ctx.request_repaint();
             });
         if spawned.is_ok() {
             self.starting = Some(Starting {
                 receiver,
-                project,
-                ep,
-                model,
+                launch,
+                program,
                 effort,
+                resumes,
             });
         }
     }
@@ -307,40 +483,10 @@ impl Sessions {
                 Ok(result) => {
                     let starting = self.starting.take().expect("a start was waited on");
                     started = Some(match result {
-                        Ok(session) => {
-                            let text = format!(
-                                "Started {} {} headless with {} at {} effort: the Sessions pane \
-                                 lists it, and closing the window stops it.",
-                                starting.project, starting.ep, starting.model, starting.effort
-                            );
-                            self.live.insert(
-                                0,
-                                Live {
-                                    key: self.next_key,
-                                    project: starting.project,
-                                    ep: starting.ep,
-                                    model: starting.model,
-                                    effort: starting.effort,
-                                    started: Local::now(),
-                                    session_id: session.session_id.clone(),
-                                    dropped: session.dropped.clone(),
-                                    session: Some(session),
-                                    init: None,
-                                    last: String::new(),
-                                    streaming: String::new(),
-                                    waiting: Vec::new(),
-                                    notices: Vec::new(),
-                                    denied: 0,
-                                    unreadable: 0,
-                                    stopping: false,
-                                    ended: None,
-                                },
-                            );
-                            self.next_key += 1;
-                            Started::Running(text)
-                        }
+                        Ok(session) => self.started(&starting, session),
                         Err(why) => Started::Refused(why),
                     });
+                    self.history.stale = true;
                 }
                 Err(TryRecvError::Disconnected) => {
                     self.starting = None;
@@ -352,12 +498,48 @@ impl Sessions {
             }
         }
         for live in &mut self.live {
-            live.drain();
+            if live.drain() {
+                self.history.stale = true;
+            }
         }
         if self.is_starting() || self.live.iter().any(Live::is_running) {
             ctx.request_repaint_after(POLL);
         }
         started
+    }
+
+    /// A session that started: a new tab, or the resumed session's own going on.
+    fn started(&mut self, starting: &Starting, session: Session) -> Started {
+        let (project, ep) = (
+            &starting.launch.project,
+            starting.launch.ep.as_deref().unwrap_or_default(),
+        );
+        let resumed = starting
+            .resumes
+            .and_then(|key| self.live.iter_mut().find(|live| live.key == key));
+        if let Some(live) = resumed {
+            live.dropped = session.dropped.clone();
+            live.session = Some(session);
+            live.ended = None;
+            live.stopping = false;
+            live.runs += 1;
+            live.draft.clear();
+            live.transcript.prompt(&starting.launch.prompt, true);
+            self.tab = Some(live.key);
+            return Started::Running(format!(
+                "Resumed {project} {ep} under its session id: its tab in the Sessions pane goes \
+                 on, and closing the window stops it."
+            ));
+        }
+        let key = self.next_key;
+        self.next_key += 1;
+        self.live.insert(0, Live::new(key, starting, session));
+        self.tab = Some(key);
+        Started::Running(format!(
+            "Started {project} {ep} headless with {} at {} effort: the Sessions pane shows it, \
+             and closing the window stops it.",
+            starting.launch.model, starting.effort
+        ))
     }
 
     /// What the row of `project` says of the window's sessions; `None` when none runs.
@@ -378,8 +560,17 @@ impl Sessions {
         let starting = self
             .starting
             .as_ref()
-            .filter(|starting| starting.project.eq_ignore_ascii_case(project))
-            .map(|starting| format!("a headless {} is starting", starting.ep));
+            .filter(|starting| starting.launch.project.eq_ignore_ascii_case(project))
+            .map(|starting| match starting.resumes {
+                Some(_) => format!(
+                    "a headless {} is resuming",
+                    starting.launch.ep.as_deref().unwrap_or_default()
+                ),
+                None => format!(
+                    "a headless {} is starting",
+                    starting.launch.ep.as_deref().unwrap_or_default()
+                ),
+            });
         let all: Vec<String> = starting.into_iter().chain(running).collect();
         (!all.is_empty()).then(|| all.join("; "))
     }
@@ -406,10 +597,21 @@ impl Sessions {
         }
     }
 
-    /// Forgets an ended session (the ledger keeps its row).
+    /// Forgets an ended session (the ledger keeps its rows).
     pub fn dismiss(&mut self, key: u64) {
         self.live
             .retain(|live| live.key != key || live.is_running());
+        if self.tab == Some(key) && self.find(key).is_none() {
+            self.tab = None;
+        }
+    }
+
+    /// The message typed to resume `key`, when it can resume: it has ended, and no start waits.
+    pub fn resumable(&self, key: u64) -> Option<(String, PathBuf)> {
+        let live = self.live.iter().find(|live| live.key == key)?;
+        let message = live.draft.trim();
+        (live.ended.is_some() && !live.canned && !message.is_empty() && !self.is_starting())
+            .then(|| (message.to_owned(), live.program.clone()))
     }
 
     pub fn waiting(&self) -> usize {
@@ -434,25 +636,111 @@ impl Board {
             .collect()
     }
 
-    /// The Sessions pane until EP-13's tile: the window's headless sessions in plain lines, then
-    /// the sessions Claude Code reports elsewhere (EP-12).
+    /// The Sessions tile (EP-13): the tabs, then All or a session's transcript.
     pub fn sessions_pane(&mut self, ui: &mut egui::Ui) {
-        let seen = self.seen_sessions();
-        let outside = self.watch.model.outside();
-        if self.sessions.live.is_empty() && !self.sessions.is_starting() && seen.is_empty() {
-            placeholder(
-                ui,
-                "The headless sessions started from the launch dialog (S, or a row's Start \
-                 button) are listed here, with Stop and Kill; their transcripts arrive at EP-13. \
-                 The sessions of the registered projects that Claude Code's hooks and its list of \
-                 live sessions report join them.",
-            );
-            if outside > 0 {
-                ui.vertical_centered(|ui| ui.label(RichText::new(outside_words(outside)).weak()));
-            }
-            return;
+        let ledger = self.ledger().map(Path::to_owned);
+        self.sessions.history.refresh(ledger.as_deref());
+        if self
+            .sessions
+            .tab
+            .is_some_and(|key| !self.sessions.live.iter().any(|live| live.key == key))
+        {
+            self.sessions.tab = None;
         }
-        let mut actions = Vec::new();
+        self.tab_strip(ui);
+        ui.separator();
+        match self.sessions.tab {
+            Some(key) => self.session_tab(ui, key),
+            None => self.all_tab(ui),
+        }
+    }
+
+    fn tab_strip(&mut self, ui: &mut egui::Ui) {
+        let mut tab = self.sessions.tab;
+        ui.horizontal_wrapped(|ui| {
+            ui.selectable_value(&mut tab, None, "All");
+            for live in &self.sessions.live {
+                let mut job = egui::text::LayoutJob::default();
+                let font = egui::TextStyle::Button.resolve(ui.style());
+                job.append(
+                    "● ",
+                    0.0,
+                    egui::TextFormat::simple(font.clone(), live.colour(ui)),
+                );
+                job.append(
+                    &format!("{} {}", live.project, live.ep),
+                    0.0,
+                    egui::TextFormat::simple(font, ui.visuals().text_color()),
+                );
+                ui.selectable_value(&mut tab, Some(live.key), job)
+                    .on_hover_text(live.state());
+            }
+        });
+        self.sessions.tab = tab;
+    }
+
+    /// Every session: the window's, those started elsewhere, the ledger's recent rows.
+    fn all_tab(&mut self, ui: &mut egui::Ui) {
+        let names: Vec<String> = self
+            .portfolio
+            .projects
+            .iter()
+            .map(|row| row.name().to_owned())
+            .collect();
+        filters(ui, &mut self.view.sessions, &names);
+        let filter = self.view.sessions.clone();
+        let seen: Vec<&Seen> = self
+            .seen_sessions()
+            .into_iter()
+            .filter(|seen| {
+                filter.keeps(
+                    seen.project.as_deref().unwrap_or_default(),
+                    seen.mode.as_str(),
+                ) && !(filter.running_only && seen.status.is_over())
+            })
+            .collect();
+        let outside = self.watch.model.outside();
+        let lives: Vec<&Live> = self
+            .sessions
+            .live
+            .iter()
+            .filter(|live| {
+                filter.keeps(&live.project, "headless")
+                    && !(filter.running_only && !live.is_running())
+            })
+            .collect();
+        // A row whose session shows above is not listed again.
+        let shown: BTreeSet<&str> = self
+            .sessions
+            .live
+            .iter()
+            .map(|live| live.session_id.as_str())
+            .chain(
+                self.watch
+                    .model
+                    .all()
+                    .into_iter()
+                    .filter(|seen| !seen.status.is_over())
+                    .map(|seen| seen.session_id.as_str()),
+            )
+            .collect();
+        let history = &self.sessions.history;
+        let rows: Vec<&SessionRow> = if filter.running_only {
+            Vec::new()
+        } else {
+            history
+                .rows
+                .iter()
+                .filter(|row| {
+                    filter.keeps(&row.project, &row.mode)
+                        && !row
+                            .session_id
+                            .as_deref()
+                            .is_some_and(|id| shown.contains(id))
+                })
+                .collect()
+        };
+        let mut open = None;
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -463,19 +751,25 @@ impl Board {
                     });
                     ui.add_space(6.0);
                 }
-                for live in &self.sessions.live {
-                    session_card(ui, live, &mut actions);
-                    ui.add_space(6.0);
+                if lives.is_empty() && seen.is_empty() && rows.is_empty() {
+                    placeholder(
+                        ui,
+                        "No session to list. The headless sessions started from the launch dialog \
+                         (S, or a row's Start button) get a tab here with their transcript; the \
+                         sessions Claude Code reports elsewhere and the ledger's rows join them.",
+                    );
                 }
-                if !seen.is_empty() {
-                    if !self.sessions.live.is_empty() {
+                if !lives.is_empty() {
+                    heading(ui, "Started here: headless, with a tab each");
+                    for live in &lives {
+                        if live_line(ui, live) {
+                            open = Some(live.key);
+                        }
                         ui.add_space(4.0);
                     }
-                    ui.label(
-                        RichText::new("Started elsewhere: in VS Code, a terminal or another program")
-                            .weak(),
-                    );
-                    ui.add_space(2.0);
+                }
+                if !seen.is_empty() {
+                    heading(ui, "Started elsewhere: in VS Code, a terminal or another program");
                     for one in &seen {
                         seen_card(ui, one);
                         ui.add_space(6.0);
@@ -491,7 +785,134 @@ impl Board {
                             .color(style::amber(ui)),
                     );
                 }
+                if !rows.is_empty() {
+                    heading(ui, "From the ledger: the latest first");
+                    let now = Utc::now();
+                    for row in &rows {
+                        ledger_line(ui, row, now);
+                        ui.add_space(4.0);
+                    }
+                }
+                if let Some(problem) = &history.problem {
+                    ui.label(RichText::new(problem).small().color(style::amber(ui)));
+                }
             });
+        if open.is_some() {
+            self.sessions.tab = open;
+        }
+    }
+
+    /// One session of the window's: its header and buttons, its transcript, and Resume once it
+    /// has ended.
+    fn session_tab(&mut self, ui: &mut egui::Ui, key: u64) {
+        let starting = self.sessions.is_starting();
+        let Some(live) = self.sessions.find(key) else {
+            return;
+        };
+        let mut actions = Vec::new();
+        // The title, the chip and the buttons on rows of their own, so that a narrow pane neither
+        // squeezes a chip nor gets widened past its edge by a row too long for it.
+        ui.label(RichText::new(format!("{} {}", live.project, live.ep)).strong());
+        ui.horizontal(|ui| style::chip(ui, &live.state(), live.colour(ui)));
+        let runs = match live.runs {
+            1 => String::new(),
+            n => format!(" · {n} runs"),
+        };
+        ui.label(
+            RichText::new(format!(
+                "{} · {} · started {}{runs}",
+                live.model,
+                live.effort,
+                live.started.format("%H:%M")
+            ))
+            .weak(),
+        );
+        ui.horizontal(|ui| {
+            if live.is_running() {
+                if ui
+                    .add_enabled(!live.stopping, egui::Button::new("Stop"))
+                    .on_hover_text(
+                        "Interrupt the turn and close the session's input; the job is killed \
+                         if it has not exited within 30 seconds",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::StopSession(key));
+                }
+                if ui
+                    .button(style::icon(icons::ICON_CLOSE, Some(style::red(ui))))
+                    .on_hover_text("Kill the session and its whole process tree at once")
+                    .clicked()
+                {
+                    actions.push(Action::KillSession(key));
+                }
+            } else if ui
+                .button("Dismiss")
+                .on_hover_text("Close its tab; the ledger keeps its rows")
+                .clicked()
+            {
+                actions.push(Action::DismissSession(key));
+            }
+        });
+        for note in &live.dropped {
+            ui.label(RichText::new(note).small().color(style::amber(ui)));
+        }
+        let mut counts = Vec::new();
+        match live.denied {
+            0 => {}
+            1 => counts.push("1 tool use refused".to_owned()),
+            n => counts.push(format!("{n} tool uses refused")),
+        }
+        match live.unreadable {
+            0 => {}
+            1 => counts.push("1 line unread".to_owned()),
+            n => counts.push(format!("{n} lines unread")),
+        }
+        if let Some(init) = &live.init
+            && let Some(version) = &init.version
+        {
+            counts.push(format!("claude {version}"));
+        }
+        counts.push(format!("session {}", live.session_id));
+        ui.label(RichText::new(counts.join(" · ")).small().weak());
+        ui.separator();
+
+        // The footer keeps its room below the transcript once the run has ended.
+        let footer = if live.ended.is_some() { 96.0 } else { 0.0 };
+        egui::ScrollArea::vertical()
+            .id_salt(("transcript", key))
+            .auto_shrink(false)
+            .stick_to_bottom(true)
+            .max_height((ui.available_height() - footer).max(80.0))
+            .show(ui, |ui| live.transcript.ui(ui, key));
+        if let Some(ended) = &live.ended {
+            ui.separator();
+            ui.label(RichText::new(ending(ended)).weak());
+            if ended.outcome == Outcome::Failed
+                && let Some(line) = ended.stderr.last()
+            {
+                ui.label(RichText::new(line).color(style::red(ui)));
+            }
+            if !live.canned {
+                ui.horizontal(|ui| {
+                    let ready = !live.draft.trim().is_empty() && !starting;
+                    let resume = ui
+                        .add_enabled(ready, egui::Button::new("Resume"))
+                        .on_hover_text(
+                            "Run the session again under its id (--resume), with this message as \
+                             its next prompt; the ledger keeps a row for each run",
+                        );
+                    ui.add(
+                        egui::TextEdit::singleline(&mut live.draft)
+                            .hint_text("A message to resume it with")
+                            .desired_width(f32::INFINITY),
+                    );
+                    if resume.clicked() {
+                        actions.push(Action::ResumeSession(key));
+                    }
+                });
+            }
+        }
         self.actions.extend(actions);
     }
 
@@ -527,12 +948,46 @@ impl Board {
     }
 }
 
+/// The All tab's filters: one project or every one, the modes shown, running only.
+fn filters(ui: &mut egui::Ui, filter: &mut SessionFilter, names: &[String]) {
+    ui.horizontal_wrapped(|ui| {
+        ui.label(style::icon(icons::ICON_FILTER_LIST, None));
+        egui::ComboBox::from_id_salt("sessions-project")
+            .selected_text(filter.project.as_deref().unwrap_or("Every project"))
+            .show_ui(ui, |ui| {
+                ui.selectable_value(&mut filter.project, None, "Every project");
+                for name in names {
+                    ui.selectable_value(&mut filter.project, Some(name.clone()), name);
+                }
+            });
+        for mode in MODES {
+            let mut shown = !filter.hidden_modes.contains(mode);
+            if ui.toggle_value(&mut shown, mode).changed() {
+                if shown {
+                    filter.hidden_modes.remove(mode);
+                } else {
+                    filter.hidden_modes.insert(mode.to_owned());
+                }
+            }
+        }
+        ui.checkbox(&mut filter.running_only, "Running only")
+            .on_hover_text("Leave out the sessions that have ended and the ledger's rows");
+    });
+    ui.add_space(4.0);
+}
+
+fn heading(ui: &mut egui::Ui, text: &str) {
+    ui.add_space(4.0);
+    ui.label(RichText::new(text).weak());
+    ui.add_space(2.0);
+}
+
 fn placeholder(ui: &mut egui::Ui, text: &str) {
     ui.add_space(24.0);
     ui.vertical_centered(|ui| ui.label(RichText::new(text).weak()));
 }
 
-fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
     egui::Frame::new()
         .fill(ui.visuals().faint_bg_color)
         .corner_radius(6.0)
@@ -540,87 +995,34 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             add(ui);
-        });
+        })
+        .response
 }
 
-fn session_card(ui: &mut egui::Ui, live: &Live, actions: &mut Vec<Action>) {
-    card(ui, |ui| {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(format!("{} {}", live.project, live.ep)).strong());
-            let state = live.state();
-            let colour = match &live.ended {
-                Some(ended) if ended.outcome == Outcome::Completed => style::green(ui),
-                Some(_) => style::red(ui),
-                None if !live.waiting.is_empty() => style::amber(ui),
-                None => ui.visuals().weak_text_color(),
-            };
-            style::chip(ui, &state, colour);
-            ui.label(
-                RichText::new(format!(
-                    "{} · {} · started {}",
-                    live.model,
-                    live.effort,
-                    live.started.format("%H:%M")
-                ))
-                .weak(),
-            );
-        });
+/// A session of the window's in the All tab; `true` when it was clicked, to open its tab.
+fn live_line(ui: &mut egui::Ui, live: &Live) -> bool {
+    let response = card(ui, |ui| {
+        // The title and the chip on rows of their own: a row wider than a narrow pane would widen
+        // everything after it past the pane's edge, and a wrapped row would squeeze the chip.
+        ui.label(RichText::new(format!("{} {}", live.project, live.ep)).strong());
+        ui.horizontal(|ui| style::chip(ui, &live.state(), live.colour(ui)));
+        ui.label(
+            RichText::new(format!(
+                "{} · {} · started {}",
+                live.model,
+                live.effort,
+                live.started.format("%H:%M")
+            ))
+            .weak(),
+        );
         if !live.last.is_empty() {
             ui.add(egui::Label::new(RichText::new(&live.last).weak()).truncate());
         }
-        if let Some(ended) = &live.ended {
-            ui.label(RichText::new(ending(ended)).weak());
-            if ended.outcome == Outcome::Failed
-                && let Some(line) = ended.stderr.last()
-            {
-                ui.label(RichText::new(line).color(style::red(ui)));
-            }
-        }
-        for note in live.dropped.iter().chain(&live.notices) {
-            ui.label(RichText::new(note).small().color(style::amber(ui)));
-        }
-        let mut counts = Vec::new();
-        if live.denied > 0 {
-            counts.push(format!("{} tool uses refused", live.denied));
-        }
-        if live.unreadable > 0 {
-            counts.push(format!("{} lines unread", live.unreadable));
-        }
-        if let Some(init) = &live.init
-            && let Some(version) = &init.version
-        {
-            counts.push(format!("claude {version}"));
-        }
-        counts.push(format!("session {}", live.session_id));
-        ui.label(RichText::new(counts.join(" · ")).small().weak());
-        ui.horizontal(|ui| {
-            if live.is_running() {
-                if ui
-                    .add_enabled(!live.stopping, egui::Button::new("Stop"))
-                    .on_hover_text(
-                        "Interrupt the turn and close the session's input; the job is killed \
-                         if it has not exited within 30 seconds",
-                    )
-                    .clicked()
-                {
-                    actions.push(Action::StopSession(live.key));
-                }
-                if ui
-                    .button(style::icon(icons::ICON_CLOSE, Some(style::red(ui))))
-                    .on_hover_text("Kill the session and its whole process tree at once")
-                    .clicked()
-                {
-                    actions.push(Action::KillSession(live.key));
-                }
-            } else if ui
-                .button("Dismiss")
-                .on_hover_text("Take it off this list; the ledger keeps its row")
-                .clicked()
-            {
-                actions.push(Action::DismissSession(live.key));
-            }
-        });
     });
+    response
+        .interact(egui::Sense::click())
+        .on_hover_text("Open its tab: the transcript")
+        .clicked()
 }
 
 fn outside_words(count: usize) -> String {
@@ -630,23 +1032,34 @@ fn outside_words(count: usize) -> String {
     }
 }
 
+/// The colour of a seen session's status: at work in blue, waiting in amber (EP-13).
+fn seen_colour(ui: &egui::Ui, seen: &Seen) -> Color32 {
+    match seen.status {
+        SeenStatus::Busy => style::blue(ui),
+        SeenStatus::Waiting => style::amber(ui),
+        SeenStatus::Done => style::green(ui),
+        SeenStatus::Failed => style::red(ui),
+        SeenStatus::Idle => ui.visuals().weak_text_color(),
+    }
+}
+
 /// A session Claude Code reports (EP-12): its project, mode and status, its name, since when, and
-/// the status line's figures when a terminal session sends them (D-23).
+/// the status line's figures when a terminal session sends them (D-23). The tool reads no
+/// transcript of it (D-26). One open with no prompt yet is marked new (EP-13).
 fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
     card(ui, |ui| {
         // Two rows, so that a narrow pane never squeezes a chip into a column of letters.
         ui.horizontal(|ui| {
             ui.label(RichText::new(seen.project.as_deref().unwrap_or_default()).strong());
-            style::chip(ui, seen.mode.as_str(), ui.visuals().weak_text_color());
+            let mode = if seen.is_new() {
+                "new"
+            } else {
+                seen.mode.as_str()
+            };
+            style::chip(ui, mode, ui.visuals().weak_text_color());
         });
         ui.horizontal_wrapped(|ui| {
-            let colour = match seen.status {
-                SeenStatus::Waiting => style::amber(ui),
-                SeenStatus::Done => style::green(ui),
-                SeenStatus::Failed => style::red(ui),
-                SeenStatus::Busy | SeenStatus::Idle => ui.visuals().weak_text_color(),
-            };
-            style::chip(ui, seen.status.as_str(), colour);
+            style::chip(ui, seen.status.as_str(), seen_colour(ui, seen));
             if let Some(started) = seen.started {
                 ui.label(
                     RichText::new(format!(
@@ -659,6 +1072,14 @@ fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
         });
         if seen.status == SeenStatus::Waiting {
             ui.label(RichText::new(format!("It {}.", seen.doing())).color(style::amber(ui)));
+        } else if seen.is_new() {
+            ui.label(
+                RichText::new(format!(
+                    "It {}: no row in the ledger, and no session in progress, until it works.",
+                    seen.doing()
+                ))
+                .weak(),
+            );
         }
         if let Some(name) = &seen.name {
             ui.add(egui::Label::new(RichText::new(name).weak()).truncate());
@@ -680,6 +1101,104 @@ fn seen_card(ui: &mut egui::Ui, seen: &Seen) {
         }
         figures.push(format!("session {}", seen.session_id));
         ui.label(RichText::new(figures.join(" · ")).small().weak());
+    });
+}
+
+/// What a ledger row's session came to: a word for its chip, the sentence its hover gives, and its
+/// colour (D-26; EP-13). A row listed here is no live session's, so an open one's end was never
+/// heard.
+fn row_state(
+    ui: &egui::Ui,
+    row: &SessionRow,
+    now: DateTime<Utc>,
+) -> (String, &'static str, Color32) {
+    let weak = ui.visuals().weak_text_color();
+    match row.state(now, VISUAL_CLAIM) {
+        RowState::Ended("completed") => (
+            "completed".to_owned(),
+            "It ended as it should",
+            style::green(ui),
+        ),
+        RowState::Ended("deferred") => (
+            "deferred".to_owned(),
+            "It ended waiting on a deferred tool use, to be resumed",
+            style::amber(ui),
+        ),
+        RowState::Ended(other) => (
+            other.to_owned(),
+            "It ended before its result",
+            style::red(ui),
+        ),
+        RowState::Lapsed => (
+            "lapsed".to_owned(),
+            "No session took up this visual launch within its 30 minutes",
+            weak,
+        ),
+        RowState::Launched => (
+            "launched".to_owned(),
+            "Handed to VS Code: no session has taken it up yet",
+            style::amber(ui),
+        ),
+        RowState::Open => (
+            "no end seen".to_owned(),
+            "Its end was never heard: it ended while no window listened, or before the hooks",
+            weak,
+        ),
+    }
+}
+
+/// How long a row's run took: `36 s`, `52 min`, `1 h 04 min`.
+fn duration_words(row: &SessionRow) -> Option<String> {
+    row.took().map(ledger::length)
+}
+
+/// A ledger row in the All tab: when, which project and EP, its mode, model and effort, how long,
+/// how it ended and the cost estimate, then its result's first line.
+fn ledger_line(ui: &mut egui::Ui, row: &SessionRow, now: DateTime<Utc>) {
+    card(ui, |ui| {
+        // Rows of their own, so that a narrow pane never squeezes a chip into a column of letters.
+        ui.horizontal_wrapped(|ui| {
+            let started = row.started().map(|at| at.with_timezone(&Local));
+            let when = match started {
+                Some(at) if at.date_naive() == Local::now().date_naive() => {
+                    at.format("%H:%M").to_string()
+                }
+                Some(at) => at.format("%Y-%m-%d %H:%M").to_string(),
+                None => row.started_at.clone(),
+            };
+            ui.label(RichText::new(when).monospace().weak());
+            let title = match &row.ep {
+                Some(ep) => format!("{} {ep}", row.project),
+                None => row.project.clone(),
+            };
+            ui.label(RichText::new(title).strong());
+        });
+        ui.horizontal(|ui| {
+            style::chip(ui, &row.mode, ui.visuals().weak_text_color());
+            let (state, why, colour) = row_state(ui, row, now);
+            style::chip(ui, &state, colour).on_hover_text(why);
+        });
+        let mut figures = Vec::new();
+        match (&row.model, &row.effort) {
+            (Some(model), Some(effort)) => figures.push(format!("{model} · {effort}")),
+            (Some(model), None) => figures.push(model.clone()),
+            _ => {}
+        }
+        if let Some(took) = duration_words(row) {
+            figures.push(took);
+        }
+        if let Some(cost) = row.cost_usd {
+            figures.push(format!("an estimated ${cost:.2}"));
+        }
+        if let Some(context) = row.context_percent {
+            figures.push(format!("context {context:.0} %"));
+        }
+        if !figures.is_empty() {
+            ui.label(RichText::new(figures.join(" · ")).weak());
+        }
+        if let Some(line) = row.result.as_deref().and_then(last_line) {
+            ui.add(egui::Label::new(RichText::new(line).weak()).truncate());
+        }
     });
 }
 
@@ -732,6 +1251,7 @@ mod tests {
     use crw_core::session::{Finish, ToolUse};
 
     use super::*;
+    use crate::transcript::Entry;
 
     fn live() -> Live {
         Live {
@@ -746,18 +1266,22 @@ mod tests {
             dropped: Vec::new(),
             init: None,
             last: String::new(),
-            streaming: String::new(),
+            transcript: Transcript::default(),
             waiting: Vec::new(),
-            notices: Vec::new(),
             denied: 0,
             unreadable: 0,
             stopping: false,
             ended: None,
+            runs: 1,
+            draft: String::new(),
+            launch: Launch::new("alpha", Path::new("alpha"), "fable", "Run EP-3."),
+            program: PathBuf::from("claude.exe"),
+            canned: false,
         }
     }
 
     #[test]
-    fn a_sessions_events_make_its_lines() {
+    fn a_sessions_events_make_its_lines_and_transcript() {
         let mut live = live();
         live.take(Event::TextDelta("Reading ".to_owned()));
         live.take(Event::TextDelta("the brief.\nThen".to_owned()));
@@ -782,11 +1306,7 @@ mod tests {
         live.take(Event::Withdrawn("req-1".to_owned()));
         assert!(live.waiting.is_empty());
         live.take(Event::Request(request));
-        for n in 0..7 {
-            live.take(Event::Notice(format!("notice {n}")));
-        }
-        assert_eq!(live.notices.len(), NOTICES);
-        assert_eq!(live.notices.last().map(String::as_str), Some("notice 6"));
+        live.take(Event::Notice("a notice".to_owned()));
         let result = Finish {
             subtype: "success".to_owned(),
             is_error: false,
@@ -799,13 +1319,14 @@ mod tests {
             denials: 0,
             errors: Vec::new(),
         };
+        live.take(Event::Result(result.clone()));
         live.take(Event::Exited(Ended {
             outcome: Outcome::Completed,
             exit_code: Some(0),
             result: Some(result),
             stderr: Vec::new(),
         }));
-        // An exit takes the requests with it.
+        // An exit takes the requests with it; the transcript keeps what was asked.
         assert!(live.waiting.is_empty());
         assert_eq!(live.state(), "ended: completed");
         assert!(!live.is_running());
@@ -813,6 +1334,87 @@ mod tests {
             ending(live.ended.as_ref().unwrap()),
             "ended completed · exit 0 · 4 turns · 4 s · an estimated $0.420 · EP-3 is done."
         );
+        let entries = &live.transcript.entries;
+        assert_eq!(entries.len(), 6, "{entries:?}");
+        assert!(matches!(&entries[0], Entry::Text(text) if text.starts_with("Reading")));
+        assert!(matches!(&entries[2], Entry::Asked(_)));
+        assert!(matches!(&entries[5], Entry::Result(_)));
+    }
+
+    #[test]
+    fn a_session_resumes_only_once_ended_with_a_message() {
+        let mut sessions = Sessions::default();
+        let mut one = live();
+        one.draft = "  Go on from the tests. ".to_owned();
+        sessions.live.push(one);
+        assert_eq!(sessions.resumable(1), None, "it has not ended");
+        sessions.live[0].ended = Some(Ended {
+            outcome: Outcome::Stopped,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        assert_eq!(
+            sessions.resumable(1),
+            Some((
+                "Go on from the tests.".to_owned(),
+                PathBuf::from("claude.exe")
+            ))
+        );
+        sessions.live[0].draft.clear();
+        assert_eq!(sessions.resumable(1), None, "no message");
+        assert_eq!(sessions.resumable(2), None, "no such session");
+        // Dismissing its tab brings All forward.
+        sessions.tab = Some(1);
+        sessions.dismiss(1);
+        assert!(sessions.live.is_empty());
+        assert_eq!(sessions.tab, None);
+    }
+
+    #[test]
+    fn the_filter_keeps_a_project_and_the_modes_shown() {
+        let mut filter = SessionFilter::default();
+        assert!(filter.keeps("alpha", "visual"));
+        filter.project = Some("ALPHA".to_owned());
+        filter.hidden_modes.insert("manual".to_owned());
+        assert!(filter.keeps("alpha", "visual"));
+        assert!(!filter.keeps("beta", "visual"));
+        assert!(!filter.keeps("alpha", "manual"));
+    }
+
+    #[test]
+    fn durations_read_in_words() {
+        let row = |started: &str, ended: Option<&str>| SessionRow {
+            id: 1,
+            session_id: None,
+            project: "alpha".to_owned(),
+            ep: None,
+            mode: "manual".to_owned(),
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: started.to_owned(),
+            ended_at: ended.map(str::to_owned),
+            outcome: None,
+            cost_usd: None,
+            questions: 0,
+            result: None,
+            context_percent: None,
+        };
+        let start = "2026-11-02T10:00:00Z";
+        assert_eq!(
+            duration_words(&row(start, Some("2026-11-02T10:00:36Z"))).as_deref(),
+            Some("36 s")
+        );
+        assert_eq!(
+            duration_words(&row(start, Some("2026-11-02T10:52:10Z"))).as_deref(),
+            Some("52 min")
+        );
+        assert_eq!(
+            duration_words(&row(start, Some("2026-11-02T11:04:00Z"))).as_deref(),
+            Some("1 h 04 min")
+        );
+        assert_eq!(duration_words(&row(start, None)), None);
     }
 
     #[test]

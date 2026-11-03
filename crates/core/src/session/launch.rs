@@ -59,11 +59,15 @@ pub struct Launch {
     pub stop_timeout: Duration,
     /// The ledger the run is recorded in; none for a trial.
     pub ledger: Option<PathBuf>,
+    /// The session this run continues (`--resume <id>`), the prompt its next message; none for a
+    /// new session (EP-13). A resumed run keeps the session's id (the CLI's `--fork-session` is
+    /// what would change it).
+    pub resume: Option<String>,
 }
 
 impl Launch {
     /// A run of `prompt` in `folder` with `model`: `acceptEdits` (D-18), no neighbour, a stop
-    /// that waits 30 seconds, nothing recorded.
+    /// that waits 30 seconds, nothing recorded, a new session.
     pub fn new(project: &str, folder: &Path, model: &str, prompt: &str) -> Self {
         Self {
             project: project.to_owned(),
@@ -78,6 +82,7 @@ impl Launch {
             max_budget_usd: None,
             stop_timeout: STOP_TIMEOUT,
             ledger: None,
+            resume: None,
         }
     }
 
@@ -102,8 +107,9 @@ pub(crate) struct CommandLine {
     pub dropped: Vec<String>,
 }
 
-/// The command line for `launch` with the pre-assigned `session_id`, given the flags the CLI
-/// lists and the names of the variables the tool's own environment holds.
+/// The command line for `launch` with the pre-assigned `session_id` (the resumed session's own for
+/// a resume), given the flags the CLI lists and the names of the variables the tool's own
+/// environment holds.
 pub(crate) fn command_line(
     launch: &Launch,
     flags: &Flags,
@@ -136,7 +142,16 @@ pub(crate) fn command_line(
             push(&[os(optional)]);
         }
     }
-    push(&[os("--session-id"), os(session_id)]);
+    // A new session takes its pre-assigned id; a resumed one is named by the id it has.
+    match &launch.resume {
+        Some(id) if !flags.has("--resume") => {
+            return Err(format!(
+                "this claude has no --resume, which resuming the session {id} needs"
+            ));
+        }
+        Some(id) => push(&[os("--resume"), os(id)]),
+        None => push(&[os("--session-id"), os(session_id)]),
+    }
     let name = launch.name();
     if flags.has("--name") {
         push(&[os("--name"), os(&name)]);
@@ -326,6 +341,7 @@ mod tests {
   --permission-prompts <target>  Who answers
   -p, --print  Print
   --replay-user-messages  Echo
+  -r, --resume [value]  Resume a conversation by session ID or name
   --session-id <uuid>  Session id
   --settings <file-or-json>  Settings
   --verbose  Verbose
@@ -443,6 +459,37 @@ mod tests {
         let line = command_line(&launch, &Flags::parse(&ultra), "id", []).unwrap();
         assert_eq!(value_after(&strings(&line), "--effort"), ["ultracode"]);
         assert_eq!(line.effort.as_deref(), Some("ultracode"));
+    }
+
+    #[test]
+    fn a_resume_names_the_session_it_continues() {
+        let scratch = Scratch::new("launch-resume");
+        let mut launch = Launch::new("alpha", &scratch.0, "opus", "Go on from the tests.");
+        launch.ep = Some("EP-3".to_owned());
+        launch.resume = Some("0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b".to_owned());
+        let flags = Flags::parse(HELP);
+        let line =
+            command_line(&launch, &flags, "0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b", []).unwrap();
+        let args = strings(&line);
+        assert_eq!(
+            value_after(&args, "--resume"),
+            ["0e1d2c3b-4a59-4687-9a1b-2c3d4e5f6a7b"]
+        );
+        assert!(value_after(&args, "--session-id").is_empty());
+        assert_eq!(value_after(&args, "--name"), ["alpha EP-3"]);
+        // A CLI without the flag cannot resume.
+        let without = Flags::parse(
+            &HELP
+                .lines()
+                .filter(|line| !line.contains("--resume"))
+                .collect::<Vec<_>>()
+                .join("\n"),
+        );
+        assert!(
+            command_line(&launch, &without, "id", [])
+                .unwrap_err()
+                .contains("--resume")
+        );
     }
 
     #[test]

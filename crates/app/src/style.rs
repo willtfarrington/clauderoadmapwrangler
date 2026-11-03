@@ -189,6 +189,15 @@ pub fn amber(ui: &egui::Ui) -> Color32 {
     ui.visuals().warn_fg_color
 }
 
+/// The blue of a session at work, so that busy never looks like idle (EP-13).
+pub fn blue(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(110, 168, 240)
+    } else {
+        Color32::from_rgb(30, 110, 200)
+    }
+}
+
 pub fn red(ui: &egui::Ui) -> Color32 {
     ui.visuals().error_fg_color
 }

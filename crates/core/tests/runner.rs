@@ -226,6 +226,10 @@ fn a_whole_run_is_read_answered_and_recorded() {
             .iter()
             .any(|e| matches!(e, Event::ToolUse(t) if t.summary == "Edit src/lib.rs"))
     );
+    // The tool's result comes back for the transcript, collapsed (EP-13).
+    assert!(events.iter().any(|e| matches!(e, Event::ToolResult(r)
+        if r.tool_use_id == "toolu_01" && r.lines == 2 && !r.is_error
+            && r.excerpt.starts_with("The file src/lib.rs has been updated."))));
     let requests: Vec<&Request> = events
         .iter()
         .filter_map(|e| match e {
@@ -303,7 +307,63 @@ fn a_whole_run_is_read_answered_and_recorded() {
     );
     assert_eq!(row.outcome.as_deref(), Some("completed"));
     assert_eq!((row.cost_usd, row.questions), (Some(0.42), 1));
+    assert_eq!(row.result.as_deref(), Some("EP-3 is done."));
     assert!(row.ended_at.is_some());
+}
+
+/// Resume (EP-13): a follow-up is a run of its own under the session's id, in the ledger as a row
+/// of its own.
+#[test]
+fn a_resume_goes_on_under_the_sessions_id() {
+    let scratch = Scratch::new("resume", "prompt-only");
+    let ledger = scratch.0.join("ledger.sqlite");
+    let mut launch = Launch::new("alpha", &scratch.project(), "opus", "Run EP-3 of alpha.");
+    launch.ep = Some("EP-3".to_owned());
+    launch.ledger = Some(ledger.clone());
+    let first = Session::start(preflight(), launch.clone()).unwrap();
+    assert_eq!(
+        ended(&to_the_end(&first, |_| None)).outcome,
+        Outcome::Completed
+    );
+
+    launch.resume = Some(first.session_id.clone());
+    launch.prompt = "Go on from the tests.".to_owned();
+    let second = Session::start(preflight(), launch).unwrap();
+    assert_eq!(second.session_id, first.session_id);
+    assert_eq!(
+        ended(&to_the_end(&second, |_| None)).outcome,
+        Outcome::Completed
+    );
+
+    // The second run's command line names the session it resumes and asks for no new one.
+    let runs: Vec<Value> = scratch
+        .record()
+        .into_iter()
+        .filter(|entry| entry.get("args").is_some())
+        .collect();
+    assert_eq!(runs.len(), 2);
+    assert_eq!(
+        after(&runs[0]["args"], "--session-id"),
+        [first.session_id.as_str()]
+    );
+    assert_eq!(
+        after(&runs[1]["args"], "--resume"),
+        [first.session_id.as_str()]
+    );
+    assert!(after(&runs[1]["args"], "--session-id").is_empty());
+    assert!(
+        scratch
+            .read()
+            .iter()
+            .any(|line| holds(line, "Go on from the tests."))
+    );
+    let rows = Ledger::open(&ledger).unwrap().sessions().unwrap();
+    assert_eq!(rows.len(), 2);
+    assert!(rows.iter().all(
+        |row| row.session_id.as_deref() == Some(first.session_id.as_str())
+            && row.outcome.as_deref() == Some("completed")
+            && row.ep.as_deref() == Some("EP-3")
+    ));
 }
 
 #[test]

@@ -5,7 +5,9 @@
 //! no window ran, an end hook that never fired). A session's folder is reconciled to the registered
 //! project that holds it; its mode says who started it (a visual launch of the tool's, a headless
 //! run, or the owner by hand) and its status what it does now. The model keeps no transcript and
-//! writes nothing; [`record`] keeps the ledger's rows of the sessions it sees start and end.
+//! writes nothing; [`record`] keeps the ledger's rows of the sessions it sees work (EP-13: a row
+//! is earned by a session whose start the hooks saw, at its first sign of work, so that the
+//! helpers the extension starts, the tabs a window restores and a compaction's restart get none).
 
 pub mod agents;
 
@@ -19,7 +21,8 @@ use crate::paths;
 use crate::signals::{Hook, StatusLine};
 use agents::Agent;
 
-/// How far back a session's start looks for the visual launch it came from (EP-11's row).
+/// How far back a session's start looks for the visual launch it came from (EP-11's row); a
+/// launch no session has taken up this long after it lapses (EP-13).
 pub const VISUAL_CLAIM: TimeDelta = TimeDelta::minutes(30);
 
 /// How long an ended session stays in view.
@@ -147,9 +150,30 @@ pub struct Seen {
     pub heard: DateTime<Utc>,
     /// The latest status line's figures (D-23).
     pub line: Option<StatusLine>,
+    /// The hooks saw it start, and how (`startup`, `resume`, `clear`, `fork`; none when the start
+    /// did not say): only such a session earns a row (EP-13). A compaction's start is no start.
+    pub opened: Option<Opened>,
+    /// It has worked since the window first heard of it: a finished turn, a wait for the owner, a
+    /// prompt, or the poll's busy or waiting (EP-13).
+    pub worked: bool,
     /// The poll has listed it: its absence from later polls ends it.
     listed: bool,
     missed: u8,
+}
+
+/// A start the hooks saw (EP-13).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Opened {
+    /// The start's source, when it said one.
+    pub source: Option<String>,
+}
+
+impl Opened {
+    /// Whether the session began as a new conversation, the only kind a visual launch's link
+    /// opens: a resumed or forked one never takes up a launch.
+    pub fn is_new_conversation(&self) -> bool {
+        matches!(self.source.as_deref(), None | Some("startup"))
+    }
 }
 
 impl Seen {
@@ -167,16 +191,45 @@ impl Seen {
             started: None,
             heard: now,
             line: None,
+            opened: None,
+            worked: false,
             listed: false,
             missed: 0,
         }
     }
 
-    /// What it does, after its subject: `waits for a permission prompt`, `is busy`, `has ended`.
+    /// A session the hooks saw start that has not worked yet: an open tab with no prompt, a
+    /// helper of the extension's, a tab a window restored (EP-13). It is no session in progress,
+    /// has no row, and leaves the window at once when it ends so.
+    pub fn is_new(&self) -> bool {
+        self.opened.is_some() && !self.worked
+    }
+
+    /// Takes in a sign of work: the first one starts the session's row, when the hooks saw it
+    /// start (EP-13).
+    fn work(&mut self) -> Change {
+        if std::mem::replace(&mut self.worked, true) {
+            return Change::Nothing;
+        }
+        let Some(opened) = &self.opened else {
+            return Change::Nothing;
+        };
+        Change::Started {
+            session_id: self.session_id.clone(),
+            project: self.project.clone(),
+            interactive: interactive(self.entrypoint.as_deref()),
+            at: self.started.unwrap_or(self.heard),
+            claims: opened.is_new_conversation(),
+        }
+    }
+
+    /// What it does, after its subject: `waits for a permission prompt`, `is busy`, `has ended`,
+    /// `is open with no prompt yet`.
     pub fn doing(&self) -> String {
         match (self.status, &self.waiting_for) {
             (Status::Waiting, Some(what)) => format!("waits for {what}"),
             (Status::Waiting, None) => "waits for the owner".to_owned(),
+            (Status::Idle, _) if self.is_new() => "is open with no prompt yet".to_owned(),
             (Status::Busy | Status::Idle, _) => format!("is {}", self.status.as_str()),
             (Status::Done, _) => "has ended".to_owned(),
             (Status::Failed, _) => "has failed".to_owned(),
@@ -200,17 +253,23 @@ impl Seen {
 }
 
 /// What a signal asks of the ledger ([`record`]).
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Change {
+    /// A session whose start the hooks saw has worked: its row starts at its start (EP-13).
     Started {
         session_id: String,
         project: Option<String>,
         interactive: bool,
         at: DateTime<Utc>,
+        /// It began as a new conversation, so it may take up a visual launch.
+        claims: bool,
     },
+    /// A session ended, with what its status line last gave (D-23).
     Ended {
         session_id: String,
         at: DateTime<Utc>,
+        cost_usd: Option<f64>,
+        context_percent: Option<f64>,
     },
     Nothing,
 }
@@ -298,7 +357,9 @@ impl Sessions {
     }
 
     /// Takes in a hook (D-20): a start makes the session idle, a notification that asks for the
-    /// owner makes it wait, a stop ends its turn, an end ends it.
+    /// owner makes it wait, a prompt makes it busy, a stop ends its turn, an end ends it. The
+    /// first wait, prompt or finished turn of a session whose start the hooks saw starts its row
+    /// (EP-13); a compaction's start is the session going on, not a start.
     pub fn hook(&mut self, hook: &Hook, projects: &[Registered], now: DateTime<Utc>) -> Change {
         if hook.session_id.is_empty() {
             return Change::Nothing;
@@ -309,41 +370,50 @@ impl Sessions {
             "SessionStart" => {
                 seen.status = Status::Idle;
                 seen.waiting_for = None;
-                seen.started.get_or_insert(now);
-                Change::Started {
-                    session_id: seen.session_id.clone(),
-                    project: seen.project.clone(),
-                    interactive: interactive(entrypoint),
-                    at: now,
-                }
-            }
-            "Notification" => {
-                match hook.notification_type.as_deref() {
-                    Some("idle_prompt") => {
-                        seen.status = Status::Idle;
-                        seen.waiting_for = None;
-                    }
-                    Some(kind) => {
-                        if let Some(what) = waits_for(kind) {
-                            seen.status = Status::Waiting;
-                            seen.waiting_for = Some(what.to_owned());
-                        }
-                    }
-                    None => {}
+                if hook.source.as_deref() != Some("compact") && seen.opened.is_none() {
+                    seen.opened = Some(Opened {
+                        source: hook.source.clone(),
+                    });
+                    seen.started.get_or_insert(now);
                 }
                 Change::Nothing
+            }
+            "Notification" => match hook.notification_type.as_deref() {
+                Some("idle_prompt") => {
+                    seen.status = Status::Idle;
+                    seen.waiting_for = None;
+                    Change::Nothing
+                }
+                Some(kind) => match waits_for(kind) {
+                    Some(what) => {
+                        seen.status = Status::Waiting;
+                        seen.waiting_for = Some(what.to_owned());
+                        seen.work()
+                    }
+                    None => Change::Nothing,
+                },
+                None => Change::Nothing,
+            },
+            // Installed with EP-20's prompt hook, or earlier on the owner's ask.
+            "UserPromptSubmit" => {
+                seen.status = Status::Busy;
+                seen.waiting_for = None;
+                seen.work()
             }
             "Stop" => {
                 seen.status = Status::Idle;
                 seen.waiting_for = None;
-                Change::Nothing
+                seen.work()
             }
             "SessionEnd" => {
                 seen.status = Status::Done;
                 seen.waiting_for = None;
+                let line = seen.line.as_ref();
                 Change::Ended {
                     session_id: seen.session_id.clone(),
                     at: now,
+                    cost_usd: line.and_then(|line| line.cost.total_cost_usd),
+                    context_percent: line.and_then(|line| line.context_window.used_percentage),
                 }
             }
             _ => Change::Nothing,
@@ -367,11 +437,18 @@ impl Sessions {
     }
 
     /// Takes in a poll's listing: each listed session's status as it stands, and the end of a
-    /// session it listed before and has left out [`MISSED_POLLS`] times since.
-    pub fn poll(&mut self, agents: &[Agent], projects: &[Registered], now: DateTime<Utc>) {
+    /// session it listed before and has left out [`MISSED_POLLS`] times since. A session listed
+    /// busy or waiting has worked: the rows that starts are returned (EP-13).
+    pub fn poll(
+        &mut self,
+        agents: &[Agent],
+        projects: &[Registered],
+        now: DateTime<Utc>,
+    ) -> Vec<Change> {
         self.polled = Some(now);
         self.poll_problem = None;
         let mut listed = HashSet::new();
+        let mut changes = Vec::new();
         for agent in agents {
             let Some(id) = agent.session_id.as_deref().filter(|id| !id.is_empty()) else {
                 continue;
@@ -392,6 +469,9 @@ impl Sessions {
             if let Some((status, waiting_for)) = agent.status_now() {
                 seen.status = status;
                 seen.waiting_for = waiting_for;
+                if matches!(status, Status::Busy | Status::Waiting) {
+                    changes.push(seen.work());
+                }
             }
         }
         for seen in &mut self.seen {
@@ -404,6 +484,8 @@ impl Sessions {
                 }
             }
         }
+        changes.retain(|change| *change != Change::Nothing);
+        changes
     }
 
     /// A poll that failed: said, and nothing ended for it.
@@ -411,12 +493,13 @@ impl Sessions {
         self.poll_problem = Some(why);
     }
 
-    /// Lets ended sessions go after [`ENDED_FOR`] and silent ones after [`SILENT_FOR`].
+    /// Lets ended sessions go after [`ENDED_FOR`], at once when they ended without working
+    /// (EP-13), and silent ones after [`SILENT_FOR`].
     pub fn expire(&mut self, now: DateTime<Utc>) {
         self.seen.retain(|seen| {
             let quiet = now - seen.heard;
             if seen.status.is_over() {
-                quiet < ENDED_FOR
+                !seen.is_new() && quiet < ENDED_FOR
             } else {
                 quiet < SILENT_FOR
             }
@@ -431,7 +514,7 @@ impl Sessions {
 }
 
 impl Seen {
-    /// A session as a screenshot run shows it.
+    /// A session as a screenshot run shows it: started and working.
     pub fn canned(
         session_id: &str,
         project: Option<&str>,
@@ -445,6 +528,10 @@ impl Seen {
             status,
             waiting_for: waiting_for.map(str::to_owned),
             started: Some(started),
+            opened: Some(Opened {
+                source: Some("startup".to_owned()),
+            }),
+            worked: true,
             ..Seen::new(
                 session_id,
                 Path::new(""),
@@ -465,11 +552,13 @@ fn waits_for(kind: &str) -> Option<&'static str> {
     }
 }
 
-/// Keeps the ledger's rows of the sessions the hooks see (D-26; EP-12): a start claims the newest
-/// open visual launch of its project from the last [`VISUAL_CLAIM`] (EP-11's row gains its session
-/// id), else opens a manual row for an interactive session of a registered project; an end closes
-/// a visual or manual row. A session the ledger knows already (the runner's, a resumed one) keeps
-/// its row. Returns the mode the ledger gives the session, when it gives one.
+/// Keeps the ledger's rows of the sessions the hooks see (D-26; EP-12, EP-13): a session that
+/// works after the hooks saw it start as a new conversation claims the newest open visual launch
+/// of its project from the [`VISUAL_CLAIM`] before its start (EP-11's row gains its session id),
+/// else an interactive session of a registered project opens a manual row from its start; an end
+/// closes a visual or manual row with the status line's last figures. A session the ledger knows
+/// already (the runner's, a resumed one) keeps its row. Returns the mode the ledger gives the
+/// session, when it gives one.
 pub fn record(ledger: &Ledger, change: &Change) -> Result<Option<Mode>, ledger::Error> {
     match change {
         Change::Started {
@@ -477,13 +566,15 @@ pub fn record(ledger: &Ledger, change: &Change) -> Result<Option<Mode>, ledger::
             project: Some(project),
             interactive: true,
             at,
+            claims,
         } => {
             if let Some(mode) = ledger.mode_of(session_id)? {
                 return Ok(Mode::parse(&mode));
             }
-            if ledger
-                .claim_visual(project, session_id, *at - VISUAL_CLAIM)?
-                .is_some()
+            if *claims
+                && ledger
+                    .claim_visual(project, session_id, *at - VISUAL_CLAIM)?
+                    .is_some()
             {
                 return Ok(Some(Mode::Visual));
             }
@@ -499,8 +590,13 @@ pub fn record(ledger: &Ledger, change: &Change) -> Result<Option<Mode>, ledger::
             })?;
             Ok(Some(Mode::Manual))
         }
-        Change::Ended { session_id, at } => {
-            ledger.end_seen(session_id, *at)?;
+        Change::Ended {
+            session_id,
+            at,
+            cost_usd,
+            context_percent,
+        } => {
+            ledger.end_seen(session_id, *at, *cost_usd, *context_percent)?;
             Ok(None)
         }
         _ => Ok(None),
@@ -543,6 +639,24 @@ mod tests {
         }
     }
 
+    /// A start with its source, as Claude Code sends it.
+    fn start(id: &str, cwd: &str, source: &str) -> Hook {
+        Hook {
+            source: Some(source.to_owned()),
+            ..hook("SessionStart", id, cwd)
+        }
+    }
+
+    fn started(id: &str, project: &str, minute: i64, claims: bool) -> Change {
+        Change::Started {
+            session_id: id.to_owned(),
+            project: Some(project.to_owned()),
+            interactive: true,
+            at: at(minute),
+            claims,
+        }
+    }
+
     #[test]
     fn a_folder_belongs_to_the_project_that_holds_it() {
         let projects = projects();
@@ -565,42 +679,63 @@ mod tests {
     fn hooks_move_a_session_through_its_life() {
         let projects = projects();
         let mut sessions = Sessions::default();
-        let change = sessions.hook(
-            &hook("SessionStart", "s1", r"C:\Data\alpha"),
-            &projects,
-            at(0),
-        );
-        assert_eq!(
-            change,
-            Change::Started {
-                session_id: "s1".to_owned(),
-                project: Some("alpha".to_owned()),
-                interactive: true,
-                at: at(0)
-            }
-        );
+        // A start is no row yet: the session is new until it works (EP-13).
+        let change = sessions.hook(&start("s1", r"C:\Data\alpha", "startup"), &projects, at(0));
+        assert_eq!(change, Change::Nothing);
         let seen = sessions.get("s1").unwrap();
         assert_eq!((seen.mode, seen.status), (Mode::Manual, Status::Idle));
         assert_eq!(seen.started, Some(at(0)));
+        assert!(seen.is_new());
+        assert_eq!(seen.doing(), "is open with no prompt yet");
+        // Its first wait for the owner is work: its row starts from its start.
         let mut note = hook("Notification", "s1", r"C:\Data\alpha");
         note.notification_type = Some("permission_prompt".to_owned());
-        sessions.hook(&note, &projects, at(1));
+        assert_eq!(
+            sessions.hook(&note, &projects, at(1)),
+            started("s1", "alpha", 0, true)
+        );
         assert_eq!(
             sessions.get("s1").unwrap().doing(),
             "waits for a permission prompt"
         );
-        // An authentication notice changes nothing; an idle prompt is idle.
+        assert!(!sessions.get("s1").unwrap().is_new());
+        // An authentication notice changes nothing; a finished turn starts no second row.
         note.notification_type = Some("auth_success".to_owned());
         sessions.hook(&note, &projects, at(2));
         assert_eq!(sessions.get("s1").unwrap().status, Status::Waiting);
-        sessions.hook(&hook("Stop", "s1", r"C:\Data\alpha"), &projects, at(3));
+        assert_eq!(
+            sessions.hook(&hook("Stop", "s1", r"C:\Data\alpha"), &projects, at(3)),
+            Change::Nothing
+        );
         assert_eq!(sessions.get("s1").unwrap().doing(), "is idle");
+        // A prompt makes it busy at once (EP-20's hook, or the owner's ask).
+        sessions.hook(
+            &hook("UserPromptSubmit", "s1", r"C:\Data\alpha"),
+            &projects,
+            at(3),
+        );
+        assert_eq!(sessions.get("s1").unwrap().status, Status::Busy);
         sessions.set_mode("s1", Mode::Visual);
         assert!(
             sessions.of_project("ALPHA")[0]
                 .summary()
-                .starts_with("a visual session is idle (since ")
+                .starts_with("a visual session is busy (since ")
         );
+        // Its end carries what its status line last gave.
+        let line = StatusLine {
+            session_id: "s1".to_owned(),
+            cwd: PathBuf::from(r"C:\Data\alpha"),
+            cost: crate::signals::Cost {
+                total_cost_usd: Some(0.5),
+                total_duration_ms: None,
+            },
+            context_window: crate::signals::ContextWindow {
+                used_percentage: Some(23.0),
+                context_window_size: None,
+            },
+            ..StatusLine::default()
+        };
+        sessions.status_line(&line, &projects, at(4));
         let end = sessions.hook(
             &hook("SessionEnd", "s1", r"C:\Data\alpha"),
             &projects,
@@ -610,21 +745,25 @@ mod tests {
             end,
             Change::Ended {
                 session_id: "s1".to_owned(),
-                at: at(4)
+                at: at(4),
+                cost_usd: Some(0.5),
+                context_percent: Some(23.0),
             }
         );
         assert_eq!(sessions.get("s1").unwrap().status, Status::Done);
-        // Ended sessions leave after ten minutes.
+        // Ended sessions that worked leave after ten minutes.
         sessions.expire(at(13));
         assert!(sessions.get("s1").is_some());
         sessions.expire(at(15));
         assert!(sessions.get("s1").is_none());
         // Another program's `-p` run is headless; a session outside the registry is counted.
-        let mut run = hook("SessionStart", "s2", r"C:\Data\beta\work");
+        let mut run = start("s2", r"C:\Data\beta\work", "startup");
         run.entrypoint = Some("sdk-cli".to_owned());
-        let change = sessions.hook(&run, &projects, at(20));
+        sessions.hook(&run, &projects, at(20));
+        let mut stop = hook("Stop", "s2", r"C:\Data\beta\work");
+        stop.entrypoint = Some("sdk-cli".to_owned());
         assert!(matches!(
-            change,
+            sessions.hook(&stop, &projects, at(20)),
             Change::Started {
                 interactive: false,
                 ..
@@ -656,8 +795,10 @@ mod tests {
                  "waitingFor": "permission prompt"}]"#,
         )
         .unwrap();
-        sessions.poll(&listing, &projects, at(0));
+        // Sessions the poll found running have worked, but their start is unknown: no row.
+        assert!(sessions.poll(&listing, &projects, at(0)).is_empty());
         let p1 = sessions.get("p1").unwrap();
+        assert!(p1.worked && !p1.is_new());
         assert_eq!(
             (p1.project.as_deref(), p1.status),
             (Some("beta"), Status::Busy)
@@ -705,6 +846,7 @@ mod tests {
         let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
         let projects = projects();
         let mut sessions = Sessions::default();
+        let alpha = r"C:\Data\alpha";
         // A visual launch of alpha, recorded when its link went to VS Code (EP-11).
         ledger
             .start_session(&NewSession {
@@ -718,40 +860,38 @@ mod tests {
                 started_at: at(0),
             })
             .unwrap();
-        let start = sessions.hook(
-            &hook("SessionStart", "v1", r"C:\Data\alpha"),
-            &projects,
-            at(1),
-        );
-        assert_eq!(record(&ledger, &start).unwrap(), Some(Mode::Visual));
-        // A second start in alpha finds no launch left: a manual row.
-        let other = sessions.hook(
-            &hook("SessionStart", "m1", r"C:\Data\alpha"),
-            &projects,
-            at(2),
-        );
+        // The window restores a tab that resumes an older conversation, and it works first: a
+        // resumed conversation never takes up a launch (EP-13).
+        sessions.hook(&start("r1", alpha, "resume"), &projects, at(1));
+        let resumed = sessions.hook(&hook("Stop", "r1", alpha), &projects, at(2));
+        assert_eq!(resumed, started("r1", "alpha", 1, false));
+        assert_eq!(record(&ledger, &resumed).unwrap(), Some(Mode::Manual));
+        // The launch's new conversation works and takes it up.
+        sessions.hook(&start("v1", alpha, "startup"), &projects, at(1));
+        let mut note = hook("Notification", "v1", alpha);
+        note.notification_type = Some("permission_prompt".to_owned());
+        let first = sessions.hook(&note, &projects, at(3));
+        assert_eq!(record(&ledger, &first).unwrap(), Some(Mode::Visual));
+        // A second new conversation finds no launch left: a manual row; a known one keeps its row.
+        sessions.hook(&start("m1", alpha, "startup"), &projects, at(4));
+        let other = sessions.hook(&hook("Stop", "m1", alpha), &projects, at(5));
         assert_eq!(record(&ledger, &other).unwrap(), Some(Mode::Manual));
-        // A resume of a known session keeps its row.
         assert_eq!(record(&ledger, &other).unwrap(), Some(Mode::Manual));
         // Outside the registry, or a `-p` run: no row.
-        let outside = sessions.hook(
-            &hook("SessionStart", "o1", r"C:\Elsewhere"),
-            &projects,
-            at(2),
-        );
+        sessions.hook(&start("o1", r"C:\Elsewhere", "startup"), &projects, at(2));
+        let outside = sessions.hook(&hook("Stop", "o1", r"C:\Elsewhere"), &projects, at(3));
         assert_eq!(record(&ledger, &outside).unwrap(), None);
-        let mut run = hook("SessionStart", "h1", r"C:\Data\beta");
+        let mut run = start("h1", r"C:\Data\beta", "startup");
         run.entrypoint = Some("sdk-cli".to_owned());
-        let run = sessions.hook(&run, &projects, at(2));
+        sessions.hook(&run, &projects, at(2));
+        let mut stop = hook("Stop", "h1", r"C:\Data\beta");
+        stop.entrypoint = Some("sdk-cli".to_owned());
+        let run = sessions.hook(&stop, &projects, at(3));
         assert_eq!(record(&ledger, &run).unwrap(), None);
-        let end = sessions.hook(
-            &hook("SessionEnd", "v1", r"C:\Data\alpha"),
-            &projects,
-            at(30),
-        );
+        let end = sessions.hook(&hook("SessionEnd", "v1", alpha), &projects, at(30));
         record(&ledger, &end).unwrap();
         let rows = ledger.sessions().unwrap();
-        assert_eq!(rows.len(), 2);
+        assert_eq!(rows.len(), 3);
         let visual = &rows[0];
         assert_eq!(
             (visual.session_id.as_deref(), visual.ep.as_deref()),
@@ -759,8 +899,84 @@ mod tests {
         );
         assert_eq!(visual.ended_at.as_deref(), Some("2026-11-02T10:30:00Z"));
         assert_eq!(
-            (rows[1].mode.as_str(), rows[1].ended_at.as_deref()),
+            (
+                rows[1].session_id.as_deref(),
+                rows[1].mode.as_str(),
+                rows[1].started_at.as_str()
+            ),
+            (Some("r1"), "manual", "2026-11-02T10:01:00Z")
+        );
+        assert_eq!(
+            (rows[2].mode.as_str(), rows[2].ended_at.as_deref()),
             ("manual", None)
+        );
+    }
+
+    /// The owner's cases after OT-6 (EP-13): what opening a tab brings, and a compaction.
+    #[test]
+    fn only_a_session_that_works_earns_a_row() {
+        let scratch = Scratch::new("sessions-earn");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let projects = projects();
+        let mut sessions = Sessions::default();
+        let alpha = r"C:\Data\alpha";
+        // A helper of the extension's starts and ends within seconds, a tab the window restores
+        // resumes an older conversation and ends, and the new tab waits for a prompt.
+        for (id, source) in [
+            ("helper", "startup"),
+            ("restored", "resume"),
+            ("tab", "startup"),
+        ] {
+            assert_eq!(
+                sessions.hook(&start(id, alpha, source), &projects, at(0)),
+                Change::Nothing
+            );
+        }
+        for id in ["helper", "restored"] {
+            let end = sessions.hook(&hook("SessionEnd", id, alpha), &projects, at(0));
+            record(&ledger, &end).unwrap();
+        }
+        // Ended without working, they leave the window at once and have no row.
+        sessions.expire(at(0));
+        assert!(sessions.get("helper").is_none() && sessions.get("restored").is_none());
+        assert!(ledger.sessions().unwrap().is_empty());
+        assert!(sessions.get("tab").unwrap().is_new());
+        // The poll lists the new tab busy: its row starts from its start, once.
+        let listing = agents::parse(
+            r#"[{"pid": 7, "cwd": "C:\\Data\\alpha", "kind": "interactive", "sessionId": "tab",
+                 "status": "busy"}]"#,
+        )
+        .unwrap();
+        let changes = sessions.poll(&listing, &projects, at(2));
+        assert_eq!(changes, [started("tab", "alpha", 0, true)]);
+        assert_eq!(record(&ledger, &changes[0]).unwrap(), Some(Mode::Manual));
+        assert!(sessions.poll(&listing, &projects, at(3)).is_empty());
+        // A compaction restarts no session: one the window first hears of there gets no row, and
+        // one it saw start keeps the row it has.
+        sessions.hook(
+            &start("compacted", r"C:\Data\beta", "compact"),
+            &projects,
+            at(4),
+        );
+        assert!(!sessions.get("compacted").unwrap().is_new());
+        assert_eq!(
+            sessions.hook(
+                &hook("Stop", "compacted", r"C:\Data\beta"),
+                &projects,
+                at(5)
+            ),
+            Change::Nothing
+        );
+        sessions.hook(&start("tab", alpha, "compact"), &projects, at(6));
+        assert_eq!(
+            sessions.hook(&hook("Stop", "tab", alpha), &projects, at(7)),
+            Change::Nothing
+        );
+        let rows = ledger.sessions().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            (rows[0].session_id.as_deref(), rows[0].started_at.as_str()),
+            (Some("tab"), "2026-11-02T10:00:00Z")
         );
     }
 }
