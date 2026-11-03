@@ -6,7 +6,9 @@
 //! the hooks and the poll of live sessions report join the window's own (D-20); from EP-13 an
 //! ended headless session resumes in its tab (D-16); from EP-14 the owner answers what a session
 //! asks, a deferred run resumes with the answer, and Focus brings a waiting session's VS Code
-//! window forward (D-19).
+//! window forward (D-19); from EP-15 the notifications (D-21): the popup, the tray icon with its
+//! menu, closing to the tray and Quit, whose share of each pass runs while the window is hidden
+//! too (`attend`, from eframe's `App::logic`, D-29).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -18,6 +20,7 @@ use crw_core::badges::short_age;
 use crw_core::badges::stack::Kind;
 use crw_core::catalog::Catalog;
 use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
+use crw_core::notify::QuietHours;
 use crw_core::proposal::{self, Reason};
 use crw_core::registry::{State, Store};
 use crw_core::roadmap::snapshot::InProgress;
@@ -34,17 +37,23 @@ use crate::layout::{self, Pane};
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
 use crate::sessions::{SessionFilter, Sessions, Started};
 use crate::style::{self, Density, icons};
+use crate::toasts::{self, Target, Toast, Toasts};
+use crate::tray::{self, Order, Tray};
 use crate::visual::{self, Visual};
 use crate::watch::Watch;
 
 const THEME_KEY: &str = "theme";
 const VIEW_KEY: &str = "view";
+/// Whether the first close to the tray has been said (EP-15).
+const TRAY_KEY: &str = "tray_told";
 /// A notice stays this long in the status bar; an error stays until the next notice.
 const NOTICE_FOR: Duration = Duration::from_secs(8);
 /// The most a notice or an error says in the status bar, on one line (EP-14a).
 const NOTICE_CHARS: usize = 160;
 /// The most of an answer's words a notice repeats, so that the line's end still shows.
 const ANSWER_CHARS: usize = 80;
+/// The most of a brief's title a Start item in the tray's menu shows (EP-15).
+const START_TITLE: usize = 48;
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
 /// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
@@ -173,8 +182,44 @@ pub enum Action {
     },
     /// The VS Code window of the project a session waits in, brought forward (D-19).
     Focus(String),
+    /// A toast shown whatever the quiet hours and the focus, so that the owner sees toasts reach
+    /// the screen (EP-15).
+    TestToast,
+    /// The window hidden in the tray, as closing it does (D-29).
+    HideWindow,
+    /// Quit: at once, or after a question when headless runs would stop (EP-15).
+    Quit,
+    /// The question's yes: quit, and the runs stop.
+    QuitAnyway,
+    /// The question put away: nothing stops.
+    KeepRunning,
     /// A key or a button of a brief not built yet: a notice that says which.
     NotYet(&'static str),
+}
+
+/// What closing the window does (D-29; EP-15).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Closing {
+    /// It goes to the tray, and its runs go on.
+    Hide,
+    /// The question first: headless runs would stop.
+    Ask,
+    /// It closes, and the process ends.
+    Close,
+}
+
+/// What closing does: a Quit asked for, or a screenshot run's own close, closes; with a tray the
+/// window hides; without one it closes, after the question when runs would stop (`stoppable`).
+fn closing(quitting: bool, fixtures: bool, tray: bool, stoppable: usize) -> Closing {
+    if quitting || fixtures {
+        Closing::Close
+    } else if tray {
+        Closing::Hide
+    } else if stoppable > 0 {
+        Closing::Ask
+    } else {
+        Closing::Close
+    }
 }
 
 /// How a status-bar line reads.
@@ -207,6 +252,19 @@ pub struct Board {
     /// The sessions the hooks, the status lines and the poll report (EP-12); started by `main`,
     /// never by a screenshot run or a test.
     pub watch: Watch,
+    /// The toasts, the badge events and their log (D-21; EP-15); turned on by `main`, never in a
+    /// screenshot run or a test.
+    pub toasts: Toasts,
+    /// The tray icon while it runs; started by `main`, never by a screenshot run or a test.
+    pub tray: Option<Tray>,
+    /// The window is hidden in the tray (D-29).
+    pub hidden: bool,
+    /// The first close to the tray has been said, once for good (kept with the layout).
+    pub told_tray: bool,
+    /// The question before Quit stops the window's headless runs is open.
+    pub quit_asked: bool,
+    /// Quit goes ahead: the close is let through.
+    quitting: bool,
     /// Where Claude Code caches its model catalog; a screenshot run's is a fixture.
     pub catalog_folder: Option<PathBuf>,
     /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
@@ -253,6 +311,12 @@ impl Board {
             sessions: Sessions::default(),
             visual: Visual::default(),
             watch: Watch::default(),
+            toasts: Toasts::default(),
+            tray: None,
+            hidden: false,
+            told_tray: false,
+            quit_asked: false,
+            quitting: false,
             catalog_folder: Catalog::folder(),
             open_when_read: None,
             ledger,
@@ -313,9 +377,20 @@ impl Board {
         self.error = None;
     }
 
-    fn warn(&mut self, text: impl Into<String>) {
+    pub fn warn(&mut self, text: impl Into<String>) {
         let text = one_line(&text.into(), NOTICE_CHARS);
         self.notice = Some((text, Tone::Warning, Instant::now()));
+    }
+
+    /// What a toast held back while the window is in front says instead; an error stands.
+    fn mention(&mut self, toast: &Toast) {
+        let tone = if toast.is_warning() {
+            Tone::Warning
+        } else {
+            Tone::Plain
+        };
+        let text = one_line(&toast.words(), NOTICE_CHARS);
+        self.notice = Some((text, tone, Instant::now()));
     }
 
     fn fail(&mut self, text: impl Into<String>) {
@@ -404,6 +479,206 @@ impl Board {
                 self.loader.read_files();
             } else {
                 ctx.request_repaint_after(at - Instant::now());
+            }
+        }
+    }
+
+    /// The notifications' share of each pass, the window hidden or shown (D-21, D-29; EP-15): a
+    /// close turned into a hide or a question, the tray's orders and the toasts' clicks carried
+    /// out, this pass's moments toasted or held back, the badge events read, the tray brought up
+    /// to date.
+    pub fn attend(&mut self, ctx: &egui::Context) {
+        if ctx.input(|i| i.viewport().close_requested()) {
+            let stoppable = self.sessions.stoppable().len();
+            match closing(self.quitting, self.fixtures, self.tray.is_some(), stoppable) {
+                Closing::Hide => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.hide();
+                }
+                Closing::Ask => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.quit_asked = true;
+                }
+                Closing::Close => {}
+            }
+        }
+        let orders = self.tray.as_ref().map(Tray::orders).unwrap_or_default();
+        for order in orders {
+            match order {
+                Order::Show => self.show(),
+                Order::Start(name) => {
+                    self.show();
+                    self.actions.push(Action::OpenLaunch(name));
+                }
+                Order::Quit => self.ask_quit(),
+            }
+        }
+        // The popup is drawn by the window's pass, which a minimized window skips unless asked.
+        if !self.toasts.popup.is_empty() {
+            ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden);
+        }
+        // Taken whether or not toasts are on, so that a window without them keeps none.
+        let news = self.sessions.take_news();
+        if !self.toasts.is_on() {
+            return;
+        }
+        let in_front = self.in_front(ctx);
+        let mut moments = Vec::new();
+        for (key, news) in news {
+            if let Some(live) = self.sessions.live.iter().find(|live| live.key == key) {
+                moments.extend(toasts::from_news(key, &live.project, &live.title(), &news));
+            }
+        }
+        let (sessions, model) = (&self.sessions, &self.watch.model);
+        let polled = model.polled.is_some();
+        moments.extend(
+            self.toasts
+                .elsewhere(&model.all(), |id| sessions.owns(id), polled),
+        );
+        if !moments.is_empty() {
+            let quiet = self.quiet_hours();
+            for toast in self.toasts.deliver(moments, quiet, in_front, ctx) {
+                self.mention(&toast);
+            }
+        }
+        if !self.loader.busy() && self.toasts.marks_due() {
+            let marks = toasts::marks(&self.portfolio, chrono::Utc::now());
+            self.toasts.mark(marks, in_front);
+        }
+        self.update_tray(ctx);
+    }
+
+    /// Whether the owner has the window in front: shown, not minimized, with the focus.
+    fn in_front(&self, ctx: &egui::Context) -> bool {
+        !self.hidden && ctx.input(|i| i.focused && i.viewport().minimized != Some(true))
+    }
+
+    /// The registry's quiet hours, read when a toast is due, so that `crw setting` counts at
+    /// once.
+    fn quiet_hours(&self) -> Option<QuietHours> {
+        self.store()
+            .load()
+            .ok()
+            .and_then(|loaded| loaded.registry.settings.quiet_hours)
+    }
+
+    /// The tray as the window stands (D-21): what waits, what is new, the pinned projects'
+    /// next briefs.
+    fn update_tray(&mut self, ctx: &egui::Context) {
+        if self.tray.is_none() {
+            return;
+        }
+        let starts = self
+            .portfolio
+            .projects
+            .iter()
+            .filter(|row| row.project.pinned)
+            .map(|row| {
+                let next = row.next().map(|next| {
+                    let size = next
+                        .size
+                        .map(|size| format!(" ({size})"))
+                        .unwrap_or_default();
+                    format!(
+                        "{}{size}: {}",
+                        next.id,
+                        one_line(&next.brief.title, START_TITLE)
+                    )
+                });
+                (row.name().to_owned(), next)
+            })
+            .collect();
+        let scale = ctx.input(|i| i.viewport().native_pixels_per_point.unwrap_or(2.0));
+        let state = tray::State {
+            waiting: self.decisions_count(),
+            new: self.toasts.attention.counted(),
+            starts,
+            size: (16.0 * scale).round() as u32,
+        };
+        if let Some(tray) = &mut self.tray {
+            tray.update(&state);
+        }
+    }
+
+    /// Shows the window from the tray, restored and in front (D-29).
+    fn show(&mut self) {
+        self.hidden = false;
+        self.ctx
+            .send_viewport_cmd(egui::ViewportCommand::Visible(true));
+        self.ctx
+            .send_viewport_cmd(egui::ViewportCommand::Minimized(false));
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Focus);
+        self.ctx.request_repaint();
+    }
+
+    /// Hides the window in the tray, where its runs, the loopback server and the poll go on
+    /// (D-29); the first time, outside the quiet hours, a toast says where it went.
+    fn hide(&mut self) {
+        if self.tray.is_none() {
+            return;
+        }
+        self.hidden = true;
+        self.quit_asked = false;
+        self.ctx
+            .send_viewport_cmd(egui::ViewportCommand::Visible(false));
+        let quiet = self.quiet_hours();
+        let quiet_now = quiet.is_some_and(|hours| hours.contains(chrono::Local::now().time()));
+        if !self.told_tray && !quiet_now && self.toasts.is_on() {
+            self.told_tray = true;
+            let toast = Toast::tray(self.sessions.stoppable().len());
+            let ctx = self.ctx.clone();
+            self.toasts.deliver(vec![toast], quiet, false, &ctx);
+        }
+    }
+
+    /// Quits at once when no headless run would stop; else shows the window with the question
+    /// (D-16's EP-10 addendum).
+    fn ask_quit(&mut self) {
+        if self.sessions.stoppable().is_empty() {
+            self.quit();
+        } else {
+            self.show();
+            self.quit_asked = true;
+        }
+    }
+
+    /// Lets the window close: the process ends, and the runs it holds with it.
+    fn quit(&mut self) {
+        self.quitting = true;
+        self.quit_asked = false;
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        self.ctx.request_repaint();
+    }
+
+    /// A toast shown at once whatever the hours and the focus (EP-15).
+    fn test_toast(&mut self) {
+        if !self.toasts.is_on() {
+            self.warn("Notifications are off in this window: it is a screenshot run.");
+            return;
+        }
+        let ctx = self.ctx.clone();
+        self.toasts.deliver(vec![Toast::test()], None, false, &ctx);
+        self.notify(
+            "A test notification is in the popup at the screen's lower right: its Show brings \
+             the window forward.",
+        );
+    }
+
+    /// The popup, the window shown or hidden (EP-15): a toast's Show leads where it says.
+    pub fn popup(&mut self, ctx: &egui::Context) {
+        for target in self.toasts.chosen(ctx) {
+            match target {
+                Target::VsCode(name) => self.focus(&name),
+                Target::Decisions => {
+                    self.show();
+                    self.bring = Some(Pane::Decisions);
+                }
+                Target::Session(key) => {
+                    self.show();
+                    self.sessions.tab = Some(key);
+                    self.bring = Some(Pane::Sessions);
+                }
+                Target::Window => self.show(),
             }
         }
     }
@@ -508,6 +783,11 @@ impl Board {
             } => self.respond(key, &request, response),
             Action::AnswerDeferred { key, response } => self.answer_deferred(key, response),
             Action::Focus(name) => self.focus(&name),
+            Action::TestToast => self.test_toast(),
+            Action::HideWindow => self.hide(),
+            Action::Quit => self.ask_quit(),
+            Action::QuitAnyway => self.quit(),
+            Action::KeepRunning => self.quit_asked = false,
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -1037,6 +1317,94 @@ impl Board {
         }
     }
 
+    /// The question before Quit stops the window's headless runs (D-16's EP-10 addendum; EP-15):
+    /// what stops, how a stopped run is picked up again, and the ways out. Escape keeps running.
+    pub fn quit_dialog(&mut self, ctx: &egui::Context) {
+        if !self.quit_asked {
+            return;
+        }
+        let runs = self.sessions.stoppable();
+        if runs.is_empty() && !self.fixtures {
+            // The runs ended meanwhile: nothing would stop.
+            self.quit();
+            return;
+        }
+        let tray = self.tray.is_some() || self.fixtures;
+        let width = 560.0_f32.min(ctx.content_rect().width() - 80.0);
+        let modal = egui::Modal::new(egui::Id::unique("quit-question")).show(ctx, |ui| {
+            ui.set_width(width);
+            ui.heading("Quit Roadmap Wrangler?");
+            ui.add_space(4.0);
+            let what = match runs.len() {
+                1 => "the window's headless session".to_owned(),
+                n => format!("the window's {n} headless sessions"),
+            };
+            ui.label(format!(
+                "Quitting stops {what} with its process tree, and the ledger records the run as \
+                 stopped:"
+            ));
+            for run in &runs {
+                ui.label(RichText::new(format!("    {run}")).strong());
+            }
+            ui.add_space(4.0);
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
+                        "Claude Code's own list of the project's sessions (claude --resume there) \
+                         picks a stopped run up again. The sessions in VS Code go on.",
+                    )
+                    .small()
+                    .weak(),
+                )
+                .wrap(),
+            );
+            ui.add_space(8.0);
+            let mut chosen = None;
+            ui.horizontal(|ui| {
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("Keep running").clicked() {
+                        chosen = Some(Action::KeepRunning);
+                    }
+                    if tray
+                        && ui
+                            .button("Close to the tray")
+                            .on_hover_text("Hide the window: its runs go on")
+                            .clicked()
+                    {
+                        chosen = Some(Action::HideWindow);
+                    }
+                    let stop = if runs.len() == 1 {
+                        "Quit and stop it"
+                    } else {
+                        "Quit and stop them"
+                    };
+                    if ui
+                        .button(RichText::new(stop).color(style::red(ui)))
+                        .clicked()
+                    {
+                        chosen = Some(Action::QuitAnyway);
+                    }
+                });
+            });
+            chosen
+        });
+        match modal.inner {
+            Some(action) => self.actions.push(action),
+            None if modal.should_close() => self.actions.push(Action::KeepRunning),
+            None => {}
+        }
+    }
+
+    /// The notifications and the tray in words, for the status bar's hover (EP-15).
+    fn notifications_line(&self) -> String {
+        let tray = match &self.tray {
+            Some(tray) => tray.line(),
+            None if self.toasts.is_on() => "no tray icon: closing the window quits".to_owned(),
+            None => "no tray icon".to_owned(),
+        };
+        format!("{}; {tray}", self.toasts.line(self.quiet_hours()))
+    }
+
     /// Errors stay until the next notice; a notice fades. With nothing to report, the keys.
     pub fn status_bar(&self, ui: &mut egui::Ui) {
         ui.add_space(2.0);
@@ -1112,11 +1480,15 @@ impl Board {
                     || "Signals: not started".to_owned(),
                     |(line, _)| line,
                 );
-                ui.label(RichText::new(reading).weak()).on_hover_text(format!(
-                    "Registry {}\nData root {}\n{github}\n{signals}",
-                    self.portfolio.registry.display(),
-                    self.portfolio.data_root.display()
-                ));
+                // Built only while hovered: the notifications' line reads the registry.
+                ui.label(RichText::new(reading).weak()).on_hover_ui(|ui| {
+                    ui.label(format!(
+                        "Registry {}\nData root {}\n{github}\n{signals}\n{}",
+                        self.portfolio.registry.display(),
+                        self.portfolio.data_root.display(),
+                        self.notifications_line()
+                    ));
+                });
                 if let Some(note) = &self.home_note {
                     style::chip(ui, note, style::amber(ui));
                 }
@@ -1154,9 +1526,11 @@ impl Dashboard {
         let view: View = stored(cc.storage, VIEW_KEY).unwrap_or_default();
         cc.egui_ctx.set_theme(theme);
         view.density.apply(&cc.egui_ctx);
+        let mut board = Board::new(places, &cc.egui_ctx, view, theme);
+        board.told_tray = stored(cc.storage, TRAY_KEY).unwrap_or(false);
         Self {
             layout: layout::restore(cc.storage),
-            board: Board::new(places, &cc.egui_ctx, view, theme),
+            board,
         }
     }
 
@@ -1171,6 +1545,37 @@ impl Dashboard {
 
     fn menu(&mut self, ui: &mut egui::Ui) {
         egui::MenuBar::new().ui(ui, |ui| {
+            ui.menu_button("File", |ui| {
+                if ui
+                    .button("Send a test notification")
+                    .on_hover_text(
+                        "A notification in the popup at the screen's lower right, whatever the \
+                         quiet hours: its Show brings the window forward",
+                    )
+                    .clicked()
+                {
+                    self.board.actions.push(Action::TestToast);
+                }
+                ui.separator();
+                if ui
+                    .add_enabled(
+                        self.board.tray.is_some(),
+                        egui::Button::new("Close to the tray"),
+                    )
+                    .on_hover_text("Hide the window: its sessions go on, and its icon shows it")
+                    .on_disabled_hover_text("No tray icon runs in this window: closing it quits")
+                    .clicked()
+                {
+                    self.board.actions.push(Action::HideWindow);
+                }
+                if ui
+                    .button("Quit")
+                    .on_hover_text("End the window, and with it the headless sessions it holds")
+                    .clicked()
+                {
+                    self.board.actions.push(Action::Quit);
+                }
+            });
             ui.menu_button("View", |ui| {
                 ui.label(RichText::new("Theme").weak());
                 let before = self.board.theme;
@@ -1244,11 +1649,23 @@ impl Dashboard {
 }
 
 impl eframe::App for Dashboard {
+    /// Runs before each frame and, while the window is hidden in the tray, without one (eframe
+    /// 0.37): the window's work goes on in the tray (D-29; EP-15).
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.board.receive(ctx);
+        self.board.attend(ctx);
+    }
+
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         #[cfg(feature = "screenshot")]
         crate::screenshot::tick(&ctx);
-        self.board.receive(&ctx);
+        // The popup is a window of its own: drawn whether this one shows or not.
+        self.board.popup(&ctx);
+        if self.board.hidden {
+            // Hidden in the tray, whose pass Windows still runs: nothing more to draw.
+            return;
+        }
         self.board.keys(&ctx);
         #[cfg(feature = "screenshot")]
         crate::screenshot::set_busy(self.board.busy());
@@ -1259,6 +1676,7 @@ impl eframe::App for Dashboard {
             .frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0))
             .show(ui, |ui| self.layout.ui(&mut self.board, ui));
         self.board.launch_dialog(&ctx);
+        self.board.quit_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 
@@ -1266,6 +1684,7 @@ impl eframe::App for Dashboard {
         eframe::set_value(storage, layout::LAYOUT_KEY, &self.layout);
         eframe::set_value(storage, THEME_KEY, &self.board.theme);
         eframe::set_value(storage, VIEW_KEY, &self.board.view);
+        eframe::set_value(storage, TRAY_KEY, &self.board.told_tray);
     }
 
     #[cfg(feature = "screenshot")]
@@ -1324,6 +1743,19 @@ mod tests {
         assert_eq!(cut.chars().count(), 10, "{cut}");
         assert!(cut.ends_with('…') && cut.starts_with("é—…é"), "{cut}");
         assert_eq!(one_line("", 10), "");
+    }
+
+    #[test]
+    fn closing_hides_asks_or_closes() {
+        // With a tray the window hides, whatever runs.
+        assert_eq!(closing(false, false, true, 2), Closing::Hide);
+        assert_eq!(closing(false, false, true, 0), Closing::Hide);
+        // Without one, the question comes first when runs would stop.
+        assert_eq!(closing(false, false, false, 1), Closing::Ask);
+        assert_eq!(closing(false, false, false, 0), Closing::Close);
+        // A Quit asked for, and a screenshot run's own close, close.
+        assert_eq!(closing(true, false, true, 2), Closing::Close);
+        assert_eq!(closing(false, true, false, 3), Closing::Close);
     }
 
     #[test]

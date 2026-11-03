@@ -723,7 +723,8 @@ impl Dialog {
                 .to_owned()
         } else {
             format!(
-                "Runs headless in {}; the ledger records it, and closing the window stops it.",
+                "Runs headless in {}; the ledger records it. Closing the window keeps it in the \
+                 tray, and quitting stops it.",
                 self.folder.display()
             )
         };

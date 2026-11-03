@@ -5,7 +5,8 @@
 //! tasks, the inbox and the older forms of the owner's to-dos, EP-7 the badges and the git
 //! plumbing they share with the snapshot, EP-9 the session runner, EP-10 the launch prompt, the
 //! rule table and the model catalog, EP-11 the visual launch, EP-12 the signals (the hook and
-//! status-line relays and their installation) and the sessions the tool sees.
+//! status-line relays and their installation) and the sessions the tool sees, EP-15 the
+//! notifications' rules.
 
 pub mod badges;
 pub mod catalog;
@@ -17,6 +18,7 @@ pub mod files;
 pub mod git;
 pub mod inbox;
 pub mod ledger;
+pub mod notify;
 pub mod paths;
 pub mod process;
 pub mod prompt;

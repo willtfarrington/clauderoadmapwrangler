@@ -1,8 +1,8 @@
 //! The ledger (D-8, D-26): one SQLite file in the local profile for what the tool records over
 //! time, kept indefinitely: sessions, usage samples, parse snapshots and events, and the cache of
 //! the badges' networked readings (EP-7). EP-2 creates the schema; each brief that records rows
-//! adds its queries (EP-9 the sessions'), and a numbered migration when it needs a new table or
-//! column. Times are RFC 3339 text in UTC.
+//! adds its queries (EP-9 the sessions', EP-15 the events'), and a numbered migration when it
+//! needs a new table or column. Times are RFC 3339 text in UTC.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,6 +19,9 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3];
 
 /// The most of a run's final text its row keeps, in characters.
 const RESULT_CAP: usize = 8000;
+
+/// The most of an event's detail its row keeps, in characters.
+const DETAIL_CAP: usize = 1000;
 
 const V1: &str = "
 CREATE TABLE schema_version (version INTEGER NOT NULL);
@@ -247,6 +250,23 @@ pub fn length(took: TimeDelta) -> String {
         s if s < 60 => format!("{s} s"),
         s if s < 3600 => format!("{} min", s / 60),
         s => format!("{} h {:02} min", s / 3600, (s % 3600) / 60),
+    }
+}
+
+/// One line of the `event` table (D-26): what happened, to which project, in words; from EP-15
+/// the notifications' log (`notify::EVENT_KIND`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventRow {
+    pub id: i64,
+    pub at: String,
+    pub kind: String,
+    pub project: Option<String>,
+    pub detail: Option<String>,
+}
+
+impl EventRow {
+    pub fn at(&self) -> Option<DateTime<Utc>> {
+        parse_time(&self.at)
     }
 }
 
@@ -542,6 +562,42 @@ impl Ledger {
         }
         Ok(cached)
     }
+
+    /// Keeps one line of the `event` table: what happened at `at`, of `kind`, to `project` when it
+    /// concerns one, in words kept to [`DETAIL_CAP`] characters.
+    pub fn add_event(
+        &self,
+        at: DateTime<Utc>,
+        kind: &str,
+        project: Option<&str>,
+        detail: &str,
+    ) -> Result<i64, Error> {
+        self.connection.execute(
+            "INSERT INTO event (at, kind, project, detail) VALUES (?1, ?2, ?3, ?4)",
+            (rfc3339(at), kind, project, capped(detail, DETAIL_CAP)),
+        )?;
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    /// The `event` table's lines of `kind`, the newest first: the latest `limit`, or every one.
+    pub fn events(&self, kind: &str, limit: Option<usize>) -> Result<Vec<EventRow>, Error> {
+        let mut statement = self.connection.prepare(
+            "SELECT id, at, kind, project, detail FROM event WHERE kind = ?1 \
+             ORDER BY at DESC, id DESC LIMIT ?2",
+        )?;
+        // SQLite reads a negative limit as none.
+        let limit = limit.map_or(-1, |limit| limit as i64);
+        let rows = statement.query_map((kind, limit), |row| {
+            Ok(EventRow {
+                id: row.get(0)?,
+                at: row.get(1)?,
+                kind: row.get(2)?,
+                project: row.get(3)?,
+                detail: row.get(4)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
 }
 
 /// A time as the ledger writes it: RFC 3339 in UTC, to the second.
@@ -667,6 +723,51 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM session", [], |row| row.get(0))
             .unwrap();
         assert_eq!(rows, 1);
+    }
+
+    #[test]
+    fn keeps_events_and_reads_them_back_the_newest_first() {
+        let scratch = Scratch::new("ledger-events");
+        let path = scratch.0.join("ledger.sqlite");
+        let ledger = Ledger::open(&path).unwrap();
+        let at = |minute: u32| {
+            DateTime::parse_from_rfc3339(&format!("2026-11-03T20:{minute:02}:00Z"))
+                .unwrap()
+                .with_timezone(&Utc)
+        };
+        ledger
+            .add_event(
+                at(1),
+                "notification",
+                Some("alpha"),
+                "toast · waiting · first",
+            )
+            .unwrap();
+        ledger
+            .add_event(at(5), "notification", None, "toast · test · second")
+            .unwrap();
+        ledger
+            .add_event(at(3), "revert", Some("alpha"), "another kind")
+            .unwrap();
+        let long = "x".repeat(DETAIL_CAP + 50);
+        ledger
+            .add_event(at(4), "notification", Some("beta"), &long)
+            .unwrap();
+        drop(ledger);
+        let read = Ledger::open_read_only(&path).unwrap();
+        let all = read.events("notification", None).unwrap();
+        let details: Vec<&str> = all.iter().filter_map(|e| e.detail.as_deref()).collect();
+        assert_eq!(details.len(), 3);
+        assert_eq!(details[0], "toast · test · second");
+        assert_eq!(details[1].chars().count(), DETAIL_CAP);
+        assert!(details[1].ends_with('…'));
+        assert_eq!(details[2], "toast · waiting · first");
+        assert_eq!(all[0].project, None);
+        assert_eq!(all[2].project.as_deref(), Some("alpha"));
+        assert_eq!(all[0].at(), Some(at(5)));
+        let latest = read.events("notification", Some(1)).unwrap();
+        assert_eq!(latest, all[..1]);
+        assert!(read.events("delivery", None).unwrap().is_empty());
     }
 
     #[test]

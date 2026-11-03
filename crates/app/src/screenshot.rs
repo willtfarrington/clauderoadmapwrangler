@@ -32,6 +32,9 @@
 //!   waits on a pair of questions and a `git push`, under a 30-minute limit; a quarry EP-2 run
 //!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
 //!   harbor's refused edit of a neighbour);
+//! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
+//!   EP-15); `popup` (the notifications' popup with canned toasts, drawn inside the window: a
+//!   real one is a window of its own at the screen's lower right);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -223,6 +226,18 @@ impl Run {
                         canned_sessions(board);
                     }
                     layout::show(dashboard.layout_mut(), Pane::Decisions);
+                }
+                "quit" => {
+                    if board.sessions.live.is_empty() {
+                        canned_sessions(board);
+                    }
+                    board.quit_asked = true;
+                }
+                "popup" => {
+                    ctx.set_embed_viewports(true);
+                    for toast in crate::toasts::canned() {
+                        board.toasts.popup.push(toast);
+                    }
                 }
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),

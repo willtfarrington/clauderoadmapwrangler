@@ -3,11 +3,12 @@
 //! message once it has ended; and an All tab that lists every session, the window's, those Claude
 //! Code reports elsewhere (EP-12) and the ledger's recent rows, with filters by project, mode and
 //! running only. The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
-//! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Closing the
+//! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Quitting the
 //! window drops the handles, which kills whatever still runs with its process tree (D-16
-//! addendum). What a session waits on is answered in the Decisions tile (`decisions`, EP-14):
+//! addendum); closing it only hides it in the tray (D-29; EP-15). What a session waits on is answered in the Decisions tile (`decisions`, EP-14):
 //! the answer goes through the session's handle, and a run deferred at its time limit or by the
-//! defer route's hook resumes with the owner's answer (D-19).
+//! defer route's hook resumes with the owner's answer (D-19). A run's requests and its end are
+//! news for the notifications (`toasts`, EP-15).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -92,6 +93,18 @@ pub struct Live {
     version: Option<String>,
     /// A screenshot run's stand-in: shown running, with no process behind it.
     canned: bool,
+    /// What the notifications have yet to hear of (EP-15).
+    news: Vec<News>,
+}
+
+/// What a window's run did that may call the owner (D-21; EP-15), for the notifications.
+#[derive(Debug, Clone, PartialEq)]
+pub enum News {
+    /// It asks: a question's text, or the call a permission is asked for, in one line.
+    Asked(String),
+    /// Its run ended: how, and in one line what it came to, why it failed, or the request a
+    /// deferred run left open.
+    Ended(Outcome, String),
 }
 
 /// A request a window's session waits on (D-19), and since when.
@@ -156,6 +169,7 @@ impl Live {
             program: starting.program.clone(),
             version: starting.version.clone(),
             canned: false,
+            news: Vec::new(),
         }
     }
 
@@ -189,6 +203,7 @@ impl Live {
             program: PathBuf::from("claude.exe"),
             version: None,
             canned: true,
+            news: Vec::new(),
             launch,
         };
         live.transcript.prompt(&live.launch.prompt, false);
@@ -219,10 +234,13 @@ impl Live {
                 }
             }
             Event::ToolUse(tool) => self.last = tool.summary,
-            Event::Request(request) => self.waiting.push(Waiting {
-                request,
-                since: Instant::now(),
-            }),
+            Event::Request(request) => {
+                self.news.push(News::Asked(request.summary.clone()));
+                self.waiting.push(Waiting {
+                    request,
+                    since: Instant::now(),
+                });
+            }
             Event::Withdrawn(id) => {
                 self.waiting.retain(|waiting| waiting.request.id != id);
                 self.drafts.remove(&id);
@@ -250,6 +268,10 @@ impl Live {
             Event::Handshake(Err(_)) => self.handshake_refused = true,
             Event::Unreadable(_) => self.unreadable += 1,
             Event::Exited(ended) => {
+                if ended.outcome != Outcome::Stopped {
+                    let line = ended_line(&ended, self.open.as_ref());
+                    self.news.push(News::Ended(ended.outcome, line));
+                }
                 self.waiting.clear();
                 self.ended = Some(ended);
                 self.session = None;
@@ -329,6 +351,42 @@ impl Live {
             None if !self.is_running() || self.stopping => ui.visuals().weak_text_color(),
             None if !self.waiting.is_empty() => style::amber(ui),
             None => style::blue(ui),
+        }
+    }
+}
+
+/// A run's end in one line, for its toast (EP-15): the result's last line when it completed, the
+/// request a deferred run left open, or why it failed.
+fn ended_line(ended: &Ended, open: Option<&Open>) -> String {
+    match ended.outcome {
+        Outcome::Completed => ended
+            .result
+            .as_ref()
+            .and_then(|finish| finish.text.as_deref())
+            .and_then(last_line)
+            .unwrap_or_default(),
+        Outcome::Deferred => open
+            .map(|open| open.request.summary.clone())
+            .unwrap_or_default(),
+        Outcome::Failed | Outcome::Stopped => {
+            let result = ended.result.as_ref();
+            result
+                .and_then(|finish| finish.errors.first().cloned())
+                .or_else(|| {
+                    result
+                        .filter(|finish| finish.subtype != "success")
+                        .map(|finish| finish.subtype.replace('_', " "))
+                })
+                .or_else(|| {
+                    ended
+                        .stderr
+                        .iter()
+                        .rev()
+                        .find(|line| !line.trim().is_empty())
+                        .cloned()
+                })
+                .or_else(|| ended.exit_code.map(|code| format!("exit code {code}")))
+                .unwrap_or_else(|| "it ended without a result".to_owned())
         }
     }
 }
@@ -451,6 +509,8 @@ pub struct Sessions {
     refused: Option<(PathBuf, Option<String>)>,
     /// A notice for the status bar: the switch to the defer route, once.
     pub switched: Option<String>,
+    /// The runs' news the notifications have not taken yet, by session (EP-15).
+    news: Vec<(u64, News)>,
 }
 
 impl Default for Sessions {
@@ -465,6 +525,7 @@ impl Default for Sessions {
             history: History::default(),
             refused: None,
             switched: None,
+            news: Vec::new(),
         }
     }
 }
@@ -735,6 +796,9 @@ impl Sessions {
             if live.drain() {
                 self.history.stale = true;
             }
+            let key = live.key;
+            self.news
+                .extend(live.news.drain(..).map(|news| (key, news)));
         }
         // A refused handshake: this CLI's later runs take the defer route (D-19's fallback).
         let refusing = self
@@ -789,12 +853,12 @@ impl Sessions {
             return Started::Running(if answered {
                 format!(
                     "Resumed {project} {ep} with your answer: its tab in the Sessions pane goes on, \
-                     and closing the window stops it."
+                     and quitting the window stops it."
                 )
             } else {
                 format!(
                     "Resumed {project} {ep} under its session id: its tab in the Sessions pane \
-                     goes on, and closing the window stops it."
+                     goes on, and quitting the window stops it."
                 )
             });
         }
@@ -804,7 +868,7 @@ impl Sessions {
         self.tab = Some(key);
         Started::Running(format!(
             "Started {project} {ep} headless with {} at {} effort: the Sessions pane shows it, \
-             and closing the window stops it.",
+             and quitting the window stops it.",
             starting.launch.model, starting.effort
         ))
     }
@@ -921,6 +985,36 @@ impl Sessions {
     /// Whether the window started the session `session_id`.
     pub fn owns(&self, session_id: &str) -> bool {
         self.live.iter().any(|live| live.session_id == session_id)
+    }
+
+    /// The runs' news since the last call, each with its session's key (D-21; EP-15).
+    pub fn take_news(&mut self) -> Vec<(u64, News)> {
+        std::mem::take(&mut self.news)
+    }
+
+    /// What quitting the window would stop, in words: each headless run that goes on, started
+    /// here, and a start on its way (D-16's EP-10 addendum; EP-15).
+    pub fn stoppable(&self) -> Vec<String> {
+        let running = self
+            .live
+            .iter()
+            .filter(|live| live.is_running() && !live.stopping)
+            .map(|live| {
+                format!(
+                    "{} ({} since {})",
+                    live.title(),
+                    live.state(),
+                    live.started.format("%H:%M")
+                )
+            });
+        let starting = self.starting.as_ref().map(|starting| {
+            format!(
+                "{} {} (starting)",
+                starting.launch.project,
+                starting.launch.ep.as_deref().unwrap_or_default()
+            )
+        });
+        running.chain(starting).collect()
     }
 }
 
@@ -1553,6 +1647,7 @@ mod tests {
             program: PathBuf::from("claude.exe"),
             version: Some("2.1.316".to_owned()),
             canned: false,
+            news: Vec::new(),
         }
     }
 
@@ -1631,6 +1726,94 @@ mod tests {
         }
         assert_eq!((live.denied, live.refusals.len()), (REFUSALS + 3, REFUSALS));
         assert_eq!(live.refusals[0].message, "edit 3 denied");
+    }
+
+    #[test]
+    fn a_runs_requests_and_end_are_news_for_the_notifications() {
+        let finish = |subtype: &str, text: Option<&str>, errors: Vec<String>| Finish {
+            subtype: subtype.to_owned(),
+            is_error: subtype != "success",
+            text: text.map(str::to_owned),
+            turns: 3,
+            cost_usd: 0.2,
+            duration_ms: 60_000,
+            stop_reason: None,
+            deferred: None,
+            denials: 0,
+            errors,
+        };
+        let mut done = live();
+        done.take(Event::Request(asked("req-1")));
+        done.take(exit(
+            Outcome::Completed,
+            Some(finish(
+                "success",
+                Some("Done.\n\nThe brief is ready for review."),
+                Vec::new(),
+            )),
+        ));
+        assert_eq!(
+            done.news,
+            [
+                News::Asked("Which shelf?".to_owned()),
+                News::Ended(
+                    Outcome::Completed,
+                    "The brief is ready for review.".to_owned()
+                ),
+            ]
+        );
+        // A stop is the owner's own doing: no news.
+        let mut stopped = live();
+        stopped.take(exit(Outcome::Stopped, None));
+        assert!(stopped.news.is_empty());
+        // A failure says why: the result's error, its subtype, stderr, the exit code.
+        let mut failed = live();
+        failed.take(exit(
+            Outcome::Failed,
+            Some(finish("error_max_budget_usd", None, Vec::new())),
+        ));
+        assert_eq!(
+            failed.news,
+            [News::Ended(
+                Outcome::Failed,
+                "error max budget usd".to_owned()
+            )]
+        );
+        let mut bare = live();
+        bare.take(Event::Exited(Ended {
+            outcome: Outcome::Failed,
+            exit_code: Some(3),
+            result: None,
+            stderr: vec![
+                "first".to_owned(),
+                "the CLI's last word".to_owned(),
+                " ".to_owned(),
+            ],
+        }));
+        assert_eq!(
+            bare.news,
+            [News::Ended(
+                Outcome::Failed,
+                "the CLI's last word".to_owned()
+            )]
+        );
+        // A deferred run's news names the request it left open.
+        let mut limited = live();
+        limited.take(Event::Request(asked("req-2")));
+        limited.take(Event::TimedOut("req-2".to_owned()));
+        limited.take(exit(Outcome::Deferred, None));
+        assert_eq!(
+            limited.news.last(),
+            Some(&News::Ended(Outcome::Deferred, "Which shelf?".to_owned()))
+        );
+        // The window takes them in with each session's key, once.
+        let mut sessions = Sessions::default();
+        sessions.live.push(done);
+        sessions.receive(&egui::Context::default());
+        let news = sessions.take_news();
+        assert_eq!(news.len(), 2);
+        assert!(news.iter().all(|(key, _)| *key == 1));
+        assert!(sessions.take_news().is_empty());
     }
 
     #[test]

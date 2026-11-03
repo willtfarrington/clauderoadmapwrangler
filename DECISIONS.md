@@ -560,6 +560,46 @@ unadopted folder, an orphan or mismatched remote, a stale backup and inbox arriv
 configurable, default none. *Why.* Attention is the scarce resource; the phone already gets Remote Control
 pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; every event.
 
+> **Addendum (2026-11-03, EP-15).** Built in the window; ntfy waits for EP-20 and the usage
+> notifications for EP-17, each adding its moment to the rule table (`crw_core::notify`).
+>
+> - **A popup in place of Windows toasts** (the owner's choice: Windows toasts are off on their
+>   machine). The tool draws a small window of its own at the screen's lower right. It is always
+>   on top, takes no keyboard focus when it appears and has no taskbar button. It lists the
+>   latest notifications, the newest first (three, with a count of the rest and Dismiss all),
+>   each with Show and Dismiss, until the owner dismisses them or acts on one. It is drawn while
+>   the window is hidden in the tray too. The Windows-toast path built first, through
+>   tauri-winrt-notification 0.8.1, came out with its crate.
+> - **What pops up.** A wait: a window's run asks, a run is deferred at its time limit or by the
+>   defer route, a session elsewhere waits for a permission prompt, an MCP server's question or
+>   input. An end: a window's run completes, a session elsewhere ends a turn of 2 minutes' work
+>   or more, a background session is done. A failure: a window's run or a background session.
+>   A stopped run, a session closed by hand and a session that never worked show nothing.
+> - **Held back**: in the quiet hours (`settings.quiet_hours`, `HH:MM-HH:MM` in local time,
+>   past midnight if need be, set with `crw setting quiet_hours`); while the window is in front
+>   with the focus, where the status bar says it instead; a session elsewhere's second wait
+>   within 2 minutes. One session's moments of one pass make one notification. Show brings the
+>   window forward on the Decisions pane or the session's tab, or a VS Code session's window.
+> - **The badges** (an unadopted folder; an orphan or missing repository, or an origin a
+>   current head check finds diverged or not fetched; a stale, failing or uncovered backup; an
+>   open inbox message) are new until the window is next in front with the focus; the first
+>   reading at the start counts as seen.
+> - **The tray icon** (tray-icon 0.26.1) is drawn by the tool until EP-28 brings the app's own: a
+>   red count of what waits for the owner (the Decisions tab's count) and an amber dot while a
+>   badge is new, both said in its tooltip. A left click shows the window; the menu says what
+>   waits and what is new, then Show, Start next for each pinned project (the launch dialog,
+>   D-17), Pause autopilot (disabled until EP-19) and Quit.
+> - **The log**: an `event` row of kind `notification` for each notification and what became of
+>   it (popup, quiet hours, in front, a repeat), each one opened with Show and each badge; `crw
+>   notifications` reads it. File, Send a test notification puts one in the popup whatever the
+>   hours.
+>
+> *Alternatives.* Windows toasts, as D-21 had them (built, then taken out: off on the owner's
+> machine), through notify-rust, whose click holds a thread waiting per toast, or through the
+> crate it wraps; a popup that fades like a toast; the main window brought forward instead;
+> notifications while the window is in front; one count for the waits and the badges; the tray's
+> menu rebuilt at each change, which could destroy it while it is open.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:
@@ -854,6 +894,15 @@ an opt-in live smoke test; documented AV exclusions.
 > driver that is never committed, its transcript purged afterwards (`claude purge`).
 > *Alternatives.* A stub crate of its own, found by path; an example target; an ignored test that
 > runs the real CLI.
+
+> **Addendum (2026-11-03, EP-15).** Closing the window leaves it in the tray: hidden, with its
+> headless runs, the loopback server and the poll going on, since eframe 0.37 runs `App::logic`
+> while the window is hidden (on Windows a hidden window still gets eframe's pass at the pace of
+> its repaint requests; it draws nothing then). The first close says so once, in the popup. Quit is
+> in the tray's menu and in the window's new File menu: at once when no headless run would stop,
+> else after a question that names the runs it stops. Without a tray icon (one that failed to
+> start, or a screenshot run) closing quits, with the same question. *Alternatives.* Closing
+> quits and Minimize alone keeps the window; minimizing to the tray rather than hiding.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

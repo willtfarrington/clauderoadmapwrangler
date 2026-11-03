@@ -2,8 +2,8 @@
 //! read-only but for the writes the tool owns (D-11). EP-6 brought the shell, the project list,
 //! the detail pane and the `screenshot` feature's capture, EP-7 the badges, EP-10 the launch
 //! dialog and the headless sessions it starts, EP-11 its visual launch, EP-12 the loopback server
-//! for the hooks and the status line and the sessions they report; later briefs fill the other
-//! tiles.
+//! for the hooks and the status line and the sessions they report, EP-15 the notifications'
+//! popup and the tray icon, which the window closes to; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -17,13 +17,16 @@ mod launch;
 mod layout;
 mod list;
 mod markup;
+mod popup;
 mod portfolio;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod server;
 mod sessions;
 mod style;
+mod toasts;
 mod transcript;
+mod tray;
 mod visual;
 mod watch;
 
@@ -88,6 +91,15 @@ fn main() -> eframe::Result {
                 board.home_note = Some(format!("{}={}", paths::HOME_VAR, home.display()));
             }
             board.watch.start(port, program, &cc.egui_ctx);
+            // The notifications and the tray icon (D-21, D-29; EP-15), on this thread, whose
+            // message loop serves the icon. Without the icon, closing the window quits as before.
+            board.toasts.start(paths::ledger_file());
+            match tray::Tray::start(&cc.egui_ctx) {
+                Ok(tray) => board.tray = Some(tray),
+                Err(why) => board.warn(format!(
+                    "The tray icon did not start ({why}): closing the window quits it."
+                )),
+            }
             Ok(Box::new(dashboard))
         }),
     )

@@ -28,3 +28,5 @@ notify.workspace = true
 serde.workspace = true
 # The loopback server's small runtime of its own (EP-12).
 tokio.workspace = true
+# The tray icon and its menu (D-21, D-29; EP-15).
+tray-icon.workspace = true

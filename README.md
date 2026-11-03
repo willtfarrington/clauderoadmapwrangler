@@ -35,7 +35,10 @@ a tile too (EP-14): a headless session's questions and permission requests are a
 it waits, a project may give them a time limit after which the run is deferred until the answer
 resumes it, a documented defer-and-resume route stands in when a CLI release breaks the control
 protocol, and a session waiting in VS Code is listed with Focus. A panic leaves its report in
-`crash.log` in the local folder, and the next start names it in the status bar (EP-14a). The roadmap is
+`crash.log` in the local folder, and the next start names it in the status bar (EP-14a). A popup of
+the window's own tells the owner when a session waits for them, has finished or has failed, a tray
+icon counts what waits, and closing the window leaves it in the tray with its sessions going on
+(EP-15). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -70,6 +73,8 @@ target\release\crw.exe prompt <folder> [--visual|--headless]
                                         # mode, model, effort and permission mode with their
                                         # reasons, the prompt worded for the mode
 target\release\crw.exe sessions [<folder>] [--all]  # the ledger's sessions, the newest first; reads only
+target\release\crw.exe notifications [--all]      # the window's notifications and badges; reads only
+target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
 target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,
                                         # whether a window listens, what an install would change
 target\release\crw.exe signals install [--inbox]  # write them, after a dated copy of the file
@@ -138,8 +143,26 @@ registered project, and lists the sessions started elsewhere (visual, headless o
 waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row. A
 session gets its ledger row at its first sign of work (a finished turn, a wait for the owner, or the
 poll seeing it busy), so a tab opened and left unused, a helper the extension starts and a tab a
-window restores leave none; a visual launch no session takes up within 30 minutes lapses. Built with
-`--features
+window restores leave none; a visual launch no session takes up within 30 minutes lapses.
+
+The window calls the owner with a popup of its own: a small window at the screen's lower right,
+always on top, that takes no keyboard focus and has no taskbar button (Windows' toasts can be off,
+and the popup does not depend on them). A notification comes when a session waits for an answer or
+a permission (one of the window's headless runs, a run deferred at its time limit, or a session
+Claude Code reports waiting in VS Code or a terminal), when a run finishes or fails, and when a
+session elsewhere ends a turn of two minutes' work or more. The popup lists the latest, the newest
+first, each with Show, which brings the window forward on the pane that matters or the VS Code
+window a session waits in, and Dismiss; they stay until dismissed. Notifications are held back in
+the registry's quiet hours (`crw setting quiet_hours 22:00-07:00`, none by default) and while the
+window is in front, where the status bar says them instead; File, Send a test notification puts one
+in the popup. The tray icon counts what waits for the owner and marks what is new since the window
+was last in front: an unadopted folder, a remote or a backup to look at, an inbox message. A left
+click on it shows the window; its menu shows the window too, opens the launch dialog on a pinned
+project's next brief, or quits. Closing the window leaves it in the tray with its headless sessions
+going on, and Quit asks first when it would stop them. Each notification and what became of it,
+each Show and each badge is a line in the ledger, which `crw notifications` prints.
+
+Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
 (`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;
 `CRW_SCREENSHOT_SETUP` arranges the view (see `crates/app/src/screenshot.rs`).

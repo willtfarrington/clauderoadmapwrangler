@@ -60,6 +60,11 @@ rusqlite = { version = "=0.41.1", features = ["bundled"] }
 toml = "=1.1.8"
 toml_edit = "=0.25.17"
 
+# Notifications (D-21, D-29; EP-15): the tray icon with its menu (muda, which it re-exports),
+# without the Linux backends of its default features. The notices are the window's own popup, in
+# place of Windows' toasts (the D-21 addendum).
+tray-icon = { version = "=0.26.1", default-features = false }
+
 # The loopback server and the phone pages (D-14, D-28). From EP-12, axum serves the signals with
 # HTTP/1.1 and JSON only, on tokio's `net`.
 askama = "=0.16.1"

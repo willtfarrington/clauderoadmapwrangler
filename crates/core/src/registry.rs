@@ -16,6 +16,7 @@ use std::str::FromStr;
 use serde::Deserialize;
 use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Value};
 
+use crate::notify::QuietHours;
 use crate::proposal::{Dismissed, Kind, Reason};
 use crate::rules::Rule;
 use crate::session::Route;
@@ -180,11 +181,14 @@ pub struct Settings {
     /// How headless runs' questions reach the owner (D-19; EP-14): `protocol`, the default, or
     /// `defer`, the documented fallback for a CLI that breaks the protocol.
     pub decisions: Option<Route>,
+    /// The hours the window's notifications are held back, in local time, such as `22:00-07:00`
+    /// (D-21; EP-15); none, the default, for notifications at any hour.
+    pub quiet_hours: Option<QuietHours>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 8] = [
+    pub const KEYS: [&str; 9] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -193,11 +197,13 @@ impl Settings {
         "vscode",
         "port",
         "decisions",
+        "quiet_hours",
     ];
 
-    /// The keys whose value is a path; `port` is a number and `decisions` a word.
+    /// The keys whose value is a path; `port` is a number, `decisions` a word and `quiet_hours`
+    /// two times.
     pub fn is_path(key: &str) -> bool {
-        key != "port" && key != "decisions"
+        !matches!(key, "port" | "decisions" | "quiet_hours")
     }
 
     /// A setting's value as written, by its key.
@@ -212,6 +218,7 @@ impl Settings {
             "vscode" => path(&self.vscode),
             "port" => self.port.map(|port| port.to_string()),
             "decisions" => self.decisions.map(|route| route.as_str().to_owned()),
+            "quiet_hours" => self.quiet_hours.map(|hours| hours.to_string()),
             _ => None,
         }
     }
@@ -752,13 +759,24 @@ impl Changes<'_> {
         }
     }
 
-    /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment.
+    /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
+    /// `quiet_hours` set to `none` is taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
                 "unknown setting {key:?}: {}",
                 Settings::KEYS.join(", ")
             )));
+        }
+        if key == "quiet_hours" && value.trim() == "none" {
+            if let Some(settings) = self
+                .document
+                .get_mut("settings")
+                .and_then(Item::as_table_mut)
+            {
+                settings.remove(key);
+            }
+            return Ok(());
         }
         let value = match key {
             "port" => match value.trim().parse::<u16>() {
@@ -776,6 +794,10 @@ impl Changes<'_> {
                         "decisions takes protocol or defer, not {value:?}"
                     )));
                 }
+            },
+            "quiet_hours" => match QuietHours::parse(value) {
+                Ok(hours) => Value::from(hours.to_string()),
+                Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
@@ -1418,6 +1440,50 @@ state = "paused"
                 .contains("answer_timeout")
         );
         let wrong = HAND_WRITTEN.replace("priority = 2\n", "priority = 2\nanswer_timeout = 5000\n");
+        fs::write(&store.path, wrong).unwrap();
+        assert!(store.load().is_err());
+    }
+
+    #[test]
+    fn quiet_hours_are_set_read_back_and_taken_away() {
+        let scratch = Scratch::new("registry-quiet");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        assert_eq!(store.load().unwrap().registry.settings.quiet_hours, None);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("quiet_hours", " 22:00 - 7:30 "))
+            .unwrap();
+        assert_eq!(
+            registry.settings.get("quiet_hours").as_deref(),
+            Some("22:00-07:30")
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("quiet_hours = \"22:00-07:30\""), "{text}");
+        // Two times it cannot read, or the same time twice, write nothing.
+        for wrong in ["late", "22:00-22:00"] {
+            assert!(
+                store
+                    .change(TODAY, |c| c.set_setting("quiet_hours", wrong))
+                    .is_err(),
+                "{wrong}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        // None takes the key out, and taking it out twice is no error.
+        for _ in 0..2 {
+            let (registry, ()) = store
+                .change(TODAY, |c| c.set_setting("quiet_hours", "none"))
+                .unwrap();
+            assert_eq!(registry.settings.quiet_hours, None);
+        }
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("quiet_hours")
+        );
+        // A hand-written value it cannot read is refused with the file.
+        let wrong = text.replace("22:00-07:30", "evenings");
         fs::write(&store.path, wrong).unwrap();
         assert!(store.load().is_err());
     }

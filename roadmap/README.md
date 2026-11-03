@@ -260,7 +260,7 @@ only its own files inside a managed project).
 | EP-13 | [Sessions tile: a tab per session with its live transcript, Stop and Kill, Resume by id with a message, a list with filters over the ledger's rows; a row earned by a session's first work, unclaimed visual launches lapsed, `crw sessions`](EP-13-sessions-tile.md) (D-9, D-16, D-20, D-25, D-26) | M | EP-12 | core | ☑ `76a3482` |
 | EP-14 | [Decisions tile: answers to `AskUserQuestion` and permission requests through the control protocol, the host named with `--permission-prompt-tool stdio`, a per-project time limit that defers the run, the defer-and-resume route, Focus for sessions waiting in VS Code, answer latency](EP-14-decisions-tile.md) (D-19, D-26) | L | EP-13 | core | ☑ `bcd386b` |
 | EP-14a | [Crash log and the notice's time: a panic hook writing `crash.log`, the next start naming the last report once, the status bar's notice read once so its 8 s cannot underflow, notices cut to one line](EP-14a-crash-log.md) (D-14) | M | EP-14 | core | ☑ `daf2de9` |
-| EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
+| EP-15 | [Notifications: a popup of the window's own in place of Windows toasts, the tray icon with its count and menu, the event rules, quiet hours, closing to the tray and Quit, the log in the ledger](EP-15-notifications.md) (D-21, D-29) | M | EP-12 | core | ☐ |
 | EP-15a | Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons (D-25) | M | EP-7a, EP-13 | core | ☐ |
 | EP-15b | Revert a session: the project's state recorded at each session's start, Revert from the Sessions pane back to it behind a preview of every commit and file it undoes, the work copied out first, refused while a session runs or once a commit is pushed (D-11, D-26) | M | EP-13 | core | ☐ |
 | EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b | core | ☐ |
@@ -531,6 +531,12 @@ every commit's added lines are checked before it is made, the repository being p
   pointer over a row's name and expects the row hovered and clicked. Verification: screenshot runs
   at 1600 × 1000, 2300 × 1000 and 1100 wide, both themes, on a fake project whose next brief has a
   long note in every form (the fake portfolio may need one), each picture looked at; a D-25 addendum.
+  **From EP-15:** `style::red` is egui's own `error_fg_color`, a pure red that reads dim on a
+  button in the dark theme (the Decisions pane's Deny, the Quit question's `quit` picture), worth
+  its look beside the notes' colours; the menu bar now opens with a File menu. A session the poll
+  reports waiting reads "waits for input needed" on its card and row (`Seen::doing` puts Claude
+  Code's own `waitingFor` words after "waits for"), which the popup words "waits for you: input
+  needed" instead.
 - **EP-15b.** Added on 2026-11-03 at the owner's request, after EP-15a and before the re-plan (the
   owner's choice): a reliable way in the window to put a project back as it was when a session
   started, in the house style the end of the last completed brief. On 2026-11-03 the owner reverted
@@ -568,7 +574,9 @@ every commit's added lines are checked before it is made, the repository being p
   autopilot or a rule, never while a session runs there, never a push) and a D-26 addendum (the
   start in the ledger, the `revert` event). Tests on scratch repositories in temp folders, as EP-7's
   git tests make them, never the owner's projects (rule 13); a trial with `CRW_HOME` on a scratch
-  project; if it outgrows its M it splits at pickup (D-4).
+  project; if it outgrows its M it splits at pickup (D-4). **From EP-15:** the `event` table has
+  its writer and reader (`Ledger::add_event`, `Ledger::events` by kind), so the `revert` event is
+  a row beside the notifications' (kind `notification`).
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -596,7 +604,9 @@ every commit's added lines are checked before it is made, the repository being p
   owner's request, so the plan's totals above (35 briefs, 20 M) are recounted here: 38 briefs, 9 S ·
   23 M · 6 L ≈ 39.5 session-hours, 21 briefs still open. The retro times the three with the rest, and
   the first self-launched session can be reverted from the Sessions pane (EP-15b) should it go
-  astray.
+  astray. **From EP-15:** a headless run's questions and its end now pop up while the window is
+  not in front, and closing the window keeps its runs in the tray, which bears on the default
+  launch mode the re-plan decides; a visual session's waits pop up too, and its long turns' ends.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -641,7 +651,11 @@ a running session).
   the feed comes from terminal sessions and the endpoint is the meter's real source; a `usage_sample`
   row of source `statusline` is written from `watch::Watch::receive`. **From EP-13:** a session's end
   keeps its last status line's cost and context share in its row (`Ledger::end_seen`, schema 3's
-  `context_percent`), so the samples need not carry them.
+  `context_percent`), so the samples need not carry them. **From EP-15:** the usage notifications
+  join `crw_core::notify`'s rule table as a kind of their own (`Kind`, `Channel::Toast`), each made
+  a `toasts::Toast` and handed to `Toasts::deliver`, which shows it in the window's popup, holds it
+  back in the quiet hours and while the window is in front, and logs it; "once per crossing per
+  window" is the meter's to keep.
 - **EP-18.** The resolver (EP-10) gains the downshift rule: when the Fable-scoped percent exceeds the
   registry's `fable_downshift_percent` (default 60) and the rule's size is S, propose `claude-opus-5-5` at
   the same effort with the reason shown; the autopilot applies it; attribution: the weekly and Fable
@@ -686,7 +700,10 @@ a running session).
   fails or that a cap stops ends the chain (D-22) and leaves its work in the tree; EP-15b's Revert
   takes the project back to that run's start on the owner's click, and the autopilot never reverts
   on its own (EP-15b's D-11 addendum). The brief decides whether a revert also turns the project's
-  autopilot off, since the next chained brief would start from the restored state.
+  autopilot off, since the next chained brief would start from the restored state. **From
+  EP-15:** the tray's menu holds Pause autopilot, disabled (`tray::entries`, id `pause`), for an
+  `Order` of its own to carry out; a chain's run toasts its waits and its end as any window's run
+  does, so a chain that stops (a gate refused, a cap) may want a moment of its own.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -713,6 +730,10 @@ a running session).
   delivered into a project while one of its sessions runs is the tool's write, not the session's,
   so a revert of that session (EP-15b) must keep it: the delivery follows the rule EP-15b sets for
   the tool's own writes during a session (re-applied after the restore, or named in its preview).
+  **From EP-15:** an open inbox message is a badge on the tray icon already (`toasts::marks`,
+  `Kind::Inbox`), new until the window is next in front; an `urgent` one in the popup is one more
+  rule of `crw_core::notify`'s table, and ntfy joins that module (`notify::ntfy`, as planned) with
+  the same quiet hours; a delivery is an `event` row of its own kind (`Ledger::add_event`).
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -864,7 +885,12 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   `--permission-prompt-tool` (`Flags::prompt_tool`; without it a run's questions are disabled, as a
   dropped wish says); the defer route's hooks run the `crw.exe` beside the window
   (`board::crw_exe`), whose absence refuses that route, and an answer's file lives in
-  `%LOCALAPPDATA%\clauderoadmapwrangler\answers\` only while its resume runs.
+  `%LOCALAPPDATA%\clauderoadmapwrangler\answers\` only while its resume runs. **From EP-15:** the
+  app's own icon replaces the tile `tray::draw` paints in the tray; the status bar's hover already
+  says how the notifications and the tray stand (`Toasts::line`, `Tray::line`), for Diagnostics to
+  show; a start at login may open hidden in the tray (`Board::hidden`), and single instance can
+  show the running window as the tray's Show does; the popup's corner assumes a taskbar at the
+  bottom of the screen (`popup::BOTTOM`).
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -899,7 +925,8 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
   the Diagnostics tile, the URL and a QR code shown, a Disable action (`tailscale serve --https=9443 off`);
-  a check that the phone's VPN does not block the tailnet (hint only).
+  a check that the phone's VPN does not block the tailnet (hint only). **From EP-15:** Enable
+  remote view joins the tray's menu (`tray::entries`), as D-21 planned.
 - **EP-32.** Timings for every EP of v1, the README's "State of the app" and screenshots refreshed,
   addenda, `v2-notes.md` compiled into themes (launch modes, analytics, chat, phone, hosting, conventions),
   the v2 direction (the first candidates: `--bg` background sessions with Attach, worktree-per-session,
@@ -972,6 +999,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
     recorded by the tool with copies of the files uncommitted then, a preview of every commit and
     file before the owner's click, the work copied out of the project first, a refusal while a
     session runs there or once a commit is on the remote, and never a revert by the autopilot.
+13. **The tray is Windows' to show** (D-21; EP-15). Windows 11 puts a new tray icon in the
+    overflow by the clock until the owner pins it, and Windows' own toasts may be off (they are on
+    the owner's machine), which is why the notifications are a popup of the tool's own. The popup
+    sits at the lower right of the screen the window is on, above a taskbar at the bottom, and
+    File, Send a test notification shows where it lands.
 
 ## Decision record
 

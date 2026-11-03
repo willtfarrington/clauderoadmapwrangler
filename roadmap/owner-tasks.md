@@ -79,3 +79,17 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   its backtrace. Put the red line into `roadmap/inbox.md`, so the next session starts from the
   cause. A headless run the window held is recorded as stopped. Claude Code's own list of past
   sessions in that project (`claude --resume` there) picks it up
+- [ ] OT-10 (EP-15, 2026-11-03) Keep Roadmap Wrangler in its tray for a few sessions and note what
+  its popup gets wrong. A notification should come at the screen's lower right when a session
+  waits for you (a headless run's question or permission while the window is not in front, a VS
+  Code session's permission prompt), when a run finishes or fails, and when a VS Code session ends
+  a turn of two minutes' work or more; none for a session you close yourself. Show brings the
+  window forward on the Decisions pane or the session's tab, or the VS Code window a session waits
+  in; notifications stay until dismissed, and the popup should never take your keyboard focus as
+  it appears. The icon's red count is the Decisions tab's; its amber dot marks an unadopted folder,
+  a remote or a backup to look at, or an inbox message new since the window was last in front.
+  `target\release\crw.exe notifications` lists what popped up, what was held back and what was
+  opened; `crw setting quiet_hours 22:00-07:00` holds notifications back at night (`none` undoes
+  it). Windows 11 puts a new tray icon in the overflow by the clock: drag it onto the taskbar, or
+  turn it on under Settings, Personalization, Taskbar, Other system tray icons. Notes go to
+  `roadmap/inbox.md` [before EP-16]

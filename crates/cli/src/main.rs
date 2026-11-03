@@ -7,7 +7,8 @@
 //! the proposals the owner leaves out; the `hook` and `statusline` relays and `signals`, their
 //! entries in Claude Code's user settings, from EP-12; `sessions`, the ledger's rows read without
 //! a write, from EP-13; `hook --defer` and `hook --answer`, the defer route's decisions, and a
-//! project's `answer_timeout`, from EP-14; `inbox send` arrives with its brief.
+//! project's `answer_timeout`, from EP-14; `notifications`, the window's log read without a
+//! write, and the `quiet_hours` setting from EP-15; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -37,7 +38,7 @@ use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, paths, process, prompt, proposal, workspace};
+use crw_core::{files, git, notify, paths, process, prompt, proposal, workspace};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -79,7 +80,9 @@ commands:
                                  workspace_file, backup_settings, backup_log, claude_cli, vscode,
                                  port (the window's loopback port for the signals), decisions
                                  (protocol, or defer: a headless run ends at a question and the
-                                 answer resumes it)
+                                 answer resumes it), quiet_hours (HH:MM-HH:MM in local time, such
+                                 as 22:00-07:00, when the window holds its notifications back;
+                                 none for notifications at any hour)
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
@@ -90,6 +93,10 @@ commands:
                                  every one with --all, of every project or one: when, the project
                                  and EP, the mode, model and effort, how long, how it ended, the
                                  cost estimate and the result's last line; reads only
+  notifications [--all]          print the window's notifications, the newest first: the last 20,
+                                 or every one with --all: each one and what became of it (in the
+                                 popup, held back by the quiet hours or the window in front, a
+                                 repeat), each one opened with Show, and each badge; reads only
   signals [status]               print the tool's hooks and status line in Claude Code's user
                                  settings, what an install would change, and whether a window
                                  listens for them
@@ -177,6 +184,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ["sessions", rest @ ..] => sessions(rest),
+        ["notifications", rest @ ..] => notifications(rest),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
@@ -1512,6 +1520,14 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
     }
     if let (Some(key), Some(value)) = (key, value) {
         return match store.change(&files::today(), |c| c.set_setting(key, value)) {
+            Ok((registry, ())) if key == "quiet_hours" => {
+                match registry.settings.get(key) {
+                    Some(hours) => println!("quiet_hours = {hours}"),
+                    None => println!("quiet_hours: none, notifications at any hour"),
+                }
+                println!("note: a window that runs reads it before its next notification");
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
@@ -1542,6 +1558,7 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "data_root") => format!("{} (the default)", registry.data_root().display()),
             (None, "port") => format!("{} (the default)", registry.port()),
             (None, "decisions") => format!("{} (the default)", session::Route::default().as_str()),
+            (None, "quiet_hours") => "none (the default: notifications at any hour)".to_owned(),
             (None, _) => "not set".to_owned(),
         };
         println!("  {name:<16} {value}");
@@ -1549,7 +1566,72 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-/// Claude Code's user settings file and this exe, which the entries run.
+/// How many of the latest notifications `crw notifications` prints without `--all`.
+const NOTIFICATIONS_SHOWN: usize = 20;
+
+/// Prints the window's notifications from the ledger (D-21; EP-15), the newest first, read
+/// without migrating or writing it: each one and what became of it, each Show, each badge.
+fn notifications(args: &[&str]) -> ExitCode {
+    let all = match args {
+        [] => false,
+        ["--all"] => true,
+        _ => {
+            return usage_error(&format!(
+                "notifications takes --all, not {}",
+                args.join(" ")
+            ));
+        }
+    };
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if !path.exists() {
+        println!(
+            "No ledger yet at {}: the window makes it at its first start.",
+            path.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+    let limit = (!all).then_some(NOTIFICATIONS_SHOWN);
+    let rows = match Ledger::open_read_only(&path)
+        .and_then(|ledger| ledger.events(notify::EVENT_KIND, limit))
+    {
+        Ok(rows) => rows,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let which = match (rows.len(), all) {
+        (0, _) => "none yet".to_owned(),
+        (n, true) => format!("all {n}, the newest first"),
+        (n, false) => format!("the latest {n}, the newest first"),
+    };
+    println!(
+        "crw {} notifications: {which} ({})",
+        env!("CARGO_PKG_VERSION"),
+        path.display()
+    );
+    if rows.is_empty() {
+        println!(
+            "  the window logs each notification and what became of it, each Show and each badge"
+        );
+    }
+    let width = rows
+        .iter()
+        .map(|row| row.project.as_deref().unwrap_or("-").chars().count())
+        .max()
+        .unwrap_or(0);
+    for row in &rows {
+        let when = row.at().map_or(row.at.clone(), |at| {
+            at.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M:%S")
+                .to_string()
+        });
+        let project = row.project.as_deref().unwrap_or("-");
+        let detail = row.detail.as_deref().unwrap_or_default();
+        println!("  {when}  {project:<width$}  {detail}");
+    }
+    ExitCode::SUCCESS
+}
+
 /// How many of the latest sessions `crw sessions` prints without `--all`.
 const SESSIONS_SHOWN: usize = 20;
 
