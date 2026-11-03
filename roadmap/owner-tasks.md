@@ -60,7 +60,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   message and Resume; the ledger keeps a row per run. The session checked the tile only on the fake
   portfolio and the ledger's rule on scratch ledgers (rule 5). Notes go to `roadmap/inbox.md`
   [before EP-14]
-- [ ] OT-8 (EP-14, 2026-11-02) Open Roadmap Wrangler from its shortcut and look at the Decisions
+- [x] OT-8 (EP-14, 2026-11-02) Open Roadmap Wrangler from its shortcut and look at the Decisions
   tab: with nothing waiting it says so. Optional, spends usage: start a small brief headless (S,
   Start headless) whose work asks you something; its question waits in the Decisions tab with its
   options and an Other field (Send answers, or Decline with a reason), a permission request with
@@ -72,3 +72,10 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   elsewhere with Focus, which brings its window forward. The session checked the tile on the fake
   portfolio and the routes with a supervised probe of throwaway sessions (rule 5). Notes go to
   `roadmap/inbox.md` [before EP-15]
+- [ ] OT-9 (EP-14a, 2026-11-03) Reopen Roadmap Wrangler from its shortcut and use it as before:
+  nothing new shows unless a panic happened. Should the window ever vanish again, reopen it at once.
+  Its status bar's red line then names the panic once (the time, the message's first line, the file
+  and line), and `crash.log` in `%LOCALAPPDATA%\clauderoadmapwrangler` holds the whole report with
+  its backtrace. Put the red line into `roadmap/inbox.md`, so the next session starts from the
+  cause. A headless run the window held is recorded as stopped. Claude Code's own list of past
+  sessions in that project (`claude --resume` there) picks it up

@@ -292,6 +292,17 @@ with modules; hand-written protocol types; another community client.
 > writes into them. *Alternatives.* axum's default features; a client crate in `crw`; an ordered
 > JSON value of the tool's own.
 
+> **Addendum (2026-11-03, EP-14a).** The window installs a panic hook at start. A release build has
+> no console, so a panic ended the window without a word (one did on 2026-11-03, and its message is
+> lost). Each panic, on any thread, now appends a report to `crash.log` in the local folder
+> (`CRW_HOME` honoured): crw's version, the UTC time, the thread, the place, the message and a
+> backtrace. A log past 1 MB moves to `crash.old.log`. The hook then hands on to the one before it.
+> The next start names the last report once in the status bar's error line (`crash.seen` keeps
+> which). A screenshot run installs no hook and reads only its own home's log. *Alternatives.* A
+> dialog at the moment of the crash (a Windows dependency of its own); `panic = "abort"` with
+> Windows Error Reporting's dumps (the session's thread would no longer record the run's end); the
+> report in the ledger (a panicking thread should not open SQLite).
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling

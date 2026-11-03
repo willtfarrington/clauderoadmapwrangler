@@ -10,6 +10,7 @@
 
 mod badges;
 mod board;
+mod crash;
 mod decisions;
 mod detail;
 mod launch;
@@ -53,10 +54,16 @@ fn main() -> eframe::Result {
     // alone (rule 13).
     let persistence_path = paths::home().map(|home| home.join("app.ron"));
     let options = options(DEFAULT_SIZE, persistence_path, true);
+    // Without a console a panic ends the window without a word: it leaves its report in the local
+    // folder instead, and the next start names it (EP-14a).
+    let crash_log = paths::local_dir().map(|dir| dir.join(crash::FILE));
+    if let Some(file) = &crash_log {
+        crash::install(file.clone());
+    }
     eframe::run_native(
         APP_ID,
         options,
-        Box::new(|cc| {
+        Box::new(move |cc| {
             let store = Store::locate().ok_or("no profile folder: APPDATA is not set")?;
             // The signals' port and the CLI the poll of live sessions asks (EP-12).
             let registry = store.load().ok().map(|loaded| loaded.registry);
@@ -73,6 +80,7 @@ fn main() -> eframe::Result {
                 store,
                 ledger: paths::ledger_file(),
                 online: true,
+                crash_log,
             };
             let mut dashboard = Dashboard::new(cc, places);
             let board = dashboard.board_mut();
@@ -126,6 +134,7 @@ fn screenshot_run(run: &screenshot::Run) -> eframe::Result {
                 store,
                 ledger: Some(run.home.join("ledger.sqlite")),
                 online: false,
+                crash_log: Some(run.home.join(crate::crash::FILE)),
             };
             let mut dashboard = Dashboard::new(cc, places);
             run.arrange(&mut dashboard, &cc.egui_ctx);

@@ -259,8 +259,9 @@ only its own files inside a managed project).
 | EP-12 | [Loopback server and signals: axum on 127.0.0.1, `cli hook` and `cli statusline` relays, installation of user-level hooks and the status-line entry, `claude agents --json` polling, session state model](EP-12-loopback-server-and-signals.md) (D-20, D-23) | M | EP-9 | core | ☑ `4a27db1` |
 | EP-13 | [Sessions tile: a tab per session with its live transcript, Stop and Kill, Resume by id with a message, a list with filters over the ledger's rows; a row earned by a session's first work, unclaimed visual launches lapsed, `crw sessions`](EP-13-sessions-tile.md) (D-9, D-16, D-20, D-25, D-26) | M | EP-12 | core | ☑ `76a3482` |
 | EP-14 | [Decisions tile: answers to `AskUserQuestion` and permission requests through the control protocol, the host named with `--permission-prompt-tool stdio`, a per-project time limit that defers the run, the defer-and-resume route, Focus for sessions waiting in VS Code, answer latency](EP-14-decisions-tile.md) (D-19, D-26) | L | EP-13 | core | ☑ `bcd386b` |
+| EP-14a | [Crash log and the notice's time: a panic hook writing `crash.log`, the next start naming the last report once, the status bar's notice read once so its 8 s cannot underflow, notices cut to one line](EP-14a-crash-log.md) (D-14) | M | EP-14 | core | ☐ |
 | EP-15 | Notifications: WinRT toasts, tray icon with badge and menu, event rules, quiet hours (D-21) | M | EP-12 | core | ☐ |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-15 | core | ☐ |
+| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15 | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
@@ -457,6 +458,14 @@ every commit's added lines are checked before it is made, the repository being p
   `transcript::Entry::Asked`, and the Decisions pane is still `sessions::request_card` over
   `Live::waiting`. A tab open with no prompt yet is `Seen::is_new()`, no session in progress; the
   seen card (`sessions::seen_card`) is where Focus goes.
+- **EP-14a.** Added on 2026-11-03 at the owner's request, before EP-15. The window vanished without
+  a word as another project's app closed, a few seconds after a headless run took the owner's long
+  answer. The runner killed the run and recorded it as `stopped`, and Windows kept no crash record:
+  a Rust panic, which a console-less release build prints nowhere. Its message is lost. The fix: a
+  panic hook that writes `crash.log` in the local folder, and the next start naming the last report
+  once. Also the status bar's definite panic of the same kind (`NOTICE_FOR - at.elapsed()` read a
+  second time after its check) and notices cut to one line. AccessKit stays: turning it off was
+  considered and declined.
 - **EP-15.** Toasts through notify-rust (WinRT) with the AppUserModelID of the Start-menu entry from
   `install-shortcut.ps1` (text: project, EP, event, one line of detail; click focuses the window); the tray
   icon (tray-icon 0.26) with a badge count of sessions waiting, a menu (Show, Start next for each pinned

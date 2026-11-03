@@ -28,6 +28,7 @@ use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePrefer
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
 
+use crate::crash;
 use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
@@ -40,6 +41,10 @@ const THEME_KEY: &str = "theme";
 const VIEW_KEY: &str = "view";
 /// A notice stays this long in the status bar; an error stays until the next notice.
 const NOTICE_FOR: Duration = Duration::from_secs(8);
+/// The most a notice or an error says in the status bar, on one line (EP-14a).
+const NOTICE_CHARS: usize = 160;
+/// The most of an answer's words a notice repeats, so that the line's end still shows.
+const ANSWER_CHARS: usize = 80;
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
 /// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
@@ -102,11 +107,13 @@ impl View {
 }
 
 /// Where the window's data comes from: the registry's store, the ledger the GitHub readings are
-/// cached in, and whether the GitHub pass may ask the network (a screenshot run's never does).
+/// cached in, whether the GitHub pass may ask the network (a screenshot run's never does), and the
+/// crash log whose last report the status bar names once (EP-14a).
 pub struct Places {
     pub store: Store,
     pub ledger: Option<PathBuf>,
     pub online: bool,
+    pub crash_log: Option<PathBuf>,
 }
 
 /// What the owner asked for in a pane, run after the frame.
@@ -219,6 +226,11 @@ pub struct Board {
 impl Board {
     pub fn new(places: Places, ctx: &egui::Context, view: View, theme: ThemePreference) -> Self {
         let ledger = places.ledger.clone();
+        let crashed = places
+            .crash_log
+            .as_deref()
+            .and_then(crash::unseen)
+            .map(|text| one_line(&text, NOTICE_CHARS));
         let mut loader = Loader::new(
             Arc::new(places.store),
             places.ledger,
@@ -246,7 +258,7 @@ impl Board {
             ledger,
             ctx: ctx.clone(),
             notice: None,
-            error: None,
+            error: crashed,
             scroll_to_selected: false,
             bring: None,
             settle_until: None,
@@ -296,16 +308,18 @@ impl Board {
     }
 
     pub fn notify(&mut self, text: impl Into<String>) {
-        self.notice = Some((text.into(), Tone::Plain, Instant::now()));
+        let text = one_line(&text.into(), NOTICE_CHARS);
+        self.notice = Some((text, Tone::Plain, Instant::now()));
         self.error = None;
     }
 
     fn warn(&mut self, text: impl Into<String>) {
-        self.notice = Some((text.into(), Tone::Warning, Instant::now()));
+        let text = one_line(&text.into(), NOTICE_CHARS);
+        self.notice = Some((text, Tone::Warning, Instant::now()));
     }
 
     fn fail(&mut self, text: impl Into<String>) {
-        self.error = Some(text.into());
+        self.error = Some(one_line(&text.into(), NOTICE_CHARS));
         self.notice = None;
     }
 
@@ -874,7 +888,10 @@ impl Board {
             .map(|live| live.title())
             .unwrap_or_default();
         match self.sessions.respond(key, request, response) {
-            Ok(words) => self.notify(format!("{title}: {words}; the session goes on.")),
+            Ok(words) => self.notify(format!(
+                "{title}: {}; the session goes on.",
+                one_line(&words, ANSWER_CHARS)
+            )),
             Err(why) => self.fail(format!("{title}: the answer was not sent: {why}.")),
         }
     }
@@ -1033,14 +1050,14 @@ impl Board {
                 ui.label(RichText::new(error).color(style::red(ui)));
                 quiet = false;
             } else if let Some((text, tone, at)) = &self.notice
-                && at.elapsed() < NOTICE_FOR
+                && let Some(left) = notice_left(at.elapsed())
             {
                 let text = RichText::new(text);
                 ui.label(match tone {
                     Tone::Plain => text,
                     Tone::Warning => text.color(style::amber(ui)),
                 });
-                ui.ctx().request_repaint_after(NOTICE_FOR - at.elapsed());
+                ui.ctx().request_repaint_after(left);
                 quiet = false;
             }
             if let Some(problem) = &self.loader.watch_problem {
@@ -1257,12 +1274,57 @@ impl eframe::App for Dashboard {
     }
 }
 
+/// How long a notice shown for `shown` has left; none once [`NOTICE_FOR`] has passed. The age is
+/// read once: a second reading after the check could pass the mark, and `Duration` subtraction
+/// panics on underflow (EP-14a).
+fn notice_left(shown: Duration) -> Option<Duration> {
+    NOTICE_FOR.checked_sub(shown).filter(|left| !left.is_zero())
+}
+
+/// `text`'s first line, at most `limit` characters: a longer line is cut with an ellipsis, and
+/// further lines are marked by one.
+fn one_line(text: &str, limit: usize) -> String {
+    let mut lines = text.lines();
+    let first = lines.next().unwrap_or_default().trim_end();
+    if first.chars().count() > limit {
+        let kept: String = first.chars().take(limit.saturating_sub(1)).collect();
+        format!("{}…", kept.trim_end())
+    } else if lines.next().is_some() {
+        format!("{first} …")
+    } else {
+        first.to_owned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use eframe::Storage as _;
 
     use super::*;
     use crate::layout::tests::MemoryStorage;
+
+    #[test]
+    fn a_notice_has_time_left_only_before_its_mark() {
+        assert_eq!(
+            notice_left(Duration::from_secs(3)),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(notice_left(NOTICE_FOR), None);
+        // Past the mark: the reading that used to underflow.
+        assert_eq!(notice_left(NOTICE_FOR + Duration::from_millis(1)), None);
+    }
+
+    #[test]
+    fn a_notice_keeps_one_line_cut_by_characters() {
+        assert_eq!(one_line("short", 10), "short");
+        assert_eq!(one_line("first\nsecond", 10), "first …");
+        // Multibyte characters near the cut: counted, never split.
+        let long = "é—…".repeat(40);
+        let cut = one_line(&long, 10);
+        assert_eq!(cut.chars().count(), 10, "{cut}");
+        assert!(cut.ends_with('…') && cut.starts_with("é—…é"), "{cut}");
+        assert_eq!(one_line("", 10), "");
+    }
 
     #[test]
     fn the_view_keeps_finished_work_folded_at_first() {

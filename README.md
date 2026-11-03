@@ -34,7 +34,8 @@ list of every session with the ledger's rows, which `crw sessions` prints too. T
 a tile too (EP-14): a headless session's questions and permission requests are answered there while
 it waits, a project may give them a time limit after which the run is deferred until the answer
 resumes it, a documented defer-and-resume route stands in when a CLI release breaks the control
-protocol, and a session waiting in VS Code is listed with Focus. The roadmap is
+protocol, and a session waiting in VS Code is listed with Focus. A panic leaves its report in
+`crash.log` in the local folder, and the next start names it in the status bar (EP-14a). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
