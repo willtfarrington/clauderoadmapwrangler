@@ -25,8 +25,17 @@ phases.
 
 - **EP-4.** The ledger view: one row per berth (number, boat, owner, length, a paid-up chip), a
   detail pane with the season's history, filters by pontoon and by arrears, keys ↑ ↓ and Enter;
-  the layout saved with the window; a screenshot run over a fake club. **From IN-1:** the colours
-  come from the shared `palette.toml`.
+  the layout saved with the window; a screenshot run over a fake club. Three parts, in order: (1)
+  **The rows**: `ledger::Row` from `berths.toml`, the arrears from `Berth::paid_up()`, sorted by
+  pontoon, then number. (2) **The detail pane** (the owner's choice): the season's payments, the
+  boat's length band (D-9) and ~~a pontoon map~~ the berth's neighbours. (3) **The filters**:
+  pontoon and arrears, saved with the view. Verification: `cargo test`, then `cargo run --
+  export --season 2026` against [the club's rules](../docs/rules.md). **From IN-1:** the colours
+  come from the shared `palette.toml`. **From EP-2 (the owner's answer at its close):** a berth
+  list older than format 2 is migrated before it is read, and its backup stays in `backups\`; the
+  owner's OT-2 brings last season's list [before EP-5]. **From EP-3:** the tide cache is
+  `TideCache::latest()`, read once at the start; EP-6's re-plan decides whether IN-2's ISO dates
+  reach the view.
 - **EP-5.** Rates by length band from `rates.toml`, one invoice per member as a PDF, a run log.
 - **EP-6.** Retro, addenda, P2 confirmed with pickup notes.
 

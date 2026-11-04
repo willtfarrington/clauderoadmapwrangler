@@ -1067,7 +1067,7 @@ pub fn step(order: &[Selection], current: Option<&Selection>, down: bool) -> Opt
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
 
     use chrono::TimeDelta;
@@ -1091,10 +1091,10 @@ mod tests {
     }
 
     /// A folder under the system temp folder, removed when dropped.
-    struct Scratch(PathBuf);
+    pub(crate) struct Scratch(PathBuf);
 
     impl Scratch {
-        fn new(name: &str) -> Self {
+        pub(crate) fn new(name: &str) -> Self {
             let dir = std::env::temp_dir().join(format!("crw-app-{}-{name}", std::process::id()));
             let _ = fs::remove_dir_all(&dir);
             fs::create_dir_all(&dir).unwrap();
@@ -1113,7 +1113,7 @@ mod tests {
     }
 
     /// The screenshot runs' registry over the fake portfolio, in a scratch folder.
-    fn fake_store(scratch: &Scratch) -> Store {
+    pub(crate) fn fake_store(scratch: &Scratch) -> Store {
         let root = fixtures().join("portfolio");
         let text = fs::read_to_string(fixtures().join("registry.toml"))
             .unwrap()

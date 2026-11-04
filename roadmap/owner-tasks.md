@@ -93,3 +93,9 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   it). Windows 11 puts a new tray icon in the overflow by the clock: drag it onto the taskbar, or
   turn it on under Settings, Personalization, Taskbar, Other system tray icons. Notes go to
   `roadmap/inbox.md` [before EP-16]
+- [ ] OT-11 (EP-15a, 2026-11-03) Over your next sessions, look at the Detail pane on your other
+  projects and note any brief note, owner item or inbox message that it sets wrong. The tests see
+  only synthetic notes, and each project writes its own forms. Examples: a label or a numbered part
+  split where it should not be, a sentence cut in the middle, a code span in the wrong colour, a
+  form drawn as one block where it has parts. Name the project and the item, and say what it
+  should look like. Notes go to `roadmap/inbox.md` [before EP-16]

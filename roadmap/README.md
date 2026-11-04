@@ -261,7 +261,7 @@ only its own files inside a managed project).
 | EP-14 | [Decisions tile: answers to `AskUserQuestion` and permission requests through the control protocol, the host named with `--permission-prompt-tool stdio`, a per-project time limit that defers the run, the defer-and-resume route, Focus for sessions waiting in VS Code, answer latency](EP-14-decisions-tile.md) (D-19, D-26) | L | EP-13 | core | ☑ `bcd386b` |
 | EP-14a | [Crash log and the notice's time: a panic hook writing `crash.log`, the next start naming the last report once, the status bar's notice read once so its 8 s cannot underflow, notices cut to one line](EP-14a-crash-log.md) (D-14) | M | EP-14 | core | ☑ `daf2de9` |
 | EP-15 | [Notifications: a popup of the window's own in place of Windows toasts, the tray icon with its count and menu, the event rules, quiet hours, closing to the tray and Quit, the log in the ledger](EP-15-notifications.md) (D-21, D-29) | M | EP-12 | core | ☑ `df99ba4` |
-| EP-15a | Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons (D-25) | M | EP-7a, EP-13 | core | ☐ |
+| EP-15a | [Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons](EP-15a-readable-notes-and-row-clicks.md) (D-25) | M | EP-7a, EP-13 | core | ☐ |
 | EP-15b | Revert a session: the project's state recorded at each session's start, Revert from the Sessions pane back to it behind a preview of every commit and file it undoes, the work copied out first, refused while a session runs or once a commit is pushed (D-11, D-26) | M | EP-13 | core | ☐ |
 | EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b | core | ☐ |
 
@@ -576,7 +576,12 @@ every commit's added lines are checked before it is made, the repository being p
   git tests make them, never the owner's projects (rule 13); a trial with `CRW_HOME` on a scratch
   project; if it outgrows its M it splits at pickup (D-4). **From EP-15:** the `event` table has
   its writer and reader (`Ledger::add_event`, `Ledger::events` by kind), so the `revert` event is
-  a row beside the notifications' (kind `notification`).
+  a row beside the notifications' (kind `notification`). **From EP-15a:** a card or a row of the
+  Sessions pane that takes a click makes its labels hover-only with `style::unselectable`, as a
+  window session's card does (its click already reached it over its text, the frame lying on top
+  of its labels, but a selectable label took the drag and the double click); `testing::Screen`,
+  with `testing::moved`, `button` and `fills`, drives a bare context pass by pass, so a test can
+  press Revert or a row and see what the press reaches.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -607,6 +612,11 @@ every commit's added lines are checked before it is made, the repository being p
   astray. **From EP-15:** a headless run's questions and its end now pop up while the window is
   not in front, and closing the window keeps its runs in the tray, which bears on the default
   launch mode the re-plan decides; a visual session's waits pop up too, and its long turns' ends.
+  **From EP-15a:** the README's two pictures (`docs/dashboard-light.png` and `-dark.png`, taken at
+  EP-8) show the Detail pane before its notes were set for reading. A trailing `[urgent]` stays in
+  an inbox message's text while its chip says it, which the gate's rule could also cover. In a
+  narrow window the Progress section's phase names run past the pane's edge (an egui `Grid` does
+  not wrap), seen at 1100 wide.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
@@ -734,6 +744,9 @@ a running session).
   `Kind::Inbox`), new until the window is next in front; an `urgent` one in the popup is one more
   rule of `crw_core::notify`'s table, and ntfy joins that module (`notify::ntfy`, as planned) with
   the same quiet hours; a delivery is an `event` row of its own kind (`Ledger::add_event`).
+  **From EP-15a:** the Detail pane draws an open message and a handed-on block's text through
+  `markup::note` with `Look { sentences: true, .. }` (a long one a sentence to a line, numbered
+  parts as a list), which the compose dialog's preview can reuse.
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -802,6 +815,14 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   `-p` session like the runner's, so it needs `--permission-prompt-tool stdio` for its questions to
   reach the host (EP-14's probe: without it a `-p` run offers no `AskUserQuestion` and denies what
   would prompt); its questions can use the tile's form (`decisions::Draft`, `Sessions::respond`).
+  **From EP-15a:** `markup` reads the house style's inline Markdown (bold, code told by its kind,
+  struck text, links, ids, gates) and sets blocks (labels, numbered parts, blank lines) at a
+  reading measure (`markup::note`, `markup::measure`); a reply's full Markdown (headings, lists,
+  fenced code) is beyond it, so the tile needs a renderer of its own or a crate, whose pin is a
+  re-plan's (D-15). **From EP-15a (the owner's answer at its close):** a brief's notes, written for
+  the sessions that carry them out, are hard to read for what the brief plans (its references,
+  its pickup notes); the owner left them so for the sessions' sake and expects to ask the chat
+  tile what a brief plans, in plain words.
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note
@@ -828,7 +849,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   order; if the brief outgrows its M it splits at pickup (D-4). **From the owner's requests
   (2026-11-03):** the cards and the inline expansion follow EP-15a's rule that a row's or a card's
   text never takes its hover and click; the measured duration per size leaves out, or marks, a
-  session whose work was reverted (EP-15b's `revert` events).
+  session whose work was reverted (EP-15b's `revert` events). **From EP-15a:** that rule is
+  `style::unselectable` on the card's or the row's `Ui`, as `list::cell` applies it to every cell
+  of a row, and `list::tests::the_whole_row_answers_over_its_text` shows how to test it.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to

@@ -223,12 +223,13 @@ impl Seen {
         }
     }
 
-    /// What it does, after its subject: `waits for a permission prompt`, `is busy`, `has ended`,
-    /// `is open with no prompt yet`.
+    /// What it does, after its subject: `waits for you: a permission prompt`, `is busy`, `has
+    /// ended`, `is open with no prompt yet`. What it waits for comes after a colon, in the
+    /// hook's words or the poll's (`input needed`), as the popup says it (EP-15a).
     pub fn doing(&self) -> String {
         match (self.status, &self.waiting_for) {
-            (Status::Waiting, Some(what)) => format!("waits for {what}"),
-            (Status::Waiting, None) => "waits for the owner".to_owned(),
+            (Status::Waiting, Some(what)) => format!("waits for you: {what}"),
+            (Status::Waiting, None) => "waits for you".to_owned(),
             (Status::Idle, _) if self.is_new() => "is open with no prompt yet".to_owned(),
             (Status::Busy | Status::Idle, _) => format!("is {}", self.status.as_str()),
             (Status::Done, _) => "has ended".to_owned(),
@@ -236,7 +237,20 @@ impl Seen {
         }
     }
 
-    /// One line on it for a project's row: `a visual session waits for a permission prompt
+    /// A waiting session's words with where it waits, before what it waits for: `waits for you in
+    /// VS Code: a permission prompt` (EP-15a). `place` may be empty.
+    pub fn waits_for_you(&self, place: &str) -> String {
+        let place = match place {
+            "" => String::new(),
+            place => format!(" {place}"),
+        };
+        match &self.waiting_for {
+            Some(what) => format!("waits for you{place}: {what}"),
+            None => format!("waits for you{place}"),
+        }
+    }
+
+    /// One line on it for a project's row: `a visual session waits for you: a permission prompt
     /// (since 10:02)`.
     pub fn summary(&self) -> String {
         let since = self
@@ -696,7 +710,7 @@ mod tests {
         );
         assert_eq!(
             sessions.get("s1").unwrap().doing(),
-            "waits for a permission prompt"
+            "waits for you: a permission prompt"
         );
         assert!(!sessions.get("s1").unwrap().is_new());
         // An authentication notice changes nothing; a finished turn starts no second row.
@@ -807,7 +821,11 @@ mod tests {
         assert_eq!(p1.kind.as_deref(), Some("interactive"));
         assert_eq!(
             sessions.get("p2").unwrap().doing(),
-            "waits for permission prompt"
+            "waits for you: permission prompt"
+        );
+        assert_eq!(
+            sessions.get("p2").unwrap().waits_for_you("in VS Code"),
+            "waits for you in VS Code: permission prompt"
         );
         // A status line names the session and keeps its figures.
         let line = StatusLine {

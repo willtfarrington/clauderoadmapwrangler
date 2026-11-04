@@ -1,6 +1,6 @@
 //! The dashboard's look (D-25): a type scale for a 4K-class display at the system's scaling in
 //! two densities, the state chips' and the stack chips' colours, the Material Symbols icon font,
-//! and the measure the list sizes its columns with.
+//! the measure the list sizes its columns with, and the colours of a note's runs (EP-15a).
 
 use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
@@ -8,6 +8,8 @@ use eframe::egui::{
     self, Align, Color32, FontFamily, FontId, Layout, Rect, RichText, TextStyle, UiBuilder, vec2,
 };
 use serde::{Deserialize, Serialize};
+
+use crate::markup::Code;
 
 pub use egui_material_icons::icons;
 
@@ -175,6 +177,15 @@ pub fn padded(ui: &mut egui::Ui, width: f32, add: impl FnOnce(&mut egui::Ui)) {
     ui.add_space((end - ui.cursor().min.x).max(0.0));
 }
 
+/// Makes `ui`'s labels sense hover only, for a row or a card that takes the click itself (EP-15a):
+/// a selectable label senses click and drag, and egui gives the pointer to the widget on top. The
+/// style is copied only when it changes.
+pub fn unselectable(ui: &mut egui::Ui) {
+    if ui.style().interaction.selectable_labels {
+        ui.style_mut().interaction.selectable_labels = false;
+    }
+}
+
 /// An icon at the text's size, in the colour given or the text's own.
 pub fn icon(icon: egui_material_icons::MaterialIcon, colour: Option<Color32>) -> RichText {
     let text = icon.rich_text();
@@ -198,6 +209,38 @@ pub fn blue(ui: &egui::Ui) -> Color32 {
     }
 }
 
+/// The red of a failure, a refusal and a kill. egui's own `error_fg_color` is a pure red that
+/// reads dim on a dark button (EP-15a), so each theme has a shade of its own.
 pub fn red(ui: &egui::Ui) -> Color32 {
-    ui.visuals().error_fg_color
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(255, 118, 108)
+    } else {
+        Color32::from_rgb(196, 32, 32)
+    }
+}
+
+// A note's runs take three colours the window already uses (EP-15a, the owner's choice of fewer
+// colours at the trial): its labels and gates the amber of a waiting session's words
+// ([`amber`]), its references and links the violet of the unformalised state's chip
+// ([`reference`]), and the code a reader can use as it is, a path or a command, the green of a
+// passing run ([`code_colour`]).
+
+/// The colour of a reference in a note (`EP-n`, `D-n`, `OT-n`, `IN-n`) and of a link's text: the
+/// violet of the unformalised state's chip, lighter in the dark theme (EP-15a).
+pub fn reference(ui: &egui::Ui) -> Color32 {
+    if ui.visuals().dark_mode {
+        Color32::from_rgb(186, 156, 255)
+    } else {
+        Color32::from_rgb(108, 64, 196)
+    }
+}
+
+/// The ink of a code span by what it holds (EP-15a): a path or a command, which the reader can
+/// open or run as written, in [`green`]; a name in the code and anything else in the code face's
+/// own.
+pub fn code_colour(ui: &egui::Ui, code: Code) -> Option<Color32> {
+    match code {
+        Code::Path | Code::Command => Some(green(ui)),
+        Code::Name | Code::Other => None,
+    }
 }

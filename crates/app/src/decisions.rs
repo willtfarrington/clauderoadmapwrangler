@@ -540,7 +540,8 @@ fn elsewhere_card(ui: &mut egui::Ui, seen: &Seen) -> bool {
         let (where_, focusable) = place(seen);
         ui.add(
             egui::Label::new(
-                RichText::new(format!("It {} {where_}.", seen.doing())).color(style::amber(ui)),
+                RichText::new(format!("It {}.", seen.waits_for_you(where_)))
+                    .color(style::amber(ui)),
             )
             .wrap(),
         );

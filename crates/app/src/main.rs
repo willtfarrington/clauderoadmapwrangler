@@ -24,6 +24,8 @@ mod screenshot;
 mod server;
 mod sessions;
 mod style;
+#[cfg(test)]
+mod testing;
 mod toasts;
 mod transcript;
 mod tray;

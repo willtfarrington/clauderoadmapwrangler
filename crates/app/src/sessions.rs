@@ -1372,6 +1372,8 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) -> egui::Response {
 /// A session of the window's in the All tab; `true` when it was clicked, to open its tab.
 fn live_line(ui: &mut egui::Ui, live: &Live) -> bool {
     let response = card(ui, |ui| {
+        // The card takes the click over its text, not a selection (EP-15a).
+        style::unselectable(ui);
         // The title and the chip on rows of their own: a row wider than a narrow pane would widen
         // everything after it past the pane's edge, and a wrapped row would squeeze the chip.
         ui.label(RichText::new(format!("{} {}", live.project, live.ep)).strong());
@@ -1446,10 +1448,11 @@ fn seen_card(ui: &mut egui::Ui, seen: &Seen) -> bool {
         if seen.status == SeenStatus::Waiting {
             let in_code = seen.entrypoint.as_deref() == Some("claude-vscode")
                 || seen.mode == crw_core::sessions::Mode::Visual;
-            let place = if in_code { " in VS Code" } else { "" };
+            let place = if in_code { "in VS Code" } else { "" };
             ui.add(
                 egui::Label::new(
-                    RichText::new(format!("It {}{place}.", seen.doing())).color(style::amber(ui)),
+                    RichText::new(format!("It {}.", seen.waits_for_you(place)))
+                        .color(style::amber(ui)),
                 )
                 .wrap(),
             );
@@ -1649,6 +1652,25 @@ mod tests {
             canned: false,
             news: Vec::new(),
         }
+    }
+
+    #[test]
+    fn a_window_sessions_card_opens_its_tab_from_over_its_text() {
+        use crate::testing::{self, Screen};
+        let live = live();
+        let mut screen = Screen::new();
+        let mut pass = |events| {
+            let mut clicked = false;
+            screen.pass(events, |ui| clicked = live_line(ui, &live));
+            clicked
+        };
+        // Over the title's first letters, inside the card's margin.
+        let at = egui::pos2(22.0, 16.0);
+        let press = |pressed| testing::button(at, egui::PointerButton::Primary, pressed);
+        assert!(!pass(Vec::new()));
+        assert!(!pass(testing::moved(at)));
+        assert!(!pass(press(true)));
+        assert!(pass(press(false)), "the card is clicked over its text");
     }
 
     fn asked(id: &str) -> Request {

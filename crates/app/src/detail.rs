@@ -12,7 +12,7 @@ use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
 use crw_core::roadmap::snapshot::{InProgress, Snapshot};
 use crw_core::roadmap::table::Done;
-use crw_core::tasks::{self, Form, OwnerItem};
+use crw_core::tasks::{self, Form, Gate, OwnerItem};
 use eframe::egui::{self, RichText};
 
 use crate::badges::{self, Mark};
@@ -241,7 +241,12 @@ fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
         if let Some(size) = next.size {
             ui.label(RichText::new(size.as_str()).strong());
         }
-        ui.label(&next.brief.title);
+        ui.label(markup::coloured(
+            ui,
+            &next.brief.title,
+            Look::default(),
+            false,
+        ));
     });
     let phase = roadmap
         .phase_of(next.id)
@@ -315,18 +320,20 @@ fn next_brief(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
             let label = format!("**{}.**", next.id);
             let text = note.text.strip_prefix(&label).unwrap_or(&note.text);
             ui.add_space(4.0);
+            // The text as wide as the reading measure, or the pane when that is narrower (EP-15a).
+            let measure = markup::measure(ui);
             egui::Frame::new()
                 .fill(ui.visuals().faint_bg_color)
                 .corner_radius(6.0)
                 .inner_margin(egui::Margin::symmetric(10, 8))
                 .show(ui, |ui| {
-                    ui.set_width(ui.available_width());
+                    ui.set_width(ui.available_width().min(measure));
                     ui.label(
                         RichText::new(format!("Brief notes (README line {})", note.line))
                             .small()
                             .weak(),
                     );
-                    markup::label(ui, &markup::reflow(text), Look::default());
+                    markup::note(ui, text, Look::default());
                 });
         }
         None => {
@@ -575,7 +582,8 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
     });
 }
 
-/// The item's meta line: its form, file and line, gate, state and origin.
+/// The item's meta line: its form, file and line, state and origin; its gate is the chip beside
+/// its id (EP-15a).
 fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
     let mut parts: Vec<String> = Vec::new();
     if item.form != Form::Task {
@@ -583,9 +591,6 @@ fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
     }
     let file = item.path.strip_prefix(folder).unwrap_or(&item.path);
     parts.push(format!("{}:{}", file.display(), item.line));
-    if let Some(gate) = &item.gate {
-        parts.push(gate.to_string());
-    }
     if item.state == tasks::State::Partly {
         parts.push("partly resolved".to_owned());
     }
@@ -596,6 +601,30 @@ fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
         (None, None) => {}
     }
     parts.join(" · ")
+}
+
+/// `text` without the `[before EP-m]` it ends with when the chip beside the item's id says it
+/// (EP-15a, the owner's choice); any other text as written.
+fn without_gate<'a>(text: &'a str, gate: Option<&Gate>) -> &'a str {
+    let Some(Gate::Before(id)) = gate else {
+        return text;
+    };
+    let trimmed = text.trim_end();
+    let tail = format!("[before {id}]");
+    trimmed
+        .len()
+        .checked_sub(tail.len())
+        .filter(|&at| trimmed.is_char_boundary(at) && trimmed[at..].eq_ignore_ascii_case(&tail))
+        .map_or(text, |at| trimmed[..at].trim_end())
+}
+
+/// What a gate's chip says on hover.
+fn gate_hint(gate: &Gate) -> String {
+    match gate {
+        Gate::Before(id) => format!("Due before {id} starts (D-10)"),
+        Gate::OnOrAfter(date) => format!("Not before {date}"),
+        Gate::When(words) => format!("At a decision point: {words}"),
+    }
 }
 
 fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
@@ -641,17 +670,34 @@ fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
                 .on_hover_text("An older form: shown here, changed only in its file");
             }
             ui.vertical(|ui| {
-                let text = match &item.id {
-                    // An id the text opens with (a register's `**R-2**`) is not said twice.
-                    Some(id) if !item.text.contains(id.as_str()) => {
-                        format!("`{id}` {}", markup::reflow(&item.text))
-                    }
-                    _ => markup::reflow(&item.text),
-                };
-                markup::label(ui, &text, Look::default());
+                // An id the text opens with (a register's `**R-2**`) is not said twice.
+                let id = item
+                    .id
+                    .as_ref()
+                    .filter(|id| !item.text.contains(id.as_str()));
+                if id.is_some() || item.gate.is_some() {
+                    ui.horizontal(|ui| {
+                        if let Some(id) = id {
+                            ui.label(RichText::new(id).monospace().strong());
+                        }
+                        if let Some(gate) = &item.gate {
+                            style::chip(ui, &gate.to_string(), style::amber(ui))
+                                .on_hover_text(gate_hint(gate));
+                        }
+                    });
+                }
+                markup::note(
+                    ui,
+                    without_gate(&item.text, item.gate.as_ref()),
+                    Look {
+                        sentences: true,
+                        ..Look::default()
+                    },
+                );
                 ui.label(RichText::new(meta(item, &folder)).small().weak());
             });
         });
+        ui.add_space(4.0);
     }
     let ticked: Vec<&OwnerItem> = items
         .iter()
@@ -676,7 +722,12 @@ fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
                             }
                             ui.label(RichText::new(id).monospace());
                         }
-                        ui.add(egui::Label::new(RichText::new(&item.text).weak()).truncate());
+                        let weak = Look {
+                            weak: true,
+                            ..Look::default()
+                        };
+                        let text = markup::job(ui, &markup::reflow(&item.text), weak);
+                        ui.add(egui::Label::new(text).truncate());
                     });
                 }
             });
@@ -714,7 +765,14 @@ fn inbox(
                 ui.label(RichText::new(format!("from {from}")).weak());
             }
         });
-        markup::label(ui, &markup::reflow(&message.text), Look::default());
+        markup::note(
+            ui,
+            &message.text,
+            Look {
+                sentences: true,
+                ..Look::default()
+            },
+        );
         let key = (row.name().to_owned(), message.id.clone());
         let draft = drafts.entry(key).or_default();
         ui.horizontal(|ui| {
@@ -744,19 +802,19 @@ fn inbox(
             .id_salt(("ticked messages", row.name()))
             .show(ui, |ui| {
                 for message in done {
-                    let text = format!("`{}` {}", message.id, markup::reflow(&message.text));
-                    markup::label(
+                    ui.label(RichText::new(&message.id).monospace().weak());
+                    markup::note(
                         ui,
-                        &text,
+                        &message.text,
                         Look {
                             weak: true,
                             ..Look::default()
                         },
                     );
                     if let Some(disposition) = &message.disposition {
-                        markup::label(
+                        markup::note(
                             ui,
-                            &markup::reflow(disposition),
+                            disposition,
                             Look {
                                 small: true,
                                 ..Look::default()
@@ -796,7 +854,25 @@ fn handed_on(ui: &mut egui::Ui, row: &ProjectRow) {
                 }
             }
         });
+        // The block's text after its label, which the line above says (EP-15a).
+        markup::note(
+            ui,
+            mail_text(&block.text),
+            Look {
+                sentences: true,
+                ..Look::default()
+            },
+        );
+        ui.add_space(4.0);
     }
+}
+
+/// A handed-on block's text without its `**Handed on (to …).**` label.
+fn mail_text(text: &str) -> &str {
+    let text = text.trim_start();
+    text.strip_prefix("**Handed on")
+        .and_then(|rest| rest.find("**").map(|end| rest[end + 2..].trim_start()))
+        .unwrap_or(text)
 }
 
 fn decisions(ui: &mut egui::Ui, snapshot: &Snapshot) {
@@ -855,5 +931,48 @@ fn problems(ui: &mut egui::Ui, row: &ProjectRow) {
     section(ui, &format!("Problems the readers met: {}", lines.len()));
     for line in lines {
         ui.add(egui::Label::new(RichText::new(line).color(style::amber(ui))).wrap());
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crw_core::roadmap::EpId;
+
+    use super::*;
+
+    #[test]
+    fn the_chip_says_the_gate_so_the_text_leaves_it_out() {
+        let due = Gate::Before(EpId::new(16));
+        assert_eq!(
+            without_gate(
+                "Note what it gets wrong. Notes go to `roadmap/inbox.md` [before EP-16]",
+                Some(&due)
+            ),
+            "Note what it gets wrong. Notes go to `roadmap/inbox.md`"
+        );
+        assert_eq!(
+            without_gate("Ask first [Before EP-16]  ", Some(&due)),
+            "Ask first"
+        );
+        // Another gate, a gate inside the text, a gate in words, or none: as written.
+        let words = Gate::When("v2 gate".to_owned());
+        for (text, gate) in [
+            ("Ask first [before EP-15]", Some(&due)),
+            ("Due (D-25, before EP-16) soon", Some(&due)),
+            ("At the v2 gate", Some(&words)),
+            ("Ask first [before EP-16]", None),
+            ("ünïcode [before EP-16]", Some(&Gate::Before(EpId::new(6)))),
+        ] {
+            assert_eq!(without_gate(text, gate), text, "{text}");
+        }
+    }
+
+    #[test]
+    fn the_mail_leaves_its_label_to_the_line_above() {
+        assert_eq!(
+            mail_text("**Handed on (to Beta).** The registry's format is 2."),
+            "The registry's format is 2."
+        );
+        assert_eq!(mail_text("No label here."), "No label here.");
     }
 }

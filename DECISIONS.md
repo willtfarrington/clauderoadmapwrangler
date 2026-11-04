@@ -775,6 +775,30 @@ state; graphs only in the detail tile or a separate window.
 > session, which the saved layout would keep; the list in a window of its own; a transcript file per
 > session.
 
+> **Addendum (2026-11-03, EP-15a).** The Detail pane sets the next brief's notes for reading. A
+> segment that opens with a bold label ending in a colon (`**From EP-7:**`) starts a paragraph under
+> its label, which stands on a line of its own; numbered parts `(1) … (2) …` in sequence become an
+> indented list; blank lines stay; paragraphs are spaced apart; in a wide pane the lines hold at
+> about a hundred characters. The runs take three colours the window already uses, each covering
+> more than one kind (the owner's choice at the trial, over a first set of seven): a label and a
+> `[before EP-m]` gate in the amber of a waiting session's words; the ids `EP-n`, `D-n`, `OT-n` and
+> `IN-n` and a link's text in the violet of the unformalised chip; a path or a command in the code
+> in the green of a passing run, a name in the code in the code face's own ink; struck text weak.
+> No segment folds (the owner's choice). An owner item, an open inbox message and a handed-on
+> block's text share the renderer: a long one (more than two sentences, or over 240 characters) is
+> set a sentence to a bullet, and an item's gate is an amber chip beside its id, repeated neither at
+> the text's end nor in its meta line (the owner's choices). Nothing is reworded or dropped; a form these
+> rules do not know is one paragraph; the launch dialog's prompt stays source text, and a row's
+> title keeps its plain marks. A row's labels sense hover only, so the row takes a click, a right
+> click and the hover anywhere on it, and each label keeps its hover text. The group headers, the
+> folder rows and a window session's card in the Sessions pane are alike, and their text can no
+> longer be selected; the Detail pane's can. The red of failures has a shade per theme, and a
+> session waiting elsewhere reads "waits for you: …" on its row and card, as the popup says it.
+> *Alternatives.* Segments that fold, open at first or folded to their labels; owner items left
+> whole; a colour per kind (a teal accent for labels, the link blue, an orange command, a gold
+> name), which read off the window's theme; colours in the list rows' titles; references and links
+> that open what they name (v2).
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates

@@ -349,7 +349,10 @@ impl Plan {
     }
 }
 
-/// Draws `add` inside `rect`, left to right and centred on the row's middle line.
+/// Draws `add` inside `rect`, left to right and centred on the row's middle line. Its labels are
+/// not selectable, so they sense hover only: the row under them takes the click, the right click
+/// and the hover, and each label keeps its hover text (EP-15a). A selectable label senses click
+/// and drag, and egui gives the pointer to the widget on top.
 fn cell<R>(ui: &mut egui::Ui, rect: Rect, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     let mut child = ui.new_child(
         UiBuilder::new()
@@ -357,6 +360,7 @@ fn cell<R>(ui: &mut egui::Ui, rect: Rect, add: impl FnOnce(&mut egui::Ui) -> R) 
             .layout(Layout::left_to_right(Align::Center)),
     );
     child.set_clip_rect(rect.intersect(ui.clip_rect()));
+    style::unselectable(&mut child);
     add(&mut child)
 }
 
@@ -410,6 +414,8 @@ impl Board {
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
+                // Once for the list, so that every cell shares the style (EP-15a).
+                style::unselectable(ui);
                 for group in &groups {
                     let folded = self.view.is_folded(group.kind);
                     if group_header(ui, group.kind, group.members.len(), folded, &self.view) {
@@ -859,7 +865,11 @@ fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: Counts) {
         5.0,
         style::green(ui).gamma_multiply(0.3),
     );
-    let response = ui.put(pill, egui::Label::new(progress_text(counts)));
+    // Hover only, so that the row takes the click (EP-15a).
+    let response = ui.put(
+        pill,
+        egui::Label::new(progress_text(counts)).selectable(false),
+    );
     response.on_hover_text(format!(
         "{} of {} rows done ({:.0} %){}",
         counts.done,
@@ -1101,6 +1111,88 @@ fn folder_row(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::portfolio::tests::{Scratch, fake_store};
+    use crate::testing::{self, Screen};
+
+    /// harbor's row drawn at the top of a pass of `screen` with `events`: its actions, its rect,
+    /// its name's cell, and what the pass painted.
+    fn harbor_pass(
+        screen: &mut Screen,
+        portfolio: &Portfolio,
+        events: Vec<egui::Event>,
+    ) -> (Vec<Action>, Rect, Rect, egui::FullOutput) {
+        let now = Utc::now();
+        let view = View::default();
+        let mut found = (Vec::new(), Rect::NOTHING, Rect::NOTHING);
+        let output = screen.pass(events, |ui| {
+            let widths = Widths::measure(ui, portfolio, now);
+            let plan = Plan::new(&widths, ui.available_width());
+            let rect = Rect::from_min_size(
+                ui.cursor().min,
+                vec2(ui.available_width(), view.density.row_height()),
+            );
+            let row = portfolio.project("harbor").unwrap();
+            let actions = project_row(ui, row, &view, &plan, false, None, now);
+            found = (actions, rect, plan.rect(Column::Name, rect).unwrap());
+        });
+        (found.0, found.1, found.2, output)
+    }
+
+    #[test]
+    fn the_whole_row_answers_over_its_text() {
+        let scratch = Scratch::new("list-row-clicks");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let mut screen = Screen::new();
+        let (_, _, name, _) = harbor_pass(&mut screen, &portfolio, Vec::new());
+        // Over the name's first letters, which a selectable label would take.
+        let at = name.left_center() + vec2(8.0, 0.0);
+        let press = |button, pressed| testing::button(at, button, pressed);
+        harbor_pass(&mut screen, &portfolio, testing::moved(at));
+        let (_, rect, _, output) = harbor_pass(&mut screen, &portfolio, Vec::new());
+        let hovered = screen
+            .ctx
+            .global_style()
+            .visuals
+            .widgets
+            .hovered
+            .weak_bg_fill;
+        assert!(
+            testing::fills(&output, rect, hovered),
+            "the row is drawn hovered"
+        );
+
+        harbor_pass(
+            &mut screen,
+            &portfolio,
+            press(egui::PointerButton::Primary, true),
+        );
+        let (actions, ..) = harbor_pass(
+            &mut screen,
+            &portfolio,
+            press(egui::PointerButton::Primary, false),
+        );
+        assert_eq!(
+            actions,
+            [Action::Select(Selection::Project("harbor".to_owned()))]
+        );
+
+        // A right click over the name opens the row's menu.
+        harbor_pass(
+            &mut screen,
+            &portfolio,
+            press(egui::PointerButton::Secondary, true),
+        );
+        harbor_pass(
+            &mut screen,
+            &portfolio,
+            press(egui::PointerButton::Secondary, false),
+        );
+        harbor_pass(&mut screen, &portfolio, Vec::new());
+        assert!(
+            egui::Popup::is_any_open(&screen.ctx),
+            "the row's menu is open"
+        );
+    }
 
     /// Every measured column `width` wide, the fixed ones as they are.
     fn widths(width: f32) -> Widths {

@@ -94,8 +94,13 @@ leaves a proposed state out until the fact it rests on changes (`crw undismiss` 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
 grouped by state, each with its next brief, its progress, what waits on the owner, its badges and
 whether a session is in progress, in columns as wide as their widest value under a header row; the
-Legend switch shows a key to every mark. The detail pane shows the selected project's brief notes,
-status, owner items, inbox and problems. It reads each project's files at once and adds what git says one
+Legend switch shows a key to every mark; a click anywhere on a row selects it and a right click opens
+its menu. The detail pane shows the selected project's brief notes, status, owner items, inbox,
+handed-on mail and problems, the notes set for reading: each `From …:` segment under its label,
+numbered parts as a list, lines of about a hundred characters, and labels, references, gates and
+runnable code in three colours of the window's, a long owner item a sentence to a bullet with its
+gate as a chip beside its id.
+It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
