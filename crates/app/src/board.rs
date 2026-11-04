@@ -54,6 +54,8 @@ const NOTICE_CHARS: usize = 160;
 const ANSWER_CHARS: usize = 80;
 /// The most of a brief's title a Start item in the tray's menu shows (EP-15).
 const START_TITLE: usize = 48;
+/// How long the delayed test notification waits (EP-15d).
+const TEST_DELAY: Duration = Duration::from_secs(10);
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
 /// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
@@ -185,6 +187,9 @@ pub enum Action {
     /// A toast shown whatever the quiet hours and the focus, so that the owner sees toasts reach
     /// the screen (EP-15).
     TestToast,
+    /// The same in ten seconds, time to close the window to the tray first: the path of a toast
+    /// that comes while the window is hidden (EP-15d).
+    TestToastLater,
     /// The window hidden in the tray, as closing it does (D-29).
     HideWindow,
     /// Quit: at once, or after a question when headless runs would stop (EP-15).
@@ -265,6 +270,8 @@ pub struct Board {
     pub quit_asked: bool,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
+    /// When the delayed test notification is due (EP-15d).
+    test_due: Option<Instant>,
     /// Where Claude Code caches its model catalog; a screenshot run's is a fixture.
     pub catalog_folder: Option<PathBuf>,
     /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
@@ -317,6 +324,7 @@ impl Board {
             told_tray: false,
             quit_asked: false,
             quitting: false,
+            test_due: None,
             catalog_folder: Catalog::folder(),
             open_when_read: None,
             ledger,
@@ -503,6 +511,16 @@ impl Board {
                 Closing::Close => {}
             }
         }
+        // The delayed test notification, sent whether the window shows or hides (EP-15d).
+        if let Some(due) = self.test_due {
+            let now = Instant::now();
+            if now >= due {
+                self.test_due = None;
+                self.test_toast();
+            } else {
+                ctx.request_repaint_after(due - now);
+            }
+        }
         let orders = self.tray.as_ref().map(Tray::orders).unwrap_or_default();
         for order in orders {
             match order {
@@ -665,6 +683,20 @@ impl Board {
         );
     }
 
+    /// A test notification in ten seconds (EP-15d): time to close the window to the tray, so that
+    /// it comes while the window is hidden, the path that panicked an immediate popup.
+    fn test_later(&mut self) {
+        if !self.toasts.is_on() {
+            self.warn("Notifications are off in this window: it is a screenshot run.");
+            return;
+        }
+        self.test_due = Some(Instant::now() + TEST_DELAY);
+        self.notify(
+            "A test notification comes in 10 seconds: close the window to the tray now to see \
+             it arrive while the window is hidden.",
+        );
+    }
+
     /// The popup, the window shown or hidden (EP-15): a toast's Show leads where it says.
     pub fn popup(&mut self, ctx: &egui::Context) {
         for target in self.toasts.chosen(ctx) {
@@ -785,6 +817,7 @@ impl Board {
             Action::AnswerDeferred { key, response } => self.answer_deferred(key, response),
             Action::Focus(name) => self.focus(&name),
             Action::TestToast => self.test_toast(),
+            Action::TestToastLater => self.test_later(),
             Action::HideWindow => self.hide(),
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
@@ -1587,6 +1620,16 @@ impl Dashboard {
                     .clicked()
                 {
                     self.board.actions.push(Action::TestToast);
+                }
+                if ui
+                    .button("Send a test notification in 10 seconds")
+                    .on_hover_text(
+                        "Time to close the window to the tray first: the notification then comes \
+                         while the window is hidden",
+                    )
+                    .clicked()
+                {
+                    self.board.actions.push(Action::TestToastLater);
                 }
                 ui.separator();
                 if ui

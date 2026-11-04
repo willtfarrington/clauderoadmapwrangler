@@ -263,8 +263,9 @@ only its own files inside a managed project).
 | EP-15 | [Notifications: a popup of the window's own in place of Windows toasts, the tray icon with its count and menu, the event rules, quiet hours, closing to the tray and Quit, the log in the ledger](EP-15-notifications.md) (D-21, D-29) | M | EP-12 | core | ☑ `df99ba4` |
 | EP-15a | [Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons](EP-15a-readable-notes-and-row-clicks.md) (D-25) | M | EP-7a, EP-13 | core | ☑ `77c61b5` |
 | EP-15b | [Revert a session: each session's start recorded (the HEAD, the branch, the uncommitted files copied to the backups folder), the revert in `crw_core` behind a preview of every commit and file it undoes, the work copied out first, refused while a session works there or once a commit is pushed, the tool's ticks redone, `crw revert`](EP-15b-revert-a-session.md) (D-11, D-26) | M | EP-13 | core | ☑ `61de8f6` |
+| EP-15d | [The popup's crash: the popup a deferred viewport, since eframe 0.37 cannot open an immediate one while the window is hidden; a delayed test notification that reaches that path](EP-15d-popup-crash.md) (D-21) | S | EP-15 | core | ☐ |
 | EP-15c | Revert in the window: an ended session's tab, the Sessions pane's ledger rows and a project's row menu, the preview as a dialog read off the UI thread, the window's own refusals (D-11, D-25, D-26) | M | EP-15b | core | ☐ |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15c | core | ☐ |
+| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15d, EP-15c | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
@@ -274,7 +275,8 @@ opens the per-project workspace file EP-33 teaches Adopt to write; the order is 
 *(2026-11-03, the owner's requests.)* EP-15a and EP-15b follow EP-15 and precede the re-plan, so the
 window reads and clicks well and a session can be reverted before EP-16 makes the tool the way this
 project's sessions start. *(2026-11-04, EP-15b split at pickup, the owner's choice.)* EP-15c puts
-EP-15b's revert in the window, before the re-plan.
+EP-15b's revert in the window, before the re-plan. *(2026-11-04, the owner's choice.)* EP-15d fixes
+the popup's crash first, since a crash takes the window and its runs with it.
 
 Standing decisions for phase P2: D-15 (never `--bare`; `ANTHROPIC_API_KEY` removed from the child
 environment; features detected, not assumed), D-18 (acceptEdits with prompts routed to the host), D-19
@@ -584,6 +586,17 @@ every commit's added lines are checked before it is made, the repository being p
   of its labels, but a selectable label took the drag and the double click); `testing::Screen`,
   with `testing::moved`, `button` and `fills`, drives a bare context pass by pass, so a test can
   press Revert or a row and see what the press reaches.
+- **EP-15d.** Added on 2026-11-04 at the owner's request, after the window closed on a panic in the
+  popup at 19:34 on 2026-11-03 ("egui backend is implemented incorrectly - the user callback was
+  never called", `egui-0.37.0/src/context.rs:4714`). A hidden or minimized window gets no
+  `RedrawRequested` on Windows, so eframe 0.37 paints it from `check_redraw_requests`. When that
+  runs from `new_events`, the one handler not wrapped in `with_event_loop_context`, an immediate
+  viewport that needs a new window gets none, its callback never runs, and egui panics. The first
+  notification after the popup was empty does exactly that while the window is in the tray. The
+  fix: the popup as a deferred viewport, whose window eframe creates on every path
+  (`initialized_all_windows(event_loop)`), its toasts behind a shared lock, the owner's choice
+  applied in the popup's own pass; and a test notification that waits ten seconds, so that the
+  window can be closed to the tray before it comes. The egui family stays (D-15).
 - **EP-15c.** Added on 2026-11-04 when EP-15b was split at pickup (the owner's choice, D-4): EP-15b's
   places (2) and preview (3) in the window, on its engine. (1) **The three places**: an ended
   session's tab, beside Resume (`Live::session_id`); a ledger card of the Sessions pane's All tab
@@ -647,7 +660,11 @@ every commit's added lines are checked before it is made, the repository being p
   joined P2, so the totals above are 39 briefs, 9 S · 24 M · 6 L ≈ 40.5 session-hours, with 19
   still open once EP-15b is checked. The first self-launched session can be reverted with
   `crw revert` (EP-15b) or from the window (EP-15c). The retro times EP-15b and EP-15c with the
-  rest.
+  rest. **From EP-15d (the owner's request):** with its S row the totals are 40 briefs, 10 S · 24 M
+  · 6 L ≈ 41 session-hours, 19 still open once EP-15d is checked. eframe 0.37 cannot give an
+  immediate viewport a window while the window is hidden (D-21 addendum): a re-plan that moves the
+  egui family can look for the fix upstream, and no other immediate viewport should be added
+  until then.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 

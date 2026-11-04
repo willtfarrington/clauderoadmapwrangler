@@ -620,6 +620,20 @@ pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; e
 > notifications while the window is in front; one count for the waits and the badges; the tray's
 > menu rebuilt at each change, which could destroy it while it is open.
 
+> **Addendum (2026-11-04, EP-15d).** The popup is a deferred viewport, no longer an immediate one.
+> On 2026-11-03 the window closed on a panic in the popup ("egui backend is implemented incorrectly
+> - the user callback was never called"). A notification had come while the window was in the
+> tray. Windows sends a hidden window no redraw, so eframe 0.37 paints it from
+> `check_redraw_requests`, and from its `new_events` handler that runs without the thread-local
+> event loop through which an immediate viewport is given a new window. The popup got none, its
+> callback never ran, and egui panicked. A deferred viewport is given its window at the start of
+> every pass with the event loop in hand. The window's pass keeps the popup open while it holds
+> toasts and wakes it for a new one; the popup's own pass draws them and applies the owner's choice
+> there and then, over state the two share. The File menu also sends a test notification in ten
+> seconds, time to close the window to the tray, which reaches that path. *Alternatives.* Moving
+> eframe, which waits for a re-plan (D-15); keeping the immediate popup's window open at all times;
+> catching the panic.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:
