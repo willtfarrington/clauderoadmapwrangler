@@ -258,6 +258,8 @@ EP-15c's commit).
 > | 16 | Commit and push | Commit and push | Two commits in the house pattern, pushed |
 > | 17 | The owner's uncommitted tick of OT-13 | Commit it with EP-16 | In the first commit |
 > | 18 | The line recording EP-17's ledger row | A third commit, pushed once the row is found | Below |
+> | 19 | The owner's finding at the self-launch: the dialog's effort did not reach the tab | EP-18's notes | EP-18's bullet |
+> | 20 | Recording the self-launch's finds | Notes in the roadmap too | EP-18's and EP-22's bullets, in the third commit |
 >
 > **Routine choices (the session's call, logged).** (1) EP-35 takes the next free number, the
 > house rule for an added brief, and sits after EP-18 so that EP-17 stays the first self-launched
@@ -272,3 +274,18 @@ EP-15c's commit).
 >
 > No owner tasks; no messages for other projects. **Next: EP-17** (the usage meter), the first
 > self-launched session.
+>
+> **After the commits (≈ 46 min in all).** `2b1db41` and the record commit `3c25d9e` were pushed
+> together at 21:52 UTC, and CI run 41920131724 on windows-latest passed. The owner then launched
+> EP-17 from the window, the first self-launched session (D-5): F5, S on this project's row, Visual,
+> Open in VS Code, and the opener sent from the new Claude Code tab in this project's window. Its
+> ledger row reads `visual`, EP-17, session `66483ca0`, started 21:57 UTC, open while it runs
+> (`crw sessions clauderoadmapwrangler`, read only, at 22:00 UTC): the launch was taken up at the
+> session's first work, as D-26's EP-13 addendum has it. The owner's finding at the launch: the
+> effort chosen in the dialog (max) did not reach the tab, which opened at VS Code's own (xhigh).
+> The extension's `/open` link reads only `prompt` and `session` (its 2.1.318 handler, read here),
+> and the panel's effort is a preference it stores for itself, so the dialog's model and effort are
+> only the opener's suggestion in Visual mode; the dialog's wording is EP-18's (decision 19). The
+> same handler has an `/install-plugin` path, noted for EP-22 (decision 20). This paragraph and
+> those two notes are a third commit, on the owner's yes, touching neither EP-17's files nor its
+> work.

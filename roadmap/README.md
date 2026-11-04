@@ -757,6 +757,14 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   among the others this brief's call, and the dialog shows `Choice::reason()` as it is.
   **From EP-16:** `rules::DEFAULT_LAUNCH_MODE` stays Visual for the D-16 addendum's reasons, and its
   comment still gives EP-14's: this brief, which edits `rules.rs` for the downshift, words it anew.
+  **From EP-16 (the owner's finding at the first self-launch):** in Visual mode the dialog offers
+  the model, effort and ultracode pickers, each marked "a suggestion: VS Code's panel chooses", yet
+  the owner set max there and found the new tab at VS Code's own effort. The extension's link
+  takes only `prompt` and `session` (2.1.318's `/open` handler, read 2026-11-04), and the panel's
+  effort is a preference the extension stores for itself, so no launch can set it. This brief,
+  whose downshift is also only a suggestion for a visual launch, makes the dialog plain about it:
+  in Visual mode the pickers serve Headless only, or they say that the tab's own panel is where
+  the owner chooses, once it opens.
 - **EP-35.** Added at EP-16 (2026-11-04) for EP-14a's and EP-15b's notes (D-16 addendum): a run a
   crash or a quit window cut short keeps its ledger row but has no Resume in the next window,
   since its launch's choices lived in the old one, and `claude --resume` in a terminal is today's
@@ -895,7 +903,10 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   cannot pass `--plugin-dir` (the extension's link takes `prompt` and `session` only, EP-11), and
   Visual stays the default (D-16 addendum), so the plugin reaches most of the owner's sessions only
   once it is installed into their own Claude Code, which the README's install notes explain;
-  `--plugin-dir` serves the headless runs and the chat.
+  `--plugin-dir` serves the headless runs and the chat. The extension's link also has an
+  `/install-plugin` path (`vscode://anthropic.claude-code/install-plugin?plugin=<name>&marketplace=<url>`,
+  2.1.318's handler, read at EP-16), which opens its plugins dialog in the chat for the owner to
+  confirm: one way to bring the plugin into the owner's VS Code sessions.
 - **EP-23.** Retro, addenda, P4 rows confirmed with pickup notes, `v2-notes.md` grown; the first week of
   autopilot runs reviewed (how many chains, how many gate refusals and why). **From EP-16:** time
   the briefs as EP-8 and EP-16 did: each session's transcript under this project's slug, found by
