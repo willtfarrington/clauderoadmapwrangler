@@ -85,6 +85,20 @@ pub fn status(folder: &Path) -> Result<Status, String> {
     run(folder, &args).map(|text| parse_status(&text))
 }
 
+/// [`status`] with every untracked file listed on its own, never its folder alone: what a
+/// session's start copies and a revert removes (EP-15b). Ignored files are never listed.
+pub fn status_all(folder: &Path) -> Result<Status, String> {
+    let args = [
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v2",
+        "--branch",
+        "-z",
+        "--untracked-files=all",
+    ];
+    run(folder, &args).map(|text| parse_status(&text))
+}
+
 /// `--porcelain=v2 -z`: `# branch.*` headers, then one record per path, each ending in NUL; a
 /// renamed or copied path's record is followed by its old path as a record of its own.
 pub fn parse_status(text: &str) -> Status {

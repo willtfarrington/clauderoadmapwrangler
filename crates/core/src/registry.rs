@@ -253,10 +253,19 @@ pub struct Project {
     /// the run (D-19; EP-14); none, the default, for no limit.
     #[serde(default)]
     pub answer_timeout: Option<u32>,
+    /// Whether the tool records the start of each session here and may revert one (EP-15b): on,
+    /// the default, unless `revert = false` turns both off (the owner's choice for the data
+    /// repositories).
+    #[serde(default = "default_revert")]
+    pub revert: bool,
 }
 
 fn default_priority() -> u8 {
     DEFAULT_PRIORITY
+}
+
+fn default_revert() -> bool {
+    true
 }
 
 /// The project's launch defaults, which the rule table resolves over the tool's own (EP-10).
@@ -449,6 +458,7 @@ impl Project {
             rules: Vec::new(),
             dismissed: Dismissed::default(),
             answer_timeout: None,
+            revert: true,
         }
     }
 
@@ -756,6 +766,18 @@ impl Changes<'_> {
                 self.project_table(name)?.remove("answer_timeout");
                 Ok(())
             }
+        }
+    }
+
+    /// Turns the recording of a project's session starts and its revert on or off (EP-15b). On is
+    /// the default and takes the key out, so that a registry with no project turned off reads
+    /// in the builds before it.
+    pub fn set_revert(&mut self, name: &str, on: bool) -> Result<(), Error> {
+        if on {
+            self.project_table(name)?.remove("revert");
+            Ok(())
+        } else {
+            self.set(name, "revert", Value::from(false))
         }
     }
 
@@ -1442,6 +1464,39 @@ state = "paused"
         let wrong = HAND_WRITTEN.replace("priority = 2\n", "priority = 2\nanswer_timeout = 5000\n");
         fs::write(&store.path, wrong).unwrap();
         assert!(store.load().is_err());
+    }
+
+    /// The revert's switch (EP-15b): on unless turned off, and on again without a key.
+    #[test]
+    fn a_projects_revert_is_on_until_turned_off() {
+        let scratch = Scratch::new("registry-revert");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let name = store.load().unwrap().registry.projects[0].name.clone();
+        assert!(
+            store
+                .load()
+                .unwrap()
+                .registry
+                .project(&name)
+                .unwrap()
+                .revert
+        );
+        let (registry, ()) = store.change(TODAY, |c| c.set_revert(&name, false)).unwrap();
+        assert!(!registry.project(&name).unwrap().revert);
+        assert!(
+            fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("revert = false")
+        );
+        let (registry, ()) = store.change(TODAY, |c| c.set_revert(&name, true)).unwrap();
+        assert!(registry.project(&name).unwrap().revert);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("revert =")
+        );
     }
 
     #[test]

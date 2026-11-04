@@ -224,6 +224,26 @@ and commits are made by sessions (D-22). *Why.* The roadmap files are the sessio
 two writers would corrupt it. *Alternatives.* Ticking Done and recording the hash from the tool; read-only
 with ticks in the registry.
 
+> **Addendum (2026-11-04, EP-15b).** A revert is the tool's first write into a project beyond the
+> files it owns: it puts the project back as it was when a session started, which is the project's
+> own earlier state. It runs only on the owner's word after its preview (`crw revert <project>
+> [<id>] --yes`; the window's Revert is EP-15c), never by the autopilot or a rule, and never while
+> a session works or waits there. It never fetches or pushes, and a commit the remote has refuses
+> it (v2 notes). Before anything changes, the work is copied out of the project into the backups
+> folder, under `<project folder>\reverts\<stamp>\`: the commits as a bundle, the uncommitted
+> changes as a binary patch, and the untracked files it removes or overwrites. Then come
+> `git reset --hard` to the start, the session's untracked files removed (never an ignored file:
+> no `git clean`), the start's uncommitted files put back from their copies, and the tool's own
+> ticks since the start redone. For that, each session's start lists the project's uncommitted
+> files and copies them into the backups folder, under `<project folder>\starts\<session id>\`,
+> writing nothing into the project. A start copies at most 200 files and 20 MB; above that it
+> keeps the list alone, and a revert leaves those files as they are. The registry's
+> `revert = false` turns both off for one project (`crw set <project> revert yes|no`, on by
+> default; the owner turns it off on the data repositories). *Alternatives.* Claude Code's
+> checkpoints, which miss what Bash changed and every commit; `git stash` or other objects written
+> into the project's `.git`; undoing pushed commits by `git revert` or a force-push; starts recorded
+> in the data repositories only when turned on.
+
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20
 min).**`; (2) keep `- **EP-n.** …` under `**Brief notes.**` as the one form for upcoming EPs (the row's
@@ -841,6 +861,21 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > resume that carries it, from the deferral to the resume; a refusal at the time limit is no
 > answer. The All tab and `crw sessions` say both ("2 questions, answered in 1 min"); no schema
 > change. *Alternatives.* The total wait; the median; the latency kept on the run that asked.
+
+> **Addendum (2026-11-04, EP-15b).** Schema 4 adds `session.start`, the project at the session's
+> start as JSON: its HEAD and branch, its uncommitted files each as changed, untracked or deleted,
+> where their copies are, and whether all were copied. It is written once, into the session's first
+> row. The runner reads it just before a headless run's child spawns; a resume reads none and keeps
+> its first run's. The window reads it at a VS Code or terminal session's start hook, keeps it until
+> the session earns its row (EP-13), and drops it with its copies when the session ends without
+> working. A session with no recorded start is reverted to the newest `docs(roadmap): record EP-n
+> commit hash` commit made before it started, and the preview says that the uncommitted changes
+> from before cannot be told from the session's own. The `event` table gains two kinds. A `revert`
+> row names the session, its target, the counts and where the work is kept. A `tick` row is each
+> tick the window or `crw tick`/`untick` makes (`ticked OT-3`, `cleared OT-3`, `ticked IN-2 ·
+> <disposition>`), which a revert redoes. `crw sessions` prints each session's short id.
+> *Alternatives.* A table of starts of its own; the copies kept in the ledger; the HEAD at the
+> session's start guessed from the commit times.
 
 ## Chat, remote access, operations
 

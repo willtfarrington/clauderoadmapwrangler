@@ -262,8 +262,9 @@ only its own files inside a managed project).
 | EP-14a | [Crash log and the notice's time: a panic hook writing `crash.log`, the next start naming the last report once, the status bar's notice read once so its 8 s cannot underflow, notices cut to one line](EP-14a-crash-log.md) (D-14) | M | EP-14 | core | ☑ `daf2de9` |
 | EP-15 | [Notifications: a popup of the window's own in place of Windows toasts, the tray icon with its count and menu, the event rules, quiet hours, closing to the tray and Quit, the log in the ledger](EP-15-notifications.md) (D-21, D-29) | M | EP-12 | core | ☑ `df99ba4` |
 | EP-15a | [Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons](EP-15a-readable-notes-and-row-clicks.md) (D-25) | M | EP-7a, EP-13 | core | ☑ `77c61b5` |
-| EP-15b | Revert a session: the project's state recorded at each session's start, Revert from the Sessions pane back to it behind a preview of every commit and file it undoes, the work copied out first, refused while a session runs or once a commit is pushed (D-11, D-26) | M | EP-13 | core | ☐ |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b | core | ☐ |
+| EP-15b | [Revert a session: each session's start recorded (the HEAD, the branch, the uncommitted files copied to the backups folder), the revert in `crw_core` behind a preview of every commit and file it undoes, the work copied out first, refused while a session works there or once a commit is pushed, the tool's ticks redone, `crw revert`](EP-15b-revert-a-session.md) (D-11, D-26) | M | EP-13 | core | ☐ |
+| EP-15c | Revert in the window: an ended session's tab, the Sessions pane's ledger rows and a project's row menu, the preview as a dialog read off the UI thread, the window's own refusals (D-11, D-25, D-26) | M | EP-15b | core | ☐ |
+| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15c | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
@@ -272,7 +273,8 @@ feed; the dogfooding switch closes the phase. *(EP-8, 2026-11-01.)* EP-33 comes 
 opens the per-project workspace file EP-33 teaches Adopt to write; the order is otherwise kept.
 *(2026-11-03, the owner's requests.)* EP-15a and EP-15b follow EP-15 and precede the re-plan, so the
 window reads and clicks well and a session can be reverted before EP-16 makes the tool the way this
-project's sessions start.
+project's sessions start. *(2026-11-04, EP-15b split at pickup, the owner's choice.)* EP-15c puts
+EP-15b's revert in the window, before the re-plan.
 
 Standing decisions for phase P2: D-15 (never `--bare`; `ANTHROPIC_API_KEY` removed from the child
 environment; features detected, not assumed), D-18 (acceptEdits with prompts routed to the host), D-19
@@ -582,6 +584,31 @@ every commit's added lines are checked before it is made, the repository being p
   of its labels, but a selectable label took the drag and the double click); `testing::Screen`,
   with `testing::moved`, `button` and `fills`, drives a bare context pass by pass, so a test can
   press Revert or a row and see what the press reaches.
+- **EP-15c.** Added on 2026-11-04 when EP-15b was split at pickup (the owner's choice, D-4): EP-15b's
+  places (2) and preview (3) in the window, on its engine. (1) **The three places**: an ended
+  session's tab, beside Resume (`Live::session_id`); a ledger card of the Sessions pane's All tab
+  whose row has a session id (`ledger_line`), so that a run whose tab a crash took keeps its
+  Revert; and a project's row menu for its latest session (`list.rs`'s `context_menu`). (2) **The
+  preview** is a dialog like the Quit question (`Board::quit_dialog`): `Plan::lines()` in a
+  scroll area, then Revert in the window's red and Cancel, or Close alone when it is refused. A
+  plan asks git about six children, each in its turn (about two seconds), and a revert about five
+  more, so both run on a worker thread, as the visual launch does, the dialog showing a spinner.
+  (3) **The window's own refusals**, which `crw` cannot see: its own runs in the project, a start
+  on its way, the sessions the hooks and the poll report working or waiting there, and a
+  screenshot run. (4) **After a revert**, the files and git are read again, the All tab's rows go
+  stale, and the status bar says where the work is kept. A test drives a bare context to press
+  Revert. Screenshot runs show the dialog over the fake portfolio with a canned plan, in both
+  themes. **From EP-15b:** `crw_core::revert` holds `choose(rows, project, id)` (the session by
+  its id or the latest, its start, the later sessions), `plan(&chosen, &Context)` and
+  `revert(&plan, ledger, backups, today)`. `Context` takes what the window knows: its switch
+  (`row.project.revert`), the sessions at work there in words (`working`, each a refusal), those
+  open idle (`idle`), the ticks since the start (`ticks_since`), the backups folder
+  (`Store::backups`). `Plan::lines()` and `Done::lines()` are the words `crw revert` prints. A
+  session's start is in the ledger from EP-15b on (`SessionRow::start`, `Ledger::start_of`): the
+  runner records it for a headless run, and the window's `watch` at a VS Code session's start
+  hook. A session from before EP-15b, or one that started while no window ran, has none and goes
+  back to the last recorded brief. The window logs its ticks (`revert::log_tick`), and a revert
+  redoes them.
 - **EP-16.** Retro, addenda, `CLAUDE.md` rule 11 switched to "launched from the tool", the first
   self-launched session (EP-17's) started from the dashboard with the generated opener and verified in the
   ledger, P3 rows confirmed with pickup notes, `v2-notes.md` grown. **From EP-8:** time the briefs as
@@ -616,7 +643,11 @@ every commit's added lines are checked before it is made, the repository being p
   EP-8) show the Detail pane before its notes were set for reading. A trailing `[urgent]` stays in
   an inbox message's text while its chip says it, which the gate's rule could also cover. In a
   narrow window the Progress section's phase names run past the pane's edge (an egui `Grid` does
-  not wrap), seen at 1100 wide.
+  not wrap), seen at 1100 wide. **From EP-15b (split at pickup, the owner's choice):** EP-15c
+  joined P2, so the totals above are 39 briefs, 9 S · 24 M · 6 L ≈ 40.5 session-hours, with 19
+  still open once EP-15b is checked. The first self-launched session can be reverted with
+  `crw revert` (EP-15b) or from the window (EP-15c). The retro times EP-15b and EP-15c with the
+  rest.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 

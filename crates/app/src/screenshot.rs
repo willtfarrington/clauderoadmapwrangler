@@ -546,6 +546,7 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
             result: None,
             context_percent: None,
             answer_latency_s: None,
+            start: None,
         }
     };
     let mut quarry = row(5, "quarry", None, "manual", 95, 36);

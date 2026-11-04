@@ -9,6 +9,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use crw_core::ledger::Ledger;
+use crw_core::revert::{FileState, Start};
 use crw_core::session::{
     Answered, Ended, Event, Launch, Outcome, Preflight, Request, Response, Route, Session,
     edit_deny_rule,
@@ -439,14 +440,20 @@ fn a_deferred_call_is_kept_and_its_answer_resumes_without_a_prompt() {
 }
 
 /// Resume (EP-13): a follow-up is a run of its own under the session's id, in the ledger as a row
-/// of its own.
+/// of its own. The first run records the project's start for a revert, the resume none (EP-15b).
 #[test]
 fn a_resume_goes_on_under_the_sessions_id() {
     let scratch = Scratch::new("resume", "prompt-only");
     let ledger = scratch.0.join("ledger.sqlite");
+    {
+        let _turn = crw_core::process::turn();
+        crw_core::git::run(&scratch.project(), &["init", "--quiet", "-b", "main"]).unwrap();
+    }
+    let backups = scratch.0.join("backups");
     let mut launch = Launch::new("alpha", &scratch.project(), "opus", "Run EP-3 of alpha.");
     launch.ep = Some("EP-3".to_owned());
     launch.ledger = Some(ledger.clone());
+    launch.starts = Some(backups.clone());
     let first = Session::start(preflight(), launch.clone()).unwrap();
     assert_eq!(
         ended(&to_the_end(&first, |_| None)).outcome,
@@ -491,6 +498,29 @@ fn a_resume_goes_on_under_the_sessions_id() {
             && row.outcome.as_deref() == Some("completed")
             && row.ep.as_deref() == Some("EP-3")
     ));
+    // The start: the branch, the stub's script untracked and copied; the resume kept it.
+    let start = Start::from_json(rows[0].start.as_deref().unwrap()).unwrap();
+    assert_eq!(
+        (start.head.as_deref(), start.branch.as_deref()),
+        (None, Some("main"))
+    );
+    assert_eq!(
+        start
+            .files
+            .iter()
+            .map(|file| (file.path.as_str(), file.state))
+            .collect::<Vec<_>>(),
+        [("stub-script.jsonl", FileState::Untracked)]
+    );
+    assert!(start.copy_of("stub-script.jsonl").unwrap().is_file());
+    assert!(
+        backups
+            .join("alpha")
+            .join("starts")
+            .join(&first.session_id)
+            .is_dir()
+    );
+    assert_eq!(rows[1].start, None, "a resume records none");
 }
 
 #[test]

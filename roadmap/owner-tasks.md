@@ -99,3 +99,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   split where it should not be, a sentence cut in the middle, a code span in the wrong colour, a
   form drawn as one block where it has parts. Name the project and the item, and say what it
   should look like. Notes go to `roadmap/inbox.md` [before EP-16]
+- [ ] OT-12 (EP-15b, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
+  session in a project other than this one, try the preview: `target\release\crw.exe revert
+  <project>` prints what undoing that session would do and changes nothing (`--yes` would revert
+  it; `crw sessions` shows each session's short id). A session that started while the window ran
+  shows "the project's HEAD at the session's start" as its target. Each session start in a
+  registered project now records the project's HEAD and copies its uncommitted files that git does
+  not ignore into `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\starts\` (at most 200
+  files and 20 MB a start). At your word the session turned this off on your three data
+  repositories (`crw set <project> revert no`; `yes` turns it on again). The session tried the
+  revert on a scratch project only (rule 13). Notes go to `roadmap/inbox.md` [before EP-15c]

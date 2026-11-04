@@ -8,7 +8,8 @@
 //! entries in Claude Code's user settings, from EP-12; `sessions`, the ledger's rows read without
 //! a write, from EP-13; `hook --defer` and `hook --answer`, the defer route's decisions, and a
 //! project's `answer_timeout`, from EP-14; `notifications`, the window's log read without a
-//! write, and the `quiet_hours` setting from EP-15; `inbox send` arrives with its brief.
+//! write, and the `quiet_hours` setting from EP-15; `revert`, a session undone back to its start,
+//! and a project's `revert` switch from EP-15b; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -31,9 +32,11 @@ use crw_core::ledger::{self, Ledger, RowState, SessionRow};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
+use crw_core::revert;
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
-use crw_core::sessions::VISUAL_CLAIM;
+use crw_core::sessions::agents;
+use crw_core::sessions::{Registered, Status, VISUAL_CLAIM, project_of};
 use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
@@ -57,6 +60,9 @@ commands:
   set <project> answer_timeout <minutes|none>
                                  how long a headless session's question or permission request
                                  waits for an answer before the run is deferred; none for no limit
+  set <project> revert <yes|no>  whether each session's start is recorded there (its HEAD and a
+                                 copy of its uncommitted files, in the backups folder) and a
+                                 session may be reverted; yes by default
   dismiss <project> [<proposal>] leave a proposed state out until the fact it rests on changes;
                                  every open proposal of the project, or the one named:
                                  all_rows_checked, pickup_gate or no_commit_since
@@ -90,9 +96,18 @@ commands:
                                  prompt, worded for the project's launch mode or the one asked;
                                  launches nothing
   sessions [<project>] [--all]   print the ledger's sessions, the newest first: the last 20, or
-                                 every one with --all, of every project or one: when, the project
-                                 and EP, the mode, model and effort, how long, how it ended, the
-                                 cost estimate and the result's last line; reads only
+                                 every one with --all, of every project or one: when, the session's
+                                 short id, the project and EP, the mode, model and effort, how
+                                 long, how it ended, the cost estimate and the result's last line;
+                                 reads only
+  revert <project> [<session id>] [--yes]
+                                 preview putting the project back as it was when its latest
+                                 session, or the one named (its id or the id's first 8 characters),
+                                 started: the target, each commit and file undone, what stays,
+                                 the refusals; with --yes, copy the work to the backups folder
+                                 first, then reset to the start, remove the session's new files and
+                                 put the start's files back. Never pushes; refused while a session
+                                 works there or when the remote has one of its commits
   notifications [--all]          print the window's notifications, the newest first: the last 20,
                                  or every one with --all: each one and what became of it (in the
                                  popup, held back by the quiet hours or the window in front, a
@@ -184,6 +199,7 @@ fn main() -> ExitCode {
             ExitCode::SUCCESS
         }
         ["sessions", rest @ ..] => sessions(rest),
+        ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
@@ -560,9 +576,14 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
                 }
             },
         },
+        "revert" => match value {
+            "yes" | "true" => store.change(&today, |c| c.set_revert(project, true)),
+            "no" | "false" => store.change(&today, |c| c.set_revert(project, false)),
+            _ => return usage_error(&format!("revert takes yes or no, not {value:?}")),
+        },
         _ => {
             return usage_error(&format!(
-                "set changes state, priority, pinned or answer_timeout, not {field:?}"
+                "set changes state, priority, pinned, answer_timeout or revert, not {field:?}"
             ));
         }
     };
@@ -1686,7 +1707,7 @@ fn sessions(args: &[&str]) -> ExitCode {
         path.display()
     );
     let now = Utc::now();
-    let lines: Vec<[String; 8]> = rows
+    let lines: Vec<[String; 9]> = rows
         .iter()
         .map(|row| {
             let when = row.started().map_or(row.started_at.clone(), |at| {
@@ -1694,6 +1715,11 @@ fn sessions(args: &[&str]) -> ExitCode {
                     .format("%Y-%m-%d %H:%M")
                     .to_string()
             });
+            // What `crw revert <project> <id>` takes (EP-15b).
+            let id = row
+                .session_id
+                .as_deref()
+                .map_or("-".to_owned(), |id| revert::short(id).to_owned());
             let title = match &row.ep {
                 Some(ep) => format!("{} {ep}", row.project),
                 None => row.project.clone(),
@@ -1714,6 +1740,7 @@ fn sessions(args: &[&str]) -> ExitCode {
                 .map_or(String::new(), |cost| format!("${cost:.2}"));
             [
                 when,
+                id,
                 title,
                 row.mode.clone(),
                 model,
@@ -1724,7 +1751,7 @@ fn sessions(args: &[&str]) -> ExitCode {
             ]
         })
         .collect();
-    let mut widths = [0usize; 8];
+    let mut widths = [0usize; 9];
     for line in &lines {
         for (width, cell) in widths.iter_mut().zip(line) {
             *width = (*width).max(cell.chars().count());
@@ -1745,6 +1772,175 @@ fn sessions(args: &[&str]) -> ExitCode {
         println!("  … {} older: crw sessions --all", total - rows.len());
     }
     ExitCode::SUCCESS
+}
+
+/// Previews the revert of a project's latest session, or of the one `args` names, and reverts it
+/// with `--yes` (EP-15b): the work first copied to the backups folder, then the project reset to
+/// the session's start. Refused while `claude agents --json` lists a session at work there, or
+/// when it does not answer.
+fn revert_session(args: &[&str]) -> ExitCode {
+    let yes = args.contains(&"--yes");
+    if let Some(flag) = args
+        .iter()
+        .find(|arg| arg.starts_with("--") && **arg != "--yes")
+    {
+        return usage_error(&format!("revert takes --yes, not {flag}"));
+    }
+    let words: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with("--"))
+        .collect();
+    let (target, id) = match words.as_slice() {
+        [target] => (*target, None),
+        [target, id] => (*target, Some(*id)),
+        _ => return usage_error("revert takes a project and, at most, a session id"),
+    };
+    println!("crw {} revert", env!("CARGO_PKG_VERSION"));
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let registry = match store.load() {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let root = registry.data_root();
+    let project = match registry.project(target) {
+        Some(project) => project.clone(),
+        None => {
+            let found = project_folder(target).ok().and_then(|folder| {
+                registry
+                    .projects
+                    .iter()
+                    .find(|project| paths::same(&project.folder(&root), &folder))
+                    .cloned()
+            });
+            match found {
+                Some(project) => project,
+                None => return failed(format!("{target} is not a registered project")),
+            }
+        }
+    };
+    let folder = project.folder(&root);
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if !path.exists() {
+        return failed(format!(
+            "no ledger yet at {}: no session of {} is recorded",
+            path.display(),
+            project.name
+        ));
+    }
+    let read = match Ledger::open_read_only(&path) {
+        Ok(read) => read,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let rows = match read.sessions() {
+        Ok(rows) => rows,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let chosen = match revert::choose(&rows, &project.name, id) {
+        Ok(chosen) => chosen,
+        Err(why) => return failed(why),
+    };
+    let ticks = match chosen.first.started() {
+        Some(since) => match revert::ticks_since(&read, &project.name, since) {
+            Ok(ticks) => ticks,
+            Err(why) => return failed(why),
+        },
+        None => Vec::new(),
+    };
+    drop(read);
+    let (working, idle) = live_sessions(&registry, &folder);
+    let cx = revert::Context {
+        project: &project.name,
+        folder: &folder,
+        enabled: project.revert,
+        working,
+        idle,
+        ticks,
+        backups: &store.backups,
+        now: Utc::now(),
+    };
+    let plan = revert::plan(&chosen, &cx);
+    for line in plan.lines() {
+        println!("{line}");
+    }
+    if plan.is_refused() {
+        return ExitCode::FAILURE;
+    }
+    if !yes {
+        let session = plan.session_id.as_deref().map_or("", revert::short);
+        println!(
+            "Nothing changed. `crw revert {} {session} --yes` reverts.",
+            project.name
+        );
+        return ExitCode::SUCCESS;
+    }
+    match revert::revert(&plan, Some(&path), &store.backups, &files::today()) {
+        Ok(done) => {
+            for line in done.lines() {
+                println!("{line}");
+            }
+            if done.problems.is_empty() {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            }
+        }
+        Err(why) => failed(why),
+    }
+}
+
+/// The sessions `claude agents --json` lists in `folder`, in words (EP-15b): those that work or
+/// wait there, each of which refuses a revert, and those open with nothing to do. A listing
+/// that does not answer refuses it too: the revert must know that nothing works there.
+fn live_sessions(
+    registry: &crw_core::registry::Registry,
+    folder: &Path,
+) -> (Vec<String>, Vec<String>) {
+    let Some(program) = session::cli::locate(registry.settings.claude_cli.as_deref()) else {
+        return (
+            vec!["no Claude Code CLI was found to ask whether a session works there".to_owned()],
+            Vec::new(),
+        );
+    };
+    let agents = match agents::ask(&program) {
+        Ok(agents) => agents,
+        Err(why) => {
+            return (
+                vec![format!(
+                    "{why}, so whether a session works there is not known"
+                )],
+                Vec::new(),
+            );
+        }
+    };
+    let here = [Registered {
+        name: String::new(),
+        folder: folder.to_owned(),
+        revert: true,
+    }];
+    let (mut working, mut idle) = (Vec::new(), Vec::new());
+    for agent in &agents {
+        if project_of(&here, agent.folder()).is_none() {
+            continue;
+        }
+        let id = agent.session_id.as_deref().map_or("-", revert::short);
+        match agent.status_now() {
+            Some((status @ (Status::Busy | Status::Waiting), waiting_for)) => {
+                let what = waiting_for
+                    .map(|what| format!(": {what}"))
+                    .unwrap_or_default();
+                working.push(format!("session {id} is {}{what}", status.as_str()));
+            }
+            Some((Status::Idle, _)) => idle.push(format!("session {id}")),
+            _ => {}
+        }
+    }
+    (working, idle)
 }
 
 fn signals_places() -> Result<(PathBuf, PathBuf), String> {
@@ -1972,10 +2168,35 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
                 path.display(),
                 copy.display()
             );
+            // Logged for a revert to redo (EP-15b); the tick stands whatever the ledger says.
+            let disposition = (prefix == "IN").then(|| words.join(" "));
+            let name = registered_name(&store, &folder).unwrap_or_else(|| folder_name(&folder));
+            if let Some(ledger) = paths::ledger_file()
+                && let Err(why) = revert::log_tick(
+                    &ledger,
+                    &name,
+                    &id.to_ascii_uppercase(),
+                    checked,
+                    disposition.as_deref(),
+                )
+            {
+                eprintln!("crw: {why}; a revert would not redo the tick");
+            }
             ExitCode::SUCCESS
         }
         Err(e) => failed(format!("{}: {e}", path.display())),
     }
+}
+
+/// The registry's name for the project in `folder`, when one is registered there.
+fn registered_name(store: &Store, folder: &Path) -> Option<String> {
+    let registry = store.load().ok()?.registry;
+    let root = registry.data_root();
+    registry
+        .projects
+        .iter()
+        .find(|project| paths::same(&project.folder(&root), folder))
+        .map(|project| project.name.clone())
 }
 
 /// Prints what a launch of a project's next brief starts from (D-17, D-22): the rule table's

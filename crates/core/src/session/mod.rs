@@ -40,7 +40,7 @@ pub use protocol::{
 };
 
 use crate::ledger::{Finished, Ledger, NewSession};
-use crate::process;
+use crate::{process, revert};
 use launch::CommandLine;
 use protocol::Protocol;
 
@@ -166,14 +166,25 @@ impl Session {
         let (events_tx, events) = mpsc::channel();
         let (orders, orders_rx) = unbounded_channel();
         let (started_tx, started) = mpsc::sync_channel(1);
+
+        let _turn = process::turn();
+        // The project as it stands before the child can change it, for a revert (EP-15b): read in
+        // this turn, the one git child before the session's own.
+        let start = match (&launch.starts, &launch.resume) {
+            (Some(backups), None) => Some(revert::start::capture(
+                &launch.folder,
+                &revert::start::copies_dir(backups, &launch.folder, &session_id),
+                Utc::now(),
+            )),
+            _ => None,
+        };
         let job = Job {
             program: preflight.program.clone(),
             line,
             launch,
             session_id: session_id.clone(),
+            start,
         };
-
-        let _turn = process::turn();
         let last = *LAST_START.lock().unwrap_or_else(PoisonError::into_inner);
         if let Some(since) = last.map(|at| at.elapsed())
             && since < SPAWN_SPACING
@@ -227,6 +238,9 @@ struct Job {
     line: CommandLine,
     launch: Launch,
     session_id: String,
+    /// The project's start, read before the spawn, or why it was not (EP-15b); none when the
+    /// launch records no start.
+    start: Option<Result<revert::Start, String>>,
 }
 
 impl Job {
@@ -273,6 +287,9 @@ impl Job {
             if let Err(e) = &row {
                 let _ = events.send(Event::Notice(e.clone()));
             }
+            if let Some(notice) = self.keep_start(row.as_ref().ok().copied().flatten()) {
+                let _ = events.send(Event::Notice(notice));
+            }
             let (ended, tally) = watch(child, &self.launch, &events, orders).await;
             self.forget_answer();
             if let Ok(Some(row)) = row
@@ -314,6 +331,22 @@ impl Job {
             })
             .map(Some)
             .map_err(|e| format!("the ledger did not record the session: {e}"))
+    }
+
+    /// Writes the start read before the spawn into the run's `row` (EP-15b); a notice when it was
+    /// not recorded.
+    fn keep_start(&self, row: Option<i64>) -> Option<String> {
+        match (&self.start, row, &self.launch.ledger) {
+            (Some(Ok(start)), Some(row), Some(path)) => Ledger::open(path)
+                .and_then(|ledger| ledger.set_start(row, &start.to_json()))
+                .err()
+                .map(|e| format!("the ledger did not keep the session's start: {e}")),
+            (Some(Err(why)), _, _) => Some(format!(
+                "the session's start was not recorded, so a revert goes back to the last brief \
+                 recorded before it: {why}"
+            )),
+            _ => None,
+        }
     }
 
     fn record_end(&self, row: i64, ended: &Ended, tally: &Tally) -> Result<(), String> {

@@ -1996,6 +1996,7 @@ mod tests {
             result: None,
             context_percent: None,
             answer_latency_s: None,
+            start: None,
         };
         let start = "2026-11-02T10:00:00Z";
         assert_eq!(

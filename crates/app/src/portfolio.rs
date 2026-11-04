@@ -1091,7 +1091,7 @@ pub(crate) mod tests {
     }
 
     /// A folder under the system temp folder, removed when dropped.
-    pub(crate) struct Scratch(PathBuf);
+    pub(crate) struct Scratch(pub(crate) PathBuf);
 
     impl Scratch {
         pub(crate) fn new(name: &str) -> Self {

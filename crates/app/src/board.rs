@@ -26,7 +26,7 @@ use crw_core::registry::{State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
-use crw_core::{files, inbox, paths, prompt, tasks};
+use crw_core::{files, inbox, paths, prompt, revert, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
@@ -447,6 +447,7 @@ impl Board {
                     Some(Registered {
                         name: row.name().to_owned(),
                         folder: row.folder.as_ref()?.path.clone(),
+                        revert: row.project.revert,
                     })
                 })
                 .collect()
@@ -916,9 +917,10 @@ impl Board {
                 match inbox::tick(&folder, &id, &disposition, &self.store().backups, &today) {
                     Ok(copy) => {
                         self.drafts.remove(&key);
+                        let logged = self.log_tick(&project, &id, true, Some(&disposition));
                         self.notify(format!(
                             "Ticked {id} in {project} with its disposition; the file as it was \
-                             is kept as {}.",
+                             is kept as {}.{logged}",
                             copy.display()
                         ));
                     }
@@ -972,14 +974,35 @@ impl Board {
             tasks::untick(&folder, id, &backups, today)
         };
         match done {
-            Ok(copy) => self.notify(format!(
-                "{} {id} in {project}; the file as it was is kept as {}.",
-                if checked { "Ticked" } else { "Cleared" },
-                copy.display()
-            )),
+            Ok(copy) => {
+                let logged = self.log_tick(project, id, checked, None);
+                self.notify(format!(
+                    "{} {id} in {project}; the file as it was is kept as {}.{logged}",
+                    if checked { "Ticked" } else { "Cleared" },
+                    copy.display()
+                ));
+            }
             Err(e) => self.fail(format!("{project} {id}: {e}")),
         }
         true
+    }
+
+    /// Logs a tick the window made in the ledger, for a revert to redo (EP-15b): nothing to add
+    /// to the notice when the ledger took it, else a sentence that says so.
+    fn log_tick(
+        &self,
+        project: &str,
+        id: &str,
+        checked: bool,
+        disposition: Option<&str>,
+    ) -> String {
+        match &self.ledger {
+            Some(path) => match revert::log_tick(path, project, id, checked, disposition) {
+                Ok(()) => String::new(),
+                Err(why) => format!(" A revert would not redo it: {why}."),
+            },
+            None => String::new(),
+        }
     }
 
     /// Opens the launch dialog on `name`'s next brief (D-17, D-22): the rule table's resolution
@@ -1136,6 +1159,15 @@ impl Board {
         dialog.error = None;
         let mut launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
+        // The project's start, read just before the run for a revert, unless its switch is off
+        // (EP-15b).
+        if self
+            .portfolio
+            .project(&launch.project)
+            .is_some_and(|row| row.project.revert)
+        {
+            launch.starts = Some(self.store().backups.clone());
+        }
         // The route as it stands now: a refused handshake since the dialog opened counts (D-19).
         launch.route = self
             .sessions

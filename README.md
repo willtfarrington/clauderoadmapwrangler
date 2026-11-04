@@ -38,7 +38,10 @@ protocol, and a session waiting in VS Code is listed with Focus. A panic leaves 
 `crash.log` in the local folder, and the next start names it in the status bar (EP-14a). A popup of
 the window's own tells the owner when a session waits for them, has finished or has failed, a tray
 icon counts what waits, and closing the window leaves it in the tray with its sessions going on
-(EP-15). The roadmap is
+(EP-15). Each session's start is recorded: the project's HEAD, its branch and a copy of its
+uncommitted files, kept in the backups folder. `crw revert` puts a project back as it was when a
+session started, after copying the session's work out; it never pushes, and it is refused while
+a session works there or when the remote has one of the session's commits (EP-15b). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -73,6 +76,9 @@ target\release\crw.exe prompt <folder> [--visual|--headless]
                                         # mode, model, effort and permission mode with their
                                         # reasons, the prompt worded for the mode
 target\release\crw.exe sessions [<folder>] [--all]  # the ledger's sessions, the newest first; reads only
+target\release\crw.exe revert <project> [<id>]    # preview undoing its latest session, or the one named
+target\release\crw.exe revert <project> <id> --yes  # copy the work out, then put the project back
+target\release\crw.exe set <project> revert no    # record no session starts there, and allow no revert
 target\release\crw.exe notifications [--all]      # the window's notifications and badges; reads only
 target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
 target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,

@@ -12,10 +12,10 @@ use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 /// The schema this build writes: the number of migrations.
-pub const SCHEMA_VERSION: u32 = 3;
+pub const SCHEMA_VERSION: u32 = 4;
 
 /// `MIGRATIONS[i]` brings the schema from version `i` to `i + 1`, each in one transaction.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4];
 
 /// The most of a run's final text its row keeps, in characters.
 const RESULT_CAP: usize = 8000;
@@ -107,12 +107,22 @@ ALTER TABLE session ADD COLUMN result TEXT;
 ALTER TABLE session ADD COLUMN context_percent REAL;
 ";
 
-/// The `session` columns a [`SessionRow`] reads, in its order; a ledger opened to read at schema 2
-/// has no result or context yet.
+const V4: &str = "
+-- The project as it stood at the session's start, as JSON: its HEAD, its branch, its uncommitted
+-- files and where their copies are (D-26, EP-15b); none when no start was recorded.
+ALTER TABLE session ADD COLUMN start TEXT;
+";
+
+/// The `session` columns a [`SessionRow`] reads, in its order; a ledger opened to read at an older
+/// schema has no start (schema 3), and no result or context either (schema 2).
 const SESSION_COLUMNS: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s";
+    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s, \
+    start";
+const SESSION_COLUMNS_V3: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
+    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s, \
+    NULL";
 const SESSION_COLUMNS_V2: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL, answer_latency_s";
+    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL, answer_latency_s, NULL";
 
 /// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -169,6 +179,8 @@ pub struct SessionRow {
     pub context_percent: Option<f64>,
     /// The mean seconds the owner took to answer the run's requests (from EP-14).
     pub answer_latency_s: Option<f64>,
+    /// The project at the session's start, as `revert::Start`'s JSON (from EP-15b).
+    pub start: Option<String>,
 }
 
 impl SessionRow {
@@ -401,6 +413,47 @@ impl Ledger {
         Ok(())
     }
 
+    /// Writes a session's start (`revert::Start`'s JSON) into the row `id` when that row has none
+    /// (EP-15b); `true` when written.
+    pub fn set_start(&self, id: i64, start: &str) -> Result<bool, Error> {
+        let changed = self.connection.execute(
+            "UPDATE session SET start = ?2 WHERE id = ?1 AND start IS NULL",
+            (id, start),
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Writes a session's start into the first row of `session_id` when no row of it has one: a
+    /// start the window read after the session earned its row (EP-15b). `true` when written.
+    pub fn set_start_of(&self, session_id: &str, start: &str) -> Result<bool, Error> {
+        if self.start_of(session_id)?.is_some() {
+            return Ok(false);
+        }
+        let changed = self.connection.execute(
+            "UPDATE session SET start = ?2 WHERE id = \
+             (SELECT id FROM session WHERE session_id = ?1 ORDER BY started_at, id LIMIT 1)",
+            (session_id, start),
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// The start recorded for `session_id`: the first of its rows that holds one, so that a
+    /// resumed session keeps its first run's (EP-15b). None in a ledger older than schema 4.
+    pub fn start_of(&self, session_id: &str) -> Result<Option<String>, Error> {
+        if self.version < 4 {
+            return Ok(None);
+        }
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT start FROM session WHERE session_id = ?1 AND start IS NOT NULL \
+                 ORDER BY started_at, id LIMIT 1",
+                [session_id],
+                |row| row.get(0),
+            )
+            .optional()?)
+    }
+
     /// The mode of the row that holds `session_id`, if one does.
     pub fn mode_of(&self, session_id: &str) -> Result<Option<String>, Error> {
         Ok(self
@@ -498,10 +551,10 @@ impl Ledger {
     }
 
     fn session_rows(&self, order: &str, limit: Option<usize>) -> Result<Vec<SessionRow>, Error> {
-        let columns = if self.version >= 3 {
-            SESSION_COLUMNS
-        } else {
-            SESSION_COLUMNS_V2
+        let columns = match self.version {
+            4.. => SESSION_COLUMNS,
+            3 => SESSION_COLUMNS_V3,
+            _ => SESSION_COLUMNS_V2,
         };
         let mut statement = self
             .connection
@@ -524,6 +577,7 @@ impl Ledger {
                 result: row.get(13)?,
                 context_percent: row.get(14)?,
                 answer_latency_s: row.get(15)?,
+                start: row.get(16)?,
             })
         };
         let rows = match limit {
@@ -789,9 +843,9 @@ mod tests {
         assert!(tables(&ledger).contains(&"badge_cache".to_owned()));
         drop(ledger);
 
-        let next = [V1, V2, V3, "ALTER TABLE event ADD COLUMN source TEXT;"];
+        let next = [V1, V2, V3, V4, "ALTER TABLE event ADD COLUMN source TEXT;"];
         let ledger = Ledger::open_with(&path, &next).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 4);
+        assert_eq!(ledger.schema_version().unwrap(), 5);
         ledger
             .connection
             .execute(
@@ -805,24 +859,24 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 2, "the migrations kept the earlier row");
         drop(ledger);
-        // This build knows up to version 3 and leaves the file at version 4.
+        // This build knows up to version 4 and leaves the file at version 5.
         assert!(matches!(
             Ledger::open(&path),
             Err(Error::Newer {
-                found: 4,
-                supported: 3
+                found: 5,
+                supported: 4
             })
         ));
         assert!(matches!(
             Ledger::open_read_only(&path),
-            Err(Error::Newer { found: 4, .. })
+            Err(Error::Newer { found: 5, .. })
         ));
         assert_eq!(
             Ledger::open_with(&path, &next)
                 .unwrap()
                 .schema_version()
                 .unwrap(),
-            4
+            5
         );
     }
 
@@ -902,9 +956,9 @@ mod tests {
                 .unwrap(),
             2
         );
-        // The window's open brings it to schema 3 with the row kept.
+        // The window's open brings it to this build's schema with the row kept.
         let ledger = Ledger::open(&path).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 3);
+        assert_eq!(ledger.schema_version().unwrap(), SCHEMA_VERSION);
         assert_eq!(
             ledger.sessions().unwrap()[0].session_id.as_deref(),
             Some("s-1")
@@ -1166,6 +1220,48 @@ mod tests {
             rows.iter().find(|r| r.mode == "headless").unwrap().outcome,
             None
         );
+    }
+
+    /// A session's start (EP-15b): written once, into its first row, and read from there; a
+    /// schema 3 ledger reads with none.
+    #[test]
+    fn a_sessions_start_is_kept_once_in_its_first_row() {
+        let scratch = Scratch::new("ledger-start");
+        let path = scratch.0.join("ledger.sqlite");
+        let older = Ledger::open_with(&path, &[V1, V2, V3]).unwrap();
+        older
+            .start_session(&NewSession {
+                session_id: Some("s-1"),
+                ..launch("alpha", "headless", "2026-11-03T10:00:00Z")
+            })
+            .unwrap();
+        drop(older);
+        let read = Ledger::open_read_only(&path).unwrap();
+        assert_eq!(read.start_of("s-1").unwrap(), None);
+        assert_eq!(read.recent_sessions(1).unwrap()[0].start, None);
+        drop(read);
+
+        let ledger = Ledger::open(&path).unwrap();
+        let first = ledger.sessions().unwrap()[0].id;
+        // A resume's row, later, of the same session.
+        let resumed = ledger
+            .start_session(&NewSession {
+                session_id: Some("s-1"),
+                ..launch("alpha", "headless", "2026-11-03T11:00:00Z")
+            })
+            .unwrap();
+        assert!(ledger.set_start_of("s-1", r#"{"first":1}"#).unwrap());
+        assert!(!ledger.set_start_of("s-1", r#"{"second":2}"#).unwrap());
+        assert!(!ledger.set_start(first, r#"{"third":3}"#).unwrap());
+        assert!(ledger.set_start(resumed, r#"{"own":4}"#).unwrap());
+        assert_eq!(
+            ledger.start_of("s-1").unwrap().as_deref(),
+            Some(r#"{"first":1}"#)
+        );
+        let rows = ledger.sessions().unwrap();
+        assert_eq!(rows[0].start.as_deref(), Some(r#"{"first":1}"#));
+        assert_eq!(ledger.start_of("s-2").unwrap(), None);
+        assert!(!ledger.set_start_of("s-2", "{}").unwrap(), "no row of it");
     }
 
     #[test]

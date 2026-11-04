@@ -95,6 +95,14 @@ impl Status {
 pub struct Registered {
     pub name: String,
     pub folder: PathBuf,
+    /// Its sessions' starts are recorded for a revert: the registry's `revert` switch (EP-15b).
+    pub revert: bool,
+}
+
+/// The registered project whose folder is `folder` or holds it, as [`project_of`] finds it.
+pub fn registered_of<'a>(projects: &'a [Registered], folder: &Path) -> Option<&'a Registered> {
+    let name = project_of(projects, folder)?;
+    projects.iter().find(|project| project.name == name)
 }
 
 /// The registered project whose folder is `folder` or holds it, case aside; the deepest wins.
@@ -628,10 +636,12 @@ mod tests {
             .map(|name| Registered {
                 name: name.to_owned(),
                 folder: PathBuf::from(format!(r"C:\Data\{name}")),
+                revert: true,
             })
             .chain([Registered {
                 name: "nested".to_owned(),
                 folder: PathBuf::from(r"C:\Data\beta\nested"),
+                revert: false,
             }])
             .collect()
     }
@@ -683,6 +693,9 @@ mod tests {
         assert_eq!(of(r"C:\Data\beta\nested\deep").as_deref(), Some("nested"));
         assert_eq!(of(r"C:\Data\TEMP\scratch"), None);
         assert_eq!(of(""), None);
+        let nested = registered_of(&projects, Path::new(r"C:\Data\beta\nested\x")).unwrap();
+        assert_eq!((nested.name.as_str(), nested.revert), ("nested", false));
+        assert!(registered_of(&projects, Path::new(r"C:\Elsewhere")).is_none());
         assert!(interactive(Some("claude-vscode")));
         assert!(interactive(Some("cli")));
         assert!(interactive(None));

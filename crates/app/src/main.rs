@@ -92,7 +92,8 @@ fn main() -> eframe::Result {
             if let Some(home) = paths::home() {
                 board.home_note = Some(format!("{}={}", paths::HOME_VAR, home.display()));
             }
-            board.watch.start(port, program, &cc.egui_ctx);
+            let backups = board.store().backups.clone();
+            board.watch.start(port, program, backups, &cc.egui_ctx);
             // The notifications and the tray icon (D-21, D-29; EP-15), on this thread, whose
             // message loop serves the icon. Without the icon, closing the window quits as before.
             board.toasts.start(paths::ledger_file());

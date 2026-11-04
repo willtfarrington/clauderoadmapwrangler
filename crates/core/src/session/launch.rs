@@ -80,6 +80,9 @@ pub struct Launch {
     /// For a resume that carries the owner's answer to a deferred request, by the hook or in its
     /// message: how long the owner took, from the deferral to the resume (EP-14).
     pub answered_after: Option<Duration>,
+    /// The backups folder, when the run records the project's start for a revert (EP-15b): the
+    /// project's `revert` switch is on. A resume records none and keeps its first run's.
+    pub starts: Option<PathBuf>,
 }
 
 /// How a headless run's questions and permission requests reach the owner (D-19; EP-14); the
@@ -137,6 +140,7 @@ impl Launch {
             answer_timeout: None,
             answer: None,
             answered_after: None,
+            starts: None,
         }
     }
 
