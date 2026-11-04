@@ -267,6 +267,7 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                     Target::VsCode(_) => "Bring its VS Code window forward",
                     Target::Decisions => "Show the window on the Decisions pane",
                     Target::Session(_) => "Show the window on the session's tab",
+                    Target::Usage => "Show the window on the Usage pane",
                     Target::Window => "Show the window",
                 };
                 if ui

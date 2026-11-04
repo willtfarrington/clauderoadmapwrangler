@@ -55,14 +55,10 @@ impl Pane {
     /// (EP-13, EP-14).
     fn placeholder(self) -> Option<&'static str> {
         match self {
-            Pane::Projects | Pane::Detail | Pane::Decisions | Pane::Sessions => None,
+            Pane::Projects | Pane::Detail | Pane::Decisions | Pane::Sessions | Pane::Usage => None,
             Pane::Chat => Some(
                 "The chat tile arrives at EP-24: a read-only Claude Code session over the whole \
                  portfolio, which hands its writes to a session in the project.",
-            ),
-            Pane::Usage => Some(
-                "The usage tile arrives at EP-17: the account's weekly and Fable usage with the \
-                 reset countdowns and the last seven days.",
             ),
         }
     }
@@ -176,6 +172,7 @@ impl egui_tiles::Behavior<Pane> for Board {
                 Pane::Detail => self.detail_pane(ui),
                 Pane::Decisions => self.decisions_pane(ui),
                 Pane::Sessions => self.sessions_pane(ui),
+                Pane::Usage => self.usage_pane(ui),
                 pane => placeholder(ui, pane.placeholder().unwrap_or_default()),
             });
         UiResponse::None

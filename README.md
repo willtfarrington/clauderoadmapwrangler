@@ -46,7 +46,9 @@ a session works there or when the remote has one of the session's commits (EP-15
 previews the same revert in a dialog, from an ended session's tab, a ledger row of the Sessions
 pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The P2 re-plan
 (EP-16) measured the phase and made the switch planned from the start: from EP-17 on, this
-project's own briefs are started from the tool, as visual launches by default. The roadmap is
+project's own briefs are started from the tool, as visual launches by default. The usage meter
+(EP-17) shows the account's weekly, Fable and five-hour usage in the status bar and a pane of its
+own, with notifications at 80 % and 95 %. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -86,6 +88,8 @@ target\release\crw.exe revert <project> <id> --yes  # copy the work out, then pu
 target\release\crw.exe set <project> revert no    # record no session starts there, and allow no revert
 target\release\crw.exe notifications [--all]      # the window's notifications and badges; reads only
 target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
+target\release\crw.exe usage            # the usage meter's readings and changes of state; reads only
+target\release\crw.exe setting usage_endpoint off  # keep the meter on the status lines; on undoes it
 target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,
                                         # whether a window listens, what an install would change
 target\release\crw.exe signals install [--inbox]  # write them, after a dated copy of the file
@@ -177,6 +181,20 @@ click on it shows the window; its menu shows the window too, opens the launch di
 project's next brief, or quits. Closing the window leaves it in the tray with its headless sessions
 going on, and Quit asks first when it would stop them. Each notification and what became of it,
 each Show and each badge is a line in the ledger, which `crw notifications` prints.
+
+The usage meter (EP-17) polls the undocumented `GET https://api.anthropic.com/api/oauth/usage`,
+treated as breakable, every 5 minutes, soon after a session the tool launched ends, and with a
+backoff from 1 to 30 minutes while it fails. Each poll reads the OAuth token from Claude Code's
+`.credentials.json` at that moment and sends it to that host alone, through WinHTTP, Windows' own
+HTTP stack; the token is never written, logged or shown. The status bar shows the weekly limit, the
+Fable-scoped one and the five-hour window while it is open, each a small bar with its percent
+(amber from 80 %, red from 95 %). The Usage pane shows each limit with its reset countdown, the
+week's use by surface, extra usage and a sparkline of the last seven days. The status lines' rate
+limits are the meter's second series: when the endpoint fails, it shows the newest figures it has,
+marked degraded with the reason. A notification comes when the weekly or the Fable limit passes
+80 % and 95 %, once per mark in each limit window. Each reading is a sample in the ledger, which
+`crw usage` prints with the meter's changes of state; `crw setting usage_endpoint off` keeps the
+meter on the status lines alone.
 
 Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio

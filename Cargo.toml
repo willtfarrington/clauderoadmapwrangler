@@ -32,7 +32,9 @@ image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # `windows` (the version process-wrap locks) names the no-window creation flag; uuid's v4 (the
 # version claude-codes locks) makes the pre-assigned session id. From EP-11, `windows` also asks
 # whether the process of a VS Code lock file still runs (the features process-wrap compiles in).
-# From EP-12, tokio's `net` carries the window's loopback server.
+# From EP-12, tokio's `net` carries the window's loopback server. From EP-17, `windows` also
+# makes the usage meter's one HTTPS request through WinHTTP, Windows' own HTTP stack (the owner's
+# choice over a client crate).
 claude-codes = { version = "=2.1.316", default-features = false, features = ["types"] }
 process-wrap = { version = "=10.0.1", default-features = false, features = [
     "creation-flags",
@@ -50,7 +52,11 @@ tokio = { version = "=1.54.1", features = [
     "time",
 ] }
 uuid = { version = "=1.29.0", features = ["v4"] }
-windows = { version = "=0.62.2", features = ["Win32_Foundation", "Win32_System_Threading"] }
+windows = { version = "=0.62.2", features = [
+    "Win32_Foundation",
+    "Win32_Networking_WinHttp",
+    "Win32_System_Threading",
+] }
 
 # Roadmaps, the registry and the ledger (D-8, D-9, D-11). toml_edit (added at EP-2, the version
 # the GUI family already locked) changes the hand-edited registry without losing its comments.

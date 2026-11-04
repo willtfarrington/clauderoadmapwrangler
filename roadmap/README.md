@@ -686,7 +686,7 @@ every commit's added lines are checked before it is made, the repository being p
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-17 | Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23) | M | EP-12 | core | ☐ |
+| EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☐ |
 | EP-18 | Usage coupling: Fable-share downshift rule, before-and-after delta attribution per session, usage-share badge (D-23) | S | EP-10, EP-17 | core | ☐ |
 | EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
@@ -764,7 +764,15 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   effort is a preference the extension stores for itself, so no launch can set it. This brief,
   whose downshift is also only a suggestion for a visual launch, makes the dialog plain about it:
   in Visual mode the pickers serve Headless only, or they say that the tab's own panel is where
-  the owner chooses, once it opens.
+  the owner chooses, once it opens. **From EP-17:** the figures are `usage::Gauge::figures(now)`
+  (the window's `meter.gauge`), each with its `source` and the time it was read. Fable is the
+  endpoint's alone: absent before the first reading, and the last reading's while the endpoint
+  fails (`Figures::degraded` says why), so the downshift reads it with its age. The session row's
+  `weekly_before`/`after` and `fable_before`/`after` are V1's columns and need no migration. The
+  meter polls as soon as a launched session ends (no sooner than a minute after the last poll),
+  so the "after" figures can be the first `endpoint` sample after the row's end and the "before"
+  the last one before its start (`Ledger::samples_since`); a `statusline` sample carries its
+  session's id.
 - **EP-35.** Added at EP-16 (2026-11-04) for EP-14a's and EP-15b's notes (D-16 addendum): a run a
   crash or a quit window cut short keeps its ledger row but has no Resume in the next window,
   since its launch's choices lived in the old one, and `claude --resume` in a terminal is today's
@@ -834,7 +842,12 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   but up to 2 h 45 min of wall time with the owner's answers and trials (D-4 addendum); the caps
   count the wall clock, so a run that waits in the Decisions tile can reach its cap while it
   waits, and the brief decides whether a cap pauses while a request is open. EP-35's Resume in VS
-  Code picks up a chained run that a crash cut short.
+  Code picks up a chained run that a crash cut short. **From EP-17:** the gate's weekly and Fable
+  figures are `usage::Gauge::figures(now)`, each with its `at` and `source`. While the endpoint
+  fails (`Figures::degraded`), weekly may come from a status line and Fable is the last reading's,
+  so the brief decides how old a figure the gate trusts and whether a missing Fable refuses the
+  chain. A limit's `resets_at` is the pause's resume time. The notifications' marks stay 80 % and
+  95 % (`usage::WARN`, `usage::ALARM`); the pause at 90 % is the chain's own rule.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -1001,7 +1014,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   reading a transcript (D-26); the brief decides, and the re-plans' retros give figures to check
   it against. In a narrow pane the Progress section's long phase names run past the pane's edge,
   since an egui `Grid` does not wrap its cells (EP-15a's note, placed here by the owner): the
-  rebuilt section wraps them.
+  rebuilt section wraps them. **From EP-17:** the usage samples are `usage_sample` rows (source
+  `endpoint` every 5 minutes while a window runs, `statusline` when a session's figures change),
+  read with `Ledger::samples_since`; the Usage pane's 7-day sparkline is drawn with egui's
+  painter (`meter::sparkline`), which egui_plot may replace once the pins move.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to

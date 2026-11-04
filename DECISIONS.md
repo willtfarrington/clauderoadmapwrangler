@@ -360,6 +360,14 @@ with modules; hand-written protocol types; another community client.
 > Windows Error Reporting's dumps (the session's thread would no longer record the run's end); the
 > report in the ledger (a panicking thread should not open SQLite).
 
+> **Addendum (2026-11-04, EP-17).** The usage meter's one HTTPS request goes through WinHTTP,
+> Windows' own HTTP stack, called through the `windows` crate the lock already pinned (its
+> `Win32_Networking_WinHttp` feature), so no client crate joins the lock, and TLS, the
+> certificate store and the proxy settings are the system's (the owner's choice at EP-17's
+> pickup). A loopback host, the tests' listener, is reached over plain HTTP without a proxy.
+> *Alternatives.* ureq with native-tls; reqwest with rustls; `curl.exe` from System32 at each
+> poll, the token on its standard input.
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -744,6 +752,47 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > only, where a configured status line also hides most of the footer's key hints; the owner had it
 > installed all the same, and EP-17's degraded meter inherits the finding. *Alternatives.* The
 > hooks only until EP-17; a status line that prints the figures.
+
+> **Addendum (2026-11-04, EP-17).** Built (`crw_core::usage`, `app::meter`), on WinHTTP (D-14
+> addendum).
+>
+> - **The token** is read from Claude Code's `.credentials.json` at each poll into a value that
+>   never prints and is overwritten when it drops. An expired one is not sent. The request goes to
+>   `api.anthropic.com` alone, with the beta header and the tool's own user agent.
+> - **The schedule.** The first poll comes 5 s after the window starts, then one every 5 min, and
+>   one as soon as a launched session ends, though no sooner than a minute after the last poll
+>   (a visual or headless session's end as the hooks report it, or a window's run's). After a
+>   failure of the endpoint
+>   the meter waits 1, 2, 4, 8 and 16 min, then 30, and honours a 429's `Retry-After` up to a day.
+>   A problem on this machine (no credentials, an expired token) is looked at again each minute.
+> - **The reading** keeps `limits[]` (weekly_all; the scoped limits by name, Fable's among them),
+>   `five_hour`, `seven_day` when no weekly_all is given, the breakdown by surface and extra
+>   usage. A `limits[]` kind it does not know is kept under its own name and shown in the pane,
+>   so a limit the endpoint adds or brings back still shows. Each reading also keeps the answer's
+>   shape, its keys and value kinds with the limits' kinds by name and never a number or a text,
+>   which `crw usage` prints. An answer with no weekly or scoped limit is a schema change, named
+>   by that shape.
+> - **The merge.** While the last poll succeeded and is under 15 min old, the endpoint's figures
+>   stand. Otherwise each figure is the newest of its last reading and the status lines' (Fable
+>   the reading's alone), and a failed poll marks the strip and the pane degraded, with the reason.
+> - **The records.** Each successful poll is a `usage_sample` row of source `endpoint`, and the
+>   cache the next start shows first (`badge_cache`, project `""`, source `usage`). A session's
+>   status line writes a row of source `statusline` when its figures change. Each change of the
+>   meter's state is an `event` of kind `usage`; `crw usage` reads them all, and only the window
+>   polls.
+> - **The notifications** are a toast kind of their own (`notify::Kind::Usage`), of no project,
+>   never merged with another in a pass, whose Show brings the Usage pane forward. Each of the
+>   80 % and 95 % marks of the weekly and Fable limits is sent once per limit window, the window
+>   known by its reset time (a share back under 80 % starts a new one); a limit that reaches 95 %
+>   at once sends that mark alone. What was sent is kept in the cache (source `usage-alerts`), so a
+>   restart does not repeat it.
+> - **The switch.** `settings.usage_endpoint = false` (`crw setting usage_endpoint off`) keeps the
+>   meter on the status lines alone. `on` takes the key out, since a build before EP-17 refuses
+>   it.
+>
+> *Alternatives.* The token kept in memory between polls; a poll from `crw`; a mark notified at
+> each crossing whatever the window; egui_plot for the sparkline (it would move the egui family,
+> D-15).
 
 ## Hosting, views, history
 

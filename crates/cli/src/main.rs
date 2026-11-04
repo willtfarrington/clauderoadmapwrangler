@@ -9,7 +9,9 @@
 //! a write, from EP-13; `hook --defer` and `hook --answer`, the defer route's decisions, and a
 //! project's `answer_timeout`, from EP-14; `notifications`, the window's log read without a
 //! write, and the `quiet_hours` setting from EP-15; `revert`, a session undone back to its start,
-//! and a project's `revert` switch from EP-15b; `inbox send` arrives with its brief.
+//! and a project's `revert` switch from EP-15b; `usage`, the meter's readings in the ledger read
+//! without a write, and the `usage_endpoint` setting from EP-17; `inbox send` arrives with its
+//! brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -41,7 +43,7 @@ use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, notify, paths, process, prompt, proposal, workspace};
+use crw_core::{files, git, notify, paths, process, prompt, proposal, usage, workspace};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -88,7 +90,8 @@ commands:
                                  (protocol, or defer: a headless run ends at a question and the
                                  answer resumes it), quiet_hours (HH:MM-HH:MM in local time, such
                                  as 22:00-07:00, when the window holds its notifications back;
-                                 none for notifications at any hour)
+                                 none for notifications at any hour), usage_endpoint (on, the
+                                 default, or off: the window's meter keeps to the status lines)
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
@@ -112,6 +115,11 @@ commands:
                                  or every one with --all: each one and what became of it (in the
                                  popup, held back by the quiet hours or the window in front, a
                                  repeat), each one opened with Show, and each badge; reads only
+  usage                          print the usage meter's readings from the ledger: the endpoint's
+                                 last reading (each limit, its reset, the week by surface), the
+                                 marks notified, the latest samples of the endpoint and the
+                                 status lines, the meter's last changes of state; reads only, and
+                                 never the credentials or the network (only the window polls)
   signals [status]               print the tool's hooks and status line in Claude Code's user
                                  settings, what an install would change, and whether a window
                                  listens for them
@@ -201,6 +209,7 @@ fn main() -> ExitCode {
         ["sessions", rest @ ..] => sessions(rest),
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
+        ["usage"] => usage(),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
@@ -1549,6 +1558,15 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 println!("note: a window that runs reads it before its next notification");
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "usage_endpoint" => {
+                if registry.settings.usage_endpoint_on() {
+                    println!("usage_endpoint = on (the default)");
+                } else {
+                    println!("usage_endpoint = off: the meter shows the status lines' figures");
+                }
+                println!("note: a window that runs reads it at its next poll");
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
@@ -1580,6 +1598,7 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "port") => format!("{} (the default)", registry.port()),
             (None, "decisions") => format!("{} (the default)", session::Route::default().as_str()),
             (None, "quiet_hours") => "none (the default: notifications at any hour)".to_owned(),
+            (None, "usage_endpoint") => "on (the default: the window polls it)".to_owned(),
             (None, _) => "not set".to_owned(),
         };
         println!("  {name:<16} {value}");
@@ -1649,6 +1668,162 @@ fn notifications(args: &[&str]) -> ExitCode {
         let project = row.project.as_deref().unwrap_or("-");
         let detail = row.detail.as_deref().unwrap_or_default();
         println!("  {when}  {project:<width$}  {detail}");
+    }
+    ExitCode::SUCCESS
+}
+
+/// How many of the latest usage samples `crw usage` prints, and of the meter's changes of state.
+const SAMPLES_SHOWN: usize = 12;
+const SHIFTS_SHOWN: usize = 5;
+
+/// Prints the usage meter's readings from the ledger (D-23; EP-17), read without migrating or
+/// writing it, and without the credentials or the network: only the window polls.
+fn usage() -> ExitCode {
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if !path.exists() {
+        println!(
+            "No ledger yet at {}: the window makes it at its first start.",
+            path.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+    let read = Ledger::open_read_only(&path).and_then(|ledger| {
+        Ok((
+            ledger.cached_one("", usage::CACHE_SOURCE)?,
+            ledger.cached_one("", usage::ALERTS_SOURCE)?,
+            ledger.latest_samples(SAMPLES_SHOWN)?,
+            ledger.events(usage::EVENT_KIND, Some(SHIFTS_SHOWN))?,
+        ))
+    });
+    let (reading, alerts, samples, shifts) = match read {
+        Ok(read) => read,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    let now = Utc::now();
+    let local = |at: DateTime<Utc>| {
+        at.with_timezone(&chrono::Local)
+            .format("%Y-%m-%d %H:%M:%S")
+            .to_string()
+    };
+    println!(
+        "crw {} usage ({})",
+        env!("CARGO_PKG_VERSION"),
+        path.display()
+    );
+    match reading
+        .as_ref()
+        .and_then(|row| Some((row, usage::Reading::from_json(&row.data)?)))
+    {
+        None => println!("  no reading of the endpoint yet: the window polls it every 5 minutes"),
+        Some((row, reading)) => {
+            println!(
+                "  the endpoint's last reading, {} ({}):",
+                local(row.fetched_at),
+                match short_age(now - row.fetched_at).as_str() {
+                    "now" => "just now".to_owned(),
+                    age => format!("{age} ago"),
+                }
+            );
+            let mut limits = Vec::new();
+            if let Some(weekly) = &reading.weekly {
+                limits.push(("weekly".to_owned(), weekly.clone()));
+            }
+            for scoped in &reading.scoped {
+                limits.push((scoped.name.clone(), scoped.limit.clone()));
+            }
+            // A `limits[]` kind the parser does not know, by its name.
+            for other in &reading.other {
+                limits.push((other.name.clone(), other.limit.clone()));
+            }
+            if let Some(five_hour) = &reading.five_hour {
+                limits.push(("five-hour".to_owned(), five_hour.clone()));
+            }
+            let width = limits
+                .iter()
+                .map(|(name, _)| name.chars().count())
+                .max()
+                .unwrap_or(0);
+            for (name, limit) in &limits {
+                let resets = limit.resets_at.map_or_else(
+                    || "no reset given".to_owned(),
+                    |at| format!("resets {} (in {})", local(at), usage::countdown(at, now)),
+                );
+                println!(
+                    "    {name:<width$}  {:>6}  {resets}",
+                    usage::percent(limit.percent)
+                );
+            }
+            if !reading.surfaces.is_empty() {
+                let parts: Vec<String> = reading
+                    .surfaces
+                    .iter()
+                    .map(|surface| format!("{} {}", surface.name, usage::percent(surface.percent)))
+                    .collect();
+                println!("    by surface: {}", parts.join(", "));
+            }
+            if let Some(extra) = &reading.extra {
+                let state = match extra.enabled {
+                    Some(true) => "on",
+                    Some(false) => "off",
+                    None => "not given",
+                };
+                println!("    extra usage: {state}");
+            }
+            if !reading.shape.is_empty() {
+                println!("    the answer's shape: {}", reading.shape);
+            }
+        }
+    }
+    let alerts = alerts
+        .and_then(|row| usage::Alerts::from_json(&row.data))
+        .unwrap_or_default();
+    let alerted = |alerted: &Option<usage::Alerted>| {
+        alerted
+            .as_ref()
+            .map_or_else(|| "none".to_owned(), |alerted| usage::percent(alerted.mark))
+    };
+    println!(
+        "  notified in this window: weekly {}, Fable {}",
+        alerted(&alerts.weekly),
+        alerted(&alerts.fable)
+    );
+    match samples.len() {
+        0 => println!("  no samples yet"),
+        1 => println!("  the latest sample:"),
+        n => println!("  the latest {n} samples, the newest first:"),
+    }
+    for sample in &samples {
+        let figure = |name: &str, percent: Option<f64>| {
+            percent.map(|percent| format!("{name} {}", usage::percent(percent)))
+        };
+        let figures: Vec<String> = [
+            figure("weekly", sample.weekly_percent),
+            figure("Fable", sample.fable_percent),
+            figure("5 h", sample.five_hour_percent),
+        ]
+        .into_iter()
+        .flatten()
+        .collect();
+        let session = sample
+            .session_id
+            .as_deref()
+            .map(|id| format!("  (session {})", id.chars().take(8).collect::<String>()))
+            .unwrap_or_default();
+        println!(
+            "    {}  {:<10}  {}{session}",
+            local(sample.taken_at),
+            sample.source,
+            figures.join("  ")
+        );
+    }
+    if !shifts.is_empty() {
+        println!("  the meter's last changes of state, the newest first:");
+    }
+    for row in &shifts {
+        let when = row.at().map_or(row.at.clone(), local);
+        println!("    {when}  {}", row.detail.as_deref().unwrap_or_default());
     }
     ExitCode::SUCCESS
 }

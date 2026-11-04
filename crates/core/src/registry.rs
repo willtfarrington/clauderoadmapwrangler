@@ -184,11 +184,14 @@ pub struct Settings {
     /// The hours the window's notifications are held back, in local time, such as `22:00-07:00`
     /// (D-21; EP-15); none, the default, for notifications at any hour.
     pub quiet_hours: Option<QuietHours>,
+    /// Whether the window polls the usage endpoint (D-23; EP-17): on by default, written only
+    /// as `false`; off leaves the meter on the status lines alone.
+    pub usage_endpoint: Option<bool>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 9] = [
+    pub const KEYS: [&str; 10] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -198,12 +201,18 @@ impl Settings {
         "port",
         "decisions",
         "quiet_hours",
+        "usage_endpoint",
     ];
 
-    /// The keys whose value is a path; `port` is a number, `decisions` a word and `quiet_hours`
-    /// two times.
+    /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
+    /// two times and `usage_endpoint` on or off.
     pub fn is_path(key: &str) -> bool {
-        !matches!(key, "port" | "decisions" | "quiet_hours")
+        !matches!(key, "port" | "decisions" | "quiet_hours" | "usage_endpoint")
+    }
+
+    /// Whether the window may poll the usage endpoint.
+    pub fn usage_endpoint_on(&self) -> bool {
+        self.usage_endpoint != Some(false)
     }
 
     /// A setting's value as written, by its key.
@@ -219,6 +228,9 @@ impl Settings {
             "port" => self.port.map(|port| port.to_string()),
             "decisions" => self.decisions.map(|route| route.as_str().to_owned()),
             "quiet_hours" => self.quiet_hours.map(|hours| hours.to_string()),
+            "usage_endpoint" => self
+                .usage_endpoint
+                .map(|on| if on { "on" } else { "off" }.to_owned()),
             _ => None,
         }
     }
@@ -782,7 +794,8 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours` set to `none` is taken out.
+    /// `quiet_hours` set to `none` and `usage_endpoint` set to `on` (the default, which a build
+    /// before EP-17 would refuse to read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -790,7 +803,20 @@ impl Changes<'_> {
                 Settings::KEYS.join(", ")
             )));
         }
-        if key == "quiet_hours" && value.trim() == "none" {
+        let default = match key {
+            "quiet_hours" => value.trim() == "none",
+            "usage_endpoint" => match value.trim() {
+                "on" => true,
+                "off" => false,
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "usage_endpoint takes on or off, not {value:?}"
+                    )));
+                }
+            },
+            _ => false,
+        };
+        if default {
             if let Some(settings) = self
                 .document
                 .get_mut("settings")
@@ -821,6 +847,7 @@ impl Changes<'_> {
                 Ok(hours) => Value::from(hours.to_string()),
                 Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
+            "usage_endpoint" => Value::from(false),
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
             }
@@ -1541,6 +1568,40 @@ state = "paused"
         let wrong = text.replace("22:00-07:30", "evenings");
         fs::write(&store.path, wrong).unwrap();
         assert!(store.load().is_err());
+    }
+
+    #[test]
+    fn the_usage_endpoint_switch_is_written_only_when_off() {
+        let scratch = Scratch::new("registry-usage");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        assert!(store.load().unwrap().registry.settings.usage_endpoint_on());
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("usage_endpoint", "off"))
+            .unwrap();
+        assert!(!registry.settings.usage_endpoint_on());
+        assert_eq!(
+            registry.settings.get("usage_endpoint").as_deref(),
+            Some("off")
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("usage_endpoint = false"), "{text}");
+        assert!(
+            store
+                .change(TODAY, |c| c.set_setting("usage_endpoint", "maybe"))
+                .is_err()
+        );
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("usage_endpoint", "on"))
+            .unwrap();
+        assert!(registry.settings.usage_endpoint_on());
+        assert_eq!(registry.settings.usage_endpoint, None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("usage_endpoint")
+        );
     }
 
     #[test]

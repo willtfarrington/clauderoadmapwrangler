@@ -22,8 +22,8 @@ use crw_core::ledger::Ledger;
 use crw_core::process;
 use crw_core::revert::{self, Start};
 use crw_core::sessions::agents::{self, Agent};
-use crw_core::sessions::{self, Change, Registered, Seen, Sessions, VISUAL_CLAIM};
-use crw_core::signals::{Hook, Signal, install};
+use crw_core::sessions::{self, Change, Mode, Registered, Seen, Sessions, VISUAL_CLAIM};
+use crw_core::signals::{Hook, Signal, StatusLine, install};
 use eframe::egui;
 
 use crate::server::{Listening, Server};
@@ -59,6 +59,10 @@ pub struct Watch {
     pub problem: Option<String>,
     /// The ledger changed since the Sessions pane last read it (EP-13).
     pub recorded: bool,
+    /// A visual or headless session ended since the usage meter last looked (D-23; EP-17).
+    pub launched_ended: bool,
+    /// The status lines heard since the usage meter last took them (EP-17).
+    lines: Vec<StatusLine>,
     lapsed_at: Option<Instant>,
     starts: Starts,
 }
@@ -112,6 +116,11 @@ impl Watch {
         self.read_entries();
     }
 
+    /// The status lines heard since the last call, for the usage meter (EP-17).
+    pub fn take_lines(&mut self) -> Vec<StatusLine> {
+        std::mem::take(&mut self.lines)
+    }
+
     /// Reads what Claude Code's user settings hold of the tool's (at the start and on F5).
     pub fn read_entries(&mut self) {
         let Some(settings) = install::settings_file() else {
@@ -153,7 +162,10 @@ impl Watch {
             for signal in signals {
                 match signal {
                     Signal::Hook(hook) => self.take_hook(&hook, &projects, ledger, now),
-                    Signal::StatusLine(line) => self.model.status_line(&line, &projects, now),
+                    Signal::StatusLine(line) => {
+                        self.model.status_line(&line, &projects, now);
+                        self.lines.push(*line);
+                    }
                 }
             }
             for listing in listings {
@@ -308,6 +320,13 @@ impl Watch {
         let (Some(path), false) = (ledger, *change == Change::Nothing) else {
             return;
         };
+        if let Change::Ended { session_id, .. } = change
+            && self.model.all().iter().any(|seen| {
+                seen.session_id == *session_id && matches!(seen.mode, Mode::Visual | Mode::Headless)
+            })
+        {
+            self.launched_ended = true;
+        }
         match Ledger::open(path).and_then(|ledger| sessions::record(&ledger, change)) {
             Ok(mode) => {
                 self.problem = None;

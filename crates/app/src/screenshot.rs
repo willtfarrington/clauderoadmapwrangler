@@ -43,6 +43,10 @@
 //!   from EP-15c: its session from the canned ledger rows when `sessions` comes first; no git is
 //!   asked, and its Revert reverts nothing); `revert=<project>:refused` (the same plan refused,
 //!   with Close alone) and `revert=<project>:done` (what the revert did);
+//! - `usage` (the usage meter's strip and pane with a canned reading, from EP-17: weekly 41 %,
+//!   Fable past its 80 % mark, a five-hour window open, the week by surface, a status line and a
+//!   week of samples across the weekly reset); `usage=degraded` (the same with the endpoint's
+//!   last poll failed and a newer status line); `tile=usage` brings its pane forward;
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -52,7 +56,8 @@
 //! preflight and a canned VS Code with no window open, never the real CLI, VS Code or its lock
 //! files, and a run starts no session and opens nothing. In the fixture registry harbor launches
 //! headless and lantern visually. A run binds no port, polls no live session and reads no Claude
-//! Code settings (EP-12).
+//! Code settings (EP-12); its usage meter is off, or canned with `usage`, and never reads the
+//! credentials or asks the endpoint (EP-17).
 
 use std::fs;
 use std::io;
@@ -256,6 +261,9 @@ impl Run {
                     for toast in crate::toasts::canned() {
                         board.toasts.popup.push(toast);
                     }
+                }
+                "usage" => {
+                    board.meter = crate::meter::canned(chrono::Utc::now(), value == "degraded");
                 }
                 "revert" => {
                     let (project, form) = value.split_once(':').unwrap_or((value, ""));

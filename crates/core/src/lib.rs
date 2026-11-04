@@ -6,7 +6,7 @@
 //! plumbing they share with the snapshot, EP-9 the session runner, EP-10 the launch prompt, the
 //! rule table and the model catalog, EP-11 the visual launch, EP-12 the signals (the hook and
 //! status-line relays and their installation) and the sessions the tool sees, EP-15 the
-//! notifications' rules, EP-15b a session's start and its revert.
+//! notifications' rules, EP-15b a session's start and its revert, EP-17 the usage meter.
 
 pub mod badges;
 pub mod catalog;
@@ -31,6 +31,7 @@ pub mod session;
 pub mod sessions;
 pub mod signals;
 pub mod tasks;
+pub mod usage;
 pub mod version;
 pub mod visual;
 pub mod workspace;

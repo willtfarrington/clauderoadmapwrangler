@@ -1,6 +1,7 @@
 //! Notifications (D-21; EP-15): which moments reach the owner, and how. A moment that needs the
 //! owner or ends a session's work is a toast at once, in the window's own popup: a session waits
-//! for an answer, has finished, has failed (EP-17 adds the usage thresholds). A moment that only
+//! for an answer, has finished, has failed, and the account's weekly or Fable usage reaches 80 %
+//! or 95 % (EP-17, once per mark and limit window). A moment that only
 //! wants a look is a badge on the tray icon: a new unadopted folder, an orphan or a mismatched
 //! remote, a stale backup, an inbox arrival. Quiet hours, kept in the registry, hold the toasts
 //! back; the badge still counts. Each toast, toast held back, badge arrival and Show is a line of
@@ -24,6 +25,8 @@ pub enum Kind {
     Finished,
     /// A run, or a background session, failed.
     Failed,
+    /// The weekly or the Fable-scoped usage reached 80 % or 95 % (D-23; EP-17).
+    Usage,
     /// A folder of the data root that is neither registered nor ignored.
     Unadopted,
     /// A remote that needs a look: an orphan, a missing repository, an origin diverged or ahead
@@ -45,10 +48,11 @@ pub enum Channel {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 7] = [
+    pub const ALL: [Kind; 8] = [
         Kind::Waiting,
         Kind::Finished,
         Kind::Failed,
+        Kind::Usage,
         Kind::Unadopted,
         Kind::Remote,
         Kind::Backup,
@@ -58,7 +62,7 @@ impl Kind {
     /// The rule table (D-21).
     pub fn channel(self) -> Channel {
         match self {
-            Kind::Waiting | Kind::Finished | Kind::Failed => Channel::Toast,
+            Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage => Channel::Toast,
             Kind::Unadopted | Kind::Remote | Kind::Backup | Kind::Inbox => Channel::Badge,
         }
     }
@@ -68,6 +72,7 @@ impl Kind {
             Kind::Waiting => "waiting",
             Kind::Finished => "finished",
             Kind::Failed => "failed",
+            Kind::Usage => "usage",
             Kind::Unadopted => "unadopted",
             Kind::Remote => "remote",
             Kind::Backup => "backup",
@@ -191,7 +196,10 @@ mod tests {
             .into_iter()
             .filter(|kind| kind.channel() == Channel::Toast)
             .collect();
-        assert_eq!(toasts, [Kind::Waiting, Kind::Finished, Kind::Failed]);
+        assert_eq!(
+            toasts,
+            [Kind::Waiting, Kind::Finished, Kind::Failed, Kind::Usage]
+        );
         for kind in [Kind::Unadopted, Kind::Remote, Kind::Backup, Kind::Inbox] {
             assert_eq!(kind.channel(), Channel::Badge, "{kind:?}");
         }

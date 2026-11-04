@@ -9,7 +9,8 @@
 //! window forward (D-19); from EP-15 the notifications (D-21): the popup, the tray icon with its
 //! menu, closing to the tray and Quit, whose share of each pass runs while the window is hidden
 //! too (`attend`, from eframe's `App::logic`, D-29); from EP-15c a session's revert, previewed
-//! in a dialog and run on a worker thread (`revert`, D-11), which Quit waits for.
+//! in a dialog and run on a worker thread (`revert`, D-11), which Quit waits for; from EP-17 the
+//! usage meter (`meter`, D-23): its strip in the status bar, its pane and its notifications.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -35,8 +36,9 @@ use serde::{Deserialize, Serialize};
 use crate::crash;
 use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
+use crate::meter::Meter;
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
-use crate::sessions::{SessionFilter, Sessions, Started};
+use crate::sessions::{News, SessionFilter, Sessions, Started};
 use crate::style::{self, Density, icons};
 use crate::toasts::{self, Target, Toast, Toasts};
 use crate::tray::{self, Order, Tray};
@@ -286,6 +288,9 @@ pub struct Board {
     pub toasts: Toasts,
     /// The tray icon while it runs; started by `main`, never by a screenshot run or a test.
     pub tray: Option<Tray>,
+    /// The usage meter (D-23; EP-17); started by `main`, canned in a screenshot run, off in a
+    /// test.
+    pub meter: Meter,
     /// The window is hidden in the tray (D-29).
     pub hidden: bool,
     /// The first close to the tray has been said, once for good (kept with the layout).
@@ -346,6 +351,7 @@ impl Board {
             watch: Watch::default(),
             toasts: Toasts::default(),
             tray: None,
+            meter: Meter::default(),
             hidden: false,
             told_tray: false,
             quit_asked: false,
@@ -499,6 +505,16 @@ impl Board {
         if std::mem::take(&mut self.watch.recorded) {
             self.sessions.history.stale = true;
         }
+        // The usage meter's polls and its second series, the status lines (D-23; EP-17); a
+        // visual or headless session's end the hooks report brings the next poll forward.
+        let now = chrono::Utc::now();
+        self.meter.receive(now);
+        for line in self.watch.take_lines() {
+            self.meter.status_line(&line, now);
+        }
+        if std::mem::take(&mut self.watch.launched_ended) {
+            self.meter.session_ended();
+        }
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()
@@ -581,6 +597,10 @@ impl Board {
         }
         // Taken whether or not toasts are on, so that a window without them keeps none.
         let news = self.sessions.take_news();
+        if news.iter().any(|(_, news)| matches!(news, News::Ended(..))) {
+            self.meter.session_ended();
+        }
+        let crossings = self.meter.take_crossings();
         if !self.toasts.is_on() {
             return;
         }
@@ -597,6 +617,8 @@ impl Board {
             self.toasts
                 .elsewhere(&model.all(), |id| sessions.owns(id), polled),
         );
+        let now = chrono::Utc::now();
+        moments.extend(crossings.iter().map(|crossing| Toast::usage(crossing, now)));
         if !moments.is_empty() {
             let quiet = self.quiet_hours();
             for toast in self.toasts.deliver(moments, quiet, in_front, ctx) {
@@ -768,6 +790,10 @@ impl Board {
                     self.show();
                     self.sessions.tab = Some(key);
                     self.bring = Some(Pane::Sessions);
+                }
+                Target::Usage => {
+                    self.show();
+                    self.bring = Some(Pane::Usage);
                 }
                 Target::Window => self.show(),
             }
@@ -1615,6 +1641,7 @@ impl Board {
                         self.notifications_line()
                     ));
                 });
+                self.meter.strip(ui, chrono::Utc::now());
                 if let Some(note) = &self.home_note {
                     style::chip(ui, note, style::amber(ui));
                 }

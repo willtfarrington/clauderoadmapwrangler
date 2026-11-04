@@ -4,7 +4,7 @@
 //! dialog and the headless sessions it starts, EP-11 its visual launch, EP-12 the loopback server
 //! for the hooks and the status line and the sessions they report, EP-15 the notifications'
 //! popup and the tray icon, which the window closes to, EP-15c a session's revert behind its
-//! preview; later briefs fill the other tiles.
+//! preview, EP-17 the usage meter's strip and tile; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -18,6 +18,7 @@ mod launch;
 mod layout;
 mod list;
 mod markup;
+mod meter;
 mod popup;
 mod portfolio;
 mod revert;
@@ -38,7 +39,7 @@ use std::path::PathBuf;
 
 use crw_core::registry::Store;
 use crw_core::session::cli;
-use crw_core::{paths, signals};
+use crw_core::{paths, signals, usage};
 use eframe::egui;
 
 use board::{Dashboard, Places};
@@ -96,6 +97,13 @@ fn main() -> eframe::Result {
             }
             let backups = board.store().backups.clone();
             board.watch.start(port, program, backups, &cc.egui_ctx);
+            // The usage meter (D-23; EP-17): the cached reading first, then the endpoint's polls
+            // on a thread of their own, the token read from Claude Code's file at each one.
+            board.meter.start(
+                usage::credentials_file(),
+                paths::ledger_file(),
+                &cc.egui_ctx,
+            );
             // The notifications and the tray icon (D-21, D-29; EP-15), on this thread, whose
             // message loop serves the icon. Without the icon, closing the window quits as before.
             board.toasts.start(paths::ledger_file());

@@ -1,9 +1,9 @@
 //! The window's notifications (D-21; EP-15): a toast for each moment `crw_core::notify`'s rule
 //! table sends at once, shown in the window's own popup (`popup`; Windows' toasts are off on the
 //! owner's machine), and the badge events the tray icon marks (`tray`). The moments come from the
-//! window's own runs (`sessions::News`: a request, a run's end) and from the sessions Claude Code
-//! reports elsewhere, told apart from one look to the next: a wait, the end of a long turn, a
-//! background session's end. A toast is held back in the quiet hours and while the window is in
+//! window's own runs (`sessions::News`: a request, a run's end), from the sessions Claude Code
+//! reports elsewhere, told apart from one look to the next (a wait, the end of a long turn, a
+//! background session's end), and from the usage meter's marks (EP-17). A toast is held back in the quiet hours and while the window is in
 //! front (its status bar says it then); a session elsewhere's second wait within two minutes is a
 //! repeat; one session's moments of one pass make one toast. The popup's Show brings the window or
 //! the session's VS Code window forward. Each toast, toast held back, badge arrival and Show is a
@@ -21,6 +21,7 @@ use crw_core::ledger::{self, Ledger};
 use crw_core::notify::{self, Fate, Kind, QuietHours};
 use crw_core::session::Outcome;
 use crw_core::sessions::{Mode, Seen, Status};
+use crw_core::usage::{self, Crossing, Which};
 use eframe::egui;
 
 use crate::popup::Popup;
@@ -53,6 +54,8 @@ pub enum Target {
     Session(u64),
     /// The VS Code window of the project a session waits in (Focus).
     VsCode(String),
+    /// The window, the Usage pane in front (EP-17).
+    Usage,
     /// The window as it stands.
     Window,
 }
@@ -124,14 +127,56 @@ impl Toast {
         }
     }
 
+    /// A usage mark reached (D-21, D-23; EP-17): the account's, so of no project; its Show brings
+    /// the Usage pane forward.
+    pub fn usage(crossing: &Crossing, now: DateTime<Utc>) -> Self {
+        let limit = match crossing.which {
+            Which::Weekly => "weekly limit",
+            Which::Fable => "Fable-scoped weekly limit",
+        };
+        let resets = crossing.resets_at.map_or_else(
+            || "Its reset time is not known.".to_owned(),
+            |at| {
+                format!(
+                    "It resets in {}, {}.",
+                    usage::countdown(at, now),
+                    at.with_timezone(&Local).format("%A %H:%M")
+                )
+            },
+        );
+        Self {
+            kind: Some(Kind::Usage),
+            what: Kind::Usage.as_str(),
+            project: None,
+            title: cut(
+                &format!(
+                    "{} usage at {}",
+                    crossing.which.name(),
+                    usage::percent(crossing.percent)
+                ),
+                TITLE,
+            ),
+            text: cut(
+                &format!(
+                    "The {limit} is past its {} mark. {resets}",
+                    usage::percent(crossing.mark)
+                ),
+                TEXT,
+            ),
+            target: Target::Usage,
+            forced: false,
+            held: None,
+        }
+    }
+
     /// The toast in one line, for the status bar.
     pub fn words(&self) -> String {
         format!("{}: {}", self.title, self.text)
     }
 
-    /// Whether the status bar says it in amber: a wait or a failure.
+    /// Whether the status bar says it in amber: a wait, a failure, a usage mark.
     pub fn is_warning(&self) -> bool {
-        matches!(self.kind, Some(Kind::Waiting | Kind::Failed))
+        matches!(self.kind, Some(Kind::Waiting | Kind::Failed | Kind::Usage))
     }
 
     fn line(&self, fate: &Fate) -> String {
@@ -347,13 +392,15 @@ fn change(track: &mut Track, seen: &Seen, project: &str, now: DateTime<Utc>) -> 
 }
 
 /// One toast for the moments of one pass that share a kind and a target: the first, saying how
-/// many more there were. A toast held back stays apart.
+/// many more there were. A toast held back stays apart, and so does a usage mark.
 fn coalesce(toasts: Vec<Toast>) -> Vec<Toast> {
     let mut merged: Vec<(Toast, usize)> = Vec::new();
     for toast in toasts {
+        // Each usage mark names its own limit (EP-17).
         let same = merged.iter_mut().find(|(first, _)| {
             first.held.is_none()
                 && toast.held.is_none()
+                && toast.kind != Some(Kind::Usage)
                 && first.kind == toast.kind
                 && first.target == toast.target
                 && first.project == toast.project
@@ -524,7 +571,9 @@ impl Attention {
                     Kind::Remote => ("remote to look at", "remotes to look at"),
                     Kind::Backup => ("backup to look at", "backups to look at"),
                     Kind::Inbox => ("inbox message", "inbox messages"),
-                    Kind::Waiting | Kind::Finished | Kind::Failed => ("moment", "moments"),
+                    Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage => {
+                        ("moment", "moments")
+                    }
                 };
                 format!("{n} {}", if n == 1 { one } else { many })
             })
@@ -993,5 +1042,40 @@ mod tests {
             "{}",
             toast.text
         );
+    }
+
+    #[test]
+    fn a_usage_mark_toasts_the_account_and_leads_to_the_usage_pane() {
+        let now = Utc::now();
+        let crossing = Crossing {
+            which: Which::Fable,
+            mark: usage::ALARM,
+            percent: 96.4,
+            resets_at: Some(now + TimeDelta::hours(30)),
+        };
+        let toast = Toast::usage(&crossing, now);
+        assert_eq!(toast.title, "Fable usage at 96 %");
+        assert!(
+            toast.text.starts_with(
+                "The Fable-scoped weekly limit is past its 95 % mark. It resets in 1 d 6 h,"
+            ),
+            "{}",
+            toast.text
+        );
+        assert_eq!(
+            (toast.kind, toast.project.as_deref()),
+            (Some(Kind::Usage), None)
+        );
+        assert_eq!(toast.target, Target::Usage);
+        assert!(toast.is_warning());
+        // Weekly and Fable reached in one pass make two toasts, not one with "and 1 more".
+        let weekly = Toast::usage(
+            &Crossing {
+                which: Which::Weekly,
+                ..crossing.clone()
+            },
+            now,
+        );
+        assert_eq!(coalesce(vec![weekly, toast]).len(), 2);
     }
 }

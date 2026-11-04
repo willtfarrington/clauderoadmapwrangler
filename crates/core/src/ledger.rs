@@ -291,6 +291,26 @@ pub struct Cached {
     pub data: String,
 }
 
+/// One usage reading (D-23; EP-17): an endpoint's poll, or a session's status-line figures.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sample {
+    pub taken_at: DateTime<Utc>,
+    /// `endpoint` or `statusline`.
+    pub source: String,
+    /// The session whose status line gave it.
+    pub session_id: Option<String>,
+    pub weekly_percent: Option<f64>,
+    pub weekly_resets_at: Option<DateTime<Utc>>,
+    pub fable_percent: Option<f64>,
+    pub fable_resets_at: Option<DateTime<Utc>>,
+    pub five_hour_percent: Option<f64>,
+    pub five_hour_resets_at: Option<DateTime<Utc>>,
+}
+
+/// The `usage_sample` columns a [`Sample`] reads, in its order.
+const SAMPLE_COLUMNS: &str = "taken_at, source, session_id, weekly_percent, weekly_resets_at, \
+    fable_percent, fable_resets_at, five_hour_percent, five_hour_resets_at";
+
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("{}: {source}", path.display())]
@@ -651,6 +671,103 @@ impl Ledger {
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// The one cached reading of `project` from `source`, if there is one that reads.
+    pub fn cached_one(&self, project: &str, source: &str) -> Result<Option<Cached>, Error> {
+        let row = self
+            .connection
+            .query_row(
+                "SELECT fetched_at, data FROM badge_cache WHERE project = ?1 AND source = ?2",
+                (project, source),
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .optional()?;
+        Ok(row.and_then(|(fetched_at, data)| {
+            Some(Cached {
+                project: project.to_owned(),
+                source: source.to_owned(),
+                fetched_at: parse_time(&fetched_at)?,
+                data,
+            })
+        }))
+    }
+
+    /// Keeps one usage reading (D-23; EP-17).
+    pub fn add_sample(&self, sample: &Sample) -> Result<i64, Error> {
+        let time = |at: Option<DateTime<Utc>>| at.map(rfc3339);
+        self.connection.execute(
+            &format!(
+                "INSERT INTO usage_sample ({SAMPLE_COLUMNS}) \
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)"
+            ),
+            (
+                rfc3339(sample.taken_at),
+                &sample.source,
+                &sample.session_id,
+                sample.weekly_percent,
+                time(sample.weekly_resets_at),
+                sample.fable_percent,
+                time(sample.fable_resets_at),
+                sample.five_hour_percent,
+                time(sample.five_hour_resets_at),
+            ),
+        )?;
+        Ok(self.connection.last_insert_rowid())
+    }
+
+    /// The usage readings taken at `since` or later, the oldest first (the tile's sparkline).
+    pub fn samples_since(&self, since: DateTime<Utc>) -> Result<Vec<Sample>, Error> {
+        self.samples(
+            &format!(
+                "SELECT {SAMPLE_COLUMNS} FROM usage_sample WHERE taken_at >= ?1 \
+                 ORDER BY taken_at, id"
+            ),
+            rfc3339(since),
+        )
+    }
+
+    /// The latest `limit` usage readings, the newest first (`crw usage`).
+    pub fn latest_samples(&self, limit: usize) -> Result<Vec<Sample>, Error> {
+        self.samples(
+            &format!(
+                "SELECT {SAMPLE_COLUMNS} FROM usage_sample ORDER BY taken_at DESC, id DESC \
+                 LIMIT ?1"
+            ),
+            i64::try_from(limit).unwrap_or(i64::MAX),
+        )
+    }
+
+    /// The samples a query of [`SAMPLE_COLUMNS`] gives; a row whose time does not read is left
+    /// out.
+    fn samples(&self, query: &str, parameter: impl rusqlite::ToSql) -> Result<Vec<Sample>, Error> {
+        let mut statement = self.connection.prepare(query)?;
+        let rows = statement.query_map([parameter], |row| {
+            let time = |at: Option<String>| at.as_deref().and_then(parse_time);
+            Ok((
+                row.get::<_, String>(0)?,
+                Sample {
+                    taken_at: DateTime::<Utc>::MIN_UTC,
+                    source: row.get(1)?,
+                    session_id: row.get(2)?,
+                    weekly_percent: row.get(3)?,
+                    weekly_resets_at: time(row.get(4)?),
+                    fable_percent: row.get(5)?,
+                    fable_resets_at: time(row.get(6)?),
+                    five_hour_percent: row.get(7)?,
+                    five_hour_resets_at: time(row.get(8)?),
+                },
+            ))
+        })?;
+        let mut samples = Vec::new();
+        for row in rows {
+            let (taken_at, mut sample) = row?;
+            if let Some(at) = parse_time(&taken_at) {
+                sample.taken_at = at;
+                samples.push(sample);
+            }
+        }
+        Ok(samples)
     }
 }
 
@@ -1299,5 +1416,44 @@ mod tests {
                 data: "{\"a\":2}".to_owned(),
             }
         );
+        assert_eq!(
+            ledger.cached_one("alpha", "head").unwrap(),
+            Some(rows[1].clone())
+        );
+        assert_eq!(ledger.cached_one("", "usage").unwrap(), None);
+    }
+
+    #[test]
+    fn usage_samples_are_kept_and_read_back_by_time() {
+        let scratch = Scratch::new("ledger-samples");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let sample = |taken: &str, source: &str, weekly: f64| Sample {
+            taken_at: at(taken),
+            source: source.to_owned(),
+            session_id: (source == "statusline").then(|| "s-1".to_owned()),
+            weekly_percent: Some(weekly),
+            weekly_resets_at: Some(at("2026-11-07T19:00:00Z")),
+            fable_percent: (source == "endpoint").then_some(60.0),
+            fable_resets_at: None,
+            five_hour_percent: None,
+            five_hour_resets_at: None,
+        };
+        let samples = [
+            sample("2026-11-03T12:00:00Z", "endpoint", 40.0),
+            sample("2026-11-04T12:05:00Z", "statusline", 42.0),
+            sample("2026-11-04T12:00:00Z", "endpoint", 41.0),
+        ];
+        for sample in &samples {
+            ledger.add_sample(sample).unwrap();
+        }
+        let since = ledger.samples_since(at("2026-11-04T00:00:00Z")).unwrap();
+        assert_eq!(since, [samples[2].clone(), samples[1].clone()]);
+        let latest = ledger.latest_samples(2).unwrap();
+        assert_eq!(latest, [samples[1].clone(), samples[2].clone()]);
+        let wrong = Sample {
+            source: "guess".to_owned(),
+            ..samples[0].clone()
+        };
+        assert!(ledger.add_sample(&wrong).is_err(), "the source is checked");
     }
 }
