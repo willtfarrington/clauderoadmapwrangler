@@ -686,7 +686,7 @@ every commit's added lines are checked before it is made, the repository being p
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☐ |
+| EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☑ `3cf6dcf` |
 | EP-18 | Usage coupling: Fable-share downshift rule, before-and-after delta attribution per session, usage-share badge (D-23) | S | EP-10, EP-17 | core | ☐ |
 | EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
