@@ -8,7 +8,8 @@ cross-project inbox, chains briefs on autopilot within caps, meters the account'
 backup status and history graphs, hosts a chat to Claude Code, ships the roadmap method as a plugin, and
 ends with a phone view over a Tailscale tailnet.
 
-**Status:** phase P1, the read-only dashboard, is done (2026-11-01). The Cargo workspace, `crw doctor`
+**Status:** phases P1, the read-only dashboard, and P2, sessions, are done (2026-11-01 and
+2026-11-04). The Cargo workspace, `crw doctor`
 and CI (EP-1), the registry of managed projects with discovery and `crw scan` (EP-2), the roadmap parser
 with `crw roadmap` (EP-3 the phase tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree
 snapshot that tells a session in progress), the owner's tasks, the cross-project inbox and the older forms
@@ -16,8 +17,8 @@ of the owner's to-dos with `crw tasks` and `crw tick` (EP-5), the dashboard's sh
 layout, the project list grouped by state, the detail pane, ticks and Adopt from the window) and its
 badges with `crw status` (EP-7: stack, progress, activity, hosting with a check of the origin's head, CI
 and license, backup age; EP-7a: columns sized to their content under a header row, and a legend of every
-mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. Phase P2, sessions,
-has begun: the session runner (EP-9) starts a headless Claude Code session in a project's folder with
+mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. In phase P2, the
+session runner (EP-9) starts a headless Claude Code session in a project's folder with
 the project's neighbour folders read-only, reads its stream-json, answers its questions and permission
 requests, stops it with its whole process tree and records it in the ledger; the launch dialog (EP-10)
 generates the house-style opener for a project's next brief, resolves its model, effort and permission
@@ -43,7 +44,9 @@ uncommitted files, kept in the backups folder. `crw revert` puts a project back 
 session started, after copying the session's work out; it never pushes, and it is refused while
 a session works there or when the remote has one of the session's commits (EP-15b). The window
 previews the same revert in a dialog, from an ended session's tab, a ledger row of the Sessions
-pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The roadmap is
+pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The P2 re-plan
+(EP-16) measured the phase and made the switch planned from the start: from EP-17 on, this
+project's own briefs are started from the tool, as visual launches by default. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

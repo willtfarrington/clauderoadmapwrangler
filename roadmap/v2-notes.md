@@ -4,7 +4,8 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
 (EP-32) compiles it into themes with a v2 direction. Grown at EP-8 (2026-11-01, the P1 re-plan) by the
 items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
 EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 by those marked
-*(EP-12)*, at EP-13 by those marked *(EP-13)*, and at EP-14 by those marked *(EP-14)*.
+*(EP-12)*, at EP-13 by those marked *(EP-13)*, at EP-14 by those marked *(EP-14)*, at EP-15b by the
+revert's, and at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*.
 
 ## 1 Launch modes
 
@@ -45,7 +46,8 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
   started while no window ran), with the start time the listing gives (D-26 addendum).
 - *(EP-13)* Resume for a visual or manual session from the tool, through the extension's
   `vscode://anthropic.claude-code/open?session=<id>` link, which opens the session in the project's
-  window (EP-13 resumes the window's own headless sessions only; D-16 addendum).
+  window (EP-13 resumes the window's own headless sessions only; D-16 addendum). *(EP-16: planned
+  as EP-35, for a headless run a crash cut short too.)*
 - *(EP-13)* Resume of a headless session after the window restarted, from its ledger row: its
   launch's permission mode and neighbours would need keeping in the ledger (D-16 addendum).
 - *(EP-14)* "Allow always" in the Decisions tile: a permission request's suggestions
@@ -63,6 +65,12 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
 - Undoing a session whose commits the remote already has, by new commits that reverse them (`git
   revert`) or by a force-push: EP-15b refuses such a revert and the tool never force-pushes (the
   alternative the owner did not pick, 2026-11-03).
+- *(EP-16)* A revert that restores the start's index exactly: changes staged at a session's start
+  come back unstaged (EP-15b's out-of-scope list); and the revert's copy opened in Explorer from
+  the dialog, which names its folder (EP-15c's).
+- *(EP-16)* Headless as the default launch mode, with Visual written for this project in the
+  registry (the alternative the owner did not pick: a headless run asks at every shell command
+  where no allow rule admits it, and this project's release build ends it; D-16 addendum).
 
 ## 2 Analytics
 
@@ -126,6 +134,8 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
   `private/` (the alternative to CLAUDE.md rule 3's check by hand; D-3 addendum).
 - *(EP-8)* A `root=` setup flag for screenshot runs that names a neutral data root, instead of the
   substituted drive and junction EP-8 used for the README's pictures.
+- *(EP-16)* A dialog at the moment of a crash, beside `crash.log` and the next start's line (it
+  would need a Windows dependency of its own; D-14's EP-14a addendum).
 
 ## 9 Views
 
@@ -138,3 +148,8 @@ EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 
 - *(EP-13)* A session's transcript in a tile of its own, dragged out of the Sessions pane as an
   egui_tiles pane (EP-13 keeps one tab strip inside the pane, so the saved layout never holds a
   session; D-25 addendum), and a search through a transcript.
+- *(EP-16)* From EP-15's out-of-scope list: a question answered in the popup itself (its Show opens
+  the Decisions pane), a notification sent by `crw`, and a switch per kind of notification beside
+  the quiet hours and Dismiss all (D-21 addendum).
+- *(EP-16)* References and links in the Detail pane's notes that open what they name: a brief, a
+  decision, a URL (EP-15a's out-of-scope list; D-25 addendum).

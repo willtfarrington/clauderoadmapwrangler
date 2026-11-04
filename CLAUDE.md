@@ -58,7 +58,14 @@
     IN-1), so transcripts and memory file under this project (D-16); the other projects' roadmaps are
     reachable read-only through the user-level `permissions.additionalDirectories` grant (rule 4), which
     leaves out the data repositories: this project declares no data relationship and keeps no local
-    settings grant (IN-6). From EP-16 on, the EPs of this project are launched from the tool (D-5).
+    settings grant (IN-6). **Every EP is launched from the tool** (D-5, from EP-17): the owner presses
+    Start on this project's row in Roadmap Wrangler, then Open in VS Code (Visual, the default, D-16),
+    which puts the generated opener ("Run the next brief of clauderoadmapwrangler: …", launched from
+    clauderoadmapwrangler) in a new Claude Code tab of this window. Start headless suits only a brief
+    that builds no release: quitting the window for rule 6's release build ends a headless run. At its
+    start a session checks that its prompt is that opener and finds its row in `target\release\crw.exe
+    sessions clauderoadmapwrangler` (mode, EP, session id); a session started by hand says why in its
+    brief's session-start paragraph.
 12. **Generic names.** Modules, types, settings keys and file names describe function (registry, parser,
     runner, mailman, meter), never a managed project.
 13. **The registry and the ledger are the owner's records (D-8).** `%APPDATA%\clauderoadmapwrangler\registry.toml`

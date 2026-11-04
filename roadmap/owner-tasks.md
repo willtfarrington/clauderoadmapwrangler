@@ -109,7 +109,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   files and 20 MB a start). At your word the session turned this off on your three data
   repositories (`crw set <project> revert no`; `yes` turns it on again). The session tried the
   revert on a scratch project only (rule 13). Notes go to `roadmap/inbox.md` [before EP-15c]
-- [ ] OT-13 (EP-15c, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
+- [x] OT-13 (EP-15c, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
   session in a project other than this one, right-click that project's row and choose "Revert the
   latest session…". The dialog reads the project for a second or two, then shows what undoing the
   session would do: its target, each commit and file, what stays, and where the work would be

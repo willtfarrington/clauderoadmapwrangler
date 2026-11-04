@@ -22,6 +22,15 @@ EP-11) and EP-34 (D-24's hosting and backup actions, in P4 before EP-28), folded
 EP-26 and gave P2 its pickup notes. v1 is now **35 briefs, 9 S · 20 M · 6 L ≈ 36.5 session-hours**;
 P2–P5 hold 27 of them, about 19 at P1's pace. The repository is public from EP-8 (D-2, D-3 addenda).
 
+**Re-planned 2026-11-04 (EP-16, the P2 re-plan).** P2 took 15 h 28 min of session against 13 h 30
+min planned (115 %), 10 h 27 min of it active (77 %), the rest the owner's answers and trials of the
+real window; an M about 52 minutes of active work and each L about an hour, and the sizes stay the
+planning unit (D-4 addendum). Five rows joined P2 (EP-14a, EP-15a, EP-15b and EP-15d at the owner's
+request, EP-15c by a split at pickup), and this re-plan adds EP-35 (Resume in VS Code from a ledger
+row, in P3 before EP-19). v1 is now **41 briefs, 11 S · 24 M · 6 L ≈ 41.5 session-hours**, 18 of
+them open. From EP-17 on, every EP of this project starts from the tool, visually by default (D-5,
+D-16 addenda).
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -43,8 +52,9 @@ names, paths and states stay in the git-ignored `private/` or in the runtime reg
 profile; tracked files use generic or already-public names (D-3). Managed projects are read-only to this
 repository's sessions except the files the tool owns (D-11). Tests never run the real `claude` CLI and
 never spend usage (D-29). The egui family and the protocol crate move only in re-plan briefs (D-15).
-Sessions for this project run with cwd = this folder, and from EP-16 they are launched from the tool
-(D-5, D-16). Commits are the owner's call, written through a scratch file, no AI attribution trailers.
+Sessions for this project run with cwd = this folder, and from EP-17 on they are launched from the
+tool (D-5, D-16 addenda). Commits are the owner's call, written through a scratch file, no AI
+attribution trailers.
 
 ## Phase P0 — Planning (done 2026-10-31)
 
@@ -265,7 +275,7 @@ only its own files inside a managed project).
 | EP-15b | [Revert a session: each session's start recorded (the HEAD, the branch, the uncommitted files copied to the backups folder), the revert in `crw_core` behind a preview of every commit and file it undoes, the work copied out first, refused while a session works there or once a commit is pushed, the tool's ticks redone, `crw revert`](EP-15b-revert-a-session.md) (D-11, D-26) | M | EP-13 | core | ☑ `61de8f6` |
 | EP-15d | [The popup's crash: the popup a deferred viewport, since eframe 0.37 cannot open an immediate one while the window is hidden; a delayed test notification that reaches that path](EP-15d-popup-crash.md) (D-21) | S | EP-15 | core | ☑ `3446eeb` |
 | EP-15c | [Revert in the window: an ended session's tab, the Sessions pane's ledger rows and a project's row menu, the preview as a dialog read off the UI thread, the window's own refusals](EP-15c-revert-in-the-window.md) (D-11, D-25, D-26) | M | EP-15b | core | ☑ `d23bb3c` |
-| EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15d, EP-15c | core | ☐ |
+| EP-16 | [Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified](EP-16-replan-p2.md) (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15d, EP-15c | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
 prompt and dialog make Headless useful at once; Visual is small once the dialog exists; the loopback
@@ -678,19 +688,24 @@ every commit's added lines are checked before it is made, the repository being p
 |---|---|---|---|---|---|
 | EP-17 | Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23) | M | EP-12 | core | ☐ |
 | EP-18 | Usage coupling: Fable-share downshift rule, before-and-after delta attribution per session, usage-share badge (D-23) | S | EP-10, EP-17 | core | ☐ |
+| EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
-method installable before the chat (P4) delegates to it.
+method installable before the chat (P4) delegates to it. *(EP-16, 2026-11-04.)* The order is kept (the
+owner's choice). EP-35 follows the usage briefs and comes before the autopilot: from the switch on
+(D-5) the window is how this project's sessions start, so a run a crash cuts short should be picked
+up from the window before chains begin; EP-17 stays the first self-launched session.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
-a running session).
+a running session). *(EP-16, 2026-11-04.)* D-5 addendum: every EP of this project starts from the
+window; D-16 addendum: Visual stays the default, and the autopilot runs headless whatever it is.
 
 **Brief notes.**
 
@@ -719,7 +734,15 @@ a running session).
   join `crw_core::notify`'s rule table as a kind of their own (`Kind`, `Channel::Toast`), each made
   a `toasts::Toast` and handed to `Toasts::deliver`, which shows it in the window's popup, holds it
   back in the quiet hours and while the window is in front, and logs it; "once per crossing per
-  window" is the meter's to keep.
+  window" is the meter's to keep. **From EP-16:** EP-17 is the first self-launched session (D-5
+  addendum): the owner starts it from this project's row as a visual launch, and its session start
+  records its ledger row. The user settings deny Claude's own tools a read of
+  `~\.claude\.credentials.json`, which the poller reads in the tool's own code at poll time (D-23),
+  so the session that builds it never reads the real file: its tests use a synthetic credentials
+  file in a temp folder and never reach the endpoint, and the first real poll is the window's,
+  after the owner's yes. The ledger needs no migration for the meter: `usage_sample` is there since
+  V1, and the session row's `weekly_before`/`after` and `fable_before`/`after` wait for EP-18
+  (schema 4).
 - **EP-18.** The resolver (EP-10) gains the downshift rule: when the Fable-scoped percent exceeds the
   registry's `fable_downshift_percent` (default 60) and the rule's size is S, propose `claude-opus-5-5` at
   the same effort with the reason shown; the autopilot applies it; attribution: the weekly and Fable
@@ -732,6 +755,28 @@ a running session).
   the project's launch defaults, the first global rule, the first project rule), each value a
   `Choice` with its `Source`; the downshift is one more layer with a `Source` of its own, its place
   among the others this brief's call, and the dialog shows `Choice::reason()` as it is.
+  **From EP-16:** `rules::DEFAULT_LAUNCH_MODE` stays Visual for the D-16 addendum's reasons, and its
+  comment still gives EP-14's: this brief, which edits `rules.rs` for the downshift, words it anew.
+- **EP-35.** Added at EP-16 (2026-11-04) for EP-14a's and EP-15b's notes (D-16 addendum): a run a
+  crash or a quit window cut short keeps its ledger row but has no Resume in the next window,
+  since its launch's choices lived in the old one, and `claude --resume` in a terminal is today's
+  way back. (1) **Resume in VS Code…** on each ledger card of the Sessions pane's All tab whose
+  row has a session id, beside its Revert… (`ledger_line`): a headless run whose tab is gone, a
+  visual or a manual session. It opens the project's own workspace file and hands the extension
+  `vscode://anthropic.claude-code/open?session=<id>` as a visual launch hands `prompt=`
+  (`visual::link`, `visual::open` with its wait for the lock file), escaped as EP-11 found.
+  (2) **The first check**, on the owner's yes, by one supervised launch through a throwaway driver
+  (D-29): whether the extension opens a headless (`-p`) run's id, whose transcript lies under the
+  project's slug as any session's does, or only the sessions its own list offers; where it
+  refuses, the card offers the resume for visual and manual rows only and says why on a headless
+  one. (3) **The ledger**: a visual launch's row is taken up only by a new conversation (D-26's
+  EP-13 addendum), so a resumed session needs a rule of its own (a row per run under the same id,
+  as a headless resume writes, or none), the brief's choice. (4) Disabled, its reason on hover,
+  when the folder is missing or the session still runs, in the window or seen working elsewhere.
+  Tests inject the process starter as EP-11's do; screenshot runs show the cards with both
+  buttons in both themes; a D-16 addendum. The headless resume after a restart (the launch's
+  choices kept in a schema 5) stays in the v2 notes. **From EP-15a:** a card that takes a click
+  keeps `style::unselectable` on its `Ui`, and `testing::Screen` presses a card's button.
 - **EP-19.** `core::autopilot`: per-project toggle in the list and the registry; after a headless run's
   result the gate is evaluated and logged (every failed condition named): autopilot on; outcome completed
   and a completion note found in the parsed brief; no open owner task with `before EP-<next>`; next EP not
@@ -767,7 +812,21 @@ a running session).
   autopilot off, since the next chained brief would start from the restored state. **From
   EP-15:** the tray's menu holds Pause autopilot, disabled (`tray::entries`, id `pause`), for an
   `Order` of its own to carry out; a chain's run toasts its waits and its end as any window's run
-  does, so a chain that stops (a gate refused, a cap) may want a moment of its own.
+  does, so a chain that stops (a gate refused, a cap) may want a moment of its own. **From EP-16:**
+  three facts the gate and the caps meet. (1) A headless run is the window's child, and this
+  project's own briefs end with a release build that needs the window quit (CLAUDE.md rule 6),
+  which ends the run: a chained run here cannot finish its brief as a visual session does, so the
+  brief decides with the owner how a chain of this project ends (the release build and the install
+  script left to an owner task after the chain, the gate refusing a brief that changes the tool's
+  own code, or a release build the running window does not hold, EP-28's install script). (2)
+  Neither this project nor the user settings hold an allow rule, so under `acceptEdits` a headless
+  run waits for the owner at its first shell command: a chain needs a project's `permission_mode`
+  of `auto` (D-18's override; the CLI's help lists it) or the project's own allow rules, and the
+  gate can name a project whose runs would wait. (3) P2's M's took 37 to 76 minutes of active work
+  but up to 2 h 45 min of wall time with the owner's answers and trials (D-4 addendum); the caps
+  count the wall clock, so a run that waits in the Decisions tile can reach its cap while it
+  waits, and the brief decides whether a cap pauses while a request is open. EP-35's Resume in VS
+  Code picks up a chained run that a crash cut short.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -800,7 +859,10 @@ a running session).
   the same quiet hours; a delivery is an `event` row of its own kind (`Ledger::add_event`).
   **From EP-15a:** the Detail pane draws an open message and a handed-on block's text through
   `markup::note` with `Look { sentences: true, .. }` (a long one a sentence to a line, numbered
-  parts as a list), which the compose dialog's preview can reuse.
+  parts as a list), which the compose dialog's preview can reuse. **From EP-16:** an open message's
+  trailing `[urgent]` stays in its text in the Detail pane while its chip says it (EP-15a's note,
+  placed here by the owner): the pane drops it from the text, as it drops an owner item's
+  `[before EP-m]` gate.
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -829,9 +891,23 @@ a running session).
   counts, open items), and `reference/house-style.md` (the schema the parser expects, the forms of D-12 and
   D-13); tool-launched sessions get `--plugin-dir <repo>/plugins/roadmap-wrangler`; README notes for
   installing it into the owner's own sessions; `cli` verifies the plugin loads (`claude --plugin-dir …
-  --help` smoke in CI is out; a structural test checks the files).
+  --help` smoke in CI is out; a structural test checks the files). **From EP-16:** a visual launch
+  cannot pass `--plugin-dir` (the extension's link takes `prompt` and `session` only, EP-11), and
+  Visual stays the default (D-16 addendum), so the plugin reaches most of the owner's sessions only
+  once it is installed into their own Claude Code, which the README's install notes explain;
+  `--plugin-dir` serves the headless runs and the chat.
 - **EP-23.** Retro, addenda, P4 rows confirmed with pickup notes, `v2-notes.md` grown; the first week of
-  autopilot runs reviewed (how many chains, how many gate refusals and why).
+  autopilot runs reviewed (how many chains, how many gate refusals and why). **From EP-16:** time
+  the briefs as EP-8 and EP-16 did: each session's transcript under this project's slug, found by
+  the Write or Edit of its own `roadmap\EP-n-*.md`, from its first entry (or the previous EP's
+  record commit, when one session did two) to the EP's record commit, gaps over five minutes left
+  out; timestamps and file paths only. From EP-17 each self-launched session also has its ledger
+  row (`crw sessions`), worth setting beside the transcripts, though a row runs to its tab's close
+  and is no brief's time. Retake the README's two pictures of the fake portfolio with EP-8's method
+  (EP-32's charter; the owner's choice at EP-16), once P3 has changed the window. Check egui#8470
+  (open since 2026-08-29: an immediate viewport made while the window is minimized panics) and
+  eframe's releases with the pins (D-15; the D-21 addendum's rule against immediate viewports), and
+  claude-codes (2.1.318 at EP-16, against the pin 2.1.316) beside the CLI's version.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -906,6 +982,15 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   session whose work was reverted (EP-15b's `revert` events). **From EP-15a:** that rule is
   `style::unselectable` on the card's or the row's `Ui`, as `list::cell` applies it to every cell
   of a row, and `list::tests::the_whole_row_answers_over_its_text` shows how to test it.
+  **From EP-16:** the measured duration per size cannot be a ledger row's run length: a visual or
+  manual row runs from its session's start to the tab's close (EP-15b's and EP-15c's read 20 h 50
+  min and 18 h 8 min), and only the sessions that started while a window ran have a row. A brief's
+  time runs from its session's start to the EP's record commit (EP-25's history), less the waits
+  on the owner, which the state model's busy and idle (the hooks, the poll) can count without
+  reading a transcript (D-26); the brief decides, and the re-plans' retros give figures to check
+  it against. In a narrow pane the Progress section's long phase names run past the pane's edge,
+  since an egui `Grid` does not wrap its cells (EP-15a's note, placed here by the owner): the
+  rebuilt section wraps them.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to
@@ -967,7 +1052,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   says how the notifications and the tray stand (`Toasts::line`, `Tray::line`), for Diagnostics to
   show; a start at login may open hidden in the tray (`Board::hidden`), and single instance can
   show the running window as the tray's Show does; the popup's corner assumes a taskbar at the
-  bottom of the screen (`popup::BOTTOM`).
+  bottom of the screen (`popup::BOTTOM`). **From EP-16:** the ledger has rows only for the
+  sessions that started while a window ran (none for EP-13 … EP-15a's), which a start at login
+  makes the rule rather than luck.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown.
 
@@ -1037,7 +1124,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    headless sessions may behave differently; the minimum version applies to the standalone binary.
    *(EP-8, 2026-11-01.)* The standalone binary updates itself (2.1.316 at EP-8, the version of the
    `claude-codes` pin) while the extension's stays at 2.1.314, so the gap moves either way: the minimum
-   is a floor, and the version is read at every preflight.
+   is a floor, and the version is read at every preflight. *(EP-16, 2026-11-04.)* It moved the other
+   way: the extension carries 2.1.318 and the standalone binary is still 2.1.316, so a visual
+   session may meet a release the runner has not.
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
@@ -1081,6 +1170,15 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
     the owner's machine), which is why the notifications are a popup of the tool's own. The popup
     sits at the lower right of the screen the window is on, above a taskbar at the bottom, and
     File, Send a test notification shows where it lands.
+14. **A headless run lives in the window** (D-16, D-29; EP-16). Quitting the window, which this
+    project's release build needs, or a crash (EP-14a) ends its headless runs, recorded as
+    stopped. That is why Visual stays the default; EP-35's Resume in VS Code picks such a run up
+    from its ledger row, and the autopilot (EP-19) decides how a chain of this project's own briefs
+    ends.
+15. **The ledger knows what a running window heard** (D-26; EP-16). A session that starts while no
+    window runs gets no row, and a VS Code tab left open runs its row on for hours, so the ledger
+    cannot yet time a brief: the re-plans time them from the transcripts, EP-26 decides the
+    measure, and EP-28's start at login closes the gap in the rows.
 
 ## Decision record
 

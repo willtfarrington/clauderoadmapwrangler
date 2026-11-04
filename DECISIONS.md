@@ -94,10 +94,33 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > keeps its letter. *Alternatives.* Downsizing the remaining L engines to M; merging the small rows
 > (EP-11 into EP-10, EP-18 into EP-17).
 
+> **Addendum (2026-11-04, EP-16).** P2 measured as P1 was: EP-9 … EP-15c took 15 h 28 min of
+> session against 13 h 30 min planned (115 %), 10 h 27 min of it active (77 %); the other five
+> hours were the owner's answers and trials of the real window. An M took 37 to 76 minutes of
+> active work (52 on average), the two L's 62 and 53, the three S's 24 to 45; every L so far
+> (EP-6, EP-9, EP-14) has taken about an hour of active work. The sizes stay the planning unit (the
+> owner's choice): they hold for active time, and the owner's trials add wall time they do not
+> count, which D-22's caps meet (EP-19's note). P2 grew by five rows, four at the owner's request
+> (EP-14a, EP-15a, EP-15b, EP-15d) and one by a split at pickup (EP-15c), and this re-plan adds
+> EP-35 (S): v1 is 41 briefs, 11 S · 24 M · 6 L ≈ 41.5 session-hours, 18 of them open once EP-16
+> is checked. *Alternatives.* The three remaining L's (EP-19, EP-24, EP-30) re-cut to M.
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it
 manages. *Alternatives.* Managing this project only after v1; no rule.
+
+> **Addendum (2026-11-04, EP-16).** The switch is made at P2's re-plan, as planned. From EP-17 on,
+> every EP of this project starts from the window: its row's Start (or S) opens the launch dialog
+> with the generated opener, and Open in VS Code hands it to a new Claude Code tab in this
+> project's window (Visual, the default, D-16 addendum), where the owner chooses the model and
+> effort and sends it; Start headless serves a brief that builds no release, since a headless run
+> is the window's child and the release build needs the window quit. A session checks at its
+> start that its prompt is the tool's opener and finds its row in the ledger (`crw sessions`: the
+> mode, the EP, its session id), which is the record that it came from the tool; a session
+> started by hand says why in its brief. EP-17's visual launch is the first, its row read at
+> EP-16's close. `CLAUDE.md` rule 11 says so. *Alternatives.* The rule from EP-19, with the
+> autopilot; the first self-launched session checked by its own brief instead of the re-plan.
 
 ## Project model, discovery, storage
 
@@ -444,6 +467,20 @@ workspace file's first folder.
 > runs. A visual or manual session is not resumed from the tool, nor a headless one after the window
 > restarted, whose launch's choices lived in the window (v2 notes). *Alternatives.* The session's row
 > reopened for each run; a tab per run; resume from the ledger's rows.
+
+> **Addendum (2026-11-04, EP-16).** Visual stays the default launch mode (the owner's choice), for
+> reasons other than EP-11's, since a headless run answers a brief's questions from EP-14 on. With
+> no allow rule in this project's settings or the user's, a headless run under `acceptEdits` waits
+> for the owner in the Decisions tile at every shell command it runs. This project's own briefs
+> end with a release build that needs the window quit, which ends the window's headless runs. And
+> the owner's briefs close with rounds of questions and trials, which a VS Code tab carries. Headless
+> stays a switch in the dialog, a project's `[project.launch] mode` can choose it, and the
+> autopilot (EP-19) runs headless whatever the default. A run that a crash or a quit window cut
+> short, and a visual or manual session, are resumed from their ledger rows in the project's VS
+> Code window through the extension's `session=<id>` link (EP-35, before EP-19); the headless
+> resume after a restart stays in the v2 notes. *Alternatives.* Headless as the default, with
+> Visual written for this project in the registry; Headless everywhere, each release build an
+> owner task; the resume after a crash folded into EP-19, or left to `claude --resume` by hand.
 
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
