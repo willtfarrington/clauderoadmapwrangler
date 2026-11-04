@@ -809,6 +809,33 @@ fn project_row(
                 ui.close();
             }
         }
+        // The project's latest session undone, behind its preview (D-11; EP-15c).
+        ui.separator();
+        let available = crate::revert::availability(Some(row), name);
+        let item = ui.add_enabled(
+            available.is_ok(),
+            egui::Button::new("Revert the latest session…"),
+        );
+        match &available {
+            Ok(()) => {
+                if item
+                    .on_hover_text(
+                        "Preview undoing the project's latest session in the ledger: the commits \
+                         and files it would undo, then Revert or Cancel",
+                    )
+                    .clicked()
+                {
+                    actions.push(Action::OpenRevert {
+                        project: name.to_owned(),
+                        session: None,
+                    });
+                    ui.close();
+                }
+            }
+            Err(why) => {
+                item.on_disabled_hover_text(why);
+            }
+        }
     });
 
     if expanded {

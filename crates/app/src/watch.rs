@@ -5,8 +5,9 @@
 //! sessions and ends the ledger records (EP-13: a row at a session's first sign of work). Once a
 //! minute the visual launches no session took up within their 30 minutes lapse. A session's
 //! start hook in a registered project has the project's start read for a revert (EP-15b), on a
-//! worker thread, and kept until the session earns its row. A screenshot run starts neither the
-//! server nor the poll: its sessions and its readings are canned (rule 5).
+//! worker thread, and kept until the session earns its row; the window's Revert waits while one
+//! is read (EP-15c). A screenshot run starts neither the server nor the poll: its sessions and
+//! its readings are canned (rule 5).
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
@@ -340,6 +341,17 @@ impl Watch {
                 self.problem = Some(format!("The ledger's visual launches did not lapse: {e}"));
             }
         }
+    }
+
+    /// Whether a session's start in the project called `name` is being read, which a revert there
+    /// waits for (EP-15c).
+    pub fn reading_start(&self, name: &str) -> bool {
+        self.starts.asked.iter().any(|id| {
+            self.model
+                .get(id)
+                .and_then(|seen| seen.project.as_deref())
+                .is_some_and(|project| project.eq_ignore_ascii_case(name))
+        })
     }
 
     /// The sessions that work in the project called `name` and are not the window's own: a

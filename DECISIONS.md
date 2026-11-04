@@ -244,6 +244,20 @@ with ticks in the registry.
 > into the project's `.git`; undoing pushed commits by `git revert` or a force-push; starts recorded
 > in the data repositories only when turned on.
 
+> **Addendum (2026-11-04, EP-15c).** The window's Revert runs on the same engine, behind the same
+> preview. Besides the engine's refusals, the window refuses what `crw revert` cannot see: its own
+> run in the project while it works, stops or waits its turn, and an ended run deferred with a
+> request open; a visual launch on its way there, or a session's start being read; a session the
+> hooks or the poll report at work or waiting there; and, while the poll of live sessions has not
+> answered or fails, any revert, since a session could then work there unseen. At the owner's word
+> the plan is read again, with the window as it stands then, and the revert runs only when that
+> plan is the one the owner saw (the same target, commits, files, start, ticks and sessions, and no
+> new refusal); otherwise the dialog shows the new plan and nothing changes, so that work made
+> after the preview is never left uncopied. Quitting waits while a revert runs. A screenshot run's
+> plan is canned, and its Revert reverts nothing. *Alternatives.* The plan reverted as it was
+> previewed; only the refusals checked again at the click; `claude agents --json` asked again by
+> the window at the click.
+
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20
 min).**`; (2) keep `- **EP-n.** …` under `**Brief notes.**` as the one form for upcoming EPs (the row's
@@ -832,6 +846,20 @@ state; graphs only in the detail tile or a separate window.
 > whole; a colour per kind (a teal accent for labels, the link blue, an orange command, a gold
 > name), which read off the window's theme; colours in the list rows' titles; references and links
 > that open what they name (v2).
+
+> **Addendum (2026-11-04, EP-15c).** A session's Revert has three places (D-11 addendum): Revert…
+> at the end of an ended session's footer, after Resume and its message; a small Revert… on a
+> ledger card's chip line for each row with a session id, on a line of its own when the pane is too
+> narrow for both, so that a run whose tab a crash took keeps it; and "Revert the latest
+> session…" at the foot of a project's row menu. Each is disabled, its reason on hover, when the
+> project's `revert` is off or its folder is missing. The preview is a dialog like the Quit
+> question, at most 700 points wide: a spinner while the plan is read, then `Plan::lines()` in a
+> scroll area of at most 55 % of the window's height (the first line strong, the commits and files
+> indented in the code face, a refusal in the window's red, the sessions to close in its amber),
+> then Cancel and Revert in the red, or Close alone; Escape and Cancel close it, a click beside it
+> does not, and nothing does while the revert runs. Afterwards it shows what the revert did, and the
+> status bar says where the work is kept. No new colour. *Alternatives.* The plan's parts as a
+> table; Revert in the tab's header beside Dismiss; a card's Revert shown on hover only.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

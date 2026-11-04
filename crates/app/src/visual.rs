@@ -60,6 +60,15 @@ impl Visual {
         self.opening.is_some()
     }
 
+    /// The EP of a visual launch on its way into the project called `project`, which refuses a
+    /// revert there (EP-15c).
+    pub fn opening_in(&self, project: &str) -> Option<&str> {
+        self.opening
+            .as_ref()
+            .filter(|opening| opening.project.eq_ignore_ascii_case(project))
+            .map(|opening| opening.ep.as_str())
+    }
+
     /// Starts `launch` on a worker thread.
     pub fn start(&mut self, launch: Launch, ctx: &egui::Context) {
         let (sender, receiver) = mpsc::channel();

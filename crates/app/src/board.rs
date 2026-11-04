@@ -8,7 +8,8 @@
 //! asks, a deferred run resumes with the answer, and Focus brings a waiting session's VS Code
 //! window forward (D-19); from EP-15 the notifications (D-21): the popup, the tray icon with its
 //! menu, closing to the tray and Quit, whose share of each pass runs while the window is hidden
-//! too (`attend`, from eframe's `App::logic`, D-29).
+//! too (`attend`, from eframe's `App::logic`, D-29); from EP-15c a session's revert, previewed
+//! in a dialog and run on a worker thread (`revert`, D-11), which Quit waits for.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -56,6 +57,8 @@ const ANSWER_CHARS: usize = 80;
 const START_TITLE: usize = 48;
 /// How long the delayed test notification waits (EP-15d).
 const TEST_DELAY: Duration = Duration::from_secs(10);
+/// What quitting says while a revert runs (EP-15c).
+const REVERTING: &str = "A revert is running: quit once it has finished, in a few seconds.";
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
 /// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
@@ -198,6 +201,16 @@ pub enum Action {
     QuitAnyway,
     /// The question put away: nothing stops.
     KeepRunning,
+    /// The preview of undoing a session (D-11; EP-15c): the session by its id, else the
+    /// project's latest in the ledger.
+    OpenRevert {
+        project: String,
+        session: Option<String>,
+    },
+    /// The preview's Revert: the plan read again, and the revert run if it is the one shown.
+    ConfirmRevert,
+    /// The preview put away, or its result read.
+    CloseRevert,
     /// A key or a button of a brief not built yet: a notice that says which.
     NotYet(&'static str),
 }
@@ -209,17 +222,28 @@ enum Closing {
     Hide,
     /// The question first: headless runs would stop.
     Ask,
+    /// Not yet: a revert runs, which a closing process would cut short (EP-15c).
+    Wait,
     /// It closes, and the process ends.
     Close,
 }
 
 /// What closing does: a Quit asked for, or a screenshot run's own close, closes; with a tray the
-/// window hides; without one it closes, after the question when runs would stop (`stoppable`).
-fn closing(quitting: bool, fixtures: bool, tray: bool, stoppable: usize) -> Closing {
+/// window hides; without one it waits for a revert that runs (`reverting`), and closes after the
+/// question when runs would stop (`stoppable`).
+fn closing(
+    quitting: bool,
+    fixtures: bool,
+    tray: bool,
+    stoppable: usize,
+    reverting: bool,
+) -> Closing {
     if quitting || fixtures {
         Closing::Close
     } else if tray {
         Closing::Hide
+    } else if reverting {
+        Closing::Wait
     } else if stoppable > 0 {
         Closing::Ask
     } else {
@@ -268,6 +292,8 @@ pub struct Board {
     pub told_tray: bool,
     /// The question before Quit stops the window's headless runs is open.
     pub quit_asked: bool,
+    /// The preview of a session's revert, while it is open (EP-15c).
+    pub revert: Option<crate::revert::Dialog>,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -323,6 +349,7 @@ impl Board {
             hidden: false,
             told_tray: false,
             quit_asked: false,
+            revert: None,
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -339,6 +366,11 @@ impl Board {
 
     pub fn store(&self) -> &Store {
         self.loader.store()
+    }
+
+    /// The window's context, which a worker thread wakes.
+    pub fn ctx(&self) -> &egui::Context {
+        &self.ctx
     }
 
     /// The ledger the window's sessions are recorded in, when it has one.
@@ -401,7 +433,7 @@ impl Board {
         self.notice = Some((text, tone, Instant::now()));
     }
 
-    fn fail(&mut self, text: impl Into<String>) {
+    pub fn fail(&mut self, text: impl Into<String>) {
         self.error = Some(one_line(&text.into(), NOTICE_CHARS));
         self.notice = None;
     }
@@ -446,6 +478,7 @@ impl Board {
             },
             None => {}
         }
+        self.receive_revert(ctx);
         let portfolio = &self.portfolio;
         let registered = || {
             portfolio
@@ -499,7 +532,13 @@ impl Board {
     pub fn attend(&mut self, ctx: &egui::Context) {
         if ctx.input(|i| i.viewport().close_requested()) {
             let stoppable = self.sessions.stoppable().len();
-            match closing(self.quitting, self.fixtures, self.tray.is_some(), stoppable) {
+            match closing(
+                self.quitting,
+                self.fixtures,
+                self.tray.is_some(),
+                stoppable,
+                self.reverting(),
+            ) {
                 Closing::Hide => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     self.hide();
@@ -507,6 +546,10 @@ impl Board {
                 Closing::Ask => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
                     self.quit_asked = true;
+                }
+                Closing::Wait => {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                    self.warn(REVERTING);
                 }
                 Closing::Close => {}
             }
@@ -661,8 +704,23 @@ impl Board {
         }
     }
 
-    /// Lets the window close: the process ends, and the runs it holds with it.
+    /// Whether a revert runs, which quitting waits for (EP-15c): the process's end would cut it
+    /// short, the project half put back.
+    pub fn reverting(&self) -> bool {
+        self.revert
+            .as_ref()
+            .is_some_and(crate::revert::Dialog::is_reverting)
+    }
+
+    /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
+    /// runs (EP-15c).
     fn quit(&mut self) {
+        if self.reverting() {
+            self.quit_asked = false;
+            self.show();
+            self.warn(REVERTING);
+            return;
+        }
         self.quitting = true;
         self.quit_asked = false;
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -716,11 +774,11 @@ impl Board {
         }
     }
 
-    /// The window's keys (D-25), unless a text field has the keyboard or the launch dialog is
-    /// open: ↑ ↓ select, → ← expand and fold the row, Enter opens the Detail pane, S opens the
-    /// launch dialog, A says what is not built yet, F5 refreshes.
+    /// The window's keys (D-25), unless a text field has the keyboard or the launch dialog or a
+    /// revert's preview is open: ↑ ↓ select, → ← expand and fold the row, Enter opens the Detail
+    /// pane, S opens the launch dialog, A says what is not built yet, F5 refreshes.
     pub fn keys(&mut self, ctx: &egui::Context) {
-        if self.launch.is_some() {
+        if self.launch.is_some() || self.revert.is_some() {
             return;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&REFRESH)) {
@@ -822,6 +880,9 @@ impl Board {
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
             Action::KeepRunning => self.quit_asked = false,
+            Action::OpenRevert { project, session } => self.open_revert(&project, session),
+            Action::ConfirmRevert => self.confirm_revert(),
+            Action::CloseRevert => self.close_revert(),
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -1752,6 +1813,7 @@ impl eframe::App for Dashboard {
             .show(ui, |ui| self.layout.ui(&mut self.board, ui));
         self.board.launch_dialog(&ctx);
         self.board.quit_dialog(&ctx);
+        self.board.revert_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 
@@ -1822,15 +1884,17 @@ mod tests {
 
     #[test]
     fn closing_hides_asks_or_closes() {
-        // With a tray the window hides, whatever runs.
-        assert_eq!(closing(false, false, true, 2), Closing::Hide);
-        assert_eq!(closing(false, false, true, 0), Closing::Hide);
+        // With a tray the window hides, whatever runs: a revert goes on in the tray.
+        assert_eq!(closing(false, false, true, 2, false), Closing::Hide);
+        assert_eq!(closing(false, false, true, 0, true), Closing::Hide);
         // Without one, the question comes first when runs would stop.
-        assert_eq!(closing(false, false, false, 1), Closing::Ask);
-        assert_eq!(closing(false, false, false, 0), Closing::Close);
+        assert_eq!(closing(false, false, false, 1, false), Closing::Ask);
+        assert_eq!(closing(false, false, false, 0, false), Closing::Close);
+        // A revert that runs is waited for (EP-15c).
+        assert_eq!(closing(false, false, false, 1, true), Closing::Wait);
         // A Quit asked for, and a screenshot run's own close, close.
-        assert_eq!(closing(true, false, true, 2), Closing::Close);
-        assert_eq!(closing(false, true, false, 3), Closing::Close);
+        assert_eq!(closing(true, false, true, 2, false), Closing::Close);
+        assert_eq!(closing(false, true, false, 3, false), Closing::Close);
     }
 
     #[test]

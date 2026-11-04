@@ -1,5 +1,6 @@
 //! Test support: a bare egui context driven pass by pass, with a pointer that moves, presses and
-//! releases (EP-15a), so a test can ask what a click over a widget reaches.
+//! releases (EP-15a), so a test can ask what a click over a widget reaches, and find a button by
+//! its label (EP-15c).
 
 use eframe::egui::{self, Pos2, Rect, vec2};
 
@@ -50,6 +51,20 @@ pub fn button(at: Pos2, button: egui::PointerButton, pressed: bool) -> Vec<egui:
         pressed,
         modifiers: egui::Modifiers::NONE,
     }]
+}
+
+/// The middle of the first text `output` paints that reads `text` exactly: where a test presses a
+/// button by its label (EP-15c).
+pub fn text_at(output: &egui::FullOutput, text: &str) -> Option<Pos2> {
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                Some(shape.pos + shape.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
 }
 
 /// Whether `output` paints a rectangle over `rect` filled with `fill`.

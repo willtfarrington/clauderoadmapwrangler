@@ -27,7 +27,11 @@
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,
 //!   and the signals listening with their entries installed; from EP-13 also a headless harbor
 //!   EP-4 of the window's with a transcript, and ledger rows of every mode and outcome);
+//!   `sessions=<project>` also filters the All tab to that project, so that its ledger cards and
+//!   their Revert… show in the narrow pane (EP-15c);
 //! - `transcript` (the canned sessions, the Sessions pane in front with harbor's tab open);
+//!   `transcript=<project>` opens that project's canned tab instead (quarry's run has ended,
+//!   deferred, with its Revert…, EP-15c);
 //! - `decisions` (the canned sessions, the Decisions pane in front: from EP-14 harbor's session
 //!   waits on a pair of questions and a `git push`, under a 30-minute limit; a quarry EP-2 run
 //!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
@@ -35,6 +39,10 @@
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `popup` (the notifications' popup with canned toasts, drawn inside the window: a
 //!   real one is a window of its own at the screen's lower right);
+//! - `revert=<project>` (the preview of undoing the project's latest session with a canned plan,
+//!   from EP-15c: its session from the canned ledger rows when `sessions` comes first; no git is
+//!   asked, and its Revert reverts nothing); `revert=<project>:refused` (the same plan refused,
+//!   with Close alone) and `revert=<project>:done` (what the revert did);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -62,6 +70,10 @@ use crw_core::badges::stack::Kind;
 use crw_core::ledger::SessionRow;
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
+use crw_core::revert::{
+    Action as FileAction, Change, Commit, Done, Fate, FileState, Plan, Start, StartFile, Target,
+    Tick,
+};
 use crw_core::session::{
     Choice, Denied, Ended, Event, Init, Launch, Outcome, Question, Request, ToolResult, ToolUse,
 };
@@ -208,16 +220,22 @@ impl Run {
                     board.view.expanded.insert(value.to_owned());
                 }
                 "launch" => board.open_when_read = Some(value.to_owned()),
-                "sessions" => canned_sessions(board),
+                "sessions" => {
+                    canned_sessions(board);
+                    if !value.is_empty() {
+                        board.view.sessions.project = Some(value.to_owned());
+                    }
+                }
                 "transcript" => {
                     if board.sessions.live.is_empty() {
                         canned_sessions(board);
                     }
+                    let project = if value.is_empty() { "harbor" } else { value };
                     board.sessions.tab = board
                         .sessions
                         .live
                         .iter()
-                        .find(|live| live.project == "harbor")
+                        .find(|live| live.project == project)
                         .map(|live| live.key);
                     layout::show(dashboard.layout_mut(), Pane::Sessions);
                 }
@@ -238,6 +256,17 @@ impl Run {
                     for toast in crate::toasts::canned() {
                         board.toasts.popup.push(toast);
                     }
+                }
+                "revert" => {
+                    let (project, form) = value.split_once(':').unwrap_or((value, ""));
+                    let rows = &board.sessions.history.rows;
+                    let plan = canned_plan(project, None, rows, form == "refused");
+                    let done = (form == "done").then(|| canned_done(&plan));
+                    let mut dialog = crate::revert::Dialog::ready(plan);
+                    if let Some(done) = done {
+                        dialog.stage = crate::revert::Stage::Done(done);
+                    }
+                    board.revert = Some(dialog);
                 }
                 "tile" => match Pane::from_name(value) {
                     Some(pane) => layout::show(dashboard.layout_mut(), pane),
@@ -570,6 +599,140 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
     done.result =
         Some("EP-3 is done: the tide tables are read and cached, and the tests pass.".to_owned());
     vec![quarry, lapsed, lantern, done, stopped]
+}
+
+/// The plan a picture's preview shows (EP-15c): `project`'s latest session among the canned
+/// ledger `rows`, or `session`; its work two commits and six files, one of them the start's own
+/// file put back, and a tick to redo. `refused` adds what the window and the engine would refuse
+/// it for. Synthetic names and a neutral copy path; no git is asked.
+pub fn canned_plan(
+    project: &str,
+    session: Option<&str>,
+    rows: &[SessionRow],
+    refused: bool,
+) -> Plan {
+    let now = Utc::now();
+    let row = rows.iter().find(|row| {
+        row.project.eq_ignore_ascii_case(project)
+            && row.session_id.is_some()
+            && session.is_none_or(|id| row.session_id.as_deref() == Some(id))
+    });
+    let id = row
+        .and_then(|row| row.session_id.clone())
+        .or_else(|| session.map(str::to_owned))
+        .unwrap_or_else(|| "3b9d2f10-5e8c-4a71-9b06-7c4e1a2d8f53".to_owned());
+    let ep = row
+        .and_then(|row| row.ep.clone())
+        .unwrap_or_else(|| "EP-3".to_owned());
+    let started = row
+        .and_then(SessionRow::started)
+        .unwrap_or(now - TimeDelta::minutes(52));
+    // Where the window's copies go, without a path of the machine (D-3).
+    let backups = format!(r"%LOCALAPPDATA%\clauderoadmapwrangler\backups\{project}");
+    let copy = PathBuf::from(format!(
+        r"{backups}\reverts\{}",
+        now.format("%Y%m%d-%H%M%S")
+    ));
+    let mut plan = Plan::new(project, &portfolio_root().join(project), copy);
+    let head = "3c1e9b7a5d2f4e6081a9c3b5d7e9f1a2b4c6d8e0";
+    plan.target = Some(Target {
+        commit: head.to_owned(),
+        recorded: true,
+        subject: None,
+    });
+    plan.branch = Some("main".to_owned());
+    plan.commits = vec![
+        Commit {
+            oid: "e41d7c2098b3a6f5c1d0e9f8a7b6c5d4e3f2a1b0".to_owned(),
+            subject: format!(
+                "Tide tables: read and cached, the berths filtered by length ({ep}, D-4)"
+            ),
+            pushed: false,
+        },
+        Commit {
+            oid: "9b2f6a15c3d4e5f60718293a4b5c6d7e8f901a2b".to_owned(),
+            subject: format!("docs(roadmap): record {ep} commit hash"),
+            pushed: refused,
+        },
+    ];
+    let fate = |path: &str, change, action| Fate {
+        path: path.to_owned(),
+        change,
+        action,
+    };
+    plan.files = vec![
+        fate("drafts/register.md", Change::Changed, FileAction::PutBack),
+        fate("notes/berths.md", Change::Created, FileAction::Remove),
+        fate("roadmap/README.md", Change::Changed, FileAction::Undo),
+        fate(
+            &format!("roadmap/{ep}-tide-tables.md"),
+            Change::Created,
+            FileAction::Undo,
+        ),
+        fate("src/tides.rs", Change::Created, FileAction::Undo),
+        fate("src/view/list.rs", Change::Changed, FileAction::Undo),
+    ];
+    plan.start = Some(Start {
+        at: started,
+        head: Some(head.to_owned()),
+        branch: Some("main".to_owned()),
+        files: vec![
+            StartFile {
+                path: "drafts/register.md".to_owned(),
+                state: FileState::Changed,
+            },
+            StartFile {
+                path: "drafts/moorings.md".to_owned(),
+                state: FileState::Untracked,
+            },
+        ],
+        copy: Some(PathBuf::from(format!(r"{backups}\starts\{id}"))),
+        copied: true,
+    });
+    plan.ticks = vec![Tick {
+        at: started + TimeDelta::minutes(20),
+        id: "OT-2".to_owned(),
+        checked: true,
+        disposition: None,
+    }];
+    plan.session_id = Some(id);
+    plan.ep = Some(ep);
+    plan.started = Some(started);
+    if refused {
+        plan.refusals = vec![
+            "the window's headless EP-4 is running: revert once it has ended".to_owned(),
+            "the remote has 1 of its commits (9b2f6a15): the tool never force-pushes; undo them \
+             by hand with new commits (git revert)"
+                .to_owned(),
+        ];
+    }
+    plan
+}
+
+/// What the canned plan's revert did (EP-15c): every part of it, nothing left to do by hand.
+fn canned_done(plan: &Plan) -> Done {
+    let count = |action| {
+        plan.files
+            .iter()
+            .filter(|fate| fate.action == action)
+            .count()
+    };
+    Done {
+        copy: plan.copy.clone(),
+        target: plan
+            .target
+            .as_ref()
+            .map(|target| target.commit.clone())
+            .unwrap_or_default(),
+        commits: plan.commits.len(),
+        undone: count(FileAction::Undo),
+        removed: count(FileAction::Remove),
+        put_back: count(FileAction::PutBack),
+        kept: count(FileAction::Keep),
+        redone: plan.ticks.iter().map(Tick::detail).collect(),
+        not_redone: Vec::new(),
+        problems: Vec::new(),
+    }
 }
 
 /// The comma-separated flags of a setup, trimmed, empty ones left out.

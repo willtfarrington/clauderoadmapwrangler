@@ -3,7 +3,8 @@
 //! the detail pane and the `screenshot` feature's capture, EP-7 the badges, EP-10 the launch
 //! dialog and the headless sessions it starts, EP-11 its visual launch, EP-12 the loopback server
 //! for the hooks and the status line and the sessions they report, EP-15 the notifications'
-//! popup and the tray icon, which the window closes to; later briefs fill the other tiles.
+//! popup and the tray icon, which the window closes to, EP-15c a session's revert behind its
+//! preview; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -19,6 +20,7 @@ mod list;
 mod markup;
 mod popup;
 mod portfolio;
+mod revert;
 #[cfg(feature = "screenshot")]
 mod screenshot;
 mod server;

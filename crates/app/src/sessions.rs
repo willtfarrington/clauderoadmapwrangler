@@ -2,7 +2,8 @@
 //! its transcript as it streams (`transcript`), Stop and Kill while it runs and Resume with a
 //! message once it has ended; and an All tab that lists every session, the window's, those Claude
 //! Code reports elsewhere (EP-12) and the ledger's recent rows, with filters by project, mode and
-//! running only. The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
+//! running only. An ended session's tab and a ledger row with a session id have Revert…, which
+//! opens the preview of undoing it (`revert`, EP-15c). The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
 //! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Quitting the
 //! window drops the handles, which kills whatever still runs with its process tree (D-16
 //! addendum); closing it only hides it in the tray (D-29; EP-15). What a session waits on is answered in the Decisions tile (`decisions`, EP-14):
@@ -906,6 +907,44 @@ impl Sessions {
         (!all.is_empty()).then(|| all.join("; "))
     }
 
+    /// The window's own work in `project`, which refuses a revert there (EP-15c): a start or a
+    /// resume waiting its turn and each run that goes on, in words that the plan's "revert once
+    /// it has ended" follows; and, said as they are, its ended runs whose deferred request waits
+    /// for the owner's answer, which a resume would carry onto the reverted project.
+    pub fn at_work(&self, project: &str) -> (Vec<String>, Vec<String>) {
+        let here = |name: &str| name.eq_ignore_ascii_case(project);
+        let mut working = Vec::new();
+        if let Some(starting) = self
+            .starting
+            .as_ref()
+            .filter(|starting| here(&starting.launch.project))
+        {
+            let ep = starting.launch.ep.as_deref().unwrap_or("session");
+            let how = match starting.resumes {
+                Some(_) => "resuming",
+                None => "starting",
+            };
+            working.push(format!("the window's headless {ep} is {how}"));
+        }
+        let mut refusals = Vec::new();
+        for live in self.live.iter().filter(|live| here(&live.project)) {
+            if live.is_running() {
+                working.push(format!(
+                    "the window's headless {} is {}",
+                    live.ep,
+                    live.state()
+                ));
+            } else if live.open.is_some() {
+                refusals.push(format!(
+                    "the window's headless {} was deferred with a request open: answer it in the \
+                     Decisions pane, or dismiss its tab, first",
+                    live.ep
+                ));
+            }
+        }
+        (working, refusals)
+    }
+
     fn find(&mut self, key: u64) -> Option<&mut Live> {
         self.live.iter_mut().find(|live| live.key == key)
     }
@@ -1134,7 +1173,8 @@ impl Board {
                 })
                 .collect()
         };
-        let (mut open, mut focus) = (None, None);
+        let (mut open, mut focus, mut revert) = (None, None, None);
+        let portfolio = &self.portfolio;
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -1187,7 +1227,13 @@ impl Board {
                     heading(ui, "From the ledger: the latest first");
                     let now = Utc::now();
                     for row in &rows {
-                        ledger_line(ui, row, now);
+                        // A row with a session id keeps its Revert, its tab gone or not (EP-15c).
+                        let available = row.session_id.as_ref().map(|_| {
+                            crate::revert::availability(portfolio.project(&row.project), &row.project)
+                        });
+                        if ledger_line(ui, row, now, available.as_ref()) {
+                            revert = Some((row.project.clone(), row.session_id.clone()));
+                        }
                         ui.add_space(4.0);
                     }
                 }
@@ -1201,15 +1247,20 @@ impl Board {
         if let Some(project) = focus {
             self.actions.push(Action::Focus(project));
         }
+        if let Some((project, session)) = revert {
+            self.actions.push(Action::OpenRevert { project, session });
+        }
     }
 
-    /// One session of the window's: its header and buttons, its transcript, and Resume once it
-    /// has ended.
+    /// One session of the window's: its header and buttons, its transcript, and Resume and Revert
+    /// once it has ended.
     fn session_tab(&mut self, ui: &mut egui::Ui, key: u64) {
         let starting = self.sessions.is_starting();
         let Some(live) = self.sessions.find(key) else {
             return;
         };
+        let available =
+            crate::revert::availability(self.portfolio.project(&live.project), &live.project);
         let mut actions = Vec::new();
         // The title, the chip and the buttons on rows of their own, so that a narrow pane neither
         // squeezes a chip nor gets widened past its edge by a row too long for it.
@@ -1294,25 +1345,36 @@ impl Board {
             {
                 ui.label(RichText::new(line).color(style::red(ui)));
             }
-            if !live.canned {
-                ui.horizontal(|ui| {
+            ui.horizontal(|ui| {
+                // A screenshot run's canned session cannot resume; its Revert opens a canned plan.
+                let resume = (!live.canned).then(|| {
                     let ready = !live.draft.trim().is_empty() && !starting;
-                    let resume = ui
-                        .add_enabled(ready, egui::Button::new("Resume"))
+                    ui.add_enabled(ready, egui::Button::new("Resume"))
                         .on_hover_text(
                             "Run the session again under its id (--resume), with this message as \
                              its next prompt; the ledger keeps a row for each run",
+                        )
+                });
+                // Revert at the line's end, the message's field between (EP-15c).
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if crate::revert::revert_button(ui, &available, false) {
+                        actions.push(Action::OpenRevert {
+                            project: live.project.clone(),
+                            session: Some(live.session_id.clone()),
+                        });
+                    }
+                    if !live.canned {
+                        ui.add(
+                            egui::TextEdit::singleline(&mut live.draft)
+                                .hint_text("A message to resume it with")
+                                .desired_width(f32::INFINITY),
                         );
-                    ui.add(
-                        egui::TextEdit::singleline(&mut live.draft)
-                            .hint_text("A message to resume it with")
-                            .desired_width(f32::INFINITY),
-                    );
-                    if resume.clicked() {
-                        actions.push(Action::ResumeSession(key));
                     }
                 });
-            }
+                if resume.is_some_and(|resume| resume.clicked()) {
+                    actions.push(Action::ResumeSession(key));
+                }
+            });
         }
         self.actions.extend(actions);
     }
@@ -1546,8 +1608,15 @@ fn duration_words(row: &SessionRow) -> Option<String> {
 }
 
 /// A ledger row in the All tab: when, which project and EP, its mode, model and effort, how long,
-/// how it ended and the cost estimate, then its result's first line.
-fn ledger_line(ui: &mut egui::Ui, row: &SessionRow, now: DateTime<Utc>) {
+/// how it ended and the cost estimate, then its result's first line. A row with a session id has
+/// its Revert… (EP-15c), `available` or disabled with the reason; `true` when it was pressed.
+fn ledger_line(
+    ui: &mut egui::Ui,
+    row: &SessionRow,
+    now: DateTime<Utc>,
+    available: Option<&Result<(), String>>,
+) -> bool {
+    let mut pressed = false;
     card(ui, |ui| {
         // Rows of their own, so that a narrow pane never squeezes a chip into a column of letters.
         ui.horizontal_wrapped(|ui| {
@@ -1566,11 +1635,29 @@ fn ledger_line(ui: &mut egui::Ui, row: &SessionRow, now: DateTime<Utc>) {
             };
             ui.label(RichText::new(title).strong());
         });
+        // The Revert… at the chips' line's end when it fits there, else on a line of its own: a
+        // line wider than a narrow pane would widen everything after it (EP-13).
+        let mut below = false;
         ui.horizontal(|ui| {
             style::chip(ui, &row.mode, ui.visuals().weak_text_color());
             let (state, why, colour) = row_state(ui, row, now);
             style::chip(ui, &state, colour).on_hover_text(why);
+            if let Some(available) = available {
+                let width = style::width_of(ui, |ui| {
+                    crate::revert::revert_button(ui, available, true);
+                });
+                if ui.available_width() >= width {
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        pressed = crate::revert::revert_button(ui, available, true);
+                    });
+                } else {
+                    below = true;
+                }
+            }
         });
+        if let (true, Some(available)) = (below, available) {
+            pressed = crate::revert::revert_button(ui, available, true);
+        }
         let mut figures = Vec::new();
         match (&row.model, &row.effort) {
             (Some(model), Some(effort)) => figures.push(format!("{model} · {effort}")),
@@ -1594,6 +1681,7 @@ fn ledger_line(ui: &mut egui::Ui, row: &SessionRow, now: DateTime<Utc>) {
             ui.add(egui::Label::new(RichText::new(line).weak()).truncate());
         }
     });
+    pressed
 }
 
 /// How a session ended, in one line: the outcome, the exit code, the turns, the time and the
@@ -1652,6 +1740,112 @@ mod tests {
             canned: false,
             news: Vec::new(),
         }
+    }
+
+    /// The window's own work in a project refuses a revert there (EP-15c): a start waiting its
+    /// turn and a run that goes on in words the plan's "revert once it has ended" follows, a
+    /// deferred run with a request open said as it is; an ended run, another project's, none.
+    #[test]
+    fn the_windows_runs_and_starts_refuse_a_revert_there() {
+        let mut sessions = Sessions::default();
+        assert_eq!(sessions.at_work("alpha"), (Vec::new(), Vec::new()));
+        let mut running = live();
+        running.canned = true;
+        let mut deferred = live();
+        deferred.key = 2;
+        deferred.ep = "EP-2".to_owned();
+        deferred.open = Some(Open::now(asked("req-1"), None));
+        deferred.ended = Some(Ended {
+            outcome: Outcome::Deferred,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        let mut done = live();
+        done.key = 3;
+        done.ended = deferred.ended.clone();
+        done.ended.as_mut().unwrap().outcome = Outcome::Completed;
+        let mut other = live();
+        other.key = 4;
+        other.project = "beta".to_owned();
+        other.canned = true;
+        sessions.live = vec![running, deferred, done, other];
+        let mut launch = Launch::new("Alpha", Path::new("alpha"), "fable", "Run EP-4.");
+        launch.ep = Some("EP-4".to_owned());
+        sessions.starting = Some(Starting {
+            receiver: mpsc::channel().1,
+            launch,
+            program: PathBuf::from("claude.exe"),
+            version: None,
+            effort: "high".to_owned(),
+            resumes: None,
+            message: String::new(),
+        });
+        let (working, refusals) = sessions.at_work("alpha");
+        assert_eq!(
+            working,
+            [
+                "the window's headless EP-4 is starting",
+                "the window's headless EP-3 is running",
+            ]
+        );
+        assert_eq!(refusals.len(), 1);
+        assert!(refusals[0].starts_with("the window's headless EP-2 was deferred"));
+        assert_eq!(
+            sessions.at_work("beta").0,
+            ["the window's headless EP-3 is running"]
+        );
+    }
+
+    /// A ledger card's Revert… opens the preview from a bare context's press (EP-15c); disabled, it
+    /// does not; a row with no session id has none.
+    #[test]
+    fn a_ledger_cards_revert_opens_the_preview() {
+        use crate::testing::{self, Screen};
+        let row = SessionRow {
+            id: 1,
+            session_id: Some("0e1d2c3b-4a59-4687-9a0b-1c2d3e4f5a6b".to_owned()),
+            project: "alpha".to_owned(),
+            ep: Some("EP-3".to_owned()),
+            mode: "headless".to_owned(),
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: (Utc::now() - chrono::TimeDelta::minutes(30)).to_rfc3339(),
+            ended_at: Some(Utc::now().to_rfc3339()),
+            outcome: Some("completed".to_owned()),
+            cost_usd: None,
+            questions: 0,
+            result: None,
+            context_percent: None,
+            answer_latency_s: None,
+            start: None,
+        };
+        let pressed_with = |available: Option<Result<(), String>>| {
+            let mut screen = Screen::new();
+            let now = Utc::now();
+            let mut pressed = false;
+            let output = screen.pass(Vec::new(), |ui| {
+                pressed |= ledger_line(ui, &row, now, available.as_ref());
+            });
+            let at = testing::text_at(&output, "Revert…")?;
+            for events in [
+                testing::moved(at),
+                testing::button(at, egui::PointerButton::Primary, true),
+                testing::button(at, egui::PointerButton::Primary, false),
+            ] {
+                screen.pass(events, |ui| {
+                    pressed |= ledger_line(ui, &row, now, available.as_ref());
+                });
+            }
+            Some(pressed)
+        };
+        assert_eq!(pressed_with(Some(Ok(()))), Some(true));
+        assert_eq!(
+            pressed_with(Some(Err("Revert is off for alpha".to_owned()))),
+            Some(false)
+        );
+        assert_eq!(pressed_with(None), None, "no Revert… without a session id");
     }
 
     #[test]

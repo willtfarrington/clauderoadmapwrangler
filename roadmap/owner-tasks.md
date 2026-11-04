@@ -79,7 +79,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   its backtrace. Put the red line into `roadmap/inbox.md`, so the next session starts from the
   cause. A headless run the window held is recorded as stopped. Claude Code's own list of past
   sessions in that project (`claude --resume` there) picks it up
-- [ ] OT-10 (EP-15, 2026-11-03) Keep Roadmap Wrangler in its tray for a few sessions and note what
+- [x] OT-10 (EP-15, 2026-11-03) Keep Roadmap Wrangler in its tray for a few sessions and note what
   its popup gets wrong. A notification should come at the screen's lower right when a session
   waits for you (a headless run's question or permission while the window is not in front, a VS
   Code session's permission prompt), when a run finishes or fails, and when a VS Code session ends
@@ -93,13 +93,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   it). Windows 11 puts a new tray icon in the overflow by the clock: drag it onto the taskbar, or
   turn it on under Settings, Personalization, Taskbar, Other system tray icons. Notes go to
   `roadmap/inbox.md` [before EP-16]
-- [ ] OT-11 (EP-15a, 2026-11-03) Over your next sessions, look at the Detail pane on your other
+- [x] OT-11 (EP-15a, 2026-11-03) Over your next sessions, look at the Detail pane on your other
   projects and note any brief note, owner item or inbox message that it sets wrong. The tests see
   only synthetic notes, and each project writes its own forms. Examples: a label or a numbered part
   split where it should not be, a sentence cut in the middle, a code span in the wrong colour, a
   form drawn as one block where it has parts. Name the project and the item, and say what it
   should look like. Notes go to `roadmap/inbox.md` [before EP-16]
-- [ ] OT-12 (EP-15b, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
+- [x] OT-12 (EP-15b, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
   session in a project other than this one, try the preview: `target\release\crw.exe revert
   <project>` prints what undoing that session would do and changes nothing (`--yes` would revert
   it; `crw sessions` shows each session's short id). A session that started while the window ran
@@ -109,3 +109,15 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   files and 20 MB a start). At your word the session turned this off on your three data
   repositories (`crw set <project> revert no`; `yes` turns it on again). The session tried the
   revert on a scratch project only (rule 13). Notes go to `roadmap/inbox.md` [before EP-15c]
+- [ ] OT-13 (EP-15c, 2026-11-04) Reopen Roadmap Wrangler from its shortcut and, after your next
+  session in a project other than this one, right-click that project's row and choose "Revert the
+  latest session…". The dialog reads the project for a second or two, then shows what undoing the
+  session would do: its target, each commit and file, what stays, and where the work would be
+  copied. Press Cancel, and nothing changes. The same preview opens from Revert… on the session's
+  card in the Sessions pane's All tab, and from an ended headless session's tab beside Resume. On
+  your three data repositories, whose revert is off, these are greyed out and say why on hover.
+  While a session works or waits in the project, the preview is refused and says why. Revert, if
+  you press it, reads the project again first and runs only if nothing changed since the preview;
+  the work is then copied to `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\reverts\`.
+  The session checked the dialog only on the fake portfolio and reverted only scratch
+  repositories (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-16]

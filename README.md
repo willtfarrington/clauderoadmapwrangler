@@ -41,7 +41,9 @@ icon counts what waits, and closing the window leaves it in the tray with its se
 (EP-15). Each session's start is recorded: the project's HEAD, its branch and a copy of its
 uncommitted files, kept in the backups folder. `crw revert` puts a project back as it was when a
 session started, after copying the session's work out; it never pushes, and it is refused while
-a session works there or when the remote has one of the session's commits (EP-15b). The roadmap is
+a session works there or when the remote has one of the session's commits (EP-15b). The window
+previews the same revert in a dialog, from an ended session's tab, a ledger row of the Sessions
+pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

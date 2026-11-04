@@ -8,7 +8,8 @@
 //! changes as a binary patch, and the untracked files it removes or overwrites. It then resets,
 //! removes the session's new files, puts the start's files back and redoes the tool's own ticks
 //! made since. Nothing is fetched or pushed, ignored files are never touched, and git runs one
-//! child at a time (D-29). `crw revert` is the console's way in; the window's Revert is EP-15c's.
+//! child at a time (D-29). `crw revert` is the console's way in. The window's Revert (EP-15c)
+//! reads the plan again at the owner's word and reverts only when [`Plan::is_as_seen`].
 
 pub mod start;
 
@@ -286,7 +287,7 @@ impl Fate {
 }
 
 /// What a revert of one session would do, or why it is refused: [`plan`]'s answer.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct Plan {
     pub project: String,
     pub folder: PathBuf,
@@ -313,8 +314,42 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// A plan with nothing found in it yet, whose caller sets its fields: a picture's or a
+    /// test's, which asks no git (the window's screenshot run, EP-15c). [`plan`] reads the real
+    /// one; a plan made so has no uncommitted or untracked files to copy out.
+    pub fn new(project: &str, folder: &Path, copy: PathBuf) -> Self {
+        Self {
+            project: project.to_owned(),
+            folder: folder.to_owned(),
+            session_id: None,
+            ep: None,
+            started: None,
+            target: None,
+            branch: None,
+            commits: Vec::new(),
+            files: Vec::new(),
+            start: None,
+            ticks: Vec::new(),
+            later: Vec::new(),
+            idle: Vec::new(),
+            copy,
+            refusals: Vec::new(),
+            untracked: Vec::new(),
+            uncommitted: false,
+        }
+    }
+
     pub fn is_refused(&self) -> bool {
         !self.refusals.is_empty()
+    }
+
+    /// Whether this plan, read again at the owner's word, is the plan `seen` they confirmed: the
+    /// same target, commits, files, start, ticks and sessions, and no refusal new (the window's
+    /// Revert, EP-15c). The copy's folder, named by the moment it was read, is left out.
+    pub fn is_as_seen(&self, seen: &Plan) -> bool {
+        let mut again = self.clone();
+        again.copy.clone_from(&seen.copy);
+        again == *seen
     }
 
     fn refuse(&mut self, why: impl Into<String>) {
@@ -377,13 +412,16 @@ impl Plan {
             && !start.files.is_empty()
         {
             let n = start.files.len();
-            stays.push(if start.copied {
-                format!("the start's own {n} uncommitted files are as they were then")
-            } else {
-                format!(
+            stays.push(match (start.copied, n) {
+                (true, 1) => "the start's own uncommitted file is as it was then".to_owned(),
+                (true, n) => format!("the start's own {n} uncommitted files are as they were then"),
+                (false, 1) => "the start's own uncommitted file stays as it is: it was more than \
+                               the tool copies"
+                    .to_owned(),
+                (false, n) => format!(
                     "the start's own {n} uncommitted files stay as they are: there were more \
                      than the tool copies"
-                )
+                ),
             });
         }
         lines.push(format!("Stays: {}.", stays.join("; ")));
@@ -505,26 +543,18 @@ fn git_turn(folder: &Path, args: &[&str]) -> Result<String, String> {
 /// at a time; nothing is written.
 pub fn plan(chosen: &Chosen, cx: &Context<'_>) -> Plan {
     let stamp = cx.now.format("%Y%m%d-%H%M%S").to_string();
+    let copy = start::project_dir(cx.backups, cx.folder)
+        .join("reverts")
+        .join(stamp);
     let mut plan = Plan {
-        project: cx.project.to_owned(),
-        folder: cx.folder.to_owned(),
         session_id: chosen.first.session_id.clone(),
         ep: chosen.first.ep.clone(),
         started: chosen.first.started(),
-        target: None,
-        branch: None,
-        commits: Vec::new(),
-        files: Vec::new(),
         start: chosen.start.clone(),
         ticks: cx.ticks.clone(),
         later: chosen.later.iter().map(later_words).collect(),
         idle: cx.idle.clone(),
-        copy: start::project_dir(cx.backups, cx.folder)
-            .join("reverts")
-            .join(stamp),
-        refusals: Vec::new(),
-        untracked: Vec::new(),
-        uncommitted: false,
+        ..Plan::new(cx.project, cx.folder, copy)
     };
     if !cx.enabled {
         plan.refuse(format!(
@@ -1686,6 +1716,49 @@ mod tests {
                 .join("reverts")
                 .exists()
         );
+    }
+
+    /// The window's Revert reads the plan again at the owner's word (EP-15c): the same project
+    /// gives the plan they saw, whatever moment names its copy; a file made since, a new tick or
+    /// a session at work does not.
+    #[test]
+    fn a_plan_read_again_is_as_seen_until_the_project_changes() {
+        let repo = Repo::new("revert-as-seen");
+        repo.write("a.txt", "one\n");
+        repo.commit("first");
+        let backups = repo.backups();
+        let start = repo.capture(&start::copies_dir(&backups, &repo.0, "s-1"));
+        repo.write("a.txt", "two\n");
+        repo.commit("Session work");
+        let session = || chosen(row(1, Some("s-1"), "alpha", start.at), Some(start.clone()));
+        let seen = plan(&session(), &context(&repo, &backups));
+        assert!(!seen.is_refused(), "{:?}", seen.refusals);
+
+        let mut later = context(&repo, &backups);
+        later.now += TimeDelta::seconds(30);
+        let again = plan(&session(), &later);
+        assert_ne!(again.copy, seen.copy, "named by the moment it was read");
+        assert!(again.is_as_seen(&seen));
+
+        let mut working = context(&repo, &backups);
+        working.working = vec!["a manual session is busy".to_owned()];
+        assert!(!plan(&session(), &working).is_as_seen(&seen));
+        let mut ticked = context(&repo, &backups);
+        ticked.ticks = vec![Tick {
+            at: Utc::now(),
+            id: "OT-1".to_owned(),
+            checked: true,
+            disposition: None,
+        }];
+        assert!(!plan(&session(), &ticked).is_as_seen(&seen));
+        repo.write("notes.md", "written after the preview\n");
+        let changed = plan(&session(), &context(&repo, &backups));
+        assert!(!changed.is_refused());
+        assert!(!changed.is_as_seen(&seen), "a new file to remove");
+
+        // A plan no git was asked for: nothing in it but what its caller sets.
+        let bare = Plan::new("alpha", &repo.0, backups.join("copy"));
+        assert!(!bare.is_refused() && bare.files.is_empty() && bare.target.is_none());
     }
 
     #[test]

@@ -264,7 +264,7 @@ only its own files inside a managed project).
 | EP-15a | [Readable notes and whole-row clicks: the Detail pane's brief notes, owner items and inbox set as paragraphs, their parts, code and references in the theme's colours; rows and cards that answer hover and click over their text and icons](EP-15a-readable-notes-and-row-clicks.md) (D-25) | M | EP-7a, EP-13 | core | ☑ `77c61b5` |
 | EP-15b | [Revert a session: each session's start recorded (the HEAD, the branch, the uncommitted files copied to the backups folder), the revert in `crw_core` behind a preview of every commit and file it undoes, the work copied out first, refused while a session works there or once a commit is pushed, the tool's ticks redone, `crw revert`](EP-15b-revert-a-session.md) (D-11, D-26) | M | EP-13 | core | ☑ `61de8f6` |
 | EP-15d | [The popup's crash: the popup a deferred viewport, since eframe 0.37 cannot open an immediate one while the window is hidden; a delayed test notification that reaches that path](EP-15d-popup-crash.md) (D-21) | S | EP-15 | core | ☑ `3446eeb` |
-| EP-15c | Revert in the window: an ended session's tab, the Sessions pane's ledger rows and a project's row menu, the preview as a dialog read off the UI thread, the window's own refusals (D-11, D-25, D-26) | M | EP-15b | core | ☐ |
+| EP-15c | [Revert in the window: an ended session's tab, the Sessions pane's ledger rows and a project's row menu, the preview as a dialog read off the UI thread, the window's own refusals](EP-15c-revert-in-the-window.md) (D-11, D-25, D-26) | M | EP-15b | core | ☐ |
 | EP-16 | Re-plan P2 and the dogfooding switch: retro, addenda, the CLAUDE.md rule that this project's EPs are launched from the tool, first self-launched session verified (D-5) | S | EP-9, EP-10, EP-33, EP-11, EP-12, EP-13, EP-14, EP-14a, EP-15, EP-15a, EP-15b, EP-15d, EP-15c | core | ☐ |
 
 Ordering rationale: the runner (EP-9) is the second engine and the base of everything unattended; the
@@ -664,7 +664,13 @@ every commit's added lines are checked before it is made, the repository being p
   · 6 L ≈ 41 session-hours, 19 still open once EP-15d is checked. eframe 0.37 cannot give an
   immediate viewport a window while the window is hidden (D-21 addendum): a re-plan that moves the
   egui family can look for the fix upstream, and no other immediate viewport should be added
-  until then.
+  until then. **From EP-15c:** the window's Revert is built (D-11, D-25 addenda): an ended
+  session's tab, a ledger card of the All tab and a project's row menu open the preview, which is
+  read on a worker thread and read again at the owner's word, so the first self-launched session
+  can be reverted from the window should it go astray. The preview refuses while the poll of live
+  sessions has not answered, so a window just opened needs its first poll (a few seconds) first.
+  OT-13, the owner's look at the dialog on the real portfolio, comes before this brief; 18 briefs
+  are still open once EP-15c is checked.
 
 ## Phase P3 — Automation, usage, inbox, method (planned 2026-10-31)
 
