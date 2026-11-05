@@ -8,6 +8,7 @@
 //! status-line relays and their installation) and the sessions the tool sees, EP-15 the
 //! notifications' rules, EP-15b a session's start and its revert, EP-17 the usage meter.
 
+pub mod autopilot;
 pub mod badges;
 pub mod catalog;
 pub mod checklist;

@@ -222,8 +222,12 @@ pub enum Action {
     ConfirmRevert,
     /// The preview put away, or its result read.
     CloseRevert,
-    /// A key or a button of a brief not built yet: a notice that says which.
-    NotYet(&'static str),
+    /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key.
+    SetAutopilot(String, bool),
+    /// Every chain paused by the owner, or resumed (D-22): the Sessions pane, the tray.
+    PauseAutopilot(bool),
+    /// An ended session resumed with the owner's yes to its commit (D-22): its tab's Commit.
+    CommitSession(u64),
 }
 
 /// What closing the window does (D-29; EP-15).
@@ -300,6 +304,8 @@ pub struct Board {
     /// The usage meter (D-23; EP-17); started by `main`, canned in a screenshot run, off in a
     /// test.
     pub meter: Meter,
+    /// The autopilot's chains, held chains and log (D-22; EP-19).
+    pub autopilot: crate::autopilot::Pilot,
     /// The window is hidden in the tray (D-29).
     pub hidden: bool,
     /// The first close to the tray has been said, once for good (kept with the layout).
@@ -361,6 +367,7 @@ impl Board {
             toasts: Toasts::default(),
             tray: None,
             meter: Meter::default(),
+            autopilot: crate::autopilot::Pilot::default(),
             hidden: false,
             told_tray: false,
             quit_asked: false,
@@ -462,6 +469,8 @@ impl Board {
             ctx.request_repaint_after(SETTLE);
         }
         match self.sessions.receive(ctx) {
+            // The chain's own start neither closes the dialog nor takes the pane (EP-19).
+            Some(started) if self.autopilot.is_starting() => self.chain_started(started),
             Some(Started::Running(text)) => {
                 self.launch = None;
                 self.notify(text);
@@ -530,6 +539,8 @@ impl Board {
         if std::mem::take(&mut self.watch.launched_ended) {
             self.meter.session_ended();
         }
+        // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
+        self.autopilot_pass();
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()
@@ -650,6 +661,10 @@ impl Board {
                     self.actions.push(Action::OpenLaunch(name));
                 }
                 Order::Quit => self.ask_quit(),
+                Order::Pause => {
+                    let paused = !self.autopilot.paused;
+                    self.actions.push(Action::PauseAutopilot(paused));
+                }
             }
         }
         // The popup is drawn by the window's pass, which a minimized window skips unless asked.
@@ -734,10 +749,26 @@ impl Board {
             })
             .collect();
         let scale = ctx.input(|i| i.viewport().native_pixels_per_point.unwrap_or(2.0));
+        let now = chrono::Utc::now();
+        let held = crw_core::autopilot::usage_pause(
+            &self.meter.gauge.figures(now),
+            self.autopilot.mark.max(1),
+            now,
+        )
+        .iter()
+        .filter_map(|refusal| match refusal {
+            crw_core::autopilot::Refusal::Usage { which, percent, .. } => {
+                Some(format!("{which} at {percent:.0} %"))
+            }
+            _ => None,
+        })
+        .collect::<Vec<_>>();
         let state = tray::State {
             waiting: self.decisions_count(),
             new: self.toasts.attention.counted(),
             starts,
+            paused: self.autopilot.paused,
+            held: (!held.is_empty()).then(|| held.join(", ")),
             size: (16.0 * scale).round() as u32,
         };
         if let Some(tray) = &mut self.tray {
@@ -909,8 +940,17 @@ impl Board {
             }
         }
         if pressed(Key::A) {
-            self.actions
-                .push(Action::NotYet("The autopilot arrives at EP-19."));
+            let selected = match self.view.selected.clone() {
+                Some(Selection::Project(name)) => self
+                    .portfolio
+                    .project(&name)
+                    .map(|row| (name, row.project.autopilot.enabled)),
+                _ => None,
+            };
+            match selected {
+                Some((name, on)) => self.actions.push(Action::SetAutopilot(name, !on)),
+                None => self.warn("Select a project first: A turns its autopilot on or off."),
+            }
         }
     }
 
@@ -975,6 +1015,9 @@ impl Board {
             Action::OpenRevert { project, session } => self.open_revert(&project, session),
             Action::ConfirmRevert => self.confirm_revert(),
             Action::CloseRevert => self.close_revert(),
+            Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
+            Action::PauseAutopilot(paused) => return self.pause_autopilot(paused),
+            Action::CommitSession(key) => self.commit_session(key),
             Action::ToggleExpanded(name) => {
                 if !self.view.expanded.remove(&name) {
                     self.view.expanded.insert(name);
@@ -997,7 +1040,6 @@ impl Board {
                     "Reading every project again: the files, the backup job, git, then GitHub.",
                 );
             }
-            Action::NotYet(text) => self.warn(text),
             Action::Adopt(name) => {
                 // A screenshot run's data root is the tracked fixtures: no file beside them.
                 let own_files = if self.fixtures {
@@ -1349,22 +1391,41 @@ impl Board {
         dialog.error = None;
         let mut launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
-        // The project's start, read just before the run for a revert, unless its switch is off
-        // (EP-15b).
-        if self
+        let (size, commits) = (dialog.size, dialog.commits());
+        let project = self
             .portfolio
             .project(&launch.project)
-            .is_some_and(|row| row.project.revert)
-        {
+            .map(|row| row.project.clone());
+        // The project's start, read just before the run for a revert, unless its switch is off
+        // (EP-15b).
+        if project.as_ref().is_some_and(|project| project.revert) {
             launch.starts = Some(self.store().backups.clone());
         }
+        // With the autopilot on, the run has its cap and the project's budget, and its end is
+        // weighed by the gate (D-22; EP-19).
+        let run = match project.filter(|project| project.autopilot.enabled) {
+            Some(project) => {
+                launch.max_budget_usd = project.autopilot.max_budget_usd;
+                crate::sessions::Run {
+                    capped: true,
+                    size,
+                    chained: false,
+                    commits,
+                }
+            }
+            None => crate::sessions::Run {
+                commits,
+                ..crate::sessions::Run::default()
+            },
+        };
         // The route as it stands now: a refused handshake since the dialog opened counts (D-19).
         launch.route = self
             .sessions
             .route_for(&preflight, self.decisions_setting())
             .0;
         launch.hooks = crw_exe();
-        self.sessions.start(preflight, launch, effort, &self.ctx);
+        self.sessions
+            .start(preflight, launch, effort, run, &self.ctx);
     }
 
     /// The registry's `settings.decisions`, when it reads.
@@ -1767,7 +1828,7 @@ impl Board {
 }
 
 /// The `crw.exe` beside the window's own exe, which the defer route's hooks run (D-19; EP-14).
-fn crw_exe() -> Option<PathBuf> {
+pub(crate) fn crw_exe() -> Option<PathBuf> {
     std::env::current_exe()
         .ok()
         .map(|exe| exe.with_file_name("crw.exe"))

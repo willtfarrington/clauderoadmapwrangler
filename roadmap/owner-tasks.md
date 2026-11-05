@@ -155,7 +155,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   sentence at the foot of the Detail pane's Status section, under Usage. Sort, Usage share orders
   each group by the figures, the largest first. The session checked this only on the fake
   portfolio (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-35]
-- [ ] OT-17 (EP-35, 2026-11-05) Reopen Roadmap Wrangler from its shortcut and open the Sessions
+- [x] OT-17 (EP-35, 2026-11-05) Reopen Roadmap Wrangler from its shortcut and open the Sessions
   pane's All tab. Each ledger card of a visual or manual session has Resume in VS Code beside
   Revert…, and the card's figures line ends with the session's full id. Press it on an ended
   session of this project, such as EP-18a's: this project's VS Code window should come to the
@@ -165,3 +165,15 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   greyed out, and its hover text names `claude --resume <id>` for a terminal. The session checked
   the window only on the fake portfolio (rules 5 and 13). Notes go to `roadmap/inbox.md`
   [before EP-19]
+- [ ] OT-18 (EP-19, 2026-11-05) Reopen Roadmap Wrangler from its shortcut. The Sessions pane's
+  All tab opens with the Autopilot section: off everywhere, not paused, and Pause beside it; the
+  tray's menu has Pause autopilot, and `target\release\crw.exe autopilot` prints the same state.
+  The list's autopilot box (or A on a selected row) now turns a project's autopilot on, and its
+  hover says what that means: the project's sessions then commit themselves, never pushing. To
+  try a chain (optional: it spends usage and commits in that project), choose a project you trust
+  whose next two briefs are S or M, write `permission_mode = "auto"` under its `[project.launch]`
+  in the registry, tick its box, and start its next brief headless from the launch dialog. When
+  the run completes, the section's log says whether the gate chained the next brief, or each
+  condition that refused it. Untick the box afterwards if you do not want it on. The session
+  checked the window only on the fake portfolio (rules 5 and 13). Notes go to
+  `roadmap/inbox.md` [before EP-19a]

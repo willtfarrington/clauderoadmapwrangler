@@ -1,0 +1,1142 @@
+//! The autopilot (D-22; EP-19): after a headless run of the window's ends, the **gate** decides
+//! whether the project's next brief starts on its own, and names every condition that fails. It
+//! weighs [`Facts`] read afresh from the project ([`read`]: the roadmap, the briefs, git's status,
+//! the ledger's day, the settings files) and from the meter. A refusal made by the pause alone (the
+//! owner's Pause, a limit at or over the mark, a figure too old to trust) holds the chain until it
+//! lifts; any other ends it. A chained run is drafted as the launch dialog drafts one, with the
+//! commit variant of the prompt (`prompt`), and has a **cap** by size counted in working time: the
+//! time a request waits for the owner is left out (the owner's choice). The **log** is the
+//! ledger's `event` rows of kind [`EVENT_KIND`], whose words begin with what happened, so the
+//! day's chained runs are counted from it. Nothing here starts a run: the window does.
+
+use std::fs;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
+
+use chrono::{DateTime, Local, NaiveDate, TimeDelta, Utc};
+
+use crate::ledger::{self, EventRow, Ledger};
+use crate::prompt::{self, Draft};
+use crate::registry::{Project, Registry};
+use crate::roadmap::{EpId, Size, snapshot};
+use crate::session::{Launch, Outcome};
+use crate::usage::{self, Figure, Figures};
+use crate::{git, paths, rules};
+
+/// The ledger's `event.kind` of the chain log.
+pub const EVENT_KIND: &str = "autopilot";
+
+/// The largest brief a chain starts unless the project says otherwise (D-22: S and M; an L
+/// needs a click).
+pub const DEFAULT_MAX_SIZE: Size = Size::M;
+/// Chained runs a day in one project, and in all of them (D-22).
+pub const DEFAULT_DAILY: u32 = 2;
+pub const DEFAULT_DAILY_TOTAL: u32 = 4;
+/// The share of the weekly or the Fable limit at which chains hold until the reset (D-22).
+pub const DEFAULT_PAUSE_PERCENT: u8 = 90;
+/// How long a figure under the mark is trusted after its reading: the meter's own freshness.
+pub const TRUSTED_FOR: TimeDelta = usage::FRESH_FOR;
+
+/// The permission modes under which a headless run asks the owner at each shell command unless
+/// an allow rule lets the command through (D-18).
+pub const WAITING_MODES: [&str; 4] = ["acceptEdits", "manual", "plan", "default"];
+
+/// The first word of a chained start's line in the log, by which the day's runs are counted.
+const CHAINED: &str = "chained ";
+
+/// The owner's Pause and its end, as the log says them.
+pub const PAUSED_BY_OWNER: &str = "paused by the owner: no chain goes on until the Resume";
+pub const RESUMED_BY_OWNER: &str = "resumed by the owner";
+
+/// A run's cap by its brief's size (D-22): S 45 min, M 90 min, L 3 h; a brief with no size
+/// takes L's.
+pub fn cap(size: Option<Size>) -> Duration {
+    match size {
+        Some(Size::S) => Duration::from_secs(45 * 60),
+        Some(Size::M) => Duration::from_secs(90 * 60),
+        Some(Size::L) | None => Duration::from_secs(3 * 60 * 60),
+    }
+}
+
+/// A duration in the ledger's words: `1 h 30 min`.
+pub fn length(duration: Duration) -> String {
+    ledger::length(TimeDelta::from_std(duration).unwrap_or(TimeDelta::MAX))
+}
+
+/// A run's working time (the owner's choice at EP-19): the time since its start less the time a
+/// request of its waited for the owner.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Clock {
+    started: Instant,
+    waited: Duration,
+    /// Since when a request waits, while one does.
+    since: Option<Instant>,
+}
+
+impl Clock {
+    pub fn start(at: Instant) -> Self {
+        Self {
+            started: at,
+            waited: Duration::ZERO,
+            since: None,
+        }
+    }
+
+    /// Takes in whether a request waits for the owner at `now`.
+    pub fn tick(&mut self, waiting: bool, now: Instant) {
+        match (waiting, self.since) {
+            (true, None) => self.since = Some(now),
+            (false, Some(since)) => {
+                self.waited += now.saturating_duration_since(since);
+                self.since = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// The working time at `now`.
+    pub fn worked(&self, now: Instant) -> Duration {
+        let waiting = self
+            .since
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since));
+        now.saturating_duration_since(self.started)
+            .saturating_sub(self.waited + waiting)
+    }
+}
+
+/// A run's cap and its clock.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cap {
+    pub size: Option<Size>,
+    pub limit: Duration,
+    pub clock: Clock,
+}
+
+impl Cap {
+    /// The cap of a run of a brief of `size` that starts at `at`.
+    pub fn new(size: Option<Size>, at: Instant) -> Self {
+        Self {
+            size,
+            limit: cap(size),
+            clock: Clock::start(at),
+        }
+    }
+
+    /// Whether the run has worked its cap at `now`.
+    pub fn reached(&self, now: Instant) -> bool {
+        self.clock.worked(now) >= self.limit
+    }
+
+    /// The cap in words: `M's cap of 1 h 30 min`.
+    pub fn words(&self) -> String {
+        match self.size {
+            Some(size) => format!("{size}'s cap of {}", length(self.limit)),
+            None => format!("the cap of {} (no size)", length(self.limit)),
+        }
+    }
+}
+
+/// The roadmap's next brief, as the run left it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Next {
+    pub id: EpId,
+    pub title: String,
+    pub size: Option<Size>,
+}
+
+/// What the gate weighs after a run (D-22).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Facts {
+    /// The project's autopilot is on.
+    pub enabled: bool,
+    /// The owner paused every chain.
+    pub paused: bool,
+    pub outcome: Outcome,
+    /// The EP the run worked on.
+    pub ran: Option<EpId>,
+    /// Its brief has a completion note.
+    pub completed: bool,
+    /// The next brief, or why there is none.
+    pub next: Result<Next, String>,
+    /// The open owner tasks gated before the next brief, by id.
+    pub due: Vec<String>,
+    pub max_size: Size,
+    pub weekly: Option<Figure>,
+    pub fable: Option<Figure>,
+    pub pause_percent: u8,
+    /// The working tree's changes, by path, or why git could not say.
+    pub tree: Result<Vec<String>, String>,
+    /// The chained runs today in the project, and its cap.
+    pub chained_today: u32,
+    pub daily: u32,
+    /// The chained runs today in every project, and the cap.
+    pub chained_total: u32,
+    pub daily_total: u32,
+    /// The other sessions open in the project, in words.
+    pub others: Vec<String>,
+    /// The project's folder holds the running window's exe (the owner's choice at EP-19).
+    pub own: bool,
+    /// The permission mode under which its runs would wait at each shell command, when they
+    /// would.
+    pub waits: Option<String>,
+}
+
+/// A condition of the gate that fails, which the log names.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Refusal {
+    Off,
+    Paused,
+    Outcome(Outcome),
+    NoEp,
+    NoCompletionNote(EpId),
+    /// The run's row is still the next one: its hash was not recorded.
+    RowOpen(EpId),
+    NoNext(String),
+    Due {
+        next: EpId,
+        tasks: Vec<String>,
+    },
+    Replan(EpId),
+    Size {
+        next: EpId,
+        size: Option<Size>,
+        max: Size,
+    },
+    /// A limit at or over the mark until its reset: the automatic pause.
+    Usage {
+        which: &'static str,
+        percent: f64,
+        mark: u8,
+        until: Option<DateTime<Utc>>,
+    },
+    /// A figure too old to trust, or read before its window reset.
+    Stale {
+        which: &'static str,
+        minutes: i64,
+        reset: bool,
+    },
+    Unread(&'static str),
+    Dirty(Vec<String>),
+    GitUnknown(String),
+    DailyProject {
+        count: u32,
+        cap: u32,
+    },
+    DailyTotal {
+        count: u32,
+        cap: u32,
+    },
+    Busy(Vec<String>),
+    OwnProject,
+    Waits(String),
+}
+
+impl Refusal {
+    /// A refusal the pause makes, which holds a chain until it lifts rather than ending it.
+    pub fn is_pause(&self) -> bool {
+        matches!(
+            self,
+            Refusal::Paused | Refusal::Usage { .. } | Refusal::Stale { .. }
+        )
+    }
+
+    /// The condition in words, for the log.
+    pub fn words(&self) -> String {
+        match self {
+            Refusal::Off => "the autopilot is off for the project".to_owned(),
+            Refusal::Paused => "the autopilot is paused (your Pause)".to_owned(),
+            Refusal::Outcome(Outcome::Deferred) => "the run was deferred with a request open: \
+                                                    your answer resumes it, and its end weighs \
+                                                    the gate again"
+                .to_owned(),
+            Refusal::Outcome(outcome) => {
+                format!("the run ended {} rather than completed", outcome.as_str())
+            }
+            Refusal::NoEp => "the run named no EP".to_owned(),
+            Refusal::NoCompletionNote(ep) => format!("{ep}'s brief has no completion note"),
+            Refusal::RowOpen(ep) => {
+                format!("{ep} is still the next brief: its row's hash is not recorded")
+            }
+            Refusal::NoNext(why) => format!("no next brief: {why}"),
+            Refusal::Due { next, tasks } => format!(
+                "owner tasks due before {next} are open: {}",
+                tasks.join(", ")
+            ),
+            Refusal::Replan(next) => format!("{next} is a re-plan, the owner's to run"),
+            Refusal::Size {
+                next,
+                size: Some(size),
+                max,
+            } => format!("{next} is {size}, over the autopilot's {max}"),
+            Refusal::Size {
+                next, size: None, ..
+            } => format!("{next} has no size"),
+            Refusal::Usage {
+                which,
+                percent,
+                mark,
+                until,
+            } => {
+                let until = until.map_or(String::new(), |at| {
+                    format!(
+                        " until its reset, {}",
+                        at.with_timezone(&Local).format("%a %d %b %H:%M")
+                    )
+                });
+                format!("{which} is at {percent:.0} %, at or over the pause at {mark} %{until}")
+            }
+            Refusal::Stale {
+                which, reset: true, ..
+            } => format!("the {which} figure's window has reset since its reading"),
+            Refusal::Stale { which, minutes, .. } => format!(
+                "the {which} figure was read {minutes} min ago, too old to trust (over {} min)",
+                TRUSTED_FOR.num_minutes()
+            ),
+            Refusal::Unread(which) => format!("no {which} figure has been read"),
+            Refusal::Dirty(paths) => {
+                let shown: Vec<&str> = paths.iter().take(3).map(String::as_str).collect();
+                let more = if paths.len() > shown.len() {
+                    ", …"
+                } else {
+                    ""
+                };
+                format!(
+                    "the tree is not clean after the commit: {} change{} ({}{more})",
+                    paths.len(),
+                    if paths.len() == 1 { "" } else { "s" },
+                    shown.join(", ")
+                )
+            }
+            Refusal::GitUnknown(why) => format!("git's status did not read: {why}"),
+            Refusal::DailyProject { count, cap } => {
+                format!("{count} chained runs today in the project, its cap is {cap}")
+            }
+            Refusal::DailyTotal { count, cap } => {
+                format!("{count} chained runs today in all projects, the cap is {cap}")
+            }
+            Refusal::Busy(others) => {
+                format!(
+                    "another session is open in the project: {}",
+                    others.join("; ")
+                )
+            }
+            Refusal::OwnProject => "it is the tool's own project, whose briefs end with a \
+                                    release build that needs the window quit"
+                .to_owned(),
+            Refusal::Waits(mode) => format!(
+                "its runs would wait for you at each shell command: permission mode {mode} and \
+                 no allow rule (set permission_mode = \"auto\" under its [project.launch], or \
+                 allow rules in its .claude settings)"
+            ),
+        }
+    }
+}
+
+/// Whether a brief's title names a re-plan, which the owner runs (D-22).
+pub fn is_replan(title: &str) -> bool {
+    let title = title.to_lowercase();
+    title.contains("re-plan") || title.contains("replan")
+}
+
+/// The gate (D-22): every condition that fails, in the order the log names them; none when the
+/// next brief may start.
+pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
+    let mut no = Vec::new();
+    if !facts.enabled {
+        no.push(Refusal::Off);
+    }
+    if facts.paused {
+        no.push(Refusal::Paused);
+    }
+    if facts.outcome != Outcome::Completed {
+        no.push(Refusal::Outcome(facts.outcome));
+    }
+    match facts.ran {
+        None => no.push(Refusal::NoEp),
+        Some(ran) if !facts.completed => no.push(Refusal::NoCompletionNote(ran)),
+        Some(_) => {}
+    }
+    match &facts.next {
+        Err(why) => no.push(Refusal::NoNext(why.clone())),
+        Ok(next) => {
+            if facts.ran == Some(next.id) {
+                no.push(Refusal::RowOpen(next.id));
+            }
+            if !facts.due.is_empty() {
+                no.push(Refusal::Due {
+                    next: next.id,
+                    tasks: facts.due.clone(),
+                });
+            }
+            if is_replan(&next.title) {
+                no.push(Refusal::Replan(next.id));
+            }
+            match next.size {
+                Some(size) if size <= facts.max_size => {}
+                size => no.push(Refusal::Size {
+                    next: next.id,
+                    size,
+                    max: facts.max_size,
+                }),
+            }
+        }
+    }
+    for (which, figure) in [("weekly", &facts.weekly), ("Fable", &facts.fable)] {
+        no.extend(weigh(which, figure.as_ref(), facts.pause_percent, now));
+    }
+    match &facts.tree {
+        Ok(changes) if changes.is_empty() => {}
+        Ok(changes) => no.push(Refusal::Dirty(changes.clone())),
+        Err(why) => no.push(Refusal::GitUnknown(why.clone())),
+    }
+    if facts.chained_today >= facts.daily {
+        no.push(Refusal::DailyProject {
+            count: facts.chained_today,
+            cap: facts.daily,
+        });
+    }
+    if facts.chained_total >= facts.daily_total {
+        no.push(Refusal::DailyTotal {
+            count: facts.chained_total,
+            cap: facts.daily_total,
+        });
+    }
+    if !facts.others.is_empty() {
+        no.push(Refusal::Busy(facts.others.clone()));
+    }
+    if facts.own {
+        no.push(Refusal::OwnProject);
+    }
+    if let Some(mode) = &facts.waits {
+        no.push(Refusal::Waits(mode.clone()));
+    }
+    no
+}
+
+/// Whether a refused chain is held rather than ended: the pause alone refused it.
+pub fn holds(refusals: &[Refusal]) -> bool {
+    !refusals.is_empty() && refusals.iter().all(Refusal::is_pause)
+}
+
+/// One usage figure against the mark (the brief's rule): at or over it, it counts until its
+/// reset whatever its age; under it, only while it is fresh; never read, it refuses.
+fn weigh(
+    which: &'static str,
+    figure: Option<&Figure>,
+    mark: u8,
+    now: DateTime<Utc>,
+) -> Option<Refusal> {
+    let Some(figure) = figure else {
+        return Some(Refusal::Unread(which));
+    };
+    let minutes = (now - figure.at).num_minutes();
+    if !figure.limit.before_reset(now) {
+        return Some(Refusal::Stale {
+            which,
+            minutes,
+            reset: true,
+        });
+    }
+    if figure.limit.percent >= f64::from(mark) {
+        return Some(Refusal::Usage {
+            which,
+            percent: figure.limit.percent,
+            mark,
+            until: figure.limit.resets_at,
+        });
+    }
+    (now - figure.at > TRUSTED_FOR).then_some(Refusal::Stale {
+        which,
+        minutes,
+        reset: false,
+    })
+}
+
+/// The automatic pause as it stands: each limit at or over the mark until its reset.
+pub fn usage_pause(figures: &Figures, mark: u8, now: DateTime<Utc>) -> Vec<Refusal> {
+    [("weekly", &figures.weekly), ("Fable", &figures.fable)]
+        .into_iter()
+        .filter_map(|(which, figure)| weigh(which, figure.as_ref(), mark, now))
+        .filter(|refusal| matches!(refusal, Refusal::Usage { .. }))
+        .collect()
+}
+
+/// The settings files whose allow rules let a run's commands through: the project's two and the
+/// user's.
+pub fn settings_files(folder: &Path, home: Option<&Path>) -> Vec<PathBuf> {
+    let mut files = vec![
+        folder.join(".claude").join("settings.json"),
+        folder.join(".claude").join("settings.local.json"),
+    ];
+    files.extend(home.map(|home| home.join(".claude").join("settings.json")));
+    files
+}
+
+/// The allow rules in a settings file's text: the entries of `permissions.allow`.
+pub fn allow_rules(text: &str) -> usize {
+    serde_json::from_str::<serde_json::Value>(text)
+        .ok()
+        .and_then(|value| Some(value.get("permissions")?.get("allow")?.as_array()?.len()))
+        .unwrap_or(0)
+}
+
+/// The mode, when a run in `mode` would wait for the owner at each shell command: a mode of
+/// [`WAITING_MODES`] with no allow rule in any of `files`.
+pub fn would_wait(mode: &str, files: &[PathBuf]) -> Option<String> {
+    let mode = mode.trim();
+    if !WAITING_MODES
+        .iter()
+        .any(|waiting| waiting.eq_ignore_ascii_case(mode))
+    {
+        return None;
+    }
+    let allowed: usize = files
+        .iter()
+        .filter_map(|file| fs::read_to_string(file).ok())
+        .map(|text| allow_rules(&text))
+        .sum();
+    (allowed == 0).then(|| mode.to_owned())
+}
+
+/// Whether `exe` lies inside `folder`: the running window was built from the project, which is
+/// never chained (the owner's choice at EP-19).
+pub fn is_own(exe: &Path, folder: &Path) -> bool {
+    let key = |path: &Path| {
+        paths::normalize(path)
+            .to_string_lossy()
+            .replace('/', "\\")
+            .to_lowercase()
+    };
+    let (exe, folder) = (key(exe), key(folder));
+    exe.strip_prefix(folder.trim_end_matches('\\'))
+        .is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// The chained starts the log records on `day` (local time): the project's and every project's.
+pub fn chained_on(events: &[EventRow], project: &str, day: NaiveDate) -> (u32, u32) {
+    let (mut mine, mut all) = (0, 0);
+    for event in events {
+        let chained = event.kind == EVENT_KIND
+            && event
+                .detail
+                .as_deref()
+                .is_some_and(|detail| detail.starts_with(CHAINED));
+        let today = event
+            .at()
+            .is_some_and(|at| at.with_timezone(&Local).date_naive() == day);
+        if chained && today {
+            all += 1;
+            if event
+                .project
+                .as_deref()
+                .is_some_and(|name| name.eq_ignore_ascii_case(project))
+            {
+                mine += 1;
+            }
+        }
+    }
+    (mine, all)
+}
+
+/// A chained start, as the log says it.
+pub fn chained_words(next: EpId, after: Option<EpId>, chosen: &str, cap: &Cap) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    format!("{CHAINED}{next}{after}: {chosen}, {}", cap.words())
+}
+
+/// A refused chain, as the log says it: held until the pause lifts, or ended.
+pub fn refused_words(after: Option<EpId>, refusals: &[Refusal]) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    let why: Vec<String> = refusals.iter().map(Refusal::words).collect();
+    if holds(refusals) {
+        format!("held{after} until the pause lifts: {}", why.join("; "))
+    } else {
+        format!("the chain ends{after}: {}", why.join("; "))
+    }
+}
+
+/// A run stopped at its cap, as the log says it.
+pub fn capped_words(ep: &str, cap: &Cap, worked: Duration) -> String {
+    format!(
+        "capped: {ep} stopped after {} of work, {}; the chain ends there",
+        length(worked),
+        cap.words()
+    )
+}
+
+/// A chained start the runner refused, as the log says it.
+pub fn not_started_words(next: &str, after: Option<EpId>, why: &str) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    format!("the chain ends{after}: {next} did not start: {why}")
+}
+
+/// Keeps one line of the chain log.
+pub fn log(
+    ledger: &Path,
+    project: Option<&str>,
+    detail: &str,
+    at: DateTime<Utc>,
+) -> Result<(), String> {
+    Ledger::open(ledger)
+        .and_then(|ledger| ledger.add_event(at, EVENT_KIND, project, detail))
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+/// The chain log's latest `limit` lines, the newest first, read without a write.
+pub fn recent(ledger: &Path, limit: usize) -> Result<Vec<EventRow>, String> {
+    if !ledger.exists() {
+        return Ok(Vec::new());
+    }
+    Ledger::open_read_only(ledger)
+        .and_then(|ledger| ledger.events(EVENT_KIND, Some(limit)))
+        .map_err(|e| e.to_string())
+}
+
+/// What the gate is read from after a run of `project`.
+pub struct Ask<'a> {
+    pub registry: &'a Registry,
+    pub project: &'a Project,
+    pub folder: &'a Path,
+    pub ran: Option<EpId>,
+    pub outcome: Outcome,
+    pub figures: &'a Figures,
+    /// The CLI's effort levels in order, for the rule table's steps.
+    pub levels: &'a [String],
+    pub now: DateTime<Utc>,
+    /// The running window's exe.
+    pub exe: Option<&'a Path>,
+    /// The user's profile folder, for its settings file.
+    pub home: Option<&'a Path>,
+    pub ledger: Option<&'a Path>,
+    /// The other sessions open in the project, in words.
+    pub others: Vec<String>,
+}
+
+/// The gate's facts read afresh, and the next brief's draft when there is one.
+pub struct Reading {
+    pub facts: Facts,
+    pub draft: Option<Draft>,
+}
+
+/// Reads the facts after a run (git: two children, one at a time): the project's files and
+/// git's status, the ledger's day, the settings files; and drafts the next brief as the dialog
+/// would, with the commit variant when the autopilot is on.
+pub fn read(ask: &Ask<'_>) -> Reading {
+    let mut snapshot = snapshot::read_tree(ask.folder);
+    let tree = match snapshot::read_git(ask.folder) {
+        Some(mut reading) => {
+            let changes = reading
+                .worktree
+                .take()
+                .map(|status| {
+                    status
+                        .changes
+                        .into_iter()
+                        .map(|change| change.path)
+                        .collect()
+                })
+                .ok_or_else(|| "git did not answer".to_owned());
+            reading.fill(&mut snapshot);
+            changes
+        }
+        None => Err("the folder is not a git repository".to_owned()),
+    };
+    let completed = ask.ran.is_some_and(|ran| {
+        snapshot
+            .entry(ran)
+            .is_some_and(snapshot::Entry::is_complete)
+    });
+    let due = prompt::next_of(&snapshot)
+        .map(|(roadmap, row)| prompt::due(&snapshot, roadmap, row))
+        .unwrap_or_default();
+    let usage = rules::Usage::of(ask.figures, ask.now);
+    let claude_md = prompt::claude_md(ask.folder);
+    let date = ask.now.with_timezone(&Local).format("%Y-%m-%d").to_string();
+    let draft = prompt::draft(
+        ask.registry,
+        ask.project,
+        &snapshot,
+        claude_md.as_deref(),
+        ask.levels,
+        &usage,
+        &date,
+    );
+    let next = draft.as_ref().map(|draft| Next {
+        id: draft.ep,
+        title: draft.title.clone(),
+        size: draft.size,
+    });
+    let mode = match &draft {
+        Ok(draft) => draft.resolution.permission_mode.value.clone(),
+        Err(_) => ask
+            .project
+            .launch
+            .permission_mode
+            .clone()
+            .unwrap_or_else(|| rules::DEFAULT_PERMISSION_MODE.to_owned()),
+    };
+    let day = ask.now.with_timezone(&Local).date_naive();
+    let (chained_today, chained_total) = ask
+        .ledger
+        .and_then(|ledger| recent(ledger, 500).ok())
+        .map_or((0, 0), |events| chained_on(&events, &ask.project.name, day));
+    let settings = &ask.registry.settings;
+    let facts = Facts {
+        enabled: ask.project.autopilot.enabled,
+        paused: settings.autopilot_paused(),
+        outcome: ask.outcome,
+        ran: ask.ran,
+        completed,
+        next: next.map_err(Clone::clone),
+        due,
+        max_size: ask.project.autopilot.max_size(),
+        weekly: ask.figures.weekly.clone(),
+        fable: ask.figures.fable.clone(),
+        pause_percent: settings.autopilot_pause_percent(),
+        tree,
+        chained_today,
+        daily: ask.project.autopilot.daily(),
+        chained_total,
+        daily_total: settings.autopilot_daily_total(),
+        others: ask.others.clone(),
+        own: ask.exe.is_some_and(|exe| is_own(exe, ask.folder)),
+        waits: would_wait(&mode, &settings_files(ask.folder, ask.home)),
+    };
+    Reading {
+        facts,
+        draft: draft.ok(),
+    }
+}
+
+/// The headless launch of a chained brief (D-22): the draft's model, effort, ultracode and
+/// permission mode as the launch dialog takes them, with the project's neighbours, time limit
+/// and budget. The caller adds the route, the hooks and the revert's start, as a headless start
+/// from the dialog does.
+pub fn launch(
+    draft: &Draft,
+    project: &Project,
+    folder: &Path,
+    data_root: &Path,
+    ledger: Option<PathBuf>,
+) -> Launch {
+    let resolution = &draft.resolution;
+    let mut launch = Launch::new(
+        &project.name,
+        folder,
+        &resolution.model.value,
+        &draft.prompt.text,
+    );
+    launch.ep = Some(draft.ep.to_string());
+    launch.effort = resolution.effort.value.clone();
+    launch.ultracode = resolution.ultracode.value;
+    launch.permission_mode = resolution.permission_mode.value.clone();
+    launch.neighbours = project.neighbour_folders(data_root);
+    launch.ledger = ledger;
+    launch.answer_timeout = project.answer_timeout();
+    launch.max_budget_usd = project.autopilot.max_budget_usd;
+    launch
+}
+
+/// Changes of the working tree, by path, from git's status.
+pub fn changes(status: &git::Status) -> Vec<String> {
+    status
+        .changes
+        .iter()
+        .map(|change| change.path.clone())
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::files::tests::Scratch;
+    use crate::usage::{Limit, Source};
+    use chrono::TimeZone;
+
+    fn now() -> DateTime<Utc> {
+        Utc.with_ymd_and_hms(2026, 11, 6, 12, 0, 0).unwrap()
+    }
+
+    fn figure(percent: f64, minutes_ago: i64, resets_in_hours: i64) -> Figure {
+        Figure {
+            limit: Limit {
+                percent,
+                resets_at: Some(now() + TimeDelta::hours(resets_in_hours)),
+                active: Some(true),
+                severity: None,
+            },
+            source: Source::Endpoint,
+            at: now() - TimeDelta::minutes(minutes_ago),
+        }
+    }
+
+    fn ep(text: &str) -> EpId {
+        text.parse().unwrap()
+    }
+
+    /// A change to the passing facts, and the one refusal it brings.
+    type Case = (Box<dyn Fn(&mut Facts)>, Refusal);
+
+    fn passing() -> Facts {
+        Facts {
+            enabled: true,
+            paused: false,
+            outcome: Outcome::Completed,
+            ran: Some(ep("EP-4")),
+            completed: true,
+            next: Ok(Next {
+                id: ep("EP-5"),
+                title: "Owner tasks".to_owned(),
+                size: Some(Size::M),
+            }),
+            due: Vec::new(),
+            max_size: Size::M,
+            weekly: Some(figure(40.0, 3, 48)),
+            fable: Some(figure(30.0, 3, 48)),
+            pause_percent: 90,
+            tree: Ok(Vec::new()),
+            chained_today: 1,
+            daily: 2,
+            chained_total: 3,
+            daily_total: 4,
+            others: Vec::new(),
+            own: false,
+            waits: None,
+        }
+    }
+
+    #[test]
+    fn the_gate_passes_when_every_condition_holds_and_names_each_that_fails() {
+        assert_eq!(gate(&passing(), now()), Vec::new());
+        let next = |id: &str, title: &str, size: Option<Size>| {
+            Ok(Next {
+                id: ep(id),
+                title: title.to_owned(),
+                size,
+            })
+        };
+        let cases: Vec<Case> = vec![
+            (Box::new(|f: &mut Facts| f.enabled = false), Refusal::Off),
+            (Box::new(|f: &mut Facts| f.paused = true), Refusal::Paused),
+            (
+                Box::new(|f: &mut Facts| f.outcome = Outcome::Deferred),
+                Refusal::Outcome(Outcome::Deferred),
+            ),
+            (Box::new(|f: &mut Facts| f.ran = None), Refusal::NoEp),
+            (
+                Box::new(|f: &mut Facts| f.completed = false),
+                Refusal::NoCompletionNote(ep("EP-4")),
+            ),
+            (
+                Box::new(move |f: &mut Facts| f.next = next("EP-4", "Parser B", Some(Size::M))),
+                Refusal::RowOpen(ep("EP-4")),
+            ),
+            (
+                Box::new(|f: &mut Facts| {
+                    f.next = Err("every row of its roadmap is checked".to_owned())
+                }),
+                Refusal::NoNext("every row of its roadmap is checked".to_owned()),
+            ),
+            (
+                Box::new(|f: &mut Facts| f.due = vec!["OT-3".to_owned()]),
+                Refusal::Due {
+                    next: ep("EP-5"),
+                    tasks: vec!["OT-3".to_owned()],
+                },
+            ),
+            (
+                Box::new(move |f: &mut Facts| f.next = next("EP-5", "Re-plan P1", Some(Size::S))),
+                Refusal::Replan(ep("EP-5")),
+            ),
+            (
+                Box::new(move |f: &mut Facts| f.next = next("EP-5", "The engine", Some(Size::L))),
+                Refusal::Size {
+                    next: ep("EP-5"),
+                    size: Some(Size::L),
+                    max: Size::M,
+                },
+            ),
+            (
+                Box::new(move |f: &mut Facts| f.next = next("EP-5", "The engine", None)),
+                Refusal::Size {
+                    next: ep("EP-5"),
+                    size: None,
+                    max: Size::M,
+                },
+            ),
+            (
+                Box::new(|f: &mut Facts| f.tree = Ok(vec!["src/main.rs".to_owned()])),
+                Refusal::Dirty(vec!["src/main.rs".to_owned()]),
+            ),
+            (
+                Box::new(|f: &mut Facts| f.tree = Err("git is missing".to_owned())),
+                Refusal::GitUnknown("git is missing".to_owned()),
+            ),
+            (
+                Box::new(|f: &mut Facts| f.chained_today = 2),
+                Refusal::DailyProject { count: 2, cap: 2 },
+            ),
+            (
+                Box::new(|f: &mut Facts| f.chained_total = 4),
+                Refusal::DailyTotal { count: 4, cap: 4 },
+            ),
+            (
+                Box::new(|f: &mut Facts| f.others = vec!["a visual session".to_owned()]),
+                Refusal::Busy(vec!["a visual session".to_owned()]),
+            ),
+            (Box::new(|f: &mut Facts| f.own = true), Refusal::OwnProject),
+            (
+                Box::new(|f: &mut Facts| f.waits = Some("acceptEdits".to_owned())),
+                Refusal::Waits("acceptEdits".to_owned()),
+            ),
+        ];
+        for (change, expected) in cases {
+            let mut facts = passing();
+            change(&mut facts);
+            assert_eq!(gate(&facts, now()), vec![expected.clone()], "{expected:?}");
+            assert!(!expected.words().is_empty());
+        }
+        // Several at once are all named, in order.
+        let mut facts = passing();
+        facts.enabled = false;
+        facts.own = true;
+        assert_eq!(gate(&facts, now()), vec![Refusal::Off, Refusal::OwnProject]);
+        // An S brief passes under M, and an L one under an L limit.
+        let mut facts = passing();
+        facts.next = next("EP-5", "Small", Some(Size::S));
+        assert!(gate(&facts, now()).is_empty());
+        facts.next = next("EP-5", "Large", Some(Size::L));
+        facts.max_size = Size::L;
+        assert!(gate(&facts, now()).is_empty());
+    }
+
+    #[test]
+    fn a_figure_at_the_mark_pauses_until_its_reset_and_an_old_one_under_it_holds() {
+        let weigh_fable = |figure: Option<Figure>| {
+            let mut facts = passing();
+            facts.fable = figure;
+            gate(&facts, now())
+        };
+        // At or over the mark: the pause, however old the reading.
+        let over = weigh_fable(Some(figure(90.0, 300, 20)));
+        assert!(matches!(
+            over.as_slice(),
+            [Refusal::Usage {
+                which: "Fable",
+                mark: 90,
+                ..
+            }]
+        ));
+        assert!(holds(&over));
+        assert!(
+            over[0].words().contains("until its reset"),
+            "{}",
+            over[0].words()
+        );
+        // Under it and fresh: it counts; under it and old: held.
+        assert!(weigh_fable(Some(figure(89.0, 15, 20))).is_empty());
+        let old = weigh_fable(Some(figure(50.0, 16, 20)));
+        assert_eq!(
+            old,
+            vec![Refusal::Stale {
+                which: "Fable",
+                minutes: 16,
+                reset: false
+            }]
+        );
+        assert!(holds(&old));
+        // Read before its window reset: held until a new reading.
+        let reset = weigh_fable(Some(figure(95.0, 10, -1)));
+        assert!(matches!(
+            reset.as_slice(),
+            [Refusal::Stale { reset: true, .. }]
+        ));
+        assert!(holds(&reset));
+        // Never read: refused, and the chain ends.
+        let unread = weigh_fable(None);
+        assert_eq!(unread, vec![Refusal::Unread("Fable")]);
+        assert!(!holds(&unread));
+        // A pause with another refusal ends the chain.
+        let mut facts = passing();
+        facts.weekly = Some(figure(92.0, 1, 5));
+        facts.tree = Ok(vec!["a".to_owned()]);
+        assert!(!holds(&gate(&facts, now())));
+        // The automatic pause alone, for the window's state.
+        let figures = Figures {
+            weekly: Some(figure(92.0, 1, 5)),
+            fable: Some(figure(40.0, 30, 5)),
+            ..Figures::default()
+        };
+        let pause = usage_pause(&figures, 90, now());
+        assert!(matches!(
+            pause.as_slice(),
+            [Refusal::Usage {
+                which: "weekly",
+                ..
+            }]
+        ));
+        assert!(usage_pause(&Figures::default(), 90, now()).is_empty());
+    }
+
+    #[test]
+    fn a_run_waits_at_each_command_without_an_allow_rule_in_an_asking_mode() {
+        let scratch = Scratch::new("autopilot-waits");
+        let folder = scratch.0.join("alpha");
+        let home = scratch.0.join("home");
+        fs::create_dir_all(folder.join(".claude")).unwrap();
+        fs::create_dir_all(home.join(".claude")).unwrap();
+        let files = settings_files(&folder, Some(&home));
+        assert_eq!(files.len(), 3);
+        assert_eq!(
+            would_wait("acceptEdits", &files).as_deref(),
+            Some("acceptEdits")
+        );
+        assert_eq!(would_wait(" manual ", &files).as_deref(), Some("manual"));
+        assert_eq!(would_wait("auto", &files), None);
+        assert_eq!(would_wait("dontAsk", &files), None);
+        assert_eq!(would_wait("bypassPermissions", &files), None);
+        // A settings file with no allow rule, or one that does not read, changes nothing.
+        fs::write(
+            &files[0],
+            r#"{"permissions": {"deny": ["Edit(//c/x/**)"]}}"#,
+        )
+        .unwrap();
+        fs::write(&files[2], "not json").unwrap();
+        assert_eq!(
+            would_wait("acceptEdits", &files).as_deref(),
+            Some("acceptEdits")
+        );
+        // An allow rule in any of them lets the commands through.
+        fs::write(
+            &files[1],
+            r#"{"permissions": {"allow": ["Bash(cargo test:*)"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(would_wait("acceptEdits", &files), None);
+        assert_eq!(allow_rules(r#"{"permissions":{"allow":["a","b"]}}"#), 2);
+        assert_eq!(allow_rules("{}"), 0);
+    }
+
+    #[test]
+    fn the_tools_own_project_is_the_one_whose_folder_holds_the_exe() {
+        let folder = Path::new(r"C:\Data\Wrangler");
+        assert!(is_own(
+            Path::new(r"c:\data\wrangler\target\release\app.exe"),
+            folder
+        ));
+        assert!(is_own(Path::new("C:/Data/Wrangler/target/app.exe"), folder));
+        assert!(!is_own(Path::new(r"C:\Data\Wrangler2\app.exe"), folder));
+        assert!(!is_own(Path::new(r"C:\Data\app.exe"), folder));
+        assert!(!is_own(folder, folder));
+    }
+
+    #[test]
+    fn the_days_chained_runs_are_counted_from_the_log() {
+        let local = |day: u32, hour: u32| {
+            Local
+                .with_ymd_and_hms(2026, 11, day, hour, 30, 0)
+                .unwrap()
+                .with_timezone(&Utc)
+                .to_rfc3339()
+        };
+        let event = |at: String, project: &str, detail: &str| EventRow {
+            id: 0,
+            at,
+            kind: EVENT_KIND.to_owned(),
+            project: Some(project.to_owned()),
+            detail: Some(detail.to_owned()),
+        };
+        let events = vec![
+            event(
+                local(6, 9),
+                "alpha",
+                "chained EP-5 after EP-4: fable at xhigh, M's cap",
+            ),
+            event(
+                local(6, 11),
+                "Alpha",
+                "chained EP-6 after EP-5: fable at xhigh, M's cap",
+            ),
+            event(
+                local(6, 12),
+                "beta",
+                "chained EP-2 after EP-1: fable at high, S's cap",
+            ),
+            event(
+                local(6, 13),
+                "alpha",
+                "the chain ends after EP-6: EP-7 is a re-plan",
+            ),
+            event(
+                local(5, 23),
+                "alpha",
+                "chained EP-4 after EP-3: fable at xhigh, M's cap",
+            ),
+        ];
+        let day = NaiveDate::from_ymd_opt(2026, 11, 6).unwrap();
+        assert_eq!(chained_on(&events, "alpha", day), (2, 3));
+        assert_eq!(chained_on(&events, "gamma", day), (0, 3));
+    }
+
+    #[test]
+    fn a_runs_cap_counts_its_working_time_only() {
+        assert_eq!(cap(Some(Size::S)), Duration::from_secs(45 * 60));
+        assert_eq!(cap(Some(Size::M)), Duration::from_secs(90 * 60));
+        assert_eq!(cap(Some(Size::L)), Duration::from_secs(180 * 60));
+        assert_eq!(cap(None), cap(Some(Size::L)));
+        let start = Instant::now();
+        let at = |minutes: u64| start + Duration::from_secs(minutes * 60);
+        let mut cap = Cap::new(Some(Size::S), start);
+        cap.clock.tick(false, at(10));
+        cap.clock.tick(true, at(20));
+        // Waiting from minute 20: the clock stands.
+        assert_eq!(cap.clock.worked(at(50)), Duration::from_secs(20 * 60));
+        assert!(!cap.reached(at(60)));
+        cap.clock.tick(false, at(60));
+        assert_eq!(cap.clock.worked(at(60)), Duration::from_secs(20 * 60));
+        assert!(!cap.reached(at(84)));
+        assert!(cap.reached(at(85)));
+        assert_eq!(cap.words(), "S's cap of 45 min");
+        let words = capped_words("EP-5", &cap, cap.clock.worked(at(85)));
+        assert!(
+            words.starts_with("capped: EP-5 stopped after 45 min"),
+            "{words}"
+        );
+    }
+
+    #[test]
+    fn the_logs_words_say_what_ran_and_why_the_chain_stopped() {
+        let cap = Cap::new(Some(Size::M), Instant::now());
+        let words = chained_words(ep("EP-5"), Some(ep("EP-4")), "fable at xhigh", &cap);
+        assert_eq!(
+            words,
+            "chained EP-5 after EP-4: fable at xhigh, M's cap of 1 h 30 min"
+        );
+        let ended = refused_words(Some(ep("EP-4")), &[Refusal::Replan(ep("EP-5"))]);
+        assert!(
+            ended.starts_with("the chain ends after EP-4: EP-5 is a re-plan"),
+            "{ended}"
+        );
+        let held = refused_words(Some(ep("EP-4")), &[Refusal::Paused]);
+        assert!(
+            held.starts_with("held after EP-4 until the pause lifts"),
+            "{held}"
+        );
+        assert!(not_started_words("EP-5", None, "claude is too old").contains("did not start"));
+        assert!(is_replan("Re-plan P3") && is_replan("Replan and close") && !is_replan("Plans"));
+    }
+
+    #[test]
+    fn the_log_is_kept_in_the_ledger_and_read_back() {
+        let scratch = Scratch::new("autopilot-log");
+        let path = scratch.0.join("ledger.sqlite");
+        assert_eq!(recent(&path, 10).unwrap(), Vec::new());
+        log(&path, Some("alpha"), "chained EP-5 after EP-4: x", now()).unwrap();
+        log(&path, None, PAUSED_BY_OWNER, now() + TimeDelta::minutes(1)).unwrap();
+        let rows = recent(&path, 10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].detail.as_deref(), Some(PAUSED_BY_OWNER));
+        assert_eq!(rows[1].project.as_deref(), Some("alpha"));
+    }
+}

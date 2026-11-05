@@ -9,6 +9,7 @@
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod autopilot;
 mod badges;
 mod board;
 mod crash;

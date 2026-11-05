@@ -4,8 +4,8 @@
 //! (`Board::decisions_count`), and an amber dot while a badge event is new since the window was
 //! last in front (`toasts::Attention`). The tooltip says both in words. A left click shows the
 //! window. The menu says what waits and what is new, and holds Show, Start next for each pinned
-//! project (the launch dialog on its next brief, D-17), Pause autopilot (disabled until EP-19)
-//! and Quit. The icon and the menu change only when what they show does: the menu's texts are set
+//! project (the launch dialog on its next brief, D-17), Pause autopilot or Resume autopilot (the
+//! owner's Pause of every chain, D-22; EP-19) and Quit. The icon and the menu change only when what they show does: the menu's texts are set
 //! in place, and a menu replaced for a new list of pinned projects is kept a minute longer, in
 //! case it was open. `main` starts it once, on the main thread, whose message loop serves it:
 //! never in a test or a screenshot run.
@@ -53,6 +53,8 @@ pub enum Order {
     Show,
     /// The launch dialog on the project's next brief.
     Start(String),
+    /// The owner's Pause of every chain, or its Resume (D-22; EP-19).
+    Pause,
     Quit,
 }
 
@@ -60,6 +62,7 @@ impl Order {
     fn from_id(id: &str) -> Option<Order> {
         match id {
             "show" => Some(Order::Show),
+            "pause" => Some(Order::Pause),
             "quit" => Some(Order::Quit),
             _ => id
                 .strip_prefix("start:")
@@ -78,6 +81,10 @@ pub struct State {
     pub new: String,
     /// Each pinned project with what Start next opens: its next brief in words, or none.
     pub starts: Vec<(String, Option<String>)>,
+    /// The owner paused every chain (D-22; EP-19).
+    pub paused: bool,
+    /// Why the chains hold meanwhile when usage holds them, in a few words.
+    pub held: Option<String>,
     /// The icon's side in pixels.
     pub size: u32,
 }
@@ -198,6 +205,8 @@ impl Tray {
             waiting: 0,
             new: String::new(),
             starts: Vec::new(),
+            paused: false,
+            held: None,
             size: SIZE,
         };
         let look = look(&state);
@@ -387,8 +396,13 @@ fn entries(state: &State) -> Vec<Entry> {
     if !state.starts.is_empty() {
         entries.push(Entry::Separator);
     }
+    let pause = match (&state.paused, &state.held) {
+        (true, _) => "Resume autopilot".to_owned(),
+        (false, Some(held)) => format!("Pause autopilot (held now: {held})"),
+        (false, None) => "Pause autopilot".to_owned(),
+    };
     entries.extend([
-        Entry::item("pause", "Pause autopilot (arrives at EP-19)", false),
+        Entry::item("pause", pause, true),
         Entry::Separator,
         Entry::item("quit", "Quit Roadmap Wrangler", true),
     ]);
@@ -543,6 +557,8 @@ mod tests {
             waiting,
             new: new.to_owned(),
             starts: Vec::new(),
+            paused: false,
+            held: None,
             size: 24,
         }
     }
@@ -629,9 +645,27 @@ mod tests {
                     true
                 ),
                 ("start:R&D", "R&D: no brief to start", false),
-                ("pause", "Pause autopilot (arrives at EP-19)", false),
+                ("pause", "Pause autopilot", true),
                 ("quit", "Quit Roadmap Wrangler", true),
             ]
+        );
+        // The item says the owner's Pause, and usage's hold meanwhile.
+        let pause_text = |paused: bool, held: Option<&str>| {
+            let mut state = state(0, "");
+            state.paused = paused;
+            state.held = held.map(str::to_owned);
+            entries(&state).into_iter().find_map(|entry| match entry {
+                Entry::Item { id, text, .. } if id == "pause" => Some(text),
+                _ => None,
+            })
+        };
+        assert_eq!(
+            pause_text(true, Some("x")).as_deref(),
+            Some("Resume autopilot")
+        );
+        assert_eq!(
+            pause_text(false, Some("Fable at 91 %")).as_deref(),
+            Some("Pause autopilot (held now: Fable at 91 %)")
         );
         assert_eq!(lines.iter().filter(|e| **e == Entry::Separator).count(), 4);
         // Without pinned projects, no empty section.
@@ -648,6 +682,6 @@ mod tests {
             Some(Order::Start("R&D".to_owned()))
         );
         assert_eq!(Order::from_id("show"), Some(Order::Show));
-        assert_eq!(Order::from_id("pause"), None);
+        assert_eq!(Order::from_id("pause"), Some(Order::Pause));
     }
 }

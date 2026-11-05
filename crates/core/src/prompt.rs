@@ -4,8 +4,9 @@
 //! read-first rule of the project's own
 //! `CLAUDE.md`, else the house default; the next row with its brief notes verbatim; its brief when
 //! one is written, and the last completed one; the open owner tasks and inbox messages as written,
-//! with the triage rule (D-13); and the rules every session keeps, ending before the commit (the
-//! autopilot's variant arrives at EP-19, D-22). A project may word it its own way with a template
+//! with the triage rule (D-13); and the rules every session keeps, ending before the commit, or
+//! with the commit itself while the project's autopilot is on (D-22; EP-19), whose words the
+//! Commit button also sends ([`commit_message`]). A project may word it its own way with a template
 //! in `[project.launch] template`, whose placeholders are the opener's parts. [`draft`] puts the
 //! prompt together with the rule table's resolution, for the launch dialog and `crw prompt`.
 
@@ -85,6 +86,8 @@ pub struct Parts {
     pub inbox: String,
     pub triage: String,
     pub rules: String,
+    /// Whether the rules tell the session to commit: the project's autopilot is on (D-22).
+    pub commits: bool,
 }
 
 impl Parts {
@@ -248,12 +251,14 @@ pub fn next_of(snapshot: &Snapshot) -> Result<(&Roadmap, &Row), String> {
     }
 }
 
-/// The opener's parts for `snapshot`'s next brief; why there is none, when there is none.
+/// The opener's parts for `snapshot`'s next brief; why there is none, when there is none. With
+/// `commits` (the project's autopilot is on, D-22) the last rule tells the session to commit.
 pub fn parts(
     project: &str,
     snapshot: &Snapshot,
     claude_md: Option<&str>,
     chosen: &Chosen<'_>,
+    commits: bool,
 ) -> Result<Parts, String> {
     let (roadmap, row) = next_of(snapshot)?;
     let mut parts = Parts {
@@ -365,12 +370,17 @@ pub fn parts(
     if !messages.is_empty() {
         parts.triage = TRIAGE.to_owned();
     }
-    parts.rules = session_rules(&parts.ep, written.map(|entry| entry.file.name.as_str()));
+    parts.rules = session_rules(
+        &parts.ep,
+        written.map(|entry| entry.file.name.as_str()),
+        commits,
+    );
+    parts.commits = commits;
     Ok(parts)
 }
 
 /// The open tasks gated before `row` or before a row above it, which are due first (D-10).
-fn due(snapshot: &Snapshot, roadmap: &Roadmap, row: &Row) -> Vec<String> {
+pub fn due(snapshot: &Snapshot, roadmap: &Roadmap, row: &Row) -> Vec<String> {
     let order: Vec<EpId> = roadmap.rows().map(|row| row.id).collect();
     let Some(next) = order.iter().position(|id| *id == row.id) else {
         return Vec::new();
@@ -414,8 +424,24 @@ fn effort_words(effort: Option<&str>, ultracode: bool) -> String {
     }
 }
 
-/// The rules every session keeps (D-12, D-17), ending before the commit.
-fn session_rules(ep: &str, written: Option<&str>) -> String {
+/// The house's commit, said for `ep`: the pattern of its two commits and the hash recorded,
+/// never a push.
+fn commit_words(ep: &str) -> String {
+    format!(
+        "commit in the house pattern, `<Title>: <summary> ({ep}, D-x)` then `docs(roadmap): \
+         record {ep} commit hash`, and record the hash in the roadmap's row, as the project's \
+         `CLAUDE.md` says. Never push: the push stays the owner's."
+    )
+}
+
+/// What the Commit button resumes a finished session with (D-22): the owner's yes to its commit.
+pub fn commit_message(ep: &str) -> String {
+    format!("The owner says yes to the commit: {}", commit_words(ep))
+}
+
+/// The rules every session keeps (D-12, D-17), ending before the commit; with `commits` (the
+/// project's autopilot is on, the owner's standing yes, D-22) the last one commits instead.
+fn session_rules(ep: &str, written: Option<&str>, commits: bool) -> String {
     let first = match written {
         Some(name) => format!(
             "1. Work from its brief, `roadmap/{name}`; keep its front matter's `model`, `effort` \
@@ -439,7 +465,15 @@ fn session_rules(ep: &str, written: Option<&str>) -> String {
              `roadmap/owner-tasks.md` as `- [ ] OT-n ({ep}, date) text`, and write a `> **Handed \
              on (to <project>).**` block for each message to another project."
         ),
-        "5. Stop before committing: the commit is the owner's call.".to_owned(),
+        if commits {
+            format!(
+                "5. The autopilot is on for this project, the owner's standing yes to its \
+                 commits (D-22): {}",
+                commit_words(ep)
+            )
+        } else {
+            "5. Stop before committing: the commit is the owner's call.".to_owned()
+        },
     ]
     .join("\n")
 }
@@ -638,7 +672,13 @@ pub fn draft(
         date,
         visual: resolution.mode.value == LaunchMode::Visual,
     };
-    let parts = parts(&project.name, snapshot, claude_md, &chosen)?;
+    let parts = parts(
+        &project.name,
+        snapshot,
+        claude_md,
+        &chosen,
+        project.autopilot.enabled,
+    )?;
     let prompt = generate(&parts, project.launch.template.as_deref());
     Ok(Draft {
         ep: row.id,
@@ -725,7 +765,7 @@ Intro.
             read_first: HOUSE_READ_FIRST.to_owned(),
             tasks: "none".to_owned(),
             inbox: "none".to_owned(),
-            rules: session_rules("EP-3", None),
+            rules: session_rules("EP-3", None, false),
             ..Parts::default()
         }
     }
@@ -779,7 +819,7 @@ Intro.
     #[test]
     fn the_opener_of_a_synthetic_project() {
         let snapshot = house();
-        let parts = parts("house", &snapshot, None, &CHOSEN).unwrap();
+        let parts = parts("house", &snapshot, None, &CHOSEN, false).unwrap();
         assert_eq!(
             (parts.ep.as_str(), parts.title.as_str(), parts.size.as_str()),
             ("EP-3", "Parser", "M")
@@ -826,7 +866,7 @@ Intro.
         assert!(!text.contains("IN-1") && !text.contains("OT-1"));
 
         // With the project's own rule.
-        let quoted = super::parts("house", &snapshot, Some(ITEM), &CHOSEN).unwrap();
+        let quoted = super::parts("house", &snapshot, Some(ITEM), &CHOSEN, false).unwrap();
         assert!(quoted.read_first_quoted);
         assert!(
             opener(&quoted)
@@ -889,6 +929,31 @@ Intro.
             "2026-11-02",
         )
         .unwrap_err()
+    }
+
+    #[test]
+    fn the_autopilot_turns_the_last_rule_into_the_commit() {
+        let stops = session_rules("EP-7", None, false);
+        assert!(stops.ends_with("5. Stop before committing: the commit is the owner's call."));
+        let commits = session_rules("EP-7", Some("EP-7-x.md"), true);
+        assert!(commits.starts_with("1. Work from its brief, `roadmap/EP-7-x.md`"));
+        let last = commits.lines().last().unwrap();
+        assert!(
+            last.starts_with("5. The autopilot is on for this project"),
+            "{last}"
+        );
+        for words in [
+            "(EP-7, D-x)",
+            "`docs(roadmap): record EP-7 commit hash`",
+            "record the hash in the roadmap's row",
+            "Never push",
+        ] {
+            assert!(last.contains(words), "{words}: {last}");
+        }
+        assert!(!commits.contains("Stop before committing"));
+        let message = commit_message("EP-7");
+        assert!(message.starts_with("The owner says yes to the commit: commit in the house"));
+        assert!(message.contains("record EP-7 commit hash") && message.contains("Never push"));
     }
 
     #[test]

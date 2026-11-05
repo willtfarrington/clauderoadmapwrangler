@@ -51,6 +51,13 @@
 //!   lantern, quarry and orchard, orchard's `+0 %`, in the list's Usage column and the Detail
 //!   pane); `usage=degraded` (the same with the endpoint's last poll failed and a newer status
 //!   line); `tile=usage` brings its pane forward; `sort=usage-share` orders by the shares;
+//! - `autopilot` (from EP-19: the canned sessions, the Sessions pane's All tab in front with the
+//!   Autopilot section: harbor's autopilot turned on in the run's registry, a chain held by the
+//!   Fable figure, and a canned log of a chained run, a cap, a re-plan and a project whose runs
+//!   would wait); `autopilot=<project>` turns that project's on instead of harbor's; harbor's
+//!   canned run is a chained one with its cap, and a beacon EP-2 run of the window's has
+//!   completed under the rule that stops before committing: `transcript=beacon` after it shows
+//!   that tab's Commit button;
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -269,6 +276,15 @@ impl Run {
                 "usage" => {
                     board.meter = crate::meter::canned(chrono::Utc::now(), value == "degraded");
                 }
+                "autopilot" => {
+                    if board.sessions.live.is_empty() {
+                        canned_sessions(board);
+                    }
+                    let project = if value.is_empty() { "harbor" } else { value };
+                    canned_autopilot(board, project);
+                    board.sessions.tab = None;
+                    layout::show(dashboard.layout_mut(), Pane::Sessions);
+                }
                 "revert" => {
                     let (project, form) = value.split_once(':').unwrap_or((value, ""));
                     let rows = &board.sessions.history.rows;
@@ -333,6 +349,97 @@ impl Run {
 }
 
 /// The sessions a picture shows Claude Code reporting (EP-12), set against the run's own clock.
+/// The autopilot as a screenshot shows it (EP-19): `project`'s turned on in the run's own
+/// registry, a chain held by the Fable figure, a canned log, and harbor's canned tab with its cap,
+/// ended so that its Commit shows. Nothing is read from or written to a ledger.
+fn canned_autopilot(board: &mut Board, project: &str) {
+    use crw_core::autopilot::{self, Cap, EVENT_KIND};
+    use crw_core::ledger::EventRow;
+    use crw_core::roadmap::Size;
+
+    board.autopilot.canned = true;
+    board
+        .actions
+        .push(Action::SetAutopilot(project.to_owned(), true));
+    let now = Utc::now();
+    let row = |minutes: i64, project: &str, words: &str| EventRow {
+        id: 0,
+        at: (now - TimeDelta::minutes(minutes)).to_rfc3339(),
+        kind: EVENT_KIND.to_owned(),
+        project: (!project.is_empty()).then(|| project.to_owned()),
+        detail: Some(words.to_owned()),
+    };
+    let held = "held after EP-2 until the pause lifts: Fable is at 91 %, at or over the pause at \
+                90 % until its reset, Sat 07 Nov 18:00";
+    board.autopilot.log = vec![
+        row(3, "quarry", held),
+        row(
+            21,
+            "orchard",
+            "the chain ends after EP-6: its runs would wait for you at each shell command: \
+             permission mode acceptEdits and no allow rule (set permission_mode = \"auto\" under \
+             its [project.launch], or allow rules in its .claude settings)",
+        ),
+        row(
+            48,
+            project,
+            "the chain ends after EP-5: EP-6 is a re-plan, the owner's to run",
+        ),
+        row(
+            102,
+            project,
+            "chained EP-5 after EP-4: fable at xhigh, M's cap of 1 h 30 min",
+        ),
+        row(
+            140,
+            "lantern",
+            "capped: EP-3 stopped after 45 min of work, S's cap of 45 min; the chain ends there",
+        ),
+        row(160, "", autopilot::RESUMED_BY_OWNER),
+    ];
+    board.autopilot.held = vec![crate::autopilot::Held {
+        project: "quarry".to_owned(),
+        after: "EP-2".parse().ok(),
+        words: held.to_owned(),
+    }];
+    if let Some(live) = board
+        .sessions
+        .live
+        .iter_mut()
+        .find(|live| live.project == "harbor" && live.ended.is_none())
+    {
+        let mut cap = Cap::new(Some(Size::M), Instant::now() - Duration::from_secs(52 * 60));
+        cap.clock.tick(false, Instant::now());
+        live.cap = Some(cap);
+        live.chained = true;
+    }
+    if !board
+        .sessions
+        .live
+        .iter()
+        .any(|live| live.project == "beacon")
+    {
+        use crw_core::session::{Ended, Event, Launch, Outcome};
+        let mut launch = Launch::new(
+            "beacon",
+            Path::new("beacon"),
+            "fable",
+            "Run the next brief of beacon: EP-2.",
+        );
+        launch.ep = Some("EP-2".to_owned());
+        let text = "EP-2's brief has its completion note; the commit waits for your yes.";
+        let mut done =
+            crate::sessions::Live::canned(90, launch, "high", vec![Event::Text(text.to_owned())]);
+        done.end_canned(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        board.sessions.live.push(done);
+    }
+}
+
 fn canned_sessions(board: &mut Board) {
     let now = Utc::now();
     let ago = |minutes| now - TimeDelta::minutes(minutes);

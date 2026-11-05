@@ -753,6 +753,59 @@ committing and recording hashes; one model and effort per project; usage thresho
 > Title regular expressions; the defaults written into the registry at first use; a project's rules
 > replacing the global table rather than layering over it.
 
+> **Addendum (2026-11-05, EP-19).** Built (`crw_core::autopilot`, `app::autopilot`), split at
+> pickup (the owner's choice): the owner's model and effort for each brief before a chain starts,
+> and the chain's own notification when it stops, are EP-19a's.
+>
+> - **The switch** is `[project.autopilot] enabled`, written as `autopilot = { enabled = true }`
+>   and taken out when off; the list's box, the A key and `crw autopilot <project> on|off` turn
+>   it. On, it is the owner's standing yes to the project's commits: every launch's last rule, a
+>   visual one's too, commits in the house pattern, records the hash and never pushes. Off, the
+>   session stops before committing, and its ended tab offers Commit, a resume with the same words.
+> - **The gate** is read after each headless run of the window's whose project has it on, or that
+>   the chain started, on a worker thread from a fresh reading (the files, git's status, the
+>   ledger's day, the settings files), and each condition that fails is logged: the autopilot on
+>   and not paused by the owner; the run completed; its brief has a completion note and its row is
+>   checked; a next brief, not a re-plan, no larger than `max_size` (M by default), with no owner
+>   task gated before it; weekly and Fable under `autopilot_pause_percent` (90); a clean tree; the
+>   day's chained runs under the project's `daily` (2) and `autopilot_daily_total` (4); no other
+>   session open in the project; not the tool's own project (the owner's choice: the one whose
+>   folder holds the window's exe, its briefs ending with a release build that needs the window
+>   quit); runs that would not wait at each shell command (the owner's choice: acceptEdits, manual
+>   or plan with no allow rule in the project's `.claude` settings or the user's refuses, and the
+>   owner opts a project in with `permission_mode = "auto"` or allow rules).
+> - **The figures.** A weekly or Fable figure at or over the mark counts until its reset, whatever
+>   its age: the automatic pause. One under it counts within 15 minutes of its reading. One older,
+>   or read before its window reset, holds; one never read (Fable while the endpoint is off)
+>   refuses.
+> - **Held or ended.** A chain the pause alone refuses (the owner's Pause, a figure at the mark, a
+>   figure too old) is held in the window, read again every 5 minutes and at the Resume, and goes
+>   on when the gate passes; any other refusal ends it. A held chain does not outlive the window.
+>   A run deferred with a request open ends the chain until the answer's resume, whose end weighs
+>   the gate again.
+> - **The chained start** is drafted as the dialog drafts one (the rules' model and effort, the
+>   downshift included) and started headless with the project's permission mode, route, hooks,
+>   revert start, answer timeout, neighbours and `max_budget_usd` (none by default; passed when
+>   the CLI lists the flag). The registry's pause and switch and the project's other sessions are
+>   looked at again just before.
+> - **Caps.** Every headless run of a project whose autopilot is on has a cap by size (S 45 min,
+>   M 90 min, L 3 h; a brief with no size takes L's), counted in working time: a request waiting
+>   for the owner stops the clock (the owner's choice). At the cap the run is stopped gracefully,
+>   its work left in the tree, which ends the chain; the autopilot never reverts. A revert leaves
+>   the switch as it is, since nothing chains until a run of the owner's completes.
+> - **Pause.** The owner's Pause (the Sessions pane, the tray, `crw autopilot pause`) is
+>   `settings.autopilot_paused`, written only as `true`; it holds chains and never stops a run
+>   (D-13).
+> - **The log** is the ledger's `event` rows of kind `autopilot`, no schema change, each line's
+>   words beginning with what happened; the day's chained runs are counted from its `chained`
+>   lines, in local time. The Sessions pane's All tab opens with its latest lines (D-25), and
+>   `crw autopilot` prints them.
+>
+> *Alternatives.* Caps on the wall clock; chaining this project with the release build left to an
+> owner task; chaining whatever the permission mode, the runs waiting in the Decisions pane; every
+> chained run under `auto`; ending a chain at any refusal, the pause's too; the log as a table of
+> its own (a schema 6).
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time

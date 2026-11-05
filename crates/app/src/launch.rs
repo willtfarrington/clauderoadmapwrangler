@@ -160,6 +160,12 @@ impl Dialog {
         &self.parts.effort
     }
 
+    /// Whether the prompt tells the session to commit: the project's autopilot was on when the
+    /// dialog opened (D-22; EP-19).
+    pub fn commits(&self) -> bool {
+        self.parts.commits
+    }
+
     /// Generates the prompt again for the choices; the editor takes it when `follow` holds.
     fn regenerate(&mut self, follow: bool) {
         self.parts.choose(&Chosen {

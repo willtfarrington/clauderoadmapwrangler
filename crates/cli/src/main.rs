@@ -10,8 +10,9 @@
 //! project's `answer_timeout`, from EP-14; `notifications`, the window's log read without a
 //! write, and the `quiet_hours` setting from EP-15; `revert`, a session undone back to its start,
 //! and a project's `revert` switch from EP-15b; `usage`, the meter's readings in the ledger read
-//! without a write, and the `usage_endpoint` setting from EP-17; `inbox send` arrives with its
-//! brief.
+//! without a write, and the `usage_endpoint` setting from EP-17; `autopilot`, its state and its
+//! chain log, a project's switch and the owner's Pause, with its three settings, from EP-19;
+//! `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -93,7 +94,19 @@ commands:
                                  none for notifications at any hour), usage_endpoint (on, the
                                  default, or off: the window's meter keeps to the status lines),
                                  fable_downshift_percent (1 to 100, or default: 60; above it an S
-                                 brief that would run on Fable is proposed Opus 5.5)
+                                 brief that would run on Fable is proposed Opus 5.5),
+                                 autopilot_pause_percent (1 to 100, or default: 90; at it the
+                                 weekly or Fable figure holds every chain until its reset),
+                                 autopilot_daily_total (chained runs a day in all projects, or
+                                 default: 4), autopilot_paused (on or off: your Pause)
+  autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
+                                 the projects with it on and their limits, and the chain log's
+                                 latest lines; reads only
+  autopilot <project> <on|off>   turn a project's autopilot on (its runs commit themselves, your
+                                 standing yes, and a headless run's completion may chain its next
+                                 brief) or off (its runs stop before committing)
+  autopilot pause|resume         hold every chain until you resume, or let them go on; the runs
+                                 that work go on either way
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
@@ -209,6 +222,11 @@ fn main() -> ExitCode {
             );
             ExitCode::SUCCESS
         }
+        ["autopilot"] => autopilot_state(),
+        ["autopilot", "pause"] => autopilot_pause(true),
+        ["autopilot", "resume"] => autopilot_pause(false),
+        ["autopilot", project, "on"] => autopilot_switch(project, true),
+        ["autopilot", project, "off"] => autopilot_switch(project, false),
         ["sessions", rest @ ..] => sessions(rest),
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
@@ -1538,6 +1556,147 @@ fn backup_text(backup: &Backup, now: DateTime<Utc>) -> String {
 
 /// Prints the registry's settings, or one, or sets one through the store (a daily copy of the
 /// file first, D-8).
+/// `crw autopilot` (D-22; EP-19): the owner's Pause, the mark, the day's caps, the projects with
+/// the autopilot on and their limits, and the chain log's latest lines, read without a write.
+fn autopilot_state() -> ExitCode {
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let registry = match store.load() {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let settings = &registry.settings;
+    println!(
+        "autopilot: {}; it holds every chain at {} % of the weekly or the Fable limit until the \
+         reset; {} chained runs a day in all projects",
+        if settings.autopilot_paused() {
+            "paused by you (crw autopilot resume)"
+        } else {
+            "not paused"
+        },
+        settings.autopilot_pause_percent(),
+        settings.autopilot_daily_total()
+    );
+    let on: Vec<_> = registry
+        .projects
+        .iter()
+        .filter(|project| project.autopilot.enabled)
+        .collect();
+    if on.is_empty() {
+        println!("  no project has it on (crw autopilot <project> on)");
+    }
+    for project in on {
+        let autopilot = &project.autopilot;
+        let mode = project
+            .launch
+            .permission_mode
+            .as_deref()
+            .unwrap_or(rules::DEFAULT_PERMISSION_MODE);
+        let budget = autopilot
+            .max_budget_usd
+            .map_or(String::new(), |usd| format!(", --max-budget-usd {usd}"));
+        println!(
+            "  {}: on, briefs up to {}, {} chained runs a day, permission mode {mode}{budget}",
+            project.name,
+            autopilot.max_size(),
+            autopilot.daily()
+        );
+    }
+    let Some(path) = paths::ledger_file() else {
+        return ExitCode::SUCCESS;
+    };
+    match crw_core::autopilot::recent(&path, 20) {
+        Ok(rows) if rows.is_empty() => println!("the chain log is empty"),
+        Ok(rows) => {
+            println!("the chain log, the newest first:");
+            for row in rows {
+                let at = row
+                    .at()
+                    .map(|at| {
+                        at.with_timezone(&chrono::Local)
+                            .format("%Y-%m-%d %H:%M")
+                            .to_string()
+                    })
+                    .unwrap_or_default();
+                let project = row
+                    .project
+                    .as_deref()
+                    .map_or(String::new(), |name| format!("{name}: "));
+                println!("  {at}  {project}{}", row.detail.unwrap_or_default());
+            }
+        }
+        Err(e) => return failed(format!("the chain log did not read: {e}")),
+    }
+    ExitCode::SUCCESS
+}
+
+/// `crw autopilot <project> on|off`: the project's switch, logged in the chain log.
+fn autopilot_switch(project: &str, on: bool) -> ExitCode {
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    match store.change(&files::today(), |c| c.set_autopilot(project, on)) {
+        Ok((registry, ())) => {
+            let name = registry
+                .project(project)
+                .map_or(project.to_owned(), |p| p.name.clone());
+            if on {
+                println!(
+                    "{name}: autopilot on: its runs commit themselves (your standing yes), and \
+                     after a headless run completes the gate may chain its next brief"
+                );
+            } else {
+                println!("{name}: autopilot off: its runs stop before committing");
+            }
+            println!("note: a window that runs reads it at the next run's end");
+            let words = if on {
+                "turned on by the owner"
+            } else {
+                "turned off by the owner"
+            };
+            log_autopilot(Some(&name), words);
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// `crw autopilot pause|resume`: the owner's Pause of every chain, logged in the chain log.
+fn autopilot_pause(paused: bool) -> ExitCode {
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let value = if paused { "on" } else { "off" };
+    match store.change(&files::today(), |c| {
+        c.set_setting("autopilot_paused", value)
+    }) {
+        Ok(_) => {
+            if paused {
+                println!("autopilot paused: no brief is chained until crw autopilot resume");
+                log_autopilot(None, crw_core::autopilot::PAUSED_BY_OWNER);
+            } else {
+                println!("autopilot resumed: a window that runs reads its held chains again");
+                log_autopilot(None, crw_core::autopilot::RESUMED_BY_OWNER);
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// A line of the chain log, when the ledger exists; a failure is said and changes nothing else.
+fn log_autopilot(project: Option<&str>, words: &str) {
+    if let Some(path) = paths::ledger_file().filter(|path| path.exists())
+        && let Err(e) = crw_core::autopilot::log(&path, project, words, chrono::Utc::now())
+    {
+        eprintln!("note: the chain log did not keep it: {e}");
+    }
+}
+
 fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
     let store = match store() {
         Ok(store) => store,

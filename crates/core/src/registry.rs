@@ -18,6 +18,7 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 
 use crate::notify::QuietHours;
 use crate::proposal::{Dismissed, Kind, Reason};
+use crate::roadmap::Size;
 use crate::rules::Rule;
 use crate::session::Route;
 use crate::{files, paths, signals, workspace};
@@ -190,11 +191,20 @@ pub struct Settings {
     /// The Fable-scoped weekly share, a whole percent, above which an S brief is proposed the
     /// downshift's model (D-23; EP-18); by default `rules::DEFAULT_DOWNSHIFT_PERCENT`.
     pub fable_downshift_percent: Option<u8>,
+    /// The share of the weekly or the Fable limit, a whole percent, at which the autopilot holds
+    /// its chains until the limit resets (D-22; EP-19); by default
+    /// `autopilot::DEFAULT_PAUSE_PERCENT`.
+    pub autopilot_pause_percent: Option<u8>,
+    /// The chained runs a day across the projects (D-22; EP-19); by default
+    /// `autopilot::DEFAULT_DAILY_TOTAL`.
+    pub autopilot_daily_total: Option<u32>,
+    /// The owner's Pause of every chain (D-22; EP-19): written only as `true`.
+    pub autopilot_paused: Option<bool>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 11] = [
+    pub const KEYS: [&str; 14] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -206,15 +216,43 @@ impl Settings {
         "quiet_hours",
         "usage_endpoint",
         "fable_downshift_percent",
+        "autopilot_pause_percent",
+        "autopilot_daily_total",
+        "autopilot_paused",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
-    /// two times, `usage_endpoint` on or off and `fable_downshift_percent` a percent.
+    /// two times, `usage_endpoint` and `autopilot_paused` on or off, the percents and the
+    /// day's total numbers.
     pub fn is_path(key: &str) -> bool {
         !matches!(
             key,
-            "port" | "decisions" | "quiet_hours" | "usage_endpoint" | "fable_downshift_percent"
+            "port"
+                | "decisions"
+                | "quiet_hours"
+                | "usage_endpoint"
+                | "fable_downshift_percent"
+                | "autopilot_pause_percent"
+                | "autopilot_daily_total"
+                | "autopilot_paused"
         )
+    }
+
+    /// The share at which the autopilot holds its chains (D-22).
+    pub fn autopilot_pause_percent(&self) -> u8 {
+        self.autopilot_pause_percent
+            .unwrap_or(crate::autopilot::DEFAULT_PAUSE_PERCENT)
+    }
+
+    /// The chained runs a day across the projects (D-22).
+    pub fn autopilot_daily_total(&self) -> u32 {
+        self.autopilot_daily_total
+            .unwrap_or(crate::autopilot::DEFAULT_DAILY_TOTAL)
+    }
+
+    /// Whether the owner paused every chain (D-22).
+    pub fn autopilot_paused(&self) -> bool {
+        self.autopilot_paused == Some(true)
     }
 
     /// Whether the window may poll the usage endpoint.
@@ -245,6 +283,11 @@ impl Settings {
                 .usage_endpoint
                 .map(|on| if on { "on" } else { "off" }.to_owned()),
             "fable_downshift_percent" => self.fable_downshift_percent.map(|p| p.to_string()),
+            "autopilot_pause_percent" => self.autopilot_pause_percent.map(|p| p.to_string()),
+            "autopilot_daily_total" => self.autopilot_daily_total.map(|n| n.to_string()),
+            "autopilot_paused" => self
+                .autopilot_paused
+                .map(|on| if on { "on" } else { "off" }.to_owned()),
             _ => None,
         }
     }
@@ -323,12 +366,51 @@ impl LaunchMode {
     }
 }
 
-/// The autopilot's switch; its rules and caps arrive with EP-19.
+/// The autopilot's switch and its limits for one project (D-22; EP-19).
 #[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Autopilot {
     #[serde(default)]
     pub enabled: bool,
+    /// The largest brief a chain starts, `S`, `M` or `L`; M by default (D-22: an L needs a
+    /// click).
+    #[serde(default)]
+    pub max_size: Option<String>,
+    /// The chained runs a day in this project; `autopilot::DEFAULT_DAILY` by default.
+    #[serde(default)]
+    pub daily: Option<u32>,
+    /// `--max-budget-usd` for each run while the autopilot is on, in dollars of the CLI's own
+    /// estimate; none by default.
+    #[serde(default)]
+    pub max_budget_usd: Option<f64>,
+}
+
+/// The most chained runs a day a project or all of them may be given.
+pub const MAX_DAILY: u32 = 100;
+
+impl Autopilot {
+    /// The largest brief a chain starts.
+    pub fn max_size(&self) -> Size {
+        self.max_size
+            .as_deref()
+            .and_then(size_named)
+            .unwrap_or(crate::autopilot::DEFAULT_MAX_SIZE)
+    }
+
+    /// The chained runs a day in the project.
+    pub fn daily(&self) -> u32 {
+        self.daily.unwrap_or(crate::autopilot::DEFAULT_DAILY)
+    }
+}
+
+/// `S`, `M` or `L` as written, in any case.
+fn size_named(text: &str) -> Option<Size> {
+    match text.trim().to_ascii_uppercase().as_str() {
+        "S" => Some(Size::S),
+        "M" => Some(Size::M),
+        "L" => Some(Size::L),
+        _ => None,
+    }
 }
 
 impl Registry {
@@ -394,6 +476,20 @@ impl Registry {
                 "settings.fable_downshift_percent must be a percent from 1 to 100, not {percent}"
             ));
         }
+        if let Some(percent) = self.settings.autopilot_pause_percent
+            && !(1..=100).contains(&percent)
+        {
+            return invalid(format!(
+                "settings.autopilot_pause_percent must be a percent from 1 to 100, not {percent}"
+            ));
+        }
+        if let Some(total) = self.settings.autopilot_daily_total
+            && total > MAX_DAILY
+        {
+            return invalid(format!(
+                "settings.autopilot_daily_total is at most {MAX_DAILY}, not {total}"
+            ));
+        }
         for (key, path) in [
             ("data_root", &self.settings.data_root),
             ("claude_cli", &self.settings.claude_cli),
@@ -430,6 +526,28 @@ impl Registry {
             {
                 return invalid(format!(
                     "{name}: answer_timeout is minutes from 1 to {MAX_ANSWER_TIMEOUT}, not {minutes}"
+                ));
+            }
+            let autopilot = &project.autopilot;
+            if let Some(size) = &autopilot.max_size
+                && size_named(size).is_none()
+            {
+                return invalid(format!(
+                    "{name}: autopilot.max_size is S, M or L, not {size:?}"
+                ));
+            }
+            if let Some(daily) = autopilot.daily
+                && daily > MAX_DAILY
+            {
+                return invalid(format!(
+                    "{name}: autopilot.daily is at most {MAX_DAILY}, not {daily}"
+                ));
+            }
+            if let Some(budget) = autopilot.max_budget_usd
+                && !(budget.is_finite() && budget > 0.0)
+            {
+                return invalid(format!(
+                    "{name}: autopilot.max_budget_usd is dollars above 0, not {budget}"
                 ));
             }
             let folder = paths::normalize(&project.folder(&root));
@@ -814,10 +932,54 @@ impl Changes<'_> {
         }
     }
 
+    /// Turns a project's autopilot on or off (D-22; EP-19). On is written as `autopilot = {
+    /// enabled = true }`, or into a `[project.autopilot]` table the owner wrote; off takes
+    /// `enabled` out, and the key with it when nothing else is left, so that a registry with no
+    /// autopilot on reads in the builds before.
+    pub fn set_autopilot(&mut self, name: &str, on: bool) -> Result<(), Error> {
+        let table = self.project_table(name)?;
+        let empty = match table.get_mut("autopilot") {
+            None if !on => false,
+            None => {
+                let mut autopilot = InlineTable::new();
+                autopilot.insert("enabled", Value::from(true));
+                autopilot.fmt();
+                table.insert("autopilot", Item::Value(Value::InlineTable(autopilot)));
+                false
+            }
+            // The tool's own form, laid out afresh at each change.
+            Some(Item::Value(Value::InlineTable(autopilot))) => {
+                if on {
+                    autopilot.insert("enabled", Value::from(true));
+                } else {
+                    autopilot.remove("enabled");
+                }
+                autopilot.fmt();
+                autopilot.is_empty()
+            }
+            // A table the owner wrote: its layout and comments stay.
+            Some(Item::Table(autopilot)) => {
+                if on {
+                    set_keeping_decor(autopilot, "enabled", Value::from(true));
+                } else {
+                    autopilot.remove("enabled");
+                }
+                autopilot.is_empty()
+            }
+            Some(_) => {
+                return Err(Error::Invalid(format!("{name}: autopilot must be a table")));
+            }
+        };
+        if empty {
+            table.remove("autopilot");
+        }
+        Ok(())
+    }
+
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours` set to `none`, `usage_endpoint` set to `on` and `fable_downshift_percent`
-    /// set to `default` (the defaults, which the builds before EP-17 and EP-18 would refuse to
-    /// read) are taken out.
+    /// `quiet_hours` set to `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to
+    /// `off` and the percents and the day's total set to `default` (the defaults, which the
+    /// builds before EP-17, EP-18 and EP-19 would refuse to read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -836,7 +998,18 @@ impl Changes<'_> {
                     )));
                 }
             },
-            "fable_downshift_percent" => value.trim() == "default",
+            "fable_downshift_percent" | "autopilot_pause_percent" | "autopilot_daily_total" => {
+                value.trim() == "default"
+            }
+            "autopilot_paused" => match value.trim() {
+                "on" => false,
+                "off" => true,
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "autopilot_paused takes on or off, not {value:?}"
+                    )));
+                }
+            },
             _ => false,
         };
         if default {
@@ -871,14 +1044,26 @@ impl Changes<'_> {
                 Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             "usage_endpoint" => Value::from(false),
-            "fable_downshift_percent" => match value.trim().trim_end_matches('%').trim().parse() {
-                Ok(percent @ 1..=100u8) => Value::from(i64::from(percent)),
+            "fable_downshift_percent" | "autopilot_pause_percent" => {
+                match value.trim().trim_end_matches('%').trim().parse() {
+                    Ok(percent @ 1..=100u8) => Value::from(i64::from(percent)),
+                    _ => {
+                        return Err(Error::Invalid(format!(
+                            "{key} takes a whole percent from 1 to 100, or default, not {value:?}"
+                        )));
+                    }
+                }
+            }
+            "autopilot_daily_total" => match value.trim().parse::<u32>() {
+                Ok(total) if total <= MAX_DAILY => Value::from(i64::from(total)),
                 _ => {
                     return Err(Error::Invalid(format!(
-                        "{key} takes a whole percent from 1 to 100, or default, not {value:?}"
+                        "{key} takes a number of runs from 0 to {MAX_DAILY}, or default, not \
+                         {value:?}"
                     )));
                 }
             },
+            "autopilot_paused" => Value::from(true),
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
             }
@@ -1849,5 +2034,142 @@ state = "paused"
         assert_eq!(registry.project("BETA").unwrap().priority, 1);
         assert_eq!("maintenance".parse::<State>().unwrap(), State::Maintenance);
         assert!("unadopted".parse::<State>().is_err());
+    }
+
+    #[test]
+    fn the_autopilot_is_turned_on_and_off_and_its_limits_read() {
+        let scratch = Scratch::new("registry-autopilot");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let name = store.load().unwrap().registry.projects[0].name.clone();
+        let before = fs::read_to_string(&store.path).unwrap();
+
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_autopilot(&name, true))
+            .unwrap();
+        let autopilot = &registry.project(&name).unwrap().autopilot;
+        assert!(autopilot.enabled);
+        assert_eq!(autopilot.max_size(), Size::M);
+        assert_eq!(autopilot.daily(), 2);
+        assert_eq!(autopilot.max_budget_usd, None);
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("autopilot = { enabled = true }"), "{text}");
+
+        // Off takes the key out: the file reads as it did.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_autopilot(&name, false))
+            .unwrap();
+        assert!(!registry.project(&name).unwrap().autopilot.enabled);
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), before);
+        // Off when it is off changes nothing.
+        store
+            .change(TODAY, |c| c.set_autopilot(&name, false))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), before);
+
+        // A table the owner wrote keeps its other keys and its comment.
+        let owned = HAND_WRITTEN.replace(
+            "priority = 2\n",
+            "priority = 2\n\n[project.autopilot]\nmax_size = \"s\"  # small ones only\ndaily = 1\n\
+             max_budget_usd = 2.5\n",
+        );
+        fs::write(&store.path, &owned).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_autopilot(&name, true))
+            .unwrap();
+        let autopilot = &registry.project(&name).unwrap().autopilot;
+        assert!(autopilot.enabled);
+        assert_eq!(autopilot.max_size(), Size::S);
+        assert_eq!(autopilot.daily(), 1);
+        assert_eq!(autopilot.max_budget_usd, Some(2.5));
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_autopilot(&name, false))
+            .unwrap();
+        assert!(!registry.project(&name).unwrap().autopilot.enabled);
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains("# small ones only") && !text.contains("enabled"),
+            "{text}"
+        );
+
+        // Limits out of range are refused with the project's name.
+        for wrong in [
+            "max_size = \"XL\"",
+            "daily = 1000",
+            "max_budget_usd = 0.0",
+            "max_budget_usd = -1.0",
+        ] {
+            let text = HAND_WRITTEN.replace(
+                "priority = 2\n",
+                &format!("priority = 2\n\n[project.autopilot]\n{wrong}\n"),
+            );
+            fs::write(&store.path, text).unwrap();
+            let error = store.load().unwrap_err().to_string();
+            assert!(error.contains("autopilot."), "{wrong}: {error}");
+        }
+    }
+
+    #[test]
+    fn the_autopilots_settings_are_set_and_taken_out() {
+        let scratch = Scratch::new("registry-autopilot-settings");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let settings = store.load().unwrap().registry.settings;
+        assert!(!settings.autopilot_paused());
+        assert_eq!(settings.autopilot_pause_percent(), 90);
+        assert_eq!(settings.autopilot_daily_total(), 4);
+
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("autopilot_paused", "on")?;
+                c.set_setting("autopilot_pause_percent", "85 %")?;
+                c.set_setting("autopilot_daily_total", "6")
+            })
+            .unwrap();
+        let settings = &registry.settings;
+        assert!(settings.autopilot_paused());
+        assert_eq!(settings.get("autopilot_paused").as_deref(), Some("on"));
+        assert_eq!(settings.autopilot_pause_percent(), 85);
+        assert_eq!(settings.autopilot_daily_total(), 6);
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("autopilot_paused = true"), "{text}");
+
+        for (key, wrong) in [
+            ("autopilot_paused", "maybe"),
+            ("autopilot_pause_percent", "0"),
+            ("autopilot_pause_percent", "101"),
+            ("autopilot_daily_total", "-1"),
+            ("autopilot_daily_total", "1000"),
+        ] {
+            assert!(
+                store.change(TODAY, |c| c.set_setting(key, wrong)).is_err(),
+                "{key} = {wrong}"
+            );
+        }
+
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("autopilot_paused", "off")?;
+                c.set_setting("autopilot_pause_percent", "default")?;
+                c.set_setting("autopilot_daily_total", "default")
+            })
+            .unwrap();
+        assert_eq!(registry.settings.autopilot_paused, None);
+        assert_eq!(registry.settings.autopilot_pause_percent, None);
+        assert_eq!(registry.settings.autopilot_daily_total, None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("autopilot")
+        );
+        for key in [
+            "autopilot_paused",
+            "autopilot_pause_percent",
+            "autopilot_daily_total",
+        ] {
+            assert!(!Settings::is_path(key), "{key}");
+        }
     }
 }

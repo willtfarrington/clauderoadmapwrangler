@@ -691,11 +691,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-18a | [Usage attribution: each poll's rise in the weekly and Fable figures split among the sessions that worked since the poll before, manual ones too, each row's share and the figures around it in ledger schema 5, shown on the Sessions pane's cards and summed per project over the week in `crw sessions`](EP-18a-usage-attribution.md) (D-23, D-26) | S | EP-18 | core | ☑ `59c0a33` |
 | EP-18b | [Usage-share badge: each project's points of the weekly limit this week as a Usage column of the row's badges in both forms, its Fable sum and its part of all that was attributed in the hover text and a line of the Detail pane's Status section, the legend's key and the Usage share sort key](EP-18b-usage-share-badge.md) (D-23, D-25) | S | EP-18a | core | ☑ `84fb8b7` |
 | EP-35 | [Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions](EP-35-resume-in-vs-code.md) (D-16, D-26) | S | EP-11, EP-13 | core | ☑ `889f812` |
-| EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
+| EP-19 | [Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log](EP-19-autopilot.md) (D-22) | L | EP-14, EP-17 | core | ☐ |
+| EP-19a | Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default; a notification of its own when a chain stops (D-22, D-21) | S | EP-19 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -706,6 +707,8 @@ up from the window before chains begin; EP-17 stays the first self-launched sess
 *(2026-11-04, EP-18 split at pickup, the owner's choice.)* EP-18a takes EP-18's attribution and
 usage-share badge, right after it and before EP-35. *(2026-11-05, EP-18a split at pickup, the
 owner's choice.)* EP-18b takes EP-18a's usage-share badge, right after it and before EP-35.
+*(2026-11-05, EP-19 split at pickup, the owner's choice.)* EP-19a takes EP-19's per-brief model
+and effort before a chain starts and the chain's own notification, right after it.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -912,6 +915,23 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   it up, the full id being on the run's ledger card, as a manual row of its own (D-26 addendum).
   The window's own way back is the headless resume after a restart, still in the v2 notes, which
   the chain may want first.
+- **EP-19a.** Added on 2026-11-05 when EP-19 was split at pickup (the owner's choice, D-4).
+  (1) **The chain plan** (EP-18b's note, the owner's word): the launch dialog of a project whose
+  autopilot is on lists the briefs a chain may run after this one (the next unchecked rows in
+  table order, up to the project's `daily`), each with the model and effort pickers, the rules'
+  resolution the default (`rules::resolve` over each row, the downshift included); the chain
+  takes the owner's choice for each when it drafts it. Whether the plan lives in the window, as
+  a held chain does, or in the registry is the brief's first question. (2) **The chain's moment**
+  (EP-15's note): a notification of its own when a chain stops (a refusal that ends it, a cap, a
+  start the runner refused) and, perhaps, when one is held or goes on. **From EP-19:** the chain
+  drafts each brief in `app::autopilot`'s `gated` (`prompt::draft`, then `autopilot::launch`),
+  where the owner's choice would replace the resolution's model and effort, and its log line
+  says whose choice it was (`autopilot::chained_words`' `chosen`). The window's chain state is
+  `Board::autopilot` (`app::autopilot::Pilot`: the gates on their way, the held chains, the
+  queued start). Each stop is logged in `Board::log_chain` with its words
+  (`autopilot::refused_words`, `capped_words`, `not_started_words`), each a moment for
+  `crw_core::notify`'s table as a `Kind` of its own, whose Show could bring the Sessions pane's
+  All tab forward, where the chain log is.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -947,7 +967,11 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   parts as a list), which the compose dialog's preview can reuse. **From EP-16:** an open message's
   trailing `[urgent]` stays in its text in the Detail pane while its chip says it (EP-15a's note,
   placed here by the owner): the pane drops it from the text, as it drops an owner item's
-  `[before EP-m]` gate.
+  `[before EP-m]` gate. **From EP-19:** the autopilot's gate refuses a tree that is not clean
+  after a run's commit, so a message delivered into a project while its chain runs ends the
+  chain unless the session commits the file: the mailman delivers between a project's runs, or
+  the gate leaves `roadmap/inbox.md` out of its clean-tree condition (`autopilot::Facts::tree`),
+  this brief's choice.
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -1010,6 +1034,11 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   ended now has a ledger row per run under the same id (D-26 addendum), and a `resume` event marks
   each handover to VS Code, so the retro can count an EP's runs. Weigh the headless resume after a
   restart (the v2 notes) against the autopilot's needs: VS Code cannot open a headless run.
+  **From EP-19 (split at pickup, the owner's choice):** EP-19a joined P3, so the totals are 44
+  briefs, 14 S · 24 M · 6 L ≈ 43 session-hours, 15 still open once EP-19 is checked. The first
+  week of autopilot runs is the chain log (`crw autopilot`, the ledger's `event` rows of kind
+  `autopilot`): each `chained` line, each `the chain ends` line with the conditions that failed,
+  each `held` and `capped` line. A held chain does not outlive the window (the v2 notes).
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1198,7 +1227,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   forms by `decisions::Draft`'s rules (one answer or several, the owner's own words, a refusal's
   reason) and its words by `decisions::answer_words`. **From the owner's requests (2026-11-03):**
   EP-15b's Revert is a desktop action; D-28's phone may read, answer, tick, start and pause, and
-  whether it may also revert is EP-29's question for the owner.
+  whether it may also revert is EP-29's question for the owner. **From EP-19:** pause and resume
+  are `Action::PauseAutopilot` (the registry's `settings.autopilot_paused`, which `crw autopilot
+  pause|resume` also sets), a project's switch `Action::SetAutopilot`, and the chain log the
+  ledger's `event` rows of kind `autopilot` (`autopilot::recent`).
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into

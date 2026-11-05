@@ -738,9 +738,28 @@ fn project_row(
     plan.draw(ui, rect, Column::Usage, |ui| usage_cell(ui, row));
     plan.draw(ui, rect, Column::Session, |ui| session_cell(ui, row, live));
     plan.draw(ui, rect, Column::Autopilot, |ui| {
-        let mut on = row.project.autopilot.enabled;
-        ui.add_enabled(false, Checkbox::without_text(&mut on))
-            .on_disabled_hover_text("Autopilot: arrives at EP-19 (A)");
+        let on = row.project.autopilot.enabled;
+        let mut checked = on;
+        let hover = if on {
+            format!(
+                "Autopilot on (A): its runs commit themselves, and after a headless run \
+                 completes the gate may chain its next brief, {} at most, {} a day; the Sessions \
+                 pane's All tab logs each step",
+                row.project.autopilot.max_size(),
+                row.project.autopilot.daily()
+            )
+        } else {
+            "Autopilot off (A): its runs stop before committing; turn it on to let a headless \
+             run's completion chain the next brief and to say yes to its commits (D-22)"
+                .to_owned()
+        };
+        if ui
+            .add(Checkbox::without_text(&mut checked))
+            .on_hover_text(hover)
+            .changed()
+        {
+            actions.push(Action::SetAutopilot(name.to_owned(), !on));
+        }
     });
     plan.draw(ui, rect, Column::Start, |ui| {
         let next = row.folder.as_ref().and(row.next());
@@ -1158,6 +1177,16 @@ mod tests {
         portfolio: &Portfolio,
         events: Vec<egui::Event>,
     ) -> (Vec<Action>, Rect, Rect, egui::FullOutput) {
+        harbor_cell_pass(screen, portfolio, events, Column::Name)
+    }
+
+    /// The same with the cell of `column` in place of the name's.
+    fn harbor_cell_pass(
+        screen: &mut Screen,
+        portfolio: &Portfolio,
+        events: Vec<egui::Event>,
+        column: Column,
+    ) -> (Vec<Action>, Rect, Rect, egui::FullOutput) {
         let now = Utc::now();
         let view = View::default();
         let mut found = (Vec::new(), Rect::NOTHING, Rect::NOTHING);
@@ -1170,9 +1199,38 @@ mod tests {
             );
             let row = portfolio.project("harbor").unwrap();
             let actions = project_row(ui, row, &view, &plan, false, None, now);
-            found = (actions, rect, plan.rect(Column::Name, rect).unwrap());
+            found = (actions, rect, plan.rect(column, rect).unwrap());
         });
         (found.0, found.1, found.2, output)
+    }
+
+    #[test]
+    fn the_autopilot_box_turns_the_projects_autopilot_on() {
+        let scratch = Scratch::new("list-autopilot-box");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        assert!(
+            !portfolio
+                .project("harbor")
+                .unwrap()
+                .project
+                .autopilot
+                .enabled
+        );
+        let mut screen = Screen::new();
+        let pass = |screen: &mut Screen, events| {
+            harbor_cell_pass(screen, &portfolio, events, Column::Autopilot)
+        };
+        let (_, _, cell, _) = pass(&mut screen, Vec::new());
+        let at = cell.center();
+        let press = |pressed| testing::button(at, egui::PointerButton::Primary, pressed);
+        pass(&mut screen, testing::moved(at));
+        pass(&mut screen, press(true));
+        let (actions, ..) = pass(&mut screen, press(false));
+        assert_eq!(
+            actions,
+            [Action::SetAutopilot("harbor".to_owned(), true)],
+            "the box answers, and the row does not take its click"
+        );
     }
 
     #[test]

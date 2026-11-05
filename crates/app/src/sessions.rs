@@ -21,7 +21,9 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, Utc};
+use crw_core::autopilot::{self, Cap};
 use crw_core::ledger::{self, Ledger, RowState, SessionRow};
+use crw_core::roadmap::Size;
 use crw_core::session::{
     Answered, Deferred, Denied, Ended, Event, Init, Launch, Outcome, Preflight, Request, Response,
     Route, Session,
@@ -90,6 +92,14 @@ pub struct Live {
     pub drafts: HashMap<String, Draft>,
     /// The control protocol's handshake was refused in a run (D-19's fallback).
     pub handshake_refused: bool,
+    /// The run's cap while its project's autopilot is on (D-22; EP-19): it stops there.
+    pub cap: Option<Cap>,
+    /// The working time after which its cap stopped it.
+    pub capped: Option<Duration>,
+    /// The autopilot's chain started it (D-22).
+    pub chained: bool,
+    /// Its prompt or a resume told it to commit, so the Commit button is not offered.
+    pub commits: bool,
     /// What it was launched with: a resume runs the same with `--resume` (EP-13).
     launch: Launch,
     /// The CLI it ran, whose preflight a resume asks, and that CLI's version.
@@ -169,6 +179,13 @@ impl Live {
             draft: String::new(),
             drafts: HashMap::new(),
             handshake_refused: false,
+            cap: starting
+                .run
+                .capped
+                .then(|| Cap::new(starting.run.size, Instant::now())),
+            capped: None,
+            chained: starting.run.chained,
+            commits: starting.run.commits,
             launch: starting.launch.clone(),
             program: starting.program.clone(),
             version: starting.version.clone(),
@@ -204,6 +221,10 @@ impl Live {
             draft: String::new(),
             drafts: HashMap::new(),
             handshake_refused: false,
+            cap: None,
+            capped: None,
+            chained: false,
+            commits: false,
             program: PathBuf::from("claude.exe"),
             version: None,
             canned: true,
@@ -283,6 +304,26 @@ impl Live {
             }
             Event::Handshake(Ok(())) | Event::ToolResult(_) | Event::Notice(_) => {}
         }
+    }
+
+    /// What the autopilot asked of its runs, for the next one (EP-19).
+    fn run(&self) -> Run {
+        Run {
+            capped: self.cap.is_some(),
+            size: self.cap.and_then(|cap| cap.size),
+            chained: self.chained,
+            commits: self.commits,
+        }
+    }
+
+    /// Whether its tab offers Commit (D-22): the run completed under the rule that stops before
+    /// committing, and nothing told it to commit since.
+    pub fn offers_commit(&self) -> bool {
+        !self.commits
+            && self
+                .ended
+                .as_ref()
+                .is_some_and(|ended| ended.outcome == Outcome::Completed)
     }
 
     /// `<project> <EP>`, as its tab says it.
@@ -432,6 +473,20 @@ struct Starting {
     resumes: Option<u64>,
     /// What its transcript shows it started with: the prompt, or a deferred call's answer.
     message: String,
+    /// What the autopilot asks of the run.
+    run: Run,
+}
+
+/// What the autopilot asks of a start (D-22; EP-19).
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Run {
+    /// The run has a cap by its brief's `size`: its project's autopilot is on.
+    pub capped: bool,
+    pub size: Option<Size>,
+    /// The chain starts it.
+    pub chained: bool,
+    /// Its prompt or its message tells it to commit.
+    pub commits: bool,
 }
 
 /// What became of a start.
@@ -515,6 +570,8 @@ pub struct Sessions {
     pub switched: Option<String>,
     /// The runs' news the notifications have not taken yet, by session (EP-15).
     news: Vec<(u64, News)>,
+    /// The runs that ended since the autopilot last looked, by key (D-22; EP-19).
+    ended: Vec<u64>,
 }
 
 impl Default for Sessions {
@@ -530,6 +587,7 @@ impl Default for Sessions {
             refused: None,
             switched: None,
             news: Vec::new(),
+            ended: Vec::new(),
         }
     }
 }
@@ -597,16 +655,18 @@ impl Sessions {
         self.starting.is_some()
     }
 
-    /// Starts `launch` on a worker thread, which waits for the turn and the spacing (D-29).
+    /// Starts `launch` on a worker thread, which waits for the turn and the spacing (D-29); `run`
+    /// is what the autopilot asks of it (EP-19).
     pub fn start(
         &mut self,
         preflight: Arc<Preflight>,
         launch: Launch,
         effort: String,
+        run: Run,
         ctx: &egui::Context,
     ) {
         let message = launch.prompt.clone();
-        self.begin(preflight, launch, effort, None, message, ctx);
+        self.begin(preflight, launch, effort, None, message, run, ctx);
     }
 
     /// Resumes the window's ended session `key` with `message` as its next prompt (EP-13): a new
@@ -620,6 +680,39 @@ impl Sessions {
         route: Route,
         ctx: &egui::Context,
     ) {
+        self.resume_with(key, preflight, message, route, false, ctx);
+    }
+
+    /// Resumes the window's ended session `key` with the owner's yes to its commit (D-22;
+    /// EP-19): the Commit button's message, after which the button is not offered again.
+    pub fn commit(
+        &mut self,
+        key: u64,
+        preflight: Arc<Preflight>,
+        route: Route,
+        ctx: &egui::Context,
+    ) {
+        let Some(ep) = self
+            .live
+            .iter()
+            .find(|live| live.key == key)
+            .map(|live| live.ep.clone())
+        else {
+            return;
+        };
+        let message = crw_core::prompt::commit_message(&ep);
+        self.resume_with(key, preflight, &message, route, true, ctx);
+    }
+
+    fn resume_with(
+        &mut self,
+        key: u64,
+        preflight: Arc<Preflight>,
+        message: &str,
+        route: Route,
+        commits: bool,
+        ctx: &egui::Context,
+    ) {
         let Some(live) = self.live.iter().find(|live| live.key == key) else {
             return;
         };
@@ -630,12 +723,17 @@ impl Sessions {
         launch.answer = None;
         launch.answered_after = None;
         let effort = live.effort.clone();
+        let run = Run {
+            commits,
+            ..live.run()
+        };
         self.begin(
             preflight,
             launch,
             effort,
             Some(key),
             message.to_owned(),
+            run,
             ctx,
         );
     }
@@ -687,10 +785,15 @@ impl Sessions {
         }
         let effort = live.effort.clone();
         let message = format!("Your answer to {}: {words}", open.request.summary);
-        self.begin(preflight, launch, effort, Some(key), message, ctx);
+        let run = Run {
+            commits: false,
+            ..live.run()
+        };
+        self.begin(preflight, launch, effort, Some(key), message, run, ctx);
         Ok(())
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn begin(
         &mut self,
         preflight: Arc<Preflight>,
@@ -698,17 +801,18 @@ impl Sessions {
         effort: String,
         resumes: Option<u64>,
         message: String,
+        run: Run,
         ctx: &egui::Context,
     ) {
         let (sender, receiver) = mpsc::channel();
         let ctx = ctx.clone();
         let program = preflight.program.clone();
         let version = version_of(&preflight);
-        let run = launch.clone();
+        let started = launch.clone();
         let spawned = thread::Builder::new()
             .name("session start".to_owned())
             .spawn(move || {
-                let _ = sender.send(Session::start(&preflight, run));
+                let _ = sender.send(Session::start(&preflight, started));
                 ctx.request_repaint();
             });
         if spawned.is_ok() {
@@ -720,8 +824,44 @@ impl Sessions {
                 effort,
                 resumes,
                 message,
+                run,
             });
         }
+    }
+
+    /// The runs that ended since the last call, by key: the autopilot's to weigh (D-22).
+    pub fn take_ended(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.ended)
+    }
+
+    /// Ticks each capped run's working clock and stops gracefully each run that has worked its
+    /// cap (D-22; EP-19): the time a request waits for the owner is left out. Returns each run
+    /// stopped, by key, with the log's words.
+    pub fn check_caps(&mut self, now: Instant) -> Vec<(u64, String)> {
+        let mut stopped = Vec::new();
+        for live in &mut self.live {
+            let waiting = !live.waiting.is_empty();
+            let Some(cap) = live.cap.as_mut().filter(|_| live.ended.is_none()) else {
+                continue;
+            };
+            cap.clock.tick(waiting, now);
+            if live.stopping || live.capped.is_some() || !cap.reached(now) {
+                continue;
+            }
+            let worked = cap.clock.worked(now);
+            let words = crw_core::autopilot::capped_words(&live.ep, cap, worked);
+            if let Some(session) = &live.session
+                && session.stop()
+            {
+                live.stopping = true;
+                live.capped = Some(worked);
+                live.transcript.take(&Event::Notice(format!(
+                    "The autopilot stopped the run: {words}"
+                )));
+                stopped.push((live.key, words));
+            }
+        }
+        stopped
     }
 
     /// [`Sessions::route`] for the CLI `preflight` read.
@@ -799,6 +939,7 @@ impl Sessions {
         for live in &mut self.live {
             if live.drain() {
                 self.history.stale = true;
+                self.ended.push(live.key);
             }
             let key = live.key;
             self.news
@@ -851,6 +992,10 @@ impl Sessions {
             live.handshake_refused = false;
             live.launch.route = starting.launch.route;
             live.version = starting.version.clone();
+            // Each run has its own cap (D-22), and a Commit's message is the owner's yes.
+            live.cap = live.cap.map(|cap| Cap::new(cap.size, Instant::now()));
+            live.capped = None;
+            live.commits |= starting.run.commits;
             let answered = live.open.take().is_some() && starting.launch.answered_after.is_some();
             live.transcript.prompt(&starting.message, true);
             self.tab = Some(live.key);
@@ -1117,6 +1262,7 @@ impl Board {
 
     /// Every session: the window's, those started elsewhere, the ledger's recent rows.
     fn all_tab(&mut self, ui: &mut egui::Ui) {
+        self.autopilot_section(ui);
         let names: Vec<String> = self
             .portfolio
             .projects
@@ -1379,10 +1525,36 @@ impl Board {
         }
         counts.push(format!("session {}", live.session_id));
         ui.label(RichText::new(counts.join(" · ")).small().weak());
+        // The autopilot's part (D-22): the chain started it, its cap and the work so far.
+        if let Some(cap) = &live.cap {
+            let chained = if live.chained {
+                "chained by the autopilot"
+            } else {
+                "autopilot on"
+            };
+            let worked = match live.capped {
+                Some(worked) => format!("stopped at its cap after {}", autopilot::length(worked)),
+                None if live.is_running() => format!(
+                    "{} worked",
+                    autopilot::length(cap.clock.worked(Instant::now()))
+                ),
+                None => String::new(),
+            };
+            let line = [chained.to_owned(), cap.words(), worked]
+                .into_iter()
+                .filter(|part| !part.is_empty())
+                .collect::<Vec<_>>()
+                .join(" · ");
+            ui.label(RichText::new(line).small().color(style::reference(ui)));
+        }
         ui.separator();
 
         // The footer keeps its room below the transcript once the run has ended.
-        let footer = if live.ended.is_some() { 96.0 } else { 0.0 };
+        let footer = match &live.ended {
+            Some(_) if live.offers_commit() => 128.0,
+            Some(_) => 96.0,
+            None => 0.0,
+        };
         egui::ScrollArea::vertical()
             .id_salt(("transcript", key))
             .auto_shrink(false)
@@ -1427,6 +1599,18 @@ impl Board {
                     actions.push(Action::ResumeSession(key));
                 }
             });
+            // With the autopilot off the run stopped before committing (D-22).
+            if live.offers_commit()
+                && ui
+                    .add_enabled(!starting, egui::Button::new("Commit"))
+                    .on_hover_text(
+                        "Resume the session with your yes to its commit: the house pattern's \
+                         two commits, the hash recorded in the roadmap, never a push",
+                    )
+                    .clicked()
+            {
+                actions.push(Action::CommitSession(key));
+            }
         }
         self.actions.extend(actions);
     }
@@ -1910,6 +2094,10 @@ mod tests {
             draft: String::new(),
             drafts: HashMap::new(),
             handshake_refused: false,
+            cap: None,
+            capped: None,
+            chained: false,
+            commits: false,
             launch: Launch::new("alpha", Path::new("alpha"), "fable", "Run EP-3."),
             program: PathBuf::from("claude.exe"),
             version: Some("2.1.316".to_owned()),
@@ -1956,6 +2144,7 @@ mod tests {
             effort: "high".to_owned(),
             resumes: None,
             message: String::new(),
+            run: Run::default(),
         });
         let (working, refusals) = sessions.at_work("alpha");
         assert_eq!(
@@ -2122,6 +2311,33 @@ mod tests {
         let mut other = Resumes::default();
         other.open.insert("7c4e1a2d-8f53-4b06-9a0b-3b9d2f105e8c");
         assert_eq!(resume_availability(&row, Some(&project), &other), Ok(()));
+    }
+
+    #[test]
+    fn a_completed_run_that_stopped_before_committing_offers_commit() {
+        let mut done = live();
+        assert!(!done.offers_commit(), "not while it runs");
+        done.take(exit(Outcome::Completed, None));
+        assert!(done.offers_commit());
+        done.commits = true;
+        assert!(!done.offers_commit(), "a run told to commit offers none");
+        let mut failed = live();
+        failed.take(exit(Outcome::Failed, None));
+        assert!(!failed.offers_commit());
+        // What the autopilot asked of a run carries to the next: its cap, its chain.
+        let mut chained = live();
+        chained.cap = Some(Cap::new(Some(Size::M), Instant::now()));
+        chained.chained = true;
+        assert_eq!(
+            chained.run(),
+            Run {
+                capped: true,
+                size: Some(Size::M),
+                chained: true,
+                commits: false,
+            }
+        );
+        assert_eq!(live().run(), Run::default());
     }
 
     #[test]

@@ -83,6 +83,17 @@ marked *(EP-35)*.
   hook closes a row of the runner's, and a resume in a terminal starts a manual row beside it.
 - *(EP-35)* Resume in VS Code for a session whose working folder was a subfolder of the project:
   its transcript lies under the subfolder's slug, which the project's window may not look in.
+- *(EP-19)* A held chain kept across a restart of the window: EP-19's lives in the window, and
+  the log says where it stood (D-22 addendum).
+- *(EP-19)* A chain after a visual session: the gate follows the window's headless runs only, a
+  visual tab's end coming hours after its last turn (D-22).
+- *(EP-19)* `crw autopilot gate <project>`: the gate read now from the command line, as if the
+  project's last run had just completed, to see why it would refuse.
+- *(EP-19)* A pause per project beside the global one, and a cap that counts the wall clock as a
+  second limit (the owner chose working time alone at pickup).
+- *(EP-19)* This project chained, its release build and install script left to an owner task
+  after the chain, or built where the running window does not hold it (EP-28's install script);
+  the owner chose never to chain it at pickup (D-22 addendum).
 
 ## 2 Analytics
 
