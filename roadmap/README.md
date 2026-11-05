@@ -1115,7 +1115,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   dropped wish says); the defer route's hooks run the `crw.exe` beside the window
   (`board::crw_exe`), whose absence refuses that route, and an answer's file lives in
   `%LOCALAPPDATA%\clauderoadmapwrangler\answers\` only while its resume runs. **From EP-15:** the
-  app's own icon replaces the tile `tray::draw` paints in the tray; the status bar's hover already
+  app's own icon replaces the tile `tray::draw` paints in the tray, and the window's default
+  (eframe's, egui's logo), which `install-shortcut.ps1` already writes into the shortcuts' `.ico`
+  beside the exe (the owner's ask, 2026-11-05); the status bar's hover already
   says how the notifications and the tray stand (`Toasts::line`, `Tray::line`), for Diagnostics to
   show; a start at login may open hidden in the tray (`Board::hidden`), and single instance can
   show the running window as the tray's Show does; the popup's corner assumes a taskbar at the
