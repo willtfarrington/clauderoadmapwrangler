@@ -828,6 +828,32 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > *Alternatives.* The downshift before the rules, so that a rule's model stands over it; a figure
 > older than the meter's 15 minutes ignored; a rule's opt-out.
 
+> **Addendum (2026-11-05, EP-18a).** The attribution is built as a split of each poll (the
+> owner's choice at pickup).
+>
+> - **The split.** Each reading of the endpoint's, set against the window's previous one, gives
+>   each figure's rise: the difference within one limit window, or the new figure after a reset.
+>   The rise is split equally among the sessions that worked in between, and each part goes to
+>   the session's latest ledger row. The window's first reading after its start splits nothing,
+>   and the cached reading a start shows is never the one before.
+> - **Who worked.** A session worked when the window heard its turn end (`Stop`) or a wait for
+>   the owner begin (a `Notification`), or saw it busy at a pass (a hook's or the poll's
+>   status), or when it is a headless run of the window's that runs. A steady wait is no work.
+> - **Manual sessions count** (the owner's choice), so "tool-launched" now reads "every session
+>   the window sees work in a registered project". Sessions outside the registry, and those
+>   without a row, take their parts too, which stay unattributed. Use the window cannot see
+>   (claude.ai, the phone, Cowork) falls to whoever worked in the interval.
+> - **The figures** are whole percents (all 14 samples at the pickup), so a part is often a half
+>   or a third of a point. A session's share is coarse, and a week's sum per project is the
+>   steadier figure.
+> - **Shown.** The Sessions pane's ledger card and `crw sessions` give a row's share with the
+>   figures around it (`week +0.5 % (27 → 28 %)`). `crw sessions` also sums each project's over
+>   the weekly window: the sessions started since the reset less seven days. The badge is
+>   EP-18b's, split off at pickup.
+>
+> *Alternatives.* The figures before and after each session, at its last turn or at its row's
+> end, whose sums count parallel use twice; launched sessions only; a split weighted by busy time.
+
 ## Hosting, views, history
 
 **D-24 Hosting, backup and the site.** Remote badges none / private / public, ahead / behind / diverged by
@@ -1038,6 +1064,14 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > <disposition>`), which a revert redoes. `crw sessions` prints each session's short id.
 > *Alternatives.* A table of starts of its own; the copies kept in the ledger; the HEAD at the
 > session's start guessed from the commit times.
+
+> **Addendum (2026-11-05, EP-18a).** Schema 5 adds `session.weekly_share` and `fable_share`: the
+> session's part of each usage figure in points of the limit, added up poll by poll on the latest
+> row of its session id, so a resumed run takes the parts from then on (D-23 addendum). The same
+> write fills V1's `weekly_before`/`after` and `fable_before`/`after` with the figures before the
+> first interval that counted and after the latest. A ledger opened to read at an older schema
+> reads none, and a build before EP-18a refuses the ledger. *Alternatives.* The parts in a table
+> of their own; the shares in the event log.
 
 ## Chat, remote access, operations
 

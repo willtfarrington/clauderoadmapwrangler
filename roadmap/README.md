@@ -688,13 +688,14 @@ every commit's added lines are checked before it is made, the repository being p
 |---|---|---|---|---|---|
 | EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☑ `3cf6dcf` |
 | EP-18 | [Downshift rule: the Fable-share downshift as the resolver's last layer with its registry mark, its judgement in the launch dialog and `crw prompt`, the dialog's Visual pickers greyed out for the tab's panel](EP-18-downshift-rule.md) (D-23, D-16) | S | EP-10, EP-17 | core | ☑ `8014ad6` |
-| EP-18a | Usage attribution: weekly and Fable percents sampled around each launched session on its ledger row, the delta per session, the usage-share badge with its column, Detail line and sort key (D-23) | S | EP-18 | core | ☐ |
+| EP-18a | [Usage attribution: each poll's rise in the weekly and Fable figures split among the sessions that worked since the poll before, manual ones too, each row's share and the figures around it in ledger schema 5, shown on the Sessions pane's cards and summed per project over the week in `crw sessions`](EP-18a-usage-attribution.md) (D-23, D-26) | S | EP-18 | core | ☐ |
+| EP-18b | Usage-share badge: each project's share of the week as one more column of the row's badges in both forms, a line of the Detail pane's Status section, the legend's key and the sort key (D-23, D-25) | S | EP-18a | core | ☐ |
 | EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -703,7 +704,8 @@ owner's choice). EP-35 follows the usage briefs and comes before the autopilot: 
 (D-5) the window is how this project's sessions start, so a run a crash cuts short should be picked
 up from the window before chains begin; EP-17 stays the first self-launched session.
 *(2026-11-04, EP-18 split at pickup, the owner's choice.)* EP-18a takes EP-18's attribution and
-usage-share badge, right after it and before EP-35.
+usage-share badge, right after it and before EP-35. *(2026-11-05, EP-18a split at pickup, the
+owner's choice.)* EP-18b takes EP-18a's usage-share badge, right after it and before EP-35.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -802,6 +804,20 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   a badge of launched sessions alone leaves them near empty, and counting manual sessions changes
   D-23, the owner's call. The meter polls a minute after a launched session ends
   (`Meter::session_ended`), `Ledger::samples_since` reads the samples, and OT-14 comes first.
+- **EP-18b.** Added on 2026-11-05 when EP-18a was split at pickup (the owner's choice, D-4):
+  EP-18a's usage-share badge, on the shares EP-18a writes. One more column of the row's badges
+  (`list::Column`, in both of `GIVE_WAY`'s forms with the badges), a line of the Detail pane's
+  Status section, the legend's key, and the sort key `SortKey::UsageShare` (its `arrives_at`
+  says EP-18). **From EP-18a:** a row's share is `SessionRow::usage` (`weekly_share` and
+  `fable_share` in points of the limit, with the figures before and after), schema 5. A
+  project's sums over the week are `Ledger::shares_since(usage::share::week_start(resets_at,
+  now))`, each a `ProjectShare` (weekly, Fable, the sessions counted), which `crw sessions`
+  prints; `ledger::points` writes a share. Manual sessions count (the owner's choice, D-23
+  addendum). The window's weekly reset is `meter.gauge.figures(now).weekly`'s, and a split
+  marks `sessions.history.stale`, the moment to read the sums again. The endpoint gives whole
+  percents, so a week's sums run in halves and thirds of a point. What the badge shows (points
+  of the weekly limit, or the project's part of all that was attributed) and whether Fable joins
+  it is the brief's first question.
 - **EP-35.** Added at EP-16 (2026-11-04) for EP-14a's and EP-15b's notes (D-16 addendum): a run a
   crash or a quit window cut short keeps its ledger row but has no Resume in the next window,
   since its launch's choices lived in the old one, and `claude --resume` in a terminal is today's
@@ -971,7 +987,11 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   (split at pickup, the owner's choice):** EP-18a joined P3, so the totals are 42 briefs, 12 S ·
   24 M · 6 L ≈ 42 session-hours, 17 still open once EP-18 is checked; the retro times EP-18 and
   EP-18a with the rest. EP-18 was started by hand, out of habit, and OT-14 walks the owner through
-  the window's launch so that EP-18a starts from it.
+  the window's launch so that EP-18a starts from it. **From EP-18a (split at pickup, the owner's
+  choice):** EP-18b joined P3, so the totals are 43 briefs, 13 S · 24 M · 6 L ≈ 42.5
+  session-hours, 17 still open once EP-18a is checked. EP-18a was started from the window's launch
+  (OT-14), with the model and effort chosen in the tab's panel. From EP-18a each session's row
+  also holds its share of the week's usage, which the retro can set beside the briefs' sizes.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

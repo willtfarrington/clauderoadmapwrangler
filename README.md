@@ -48,7 +48,9 @@ pane or a project's row menu, and reads the plan again before it reverts (EP-15c
 (EP-16) measured the phase and made the switch planned from the start: from EP-17 on, this
 project's own briefs are started from the tool, as visual launches by default. The usage meter
 (EP-17) shows the account's weekly, Fable and five-hour usage in the status bar and a pane of its
-own, with notifications at 80 % and 95 %. The roadmap is
+own, with notifications at 80 % and 95 %. Each poll's rise is split among the sessions the
+window saw work since the poll before, so each session's row in the ledger keeps its share of the
+week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

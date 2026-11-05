@@ -73,7 +73,7 @@ use crw_core::badges::backup::{Archive, Backup};
 use crw_core::badges::health;
 use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visibility};
 use crw_core::badges::stack::Kind;
-use crw_core::ledger::SessionRow;
+use crw_core::ledger::{RowUsage, SessionRow};
 use crw_core::paths;
 use crw_core::registry::{Defaults, Store};
 use crw_core::revert::{
@@ -585,15 +585,27 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
             context_percent: None,
             answer_latency_s: None,
             start: None,
+            usage: RowUsage::default(),
         }
+    };
+    // Each session's share of the usage (EP-18a): a manual one counts too.
+    let share = |weekly: f64, before: f64, after: f64, fable: Option<f64>| RowUsage {
+        weekly_share: Some(weekly),
+        weekly_before: Some(before),
+        weekly_after: Some(after),
+        fable_share: fable,
+        fable_before: fable.map(|_| 19.0),
+        fable_after: fable.map(|share| 19.0 + share.ceil()),
     };
     let mut quarry = row(5, "quarry", None, "manual", 95, 36);
     quarry.cost_usd = Some(0.87);
     quarry.context_percent = Some(41.0);
+    quarry.usage = share(0.5, 27.0, 28.0, None);
     let mut lapsed = row(4, "lantern", Some("EP-6"), "visual", 200, 30);
     lapsed.session_id = None;
     lapsed.outcome = None;
-    let lantern = row(3, "lantern", Some("EP-5"), "visual", 1500, 64);
+    let mut lantern = row(3, "lantern", Some("EP-5"), "visual", 1500, 64);
+    lantern.usage = share(1.5, 24.0, 26.0, Some(1.5));
     let mut stopped = row(2, "harbor", Some("EP-3"), "headless", 1700, 12);
     stopped.outcome = Some("stopped".to_owned());
     stopped.model = Some("claude-opus-5-5".to_owned());
@@ -607,6 +619,7 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
     done.answer_latency_s = Some(95.0);
     done.result =
         Some("EP-3 is done: the tide tables are read and cached, and the tests pass.".to_owned());
+    done.usage = share(2.0, 21.0, 23.0, Some(0.0));
     vec![quarry, lapsed, lantern, done, stopped]
 }
 

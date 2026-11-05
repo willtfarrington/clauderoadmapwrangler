@@ -1295,6 +1295,7 @@ mod tests {
             context_percent: None,
             answer_latency_s: None,
             start: None,
+            usage: Default::default(),
         }
     }
 

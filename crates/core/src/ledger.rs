@@ -12,10 +12,10 @@ use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 /// The schema this build writes: the number of migrations.
-pub const SCHEMA_VERSION: u32 = 4;
+pub const SCHEMA_VERSION: u32 = 5;
 
 /// `MIGRATIONS[i]` brings the schema from version `i` to `i + 1`, each in one transaction.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5];
 
 /// The most of a run's final text its row keeps, in characters.
 const RESULT_CAP: usize = 8000;
@@ -113,16 +113,44 @@ const V4: &str = "
 ALTER TABLE session ADD COLUMN start TEXT;
 ";
 
-/// The `session` columns a [`SessionRow`] reads, in its order; a ledger opened to read at an older
-/// schema has no start (schema 3), and no result or context either (schema 2).
-const SESSION_COLUMNS: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s, \
-    start";
-const SESSION_COLUMNS_V3: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, result, context_percent, answer_latency_s, \
-    NULL";
-const SESSION_COLUMNS_V2: &str = "id, session_id, project, ep, mode, model, effort, ultracode, \
-    started_at, ended_at, outcome, cost_usd, questions, NULL, NULL, answer_latency_s, NULL";
+const V5: &str = "
+-- The session's part of the weekly and Fable-scoped figures, in points of the limit: each poll's
+-- rise split among the sessions that worked since the poll before (D-23, EP-18a).
+ALTER TABLE session ADD COLUMN weekly_share REAL;
+ALTER TABLE session ADD COLUMN fable_share REAL;
+";
+
+/// The `session` columns a [`SessionRow`] reads, in its order, for a ledger at schema `version`:
+/// a column added later reads as none, in a ledger opened to read at an older schema (EP-13).
+fn session_columns(version: u32) -> String {
+    let since = |added: u32, column: &'static str| if version >= added { column } else { "NULL" };
+    [
+        "id",
+        "session_id",
+        "project",
+        "ep",
+        "mode",
+        "model",
+        "effort",
+        "ultracode",
+        "started_at",
+        "ended_at",
+        "outcome",
+        "cost_usd",
+        "questions",
+        since(3, "result"),
+        since(3, "context_percent"),
+        "answer_latency_s",
+        since(4, "start"),
+        "weekly_before",
+        "weekly_after",
+        "fable_before",
+        "fable_after",
+        since(5, "weekly_share"),
+        since(5, "fable_share"),
+    ]
+    .join(", ")
+}
 
 /// A session as it starts (D-16, D-26; EP-9): the columns known before it runs.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -181,6 +209,43 @@ pub struct SessionRow {
     pub answer_latency_s: Option<f64>,
     /// The project at the session's start, as `revert::Start`'s JSON (from EP-15b).
     pub start: Option<String>,
+    /// Its share of the weekly and Fable figures, with the figures around it (from EP-18a).
+    pub usage: RowUsage,
+}
+
+/// A row's usage (D-23; EP-18a): its part of each figure, in points of the limit, added up over
+/// the polls it worked between, and the figures before the first of them and after the latest.
+/// None before schema 5, and for a session the window never saw work.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct RowUsage {
+    pub weekly_share: Option<f64>,
+    pub fable_share: Option<f64>,
+    pub weekly_before: Option<f64>,
+    pub weekly_after: Option<f64>,
+    pub fable_before: Option<f64>,
+    pub fable_after: Option<f64>,
+}
+
+/// A session's part of one poll's rise ([`Ledger::add_share`]): its share of each figure, and the
+/// figures at the two polls.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct Part {
+    pub weekly: Option<f64>,
+    pub fable: Option<f64>,
+    pub weekly_before: Option<f64>,
+    pub weekly_after: Option<f64>,
+    pub fable_before: Option<f64>,
+    pub fable_after: Option<f64>,
+}
+
+/// A project's parts over a time (EP-18a): the sums of its sessions' shares, and how many of its
+/// sessions have one.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ProjectShare {
+    pub project: String,
+    pub weekly: Option<f64>,
+    pub fable: Option<f64>,
+    pub sessions: u32,
 }
 
 impl SessionRow {
@@ -253,6 +318,51 @@ pub fn asked(row: &SessionRow) -> Option<String> {
         (Some(questions), Some(answered)) => Some(format!("{questions}, {answered}")),
         (Some(text), None) | (None, Some(text)) => Some(text),
         (None, None) => None,
+    }
+}
+
+/// A row's share of the usage in words (D-23; EP-18a): `week +0.5 % (27 → 28 %) · Fable +0 %
+/// (19 %)`, its part of each figure with the figures around it; none when it has no share.
+pub fn shares(row: &SessionRow) -> Option<String> {
+    let usage = &row.usage;
+    let one = |name: &str, share: Option<f64>, before: Option<f64>, after: Option<f64>| {
+        let share = share?;
+        let figures = match (before, after) {
+            (Some(before), Some(after)) if points(before) != points(after) => {
+                format!(" ({} → {} %)", points(before), points(after))
+            }
+            (_, Some(at)) | (Some(at), None) => format!(" ({} %)", points(at)),
+            (None, None) => String::new(),
+        };
+        Some(format!("{name} +{} %{figures}", points(share)))
+    };
+    let parts: Vec<String> = [
+        one(
+            "week",
+            usage.weekly_share,
+            usage.weekly_before,
+            usage.weekly_after,
+        ),
+        one(
+            "Fable",
+            usage.fable_share,
+            usage.fable_before,
+            usage.fable_after,
+        ),
+    ]
+    .into_iter()
+    .flatten()
+    .collect();
+    (!parts.is_empty()).then(|| parts.join(" · "))
+}
+
+/// Points of a limit: whole, else to a tenth (`2`, `0.5`, `0.3`).
+pub fn points(value: f64) -> String {
+    let tenths = (value * 10.0).round();
+    if tenths % 10.0 == 0.0 {
+        format!("{:.0}", tenths / 10.0)
+    } else {
+        format!("{:.1}", tenths / 10.0)
     }
 }
 
@@ -560,6 +670,61 @@ impl Ledger {
         Ok(closed)
     }
 
+    /// Adds a session's part of one poll's rise to the latest row of `session_id` (D-23; EP-18a):
+    /// each share added to the row's, the figure before kept from the first part and the one
+    /// after from the latest. `false` when no row holds the session, whose part then stays
+    /// unattributed, or the ledger is older than schema 5.
+    pub fn add_share(&self, session_id: &str, part: &Part) -> Result<bool, Error> {
+        if self.version < 5 || session_id.is_empty() {
+            return Ok(false);
+        }
+        let changed = self.connection.execute(
+            "UPDATE session SET \
+             weekly_share = CASE WHEN ?2 IS NULL THEN weekly_share \
+                 ELSE COALESCE(weekly_share, 0) + ?2 END, \
+             fable_share = CASE WHEN ?3 IS NULL THEN fable_share \
+                 ELSE COALESCE(fable_share, 0) + ?3 END, \
+             weekly_before = COALESCE(weekly_before, ?4), \
+             weekly_after = COALESCE(?5, weekly_after), \
+             fable_before = COALESCE(fable_before, ?6), \
+             fable_after = COALESCE(?7, fable_after) \
+             WHERE id = (SELECT id FROM session WHERE session_id = ?1 \
+                 ORDER BY started_at DESC, id DESC LIMIT 1)",
+            (
+                session_id,
+                part.weekly,
+                part.fable,
+                part.weekly_before,
+                part.weekly_after,
+                part.fable_before,
+                part.fable_after,
+            ),
+        )?;
+        Ok(changed > 0)
+    }
+
+    /// Each project's shares over the sessions started at `since` or later (D-23; EP-18a), the
+    /// largest weekly sum first; none before schema 5.
+    pub fn shares_since(&self, since: DateTime<Utc>) -> Result<Vec<ProjectShare>, Error> {
+        if self.version < 5 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT project, SUM(weekly_share), SUM(fable_share), COUNT(*) FROM session \
+             WHERE started_at >= ?1 AND (weekly_share IS NOT NULL OR fable_share IS NOT NULL) \
+             GROUP BY project ORDER BY COALESCE(SUM(weekly_share), 0) DESC, project",
+        )?;
+        let rows = statement.query_map([rfc3339(since)], |row| {
+            Ok(ProjectShare {
+                project: row.get(0)?,
+                weekly: row.get(1)?,
+                fable: row.get(2)?,
+                sessions: row.get(3)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// Every session, the oldest first.
     pub fn sessions(&self) -> Result<Vec<SessionRow>, Error> {
         self.session_rows("ORDER BY started_at, id", None)
@@ -571,11 +736,7 @@ impl Ledger {
     }
 
     fn session_rows(&self, order: &str, limit: Option<usize>) -> Result<Vec<SessionRow>, Error> {
-        let columns = match self.version {
-            4.. => SESSION_COLUMNS,
-            3 => SESSION_COLUMNS_V3,
-            _ => SESSION_COLUMNS_V2,
-        };
+        let columns = session_columns(self.version);
         let mut statement = self
             .connection
             .prepare(&format!("SELECT {columns} FROM session {order}"))?;
@@ -598,6 +759,14 @@ impl Ledger {
                 context_percent: row.get(14)?,
                 answer_latency_s: row.get(15)?,
                 start: row.get(16)?,
+                usage: RowUsage {
+                    weekly_before: row.get(17)?,
+                    weekly_after: row.get(18)?,
+                    fable_before: row.get(19)?,
+                    fable_after: row.get(20)?,
+                    weekly_share: row.get(21)?,
+                    fable_share: row.get(22)?,
+                },
             })
         };
         let rows = match limit {
@@ -960,9 +1129,16 @@ mod tests {
         assert!(tables(&ledger).contains(&"badge_cache".to_owned()));
         drop(ledger);
 
-        let next = [V1, V2, V3, V4, "ALTER TABLE event ADD COLUMN source TEXT;"];
+        let next = [
+            V1,
+            V2,
+            V3,
+            V4,
+            V5,
+            "ALTER TABLE event ADD COLUMN source TEXT;",
+        ];
         let ledger = Ledger::open_with(&path, &next).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 5);
+        assert_eq!(ledger.schema_version().unwrap(), 6);
         ledger
             .connection
             .execute(
@@ -976,24 +1152,24 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 2, "the migrations kept the earlier row");
         drop(ledger);
-        // This build knows up to version 4 and leaves the file at version 5.
+        // This build knows up to version 5 and leaves the file at version 6.
         assert!(matches!(
             Ledger::open(&path),
             Err(Error::Newer {
-                found: 5,
-                supported: 4
+                found: 6,
+                supported: 5
             })
         ));
         assert!(matches!(
             Ledger::open_read_only(&path),
-            Err(Error::Newer { found: 5, .. })
+            Err(Error::Newer { found: 6, .. })
         ));
         assert_eq!(
             Ledger::open_with(&path, &next)
                 .unwrap()
                 .schema_version()
                 .unwrap(),
-            5
+            6
         );
     }
 
@@ -1379,6 +1555,113 @@ mod tests {
         assert_eq!(rows[0].start.as_deref(), Some(r#"{"first":1}"#));
         assert_eq!(ledger.start_of("s-2").unwrap(), None);
         assert!(!ledger.set_start_of("s-2", "{}").unwrap(), "no row of it");
+    }
+
+    /// A session's usage (EP-18a): each poll's part adds up on its latest row, the figure before
+    /// kept from the first part and the one after from the latest; a project's sums count the
+    /// sessions started since the window's start; a schema 4 ledger reads none and takes none.
+    #[test]
+    fn a_sessions_parts_add_up_on_its_latest_row() {
+        let scratch = Scratch::new("ledger-share");
+        let path = scratch.0.join("ledger.sqlite");
+        let started = |ledger: &Ledger, id: &'static str, project, mode, at| {
+            ledger
+                .start_session(&NewSession {
+                    session_id: Some(id),
+                    ..launch(project, mode, at)
+                })
+                .unwrap()
+        };
+        let part = Part {
+            weekly: Some(0.5),
+            weekly_before: Some(27.0),
+            weekly_after: Some(28.0),
+            ..Part::default()
+        };
+        let older = Ledger::open_with(&path, &[V1, V2, V3, V4]).unwrap();
+        started(&older, "s-1", "alpha", "visual", "2026-11-03T10:00:00Z");
+        assert!(!older.add_share("s-1", &part).unwrap(), "schema 4 has none");
+        drop(older);
+        let read = Ledger::open_read_only(&path).unwrap();
+        assert_eq!(read.sessions().unwrap()[0].usage, RowUsage::default());
+        assert!(
+            read.shares_since(at("2026-11-01T00:00:00Z"))
+                .unwrap()
+                .is_empty()
+        );
+        drop(read);
+
+        let ledger = Ledger::open(&path).unwrap();
+        assert!(ledger.add_share("s-1", &part).unwrap());
+        let later = Part {
+            weekly: Some(1.0),
+            fable: Some(0.0),
+            weekly_before: Some(28.0),
+            weekly_after: Some(29.0),
+            fable_before: Some(19.0),
+            fable_after: Some(19.0),
+        };
+        assert!(ledger.add_share("s-1", &later).unwrap());
+        assert!(!ledger.add_share("s-2", &later).unwrap(), "no row of it");
+        // A resume's row takes the parts from then on.
+        started(&ledger, "s-1", "alpha", "headless", "2026-11-03T12:00:00Z");
+        assert!(ledger.add_share("s-1", &part).unwrap());
+        started(&ledger, "s-3", "beta", "manual", "2026-11-03T11:00:00Z");
+        let two = Part {
+            weekly: Some(2.0),
+            ..Part::default()
+        };
+        assert!(ledger.add_share("s-3", &two).unwrap());
+        // Started before the window: not summed.
+        started(&ledger, "s-4", "beta", "manual", "2026-10-30T11:00:00Z");
+        assert!(ledger.add_share("s-4", &two).unwrap());
+
+        let rows = ledger.sessions().unwrap();
+        let first = &rows[1].usage;
+        assert_eq!(
+            (first.weekly_share, first.fable_share),
+            (Some(1.5), Some(0.0))
+        );
+        assert_eq!(
+            (first.weekly_before, first.weekly_after),
+            (Some(27.0), Some(29.0))
+        );
+        assert_eq!(
+            (first.fable_before, first.fable_after),
+            (Some(19.0), Some(19.0))
+        );
+        assert_eq!(rows[3].usage.weekly_share, Some(0.5));
+        assert_eq!(
+            shares(&rows[1]).as_deref(),
+            Some("week +1.5 % (27 → 29 %) · Fable +0 % (19 %)")
+        );
+        assert_eq!(shares(&rows[2]).as_deref(), Some("week +2 %"));
+        assert_eq!(shares(&rows[0]).as_deref(), Some("week +2 %"));
+        let none = Ledger::open(&path).unwrap();
+        started(&none, "s-5", "gamma", "manual", "2026-11-03T13:00:00Z");
+        assert_eq!(shares(&none.sessions().unwrap()[4]), None);
+        let project = |project: &str, weekly, fable, sessions| ProjectShare {
+            project: project.to_owned(),
+            weekly,
+            fable,
+            sessions,
+        };
+        assert_eq!(
+            ledger.shares_since(at("2026-10-31T17:00:00Z")).unwrap(),
+            [
+                project("alpha", Some(2.0), Some(0.0), 2),
+                project("beta", Some(2.0), None, 1)
+            ]
+        );
+    }
+
+    #[test]
+    fn points_are_whole_or_to_a_tenth() {
+        assert_eq!(points(2.0), "2");
+        assert_eq!(points(0.5), "0.5");
+        assert_eq!(points(1.0 / 3.0), "0.3");
+        assert_eq!(points(0.96), "1");
+        assert_eq!(points(0.0), "0");
     }
 
     #[test]

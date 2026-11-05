@@ -30,7 +30,7 @@ use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
-use crw_core::ledger::{self, Ledger, RowState, SessionRow};
+use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
@@ -1879,8 +1879,23 @@ fn sessions(args: &[&str]) -> ExitCode {
         );
         return ExitCode::SUCCESS;
     }
-    let rows = match Ledger::open_read_only(&path).and_then(|ledger| ledger.sessions()) {
-        Ok(rows) => rows,
+    let now = Utc::now();
+    let read = Ledger::open_read_only(&path).and_then(|ledger| {
+        // The weekly window the shares are summed over (EP-18a): its reset is the window's
+        // cached reading's, read without the credentials or the network.
+        let since = ledger
+            .cached_one("", usage::CACHE_SOURCE)?
+            .and_then(|row| usage::Reading::from_json(&row.data))
+            .and_then(|reading| reading.weekly?.resets_at)
+            .map(|resets_at| usage::share::week_start(resets_at, now));
+        let week = match since {
+            Some(since) => Some((since, ledger.shares_since(since)?)),
+            None => None,
+        };
+        Ok((ledger.sessions()?, week))
+    });
+    let (rows, week) = match read {
+        Ok(read) => read,
         Err(e) => return failed(format!("{}: {e}", path.display())),
     };
     let mut rows: Vec<SessionRow> = rows
@@ -1899,8 +1914,8 @@ fn sessions(args: &[&str]) -> ExitCode {
         rows.len(),
         path.display()
     );
-    let now = Utc::now();
-    let lines: Vec<[String; 9]> = rows
+    print_week(week, project);
+    let lines: Vec<[String; 10]> = rows
         .iter()
         .map(|row| {
             let when = row.started().map_or(row.started_at.clone(), |at| {
@@ -1941,10 +1956,11 @@ fn sessions(args: &[&str]) -> ExitCode {
                 state,
                 cost,
                 ledger::asked(row).unwrap_or_default(),
+                ledger::shares(row).unwrap_or_default(),
             ]
         })
         .collect();
-    let mut widths = [0usize; 9];
+    let mut widths = [0usize; 10];
     for line in &lines {
         for (width, cell) in widths.iter_mut().zip(line) {
             *width = (*width).max(cell.chars().count());
@@ -1965,6 +1981,45 @@ fn sessions(args: &[&str]) -> ExitCode {
         println!("  … {} older: crw sessions --all", total - rows.len());
     }
     ExitCode::SUCCESS
+}
+
+/// Each project's share of the usage over the weekly window (D-23; EP-18a), or `project`'s alone:
+/// the sums of its sessions started since the window opened.
+fn print_week(week: Option<(DateTime<Utc>, Vec<ProjectShare>)>, project: Option<&str>) {
+    let Some((since, sums)) = week else {
+        println!("  no reading of the endpoint yet, so no week to sum the shares over");
+        return;
+    };
+    let since = since.with_timezone(&chrono::Local).format("%Y-%m-%d %H:%M");
+    let sums: Vec<ProjectShare> = sums
+        .into_iter()
+        .filter(|sum| project.is_none_or(|name| sum.project.eq_ignore_ascii_case(name)))
+        .collect();
+    if sums.is_empty() {
+        println!("  the week since {since}: no session has a share of the usage yet");
+        return;
+    }
+    println!("  the week since {since}, each project's share of the usage:");
+    let width = sums
+        .iter()
+        .map(|sum| sum.project.chars().count())
+        .max()
+        .unwrap_or(0);
+    for sum in &sums {
+        let figures: Vec<String> = [("week", sum.weekly), ("Fable", sum.fable)]
+            .into_iter()
+            .filter_map(|(name, share)| Some(format!("{name} +{} %", ledger::points(share?))))
+            .collect();
+        let sessions = match sum.sessions {
+            1 => "1 session".to_owned(),
+            n => format!("{n} sessions"),
+        };
+        println!(
+            "    {:<width$}  {}, over {sessions}",
+            sum.project,
+            figures.join(" · ")
+        );
+    }
 }
 
 /// Previews the revert of a project's latest session, or of the one `args` names, and reverts it

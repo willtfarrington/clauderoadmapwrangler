@@ -22,12 +22,14 @@ use crw_core::badges::short_age;
 use crw_core::badges::stack::Kind;
 use crw_core::catalog::Catalog;
 use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
+use crw_core::ledger::{Ledger, Part};
 use crw_core::notify::QuietHours;
 use crw_core::proposal::{self, Reason};
 use crw_core::registry::{State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
+use crw_core::usage::share;
 use crw_core::{files, inbox, paths, prompt, revert, rules, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
@@ -509,6 +511,7 @@ impl Board {
         // visual or headless session's end the hooks report brings the next poll forward.
         let now = chrono::Utc::now();
         self.meter.receive(now);
+        self.split_usage();
         for line in self.watch.take_lines() {
             self.meter.status_line(&line, now);
         }
@@ -537,6 +540,49 @@ impl Board {
                 self.loader.read_files();
             } else {
                 ctx.request_repaint_after(at - Instant::now());
+            }
+        }
+    }
+
+    /// Splits each of the meter's readings' rise among the sessions that worked since this run's
+    /// reading before it (D-23; EP-18a): those the watch saw work, and the window's own headless
+    /// runs while they run. Each part goes to its session's latest ledger row; a session with no
+    /// row keeps its part unattributed.
+    fn split_usage(&mut self) {
+        let readings = self.meter.take_readings();
+        if readings.is_empty() {
+            return;
+        }
+        let mut workers = self.watch.take_worked();
+        workers.extend(
+            self.sessions
+                .live
+                .iter()
+                .filter(|live| live.is_running())
+                .map(|live| live.session_id.clone()),
+        );
+        let parts: Vec<Part> = readings
+            .iter()
+            .filter_map(|(before, after)| share::part(before.as_ref()?, after, workers.len()))
+            .collect();
+        let Some(path) = self.ledger.as_deref().filter(|_| !parts.is_empty()) else {
+            return;
+        };
+        let written = Ledger::open(path).and_then(|ledger| {
+            let mut any = false;
+            for part in &parts {
+                for id in &workers {
+                    any |= ledger.add_share(id, part)?;
+                }
+            }
+            Ok(any)
+        });
+        match written {
+            Ok(true) => self.sessions.history.stale = true,
+            Ok(false) => {}
+            Err(e) => {
+                self.meter.problem =
+                    Some(format!("The ledger did not keep the sessions' usage: {e}"));
             }
         }
     }

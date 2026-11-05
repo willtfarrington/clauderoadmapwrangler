@@ -31,6 +31,7 @@ use crate::ledger::Sample;
 use crate::signals::{self, StatusLine};
 
 pub mod http;
+pub mod share;
 
 /// The endpoint (D-23).
 pub const ENDPOINT: &str = "https://api.anthropic.com/api/oauth/usage";

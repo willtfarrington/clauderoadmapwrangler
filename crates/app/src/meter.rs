@@ -71,6 +71,11 @@ pub struct Meter {
     pub problem: Option<String>,
     /// The marks reached since the notifications last took them.
     crossings: Vec<Crossing>,
+    /// This run's latest reading of the endpoint, never the cache a start shows: the split
+    /// counts only what the window watched (EP-18a).
+    previous: Option<Sample>,
+    /// The readings since the board last took them, each with this run's one before.
+    readings: Vec<(Option<Sample>, Sample)>,
     ledger: Option<PathBuf>,
     worker: Option<Worker>,
     /// Started by `main`, or canned in a screenshot run.
@@ -148,8 +153,10 @@ impl Meter {
         for polled in polls {
             self.next = Some(polled.next);
             if let Ok(reading) = &polled.outcome {
-                self.samples
-                    .push(usage::endpoint_sample(reading, polled.at));
+                let sample = usage::endpoint_sample(reading, polled.at);
+                let before = self.previous.replace(sample.clone());
+                self.readings.push((before, sample.clone()));
+                self.samples.push(sample);
             }
             if let Err(e) = polled.stored {
                 self.problem = Some(format!("The ledger did not keep a usage reading: {e}"));
@@ -196,6 +203,12 @@ impl Meter {
     /// The marks reached since the last call, for the notifications.
     pub fn take_crossings(&mut self) -> Vec<Crossing> {
         std::mem::take(&mut self.crossings)
+    }
+
+    /// The endpoint's readings since the last call, each with this run's reading before it (none
+    /// for the run's first), for the usage's split (D-23; EP-18a).
+    pub fn take_readings(&mut self) -> Vec<(Option<Sample>, Sample)> {
+        std::mem::take(&mut self.readings)
     }
 
     /// The marks the standing figures reach, kept in the ledger's cache so that a restart does

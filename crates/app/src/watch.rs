@@ -22,7 +22,7 @@ use crw_core::ledger::Ledger;
 use crw_core::process;
 use crw_core::revert::{self, Start};
 use crw_core::sessions::agents::{self, Agent};
-use crw_core::sessions::{self, Change, Mode, Registered, Seen, Sessions, VISUAL_CLAIM};
+use crw_core::sessions::{self, Change, Mode, Registered, Seen, Sessions, Status, VISUAL_CLAIM};
 use crw_core::signals::{Hook, Signal, StatusLine, install};
 use eframe::egui;
 
@@ -63,6 +63,9 @@ pub struct Watch {
     pub launched_ended: bool,
     /// The status lines heard since the usage meter last took them (EP-17).
     lines: Vec<StatusLine>,
+    /// The sessions that worked since the meter's last reading took them (D-23; EP-18a): a turn's
+    /// end, a wait for the owner beginning, or a busy status at a pass.
+    worked: HashSet<String>,
     lapsed_at: Option<Instant>,
     starts: Starts,
 }
@@ -119,6 +122,12 @@ impl Watch {
     /// The status lines heard since the last call, for the usage meter (EP-17).
     pub fn take_lines(&mut self) -> Vec<StatusLine> {
         std::mem::take(&mut self.lines)
+    }
+
+    /// The sessions that worked since the last call, for the usage's split (D-23; EP-18a). A
+    /// steady wait for the owner is no work.
+    pub fn take_worked(&mut self) -> HashSet<String> {
+        std::mem::take(&mut self.worked)
     }
 
     /// Reads what Claude Code's user settings hold of the tool's (at the start and on F5).
@@ -179,6 +188,12 @@ impl Watch {
                 }
             }
         }
+        // A busy session works, whether a hook or the poll said so.
+        for seen in self.model.all() {
+            if seen.status == Status::Busy {
+                self.worked.insert(seen.session_id.clone());
+            }
+        }
         self.model.expire(now);
         self.take_starts(ledger);
         self.lapse(ledger);
@@ -204,6 +219,15 @@ impl Watch {
             self.ask_start(&hook.session_id, &project.folder, ledger, now);
         }
         let change = self.model.hook(hook, projects, now);
+        // A turn's end, or a wait for the owner beginning, follows work (EP-18a).
+        let waits = hook.event == "Notification"
+            && self
+                .model
+                .get(&hook.session_id)
+                .is_some_and(|seen| seen.status == Status::Waiting);
+        if !hook.session_id.is_empty() && (hook.event == "Stop" || waits) {
+            self.worked.insert(hook.session_id.clone());
+        }
         self.record(&change, ledger);
         if hook.event == "SessionEnd"
             && self.model.get(&hook.session_id).is_none_or(Seen::is_new)
@@ -493,6 +517,44 @@ mod tests {
             entrypoint: Some("claude-vscode".to_owned()),
             ..Hook::default()
         }
+    }
+
+    /// The sessions that worked since the meter's last reading (EP-18a): a turn's end, a wait
+    /// beginning, a busy session at a pass; taken once, and a steady wait is no work.
+    #[test]
+    fn the_sessions_that_worked_are_taken_once() {
+        let folder = PathBuf::from(r"C:\Data\alpha");
+        let projects = vec![Registered {
+            name: "alpha".to_owned(),
+            folder: folder.clone(),
+            revert: false,
+        }];
+        let mut watch = Watch::default();
+        let now = Utc::now();
+        for id in ["s-stop", "s-wait", "s-idle"] {
+            watch.take_hook(&hook("SessionStart", id, &folder), &projects, None, now);
+        }
+        watch.take_hook(&hook("Stop", "s-stop", &folder), &projects, None, now);
+        let wait = Hook {
+            notification_type: Some("permission_prompt".to_owned()),
+            ..hook("Notification", "s-wait", &folder)
+        };
+        watch.take_hook(&wait, &projects, None, now);
+        let busy = Seen::canned(
+            "s-busy",
+            Some("alpha"),
+            Mode::Manual,
+            Status::Busy,
+            None,
+            now,
+        );
+        watch.model.insert(busy);
+        watch.receive(Vec::new, None, true);
+        let mut worked: Vec<String> = watch.take_worked().into_iter().collect();
+        worked.sort_unstable();
+        assert_eq!(worked, ["s-busy", "s-stop", "s-wait"]);
+        watch.receive(Vec::new, None, true);
+        assert_eq!(watch.take_worked(), HashSet::from(["s-busy".to_owned()]));
     }
 
     /// Waits for the worker to read the start of `id`.

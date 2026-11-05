@@ -121,7 +121,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   the work is then copied to `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\reverts\`.
   The session checked the dialog only on the fake portfolio and reverted only scratch
   repositories (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-16]
-- [ ] OT-14 (EP-18, 2026-11-04) Start EP-18a from the window, the way every EP of this project
+- [x] OT-14 (EP-18, 2026-11-04) Start EP-18a from the window, the way every EP of this project
   starts now (rule 11), instead of typing the request into a tab by hand. (1) Open Roadmap
   Wrangler from its shortcut, or from its tray icon by the clock. (2) In the Projects pane,
   select clauderoadmapwrangler's row, whose Next column should read EP-18a, and press S (or the
@@ -136,3 +136,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   session's first step finds its row: `target\release\crw.exe sessions clauderoadmapwrangler`
   lists it as visual, EP-18a, with its session id, once its first turn has run. If a step goes
   another way, put what you saw in `roadmap/inbox.md` [before EP-18a]
+- [ ] OT-15 (EP-18a, 2026-11-05) Reopen Roadmap Wrangler from its shortcut; its first start
+  brings the ledger to schema 5, after which an older build refuses it. Keep it running through
+  your next session in any registered project, manual or launched, then run
+  `target\release\crw.exe sessions <project>`. The session's line should end with its share,
+  such as `week +0.5 % (27 → 28 %)`, once the window has polled at least twice while it worked
+  (a poll every 5 minutes). The line under the header gives each project's sum over the week
+  since the reset, which can stay `+0 %` for a short session, since the endpoint moves in whole
+  points. The same share shows on the session's card in the Sessions pane's All tab. The session
+  checked this only on scratch ledgers and the fake portfolio (rules 5 and 13). Notes go to
+  `roadmap/inbox.md` [before EP-18b]

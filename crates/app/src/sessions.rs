@@ -1674,6 +1674,7 @@ fn ledger_line(
             figures.push(format!("context {context:.0} %"));
         }
         figures.extend(ledger::asked(row));
+        figures.extend(ledger::shares(row));
         if !figures.is_empty() {
             ui.label(RichText::new(figures.join(" · ")).weak());
         }
@@ -1820,6 +1821,7 @@ mod tests {
             context_percent: None,
             answer_latency_s: None,
             start: None,
+            usage: Default::default(),
         };
         let pressed_with = |available: Option<Result<(), String>>| {
             let mut screen = Screen::new();
@@ -2191,6 +2193,7 @@ mod tests {
             context_percent: None,
             answer_latency_s: None,
             start: None,
+            usage: Default::default(),
         };
         let start = "2026-11-02T10:00:00Z";
         assert_eq!(

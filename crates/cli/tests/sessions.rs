@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use chrono::{DateTime, TimeDelta, Utc};
-use crw_core::ledger::{Finished, Ledger, NewSession};
+use crw_core::ledger::{Finished, Ledger, NewSession, Part};
+use crw_core::usage::{self, Limit, Reading};
 
 const CRW: &str = env!("CARGO_BIN_EXE_crw");
 
@@ -118,7 +119,15 @@ fn sessions_reads_the_ledger_without_writing_it() {
 
     let (code, out) = crw(&home.0, &["sessions"]);
     assert_eq!(code, 0, "{out}");
-    let rows: Vec<&str> = out.lines().filter(|line| line.starts_with("  ")).collect();
+    // The week's line first: no reading of the endpoint in this ledger (EP-18a).
+    let mut lines = out.lines().filter(|line| line.starts_with("  "));
+    assert!(
+        lines
+            .next()
+            .unwrap()
+            .contains("no reading of the endpoint yet")
+    );
+    let rows: Vec<&str> = lines.collect();
     assert_eq!(rows.len(), 4, "{out}");
     assert!(out.contains("3 of 3 for every project"), "{out}");
     // The newest first: the manual session, open; the visual launch no session took up; the run
@@ -153,4 +162,75 @@ fn sessions_reads_the_ledger_without_writing_it() {
     assert_eq!(fs::read(home.ledger()).unwrap(), before);
     let (code, _) = crw(&home.0, &["sessions", "--bogus"]);
     assert_eq!(code, 2);
+}
+
+/// Each session's share of the usage on its line, and each project's sum over the weekly window
+/// the cached reading's reset closes (EP-18a).
+#[test]
+fn sessions_says_each_share_and_the_weeks_sums() {
+    let home = Home::new("shares");
+    let now = Utc::now();
+    let ledger = Ledger::open(&home.ledger()).unwrap();
+    let reading = Reading {
+        weekly: Some(Limit {
+            percent: 28.0,
+            resets_at: Some(now + TimeDelta::days(2)),
+            active: Some(true),
+            severity: None,
+        }),
+        ..Reading::default()
+    };
+    ledger
+        .cache("", usage::CACHE_SOURCE, now, &reading.to_json())
+        .unwrap();
+    let shared = |id: &str, project: &str, ago: TimeDelta, weekly: f64| {
+        ledger
+            .start_session(&NewSession {
+                session_id: Some(id),
+                ..session(project, Some("EP-4"), "manual", now - ago)
+            })
+            .unwrap();
+        let part = Part {
+            weekly: Some(weekly),
+            fable: Some(0.0),
+            weekly_before: Some(26.0),
+            weekly_after: Some(28.0),
+            ..Part::default()
+        };
+        assert!(ledger.add_share(id, &part).unwrap());
+    };
+    shared("s-1", "alpha", TimeDelta::hours(3), 1.5);
+    shared("s-2", "alpha", TimeDelta::hours(2), 0.5);
+    shared("s-3", "beta", TimeDelta::hours(1), 2.0);
+    // Started before the week opened: not summed.
+    shared("s-0", "beta", TimeDelta::days(9), 9.0);
+    drop(ledger);
+
+    let (code, out) = crw(&home.0, &["sessions"]);
+    assert_eq!(code, 0, "{out}");
+    assert!(out.contains("each project's share of the usage:"), "{out}");
+    let sum = |name: &str| {
+        out.lines()
+            .find(|line| line.trim_start().starts_with(name) && line.contains(", over "))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert!(
+        sum("alpha").ends_with("week +2 % · Fable +0 %, over 2 sessions"),
+        "{out}"
+    );
+    assert!(
+        sum("beta").ends_with("week +2 % · Fable +0 %, over 1 session"),
+        "{out}"
+    );
+    assert!(
+        out.contains("week +1.5 % (26 → 28 %) · Fable +0 %"),
+        "{out}"
+    );
+    // One project's sum alone.
+    let (_, only) = crw(&home.0, &["sessions", "beta"]);
+    assert!(
+        only.contains(", over 1 session") && !only.contains("alpha"),
+        "{only}"
+    );
 }
