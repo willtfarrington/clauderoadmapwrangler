@@ -685,6 +685,7 @@ fn a_drafted_prompt_reaches_the_session_whole() {
         &snapshot::read_tree(&house),
         Some("# house\n\n1. **Read first:** the roadmap — then the inbox…\n"),
         &preflight().flags.as_ref().unwrap().efforts,
+        &crw_core::rules::Usage::unread(chrono::Utc::now()),
         "2026-11-02",
     )
     .unwrap();

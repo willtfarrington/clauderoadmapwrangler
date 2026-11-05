@@ -6,23 +6,35 @@
 //! step along the effort levels, and ultracode. While the registry lists no global rule, the
 //! built-in table stands in for it: an S brief one effort step lower. The permission mode is the
 //! project's, else `acceptEdits` (D-18), and so is the launch mode, else the tool's (EP-11).
-//! Nothing here writes the registry: the owner writes rules by hand (rule 13). The downshift by
-//! usage joins at EP-18.
+//! Last comes the downshift (D-23; EP-18): an S brief that would run on Fable is proposed
+//! [`DOWNSHIFT_MODEL`] at the same effort while the meter's Fable figure is above the registry's
+//! mark. Nothing here writes the registry: the owner writes rules by hand (rule 13).
 
 use std::fmt;
 
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
+use crate::badges::short_age;
 use crate::registry::{LaunchMode, Project, Registry};
 use crate::roadmap::Size;
+use crate::usage::{self, Figures, Limit, Reading};
 
 /// The model a brief launches with when nothing else is set (D-22): an alias, passed as written.
 pub const DEFAULT_MODEL: &str = "fable";
 pub const DEFAULT_EFFORT: &str = "xhigh";
 /// Edits in the project pass, everything else reaches the host (D-18).
 pub const DEFAULT_PERMISSION_MODE: &str = "acceptEdits";
-/// Visual, while a headless session cannot answer the questions a brief ends with (EP-14).
+/// Visual (D-16's EP-16 addendum): with no allow rule, a headless run under `acceptEdits` waits
+/// for the owner at every shell command; this project's briefs end with a release build that
+/// needs the window quit, which ends the window's headless runs; and a brief's closing rounds of
+/// questions and trials suit a VS Code tab. The autopilot runs headless whatever it is (EP-19).
 pub const DEFAULT_LAUNCH_MODE: LaunchMode = LaunchMode::Visual;
+
+/// The model the downshift proposes for an S brief while Fable's weekly share is high (D-23).
+pub const DOWNSHIFT_MODEL: &str = "claude-opus-5-5";
+/// The Fable share above which it does, unless the registry sets another mark (D-23).
+pub const DEFAULT_DOWNSHIFT_PERCENT: u8 = 60;
 
 /// The effort levels in order, for a step, when neither the CLI nor the catalog lists them.
 pub const EFFORTS: [&str; 5] = ["low", "medium", "high", "xhigh", "max"];
@@ -233,6 +245,8 @@ pub enum Source {
     Rule(usize, String),
     /// The project's own `[[project.rule]]` number n, by its label.
     ProjectRule(usize, String),
+    /// The Fable downshift (D-23), its figure in the choice's detail.
+    Downshift,
     /// The owner's choice in the launch dialog.
     Owner,
 }
@@ -245,9 +259,69 @@ impl fmt::Display for Source {
             Source::BuiltIn(label) => write!(f, "the built-in rule: {label}"),
             Source::Rule(n, label) => write!(f, "rule {n}: {label}"),
             Source::ProjectRule(n, label) => write!(f, "the project's rule {n}: {label}"),
+            Source::Downshift => f.write_str("the Fable downshift (D-23)"),
             Source::Owner => f.write_str("chosen here"),
         }
     }
+}
+
+/// The Fable figure the downshift weighs: the Fable-scoped weekly limit as the endpoint last gave
+/// it, and when.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Fable {
+    pub limit: Limit,
+    pub at: DateTime<Utc>,
+}
+
+/// What the downshift weighs (D-23; EP-18): the meter's Fable figure, none before its first
+/// reading, and the time to judge its age at.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Usage {
+    pub fable: Option<Fable>,
+    pub now: DateTime<Utc>,
+}
+
+impl Usage {
+    /// Nothing read: the downshift says it cannot judge.
+    pub fn unread(now: DateTime<Utc>) -> Self {
+        Self { fable: None, now }
+    }
+
+    /// The window's meter (`usage::Gauge::figures`).
+    pub fn of(figures: &Figures, now: DateTime<Utc>) -> Self {
+        Self {
+            fable: figures.fable.as_ref().map(|figure| Fable {
+                limit: figure.limit.clone(),
+                at: figure.at,
+            }),
+            now,
+        }
+    }
+
+    /// An endpoint's reading taken at `at`: the ledger's cached one, for `crw prompt`.
+    pub fn of_reading(reading: &Reading, at: DateTime<Utc>, now: DateTime<Utc>) -> Self {
+        Self {
+            fable: reading.fable().map(|limit| Fable {
+                limit: limit.clone(),
+                at,
+            }),
+            now,
+        }
+    }
+}
+
+/// How the downshift judged a brief it weighs: an S brief whose model so far is a Fable model.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Downshift {
+    /// Whether it proposed [`DOWNSHIFT_MODEL`].
+    pub applied: bool,
+    /// The figure against the mark, in words: `Fable at 64 %, read 3 min ago, above 60 %`.
+    pub words: String,
+}
+
+/// Whether `model` names a Fable model: the alias or one of its ids.
+pub fn is_fable(model: &str) -> bool {
+    model.to_ascii_lowercase().contains("fable")
 }
 
 /// A value and why it was chosen.
@@ -289,15 +363,19 @@ pub struct Resolution {
     pub permission_mode: Choice<String>,
     /// What a rule asked for and could not be done, in words.
     pub notes: Vec<String>,
+    /// The downshift's judgement, for the briefs it weighs (D-23).
+    pub downshift: Option<Downshift>,
 }
 
 /// Resolves `brief`'s launch values for `project`; `levels` are the effort levels in order that a
-/// step moves along (the built-in [`EFFORTS`] when empty).
+/// step moves along (the built-in [`EFFORTS`] when empty), and `usage` is what the downshift
+/// weighs, last of the layers.
 pub fn resolve(
     registry: &Registry,
     project: &Project,
     brief: &Brief<'_>,
     levels: &[String],
+    usage: &Usage,
 ) -> Resolution {
     let mut resolution = Resolution {
         mode: Choice::new(DEFAULT_LAUNCH_MODE, Source::Default),
@@ -306,6 +384,7 @@ pub fn resolve(
         ultracode: Choice::new(false, Source::Default),
         permission_mode: Choice::new(DEFAULT_PERMISSION_MODE.to_owned(), Source::Default),
         notes: Vec::new(),
+        downshift: None,
     };
     let launch = &project.launch;
     if let Some(mode) = launch.mode {
@@ -347,6 +426,7 @@ pub fn resolve(
             &levels,
         );
     }
+    resolution.downshift(brief, usage, registry.settings.fable_downshift_percent());
     resolution
 }
 
@@ -380,6 +460,66 @@ impl Resolution {
         if let Some(ultracode) = set.ultracode {
             self.ultracode = Choice::new(ultracode, source);
         }
+    }
+
+    /// The last layer (D-23): an S brief whose model so far is a Fable model is proposed
+    /// [`DOWNSHIFT_MODEL`] at the same effort while the Fable figure is above `mark` percent. A
+    /// figure above the mark counts whatever its age, since a window's share only grows; one
+    /// whose window has reset since says nothing. M and L briefs are not weighed.
+    fn downshift(&mut self, brief: &Brief<'_>, usage: &Usage, mark: u8) {
+        if brief.size != Some(Size::S) || !is_fable(&self.model.value) {
+            return;
+        }
+        let judged = match &usage.fable {
+            None => Downshift {
+                applied: false,
+                words: "no downshift: the meter has no Fable figure yet".to_owned(),
+            },
+            Some(fable) => {
+                let age = short_age(usage.now - fable.at);
+                let read = if age == "now" {
+                    "read just now".to_owned()
+                } else {
+                    format!("read {age} ago")
+                };
+                let share = usage::percent(fable.limit.percent);
+                if !fable.limit.before_reset(usage.now) {
+                    Downshift {
+                        applied: false,
+                        words: format!(
+                            "no downshift: Fable's last figure ({share}, {read}) is of a window \
+                             that has ended"
+                        ),
+                    }
+                } else if fable.limit.percent > f64::from(mark) {
+                    Downshift {
+                        applied: true,
+                        words: format!("Fable at {share}, {read}, above {mark} %"),
+                    }
+                } else if usage.now - fable.at > usage::FRESH_FOR {
+                    Downshift {
+                        applied: false,
+                        words: format!(
+                            "Fable at {share}, {read}: under the downshift's {mark} %, though \
+                             it may be higher now"
+                        ),
+                    }
+                } else {
+                    Downshift {
+                        applied: false,
+                        words: format!("Fable at {share}, {read}: under the downshift's {mark} %"),
+                    }
+                }
+            }
+        };
+        if judged.applied {
+            self.model = Choice {
+                value: DOWNSHIFT_MODEL.to_owned(),
+                source: Source::Downshift,
+                detail: Some(judged.words.clone()),
+            };
+        }
+        self.downshift = Some(judged);
     }
 }
 
@@ -434,6 +574,34 @@ mod tests {
         EFFORTS.map(str::to_owned).to_vec()
     }
 
+    fn now() -> DateTime<Utc> {
+        DateTime::parse_from_rfc3339("2026-11-04T12:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc)
+    }
+
+    fn unread() -> Usage {
+        Usage::unread(now())
+    }
+
+    /// The meter read Fable at `percent`, `minutes` ago, its window resetting in three days. The
+    /// endpoint calls the Fable-scoped limit inactive while its window runs (seen 2026-11-05),
+    /// which counts for nothing.
+    fn fable(percent: f64, minutes: i64) -> Usage {
+        Usage {
+            fable: Some(Fable {
+                limit: Limit {
+                    percent,
+                    resets_at: Some(now() + chrono::TimeDelta::days(3)),
+                    active: Some(false),
+                    severity: None,
+                },
+                at: now() - chrono::TimeDelta::minutes(minutes),
+            }),
+            now: now(),
+        }
+    }
+
     #[test]
     fn the_defaults_and_the_built_in_table() {
         let registry = registry(PROJECT);
@@ -444,6 +612,7 @@ mod tests {
             project,
             &brief(Some(Size::M), "P2", "Dialog"),
             &[],
+            &unread(),
         );
         assert_eq!(
             (m.model.value.as_str(), m.effort.value.as_deref()),
@@ -454,12 +623,14 @@ mod tests {
         assert!(!m.ultracode.value);
         assert_eq!(m.mode.value, DEFAULT_LAUNCH_MODE);
         assert_eq!(m.mode.reason(), "the tool's default");
+        assert_eq!(m.downshift, None, "an M brief is not weighed");
         // An S brief, with no global rule written: the built-in table steps one lower.
         let s = resolve(
             &registry,
             project,
             &brief(Some(Size::S), "P2", "Small"),
             &[],
+            &unread(),
         );
         assert_eq!(s.effort.value.as_deref(), Some("high"));
         assert_eq!(
@@ -468,6 +639,138 @@ mod tests {
              (one step lower than xhigh)"
         );
         assert!(s.notes.is_empty());
+        // No reading yet: Fable stays, and the downshift says why it could not judge.
+        assert_eq!(s.model.value, "fable");
+        let judged = s.downshift.unwrap();
+        assert!(!judged.applied);
+        assert_eq!(
+            judged.words,
+            "no downshift: the meter has no Fable figure yet"
+        );
+    }
+
+    #[test]
+    fn the_downshift_proposes_opus_for_an_s_brief_above_the_mark() {
+        let registry = registry(PROJECT);
+        let project = &registry.projects[0];
+        let small = brief(Some(Size::S), "P3", "Usage coupling");
+        let s = resolve(&registry, project, &small, &[], &fable(64.0, 3));
+        assert_eq!(s.model.value, DOWNSHIFT_MODEL);
+        assert_eq!(s.model.source, Source::Downshift);
+        assert_eq!(
+            s.model.reason(),
+            "the Fable downshift (D-23) (Fable at 64 %, read 3 min ago, above 60 %)"
+        );
+        // The same effort as without it: the built-in step's.
+        assert_eq!(s.effort.value.as_deref(), Some("high"));
+        assert!(s.downshift.as_ref().is_some_and(|d| d.applied));
+
+        // At the mark and under it, Fable stays; an old figure under it may have grown.
+        for (percent, minutes, words) in [
+            (
+                60.0,
+                3,
+                "Fable at 60 %, read 3 min ago: under the downshift's 60 %",
+            ),
+            (
+                19.0,
+                0,
+                "Fable at 19 %, read just now: under the downshift's 60 %",
+            ),
+            (
+                40.0,
+                120,
+                "Fable at 40 %, read 2 h ago: under the downshift's 60 %, though it may be \
+                 higher now",
+            ),
+        ] {
+            let s = resolve(&registry, project, &small, &[], &fable(percent, minutes));
+            assert_eq!(s.model.value, "fable", "{percent}");
+            assert_eq!(
+                s.downshift,
+                Some(Downshift {
+                    applied: false,
+                    words: words.to_owned()
+                })
+            );
+        }
+        // A figure above the mark counts whatever its age: a window's share only grows.
+        let old = resolve(&registry, project, &small, &[], &fable(75.0, 600));
+        assert_eq!(old.model.value, DOWNSHIFT_MODEL);
+        assert!(old.model.reason().contains("read 10 h ago"));
+
+        // A figure whose window has ended says nothing.
+        let mut ended = fable(90.0, 30);
+        if let Some(fable) = &mut ended.fable {
+            fable.limit.resets_at = Some(now() - chrono::TimeDelta::minutes(5));
+        }
+        let s = resolve(&registry, project, &small, &[], &ended);
+        assert_eq!(s.model.value, "fable");
+        assert_eq!(
+            s.downshift.unwrap().words,
+            "no downshift: Fable's last figure (90 %, read 30 min ago) is of a window that has \
+             ended"
+        );
+
+        // M and L keep Fable, unweighed.
+        for size in [Size::M, Size::L] {
+            let big = resolve(
+                &registry,
+                project,
+                &brief(Some(size), "P3", "Engine"),
+                &[],
+                &fable(95.0, 1),
+            );
+            assert_eq!(big.model.value, "fable");
+            assert_eq!(big.downshift, None);
+        }
+    }
+
+    #[test]
+    fn the_downshift_weighs_only_fable_and_takes_the_registrys_mark() {
+        // The project's launch defaults choose Opus: nothing to downshift.
+        let opus = registry(&format!(
+            "{PROJECT}\n[project.launch]\nmodel = \"claude-opus-5-5\"\n"
+        ));
+        let s = resolve(
+            &opus,
+            &opus.projects[0],
+            &brief(Some(Size::S), "P3", "x"),
+            &[],
+            &fable(90.0, 1),
+        );
+        assert_eq!(
+            (s.model.value.as_str(), s.model.source.clone()),
+            ("claude-opus-5-5", Source::Project)
+        );
+        assert_eq!(s.downshift, None);
+
+        // A project rule's Fable id is downshifted too, and the registry's mark is the one used.
+        let text = format!(
+            "{PROJECT}\n[[project.rule]]\nmatch = {{ size = \"S\" }}\n\
+             set = {{ model = \"claude-fable-5-1\", effort = \"max\" }}\n"
+        )
+        .replacen(
+            "format = 1\n",
+            "format = 1\n\n[settings]\nfable_downshift_percent = 80\n",
+            1,
+        );
+        let marked = registry(&text);
+        let small = brief(Some(Size::S), "P3", "x");
+        let under = resolve(&marked, &marked.projects[0], &small, &[], &fable(75.0, 1));
+        assert_eq!(under.model.value, "claude-fable-5-1");
+        assert!(
+            under
+                .downshift
+                .unwrap()
+                .words
+                .contains("under the downshift's 80 %")
+        );
+        let over = resolve(&marked, &marked.projects[0], &small, &[], &fable(81.0, 1));
+        assert_eq!(over.model.value, DOWNSHIFT_MODEL);
+        // The project rule's effort stays: the same effort, another model.
+        assert_eq!(over.effort.value.as_deref(), Some("max"));
+        assert!(is_fable("fable") && is_fable("claude-fable-5-1") && !is_fable("opus"));
     }
 
     #[test]
@@ -493,6 +796,7 @@ mod tests {
             project,
             &brief(Some(Size::L), "P3", "Engine"),
             &levels(),
+            &unread(),
         );
         assert_eq!(l.model.value, "fable");
         assert_eq!(l.model.reason(), "rule 1: large briefs on Fable");
@@ -513,6 +817,7 @@ mod tests {
             project,
             &brief(Some(Size::S), "P2", "Small"),
             &levels(),
+            &unread(),
         );
         assert_eq!(s.model.value, "claude-opus-5-5");
         assert_eq!(s.effort.value.as_deref(), Some("xhigh"));
@@ -527,6 +832,7 @@ mod tests {
             project,
             &brief(Some(Size::S), "P2", "Re-plan P2 and the switch"),
             &levels(),
+            &unread(),
         );
         assert_eq!(replan.effort.value.as_deref(), Some("max"));
         assert_eq!(
@@ -569,6 +875,7 @@ mod tests {
             &registry.projects[0],
             &brief(Some(Size::S), "P1", "x"),
             &short,
+            &unread(),
         );
         assert_eq!(s.effort.value.as_deref(), Some("xhigh"));
         assert_eq!(s.notes.len(), 1);

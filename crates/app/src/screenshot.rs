@@ -21,7 +21,8 @@
 //! - `sort=<key>` (`priority`, `completion`, `remaining`, `last-activity`, `hosting`, `name`);
 //!   `stack=<stack>` (`rust`, `python`, … or the chip's letters) and `hosting=<class>` (`public`,
 //!   `private`, `remote`, `local`), each adding to its filter;
-//! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read);
+//! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read;
+//!   with `usage`, lantern's EP-3, an S launched visually, shows the Fable downshift, EP-18);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
 //!   permission prompt, orchard's manual one busy with its status line's figures though every
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,

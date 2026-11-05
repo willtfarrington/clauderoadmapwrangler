@@ -687,13 +687,14 @@ every commit's added lines are checked before it is made, the repository being p
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
 | EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☑ `3cf6dcf` |
-| EP-18 | Usage coupling: Fable-share downshift rule, before-and-after delta attribution per session, usage-share badge (D-23) | S | EP-10, EP-17 | core | ☐ |
+| EP-18 | [Downshift rule: the Fable-share downshift as the resolver's last layer with its registry mark, its judgement in the launch dialog and `crw prompt`, the dialog's Visual pickers greyed out for the tab's panel](EP-18-downshift-rule.md) (D-23, D-16) | S | EP-10, EP-17 | core | ☐ |
+| EP-18a | Usage attribution: weekly and Fable percents sampled around each launched session on its ledger row, the delta per session, the usage-share badge with its column, Detail line and sort key (D-23) | S | EP-18 | core | ☐ |
 | EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-35, EP-19, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -701,6 +702,8 @@ method installable before the chat (P4) delegates to it. *(EP-16, 2026-11-04.)* 
 owner's choice). EP-35 follows the usage briefs and comes before the autopilot: from the switch on
 (D-5) the window is how this project's sessions start, so a run a crash cuts short should be picked
 up from the window before chains begin; EP-17 stays the first self-launched session.
+*(2026-11-04, EP-18 split at pickup, the owner's choice.)* EP-18a takes EP-18's attribution and
+usage-share badge, right after it and before EP-35.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -773,6 +776,32 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   so the "after" figures can be the first `endpoint` sample after the row's end and the "before"
   the last one before its start (`Ledger::samples_since`); a `statusline` sample carries its
   session's id.
+- **EP-18a.** Added on 2026-11-04 when EP-18 was split at pickup (the owner's choice, D-4): EP-18's
+  attribution and badge, on EP-17's samples. (1) **The figures around a session**: the weekly and
+  Fable percents before and after each launched session (a headless run of the window's, a visual
+  launch), on the row's `weekly_before`/`after` and `fable_before`/`after` (V1's columns, no
+  migration); the delta shown per session (the Sessions pane's ledger card, `crw sessions`) and
+  summed per project over the weekly window (the sessions since its reset less seven days).
+  (2) **The usage-share badge**: one more column of the row's badges (`list::Column`, in both of
+  `GIVE_WAY`'s forms with the badges), a line of the Detail pane's Status section, the legend's
+  key, and the sort key `SortKey::UsageShare` (its `arrives_at` says EP-18). (3) Sessions the
+  owner starts by hand keep the status-line cost estimate only (D-23), which `Ledger::end_seen`
+  already writes. **From EP-18 (what the pickup found):** four facts for the brief's first
+  question to the owner. (a) A visual row ends at its tab's `SessionEnd`, which can come hours
+  after its last turn: EP-17's row was still open at EP-18's start, its commit hours old. So an
+  "after" read at the row's end takes in whatever ran meanwhile, and the end of the session's last
+  turn (its `Stop` hook, which the window hears and the ledger does not keep) is the better mark.
+  (b) The owner runs sessions in parallel, so a delta over one session's span holds the others'
+  use. Either each delta is shown with the sessions that overlapped it (the ledger's spans), or
+  each poll's delta is split among the sessions that worked since the last one (the watch knows
+  who was busy: the poll's `busy`, a `Stop`, a window's run), which also leaves out a tab's idle
+  hours. (c) `crw usage` showed the weekly and Fable figures unchanged over five polls in half an
+  hour of EP-18's reading, so an S session may move the weekly figure by a point or two at most:
+  per-session deltas are coarse, and the week's sum per project is the steadier figure. (d) D-23
+  attributes tool-launched sessions only; the other projects' sessions are mostly manual today, so
+  a badge of launched sessions alone leaves them near empty, and counting manual sessions changes
+  D-23, the owner's call. The meter polls a minute after a launched session ends
+  (`Meter::session_ended`), `Ledger::samples_since` reads the samples, and OT-14 comes first.
 - **EP-35.** Added at EP-16 (2026-11-04) for EP-14a's and EP-15b's notes (D-16 addendum): a run a
   crash or a quit window cut short keeps its ledger row but has no Resume in the next window,
   since its launch's choices lived in the old one, and `claude --resume` in a terminal is today's
@@ -847,7 +876,14 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   fails (`Figures::degraded`), weekly may come from a status line and Fable is the last reading's,
   so the brief decides how old a figure the gate trusts and whether a missing Fable refuses the
   chain. A limit's `resets_at` is the pause's resume time. The notifications' marks stay 80 % and
-  95 % (`usage::WARN`, `usage::ALARM`); the pause at 90 % is the chain's own rule.
+  95 % (`usage::WARN`, `usage::ALARM`); the pause at 90 % is the chain's own rule. **From EP-18:**
+  the downshift is the resolver's last layer: `prompt::draft` takes a `rules::Usage`, which the
+  window builds from its meter (`rules::Usage::of(&meter.gauge.figures(now), now)`). So a chained
+  run drafted that way is downshifted with no code of its own, and its log can say so from
+  `Resolution::downshift`. The mark is the registry's `fable_downshift_percent` (60 by default);
+  a figure above it counts whatever its age. A figure counts until its reset
+  (`Limit::before_reset`): the endpoint calls the Fable-scoped limit inactive while its window
+  runs, so the pause must not read `is_active` (D-23 addendum).
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -931,7 +967,11 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   (EP-32's charter; the owner's choice at EP-16), once P3 has changed the window. Check egui#8470
   (open since 2026-08-29: an immediate viewport made while the window is minimized panics) and
   eframe's releases with the pins (D-15; the D-21 addendum's rule against immediate viewports), and
-  claude-codes (2.1.318 at EP-16, against the pin 2.1.316) beside the CLI's version.
+  claude-codes (2.1.318 at EP-16, against the pin 2.1.316) beside the CLI's version. **From EP-18
+  (split at pickup, the owner's choice):** EP-18a joined P3, so the totals are 42 briefs, 12 S ·
+  24 M · 6 L ≈ 42 session-hours, 17 still open once EP-18 is checked; the retro times EP-18 and
+  EP-18a with the rest. EP-18 was started by hand, out of habit, and OT-14 walks the owner through
+  the window's launch so that EP-18a starts from it.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

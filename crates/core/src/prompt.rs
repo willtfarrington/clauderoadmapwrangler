@@ -610,13 +610,15 @@ pub struct Draft {
 }
 
 /// The draft for `project`'s next brief: the rule table's resolution (`levels` are the CLI's
-/// effort levels in order, empty for the built-in ones) and the prompt generated with it.
+/// effort levels in order, empty for the built-in ones; `usage` is what the downshift weighs)
+/// and the prompt generated with it.
 pub fn draft(
     registry: &Registry,
     project: &Project,
     snapshot: &Snapshot,
     claude_md: Option<&str>,
     levels: &[String],
+    usage: &rules::Usage,
     date: &str,
 ) -> Result<Draft, String> {
     let (roadmap, row) = next_of(snapshot)?;
@@ -628,7 +630,7 @@ pub fn draft(
         phase,
         title: &row.brief.title,
     };
-    let resolution = rules::resolve(registry, project, &brief, levels);
+    let resolution = rules::resolve(registry, project, &brief, levels, usage);
     let chosen = Chosen {
         model: &resolution.model.value,
         effort: resolution.effort.value.as_deref(),
@@ -840,7 +842,17 @@ Intro.
         )
         .unwrap();
         let project = &registry.projects[0];
-        let draft = draft(&registry, project, &house(), None, &[], "2026-11-02").unwrap();
+        let unread = rules::Usage::unread(chrono::Utc::now());
+        let draft = draft(
+            &registry,
+            project,
+            &house(),
+            None,
+            &[],
+            &unread,
+            "2026-11-02",
+        )
+        .unwrap();
         assert_eq!(draft.ep, EpId::new(3));
         assert_eq!(draft.resolution.model.value, "fable");
         // The tool's launch mode, as no `[project.launch] mode` is written.
@@ -873,6 +885,7 @@ Intro.
             snapshot,
             None,
             &[],
+            &rules::Usage::unread(chrono::Utc::now()),
             "2026-11-02",
         )
         .unwrap_err()

@@ -121,3 +121,18 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   the work is then copied to `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\reverts\`.
   The session checked the dialog only on the fake portfolio and reverted only scratch
   repositories (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-16]
+- [ ] OT-14 (EP-18, 2026-11-04) Start EP-18a from the window, the way every EP of this project
+  starts now (rule 11), instead of typing the request into a tab by hand. (1) Open Roadmap
+  Wrangler from its shortcut, or from its tray icon by the clock. (2) In the Projects pane,
+  select clauderoadmapwrangler's row, whose Next column should read EP-18a, and press S (or the
+  Start button at the row's right end). (3) The launch dialog opens on Visual, the default. Its
+  prompt begins "Run the next brief of clauderoadmapwrangler: EP-18a", and Model, Effort and
+  Ultracode are greyed out, since the new tab's panel chooses them; the Model line names the
+  rules' suggestion and, below it, how the Fable downshift judged the brief. (4) Press Open in VS
+  Code. This project's VS Code window comes forward, and within a minute a new Claude Code tab
+  holds the prompt, unsent. (5) In that tab's panel, choose the model and effort the opener
+  suggests, then press Enter to send the prompt as it is. A request typed into a tab opened by
+  hand is recorded as manual, and the session cannot show it came from the tool. (6) The
+  session's first step finds its row: `target\release\crw.exe sessions clauderoadmapwrangler`
+  lists it as visual, EP-18a, with its session id, once its first turn has run. If a step goes
+  another way, put what you saw in `roadmap/inbox.md` [before EP-18a]

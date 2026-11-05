@@ -5,9 +5,10 @@
 //! (EP-11). The prompt follows the choices, the launch mode among them, until the owner edits it;
 //! the models come from Claude Code's catalog, the effort levels, ultracode and the permission
 //! modes from what the CLI's help lists (D-15), and each choice shows the reason the rules gave
-//! it. A visual launch takes the model and effort as a suggestion, since VS Code's panel chooses
-//! them. A headless launch says how its questions reach the owner: the route and the project's
-//! time limit (D-19; EP-14).
+//! it, the Fable downshift's among them (D-23; EP-18). A visual launch hands VS Code the prompt
+//! alone, so its model, effort and ultracode pickers are greyed out: the new tab's panel chooses,
+//! and the opener names the rules' suggestion. A headless launch says how its questions reach the
+//! owner: the route and the project's time limit (D-19; EP-14).
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -455,43 +456,40 @@ impl Dialog {
                 changed = true;
             }
         });
+        // A visual launch hands VS Code the prompt alone: the new tab's panel chooses the model
+        // and effort, so the pickers serve Headless only (EP-18, the owner's choice).
         let visual = self.visual();
-        let suggested = |reason: String| {
-            if visual {
-                format!("a suggestion: VS Code's panel chooses ({reason})")
-            } else {
-                reason
-            }
-        };
 
-        let reason = suggested(self.resolution.model.reason());
+        let reason = self.model_reason();
         field(ui, "Model", &reason, |ui| {
             let current = self.resolution.model.value.clone();
             let mut chosen = current.clone();
-            egui::ComboBox::from_id_salt("launch-model")
-                .width(combo)
-                .selected_text(model_text(&self.catalog, &current))
-                .show_ui(ui, |ui| {
-                    let (main, more): (Vec<_>, Vec<_>) =
-                        self.catalog.models.iter().partition(|model| model.main);
-                    for model in main {
-                        ui.selectable_value(&mut chosen, model.id.clone(), &model.name);
-                    }
-                    if !more.is_empty() {
-                        ui.separator();
-                        for model in more {
-                            ui.selectable_value(
-                                &mut chosen,
-                                model.id.clone(),
-                                RichText::new(&model.name).weak(),
-                            );
+            ui.add_enabled_ui(!visual, |ui| {
+                egui::ComboBox::from_id_salt("launch-model")
+                    .width(combo)
+                    .selected_text(model_text(&self.catalog, &current))
+                    .show_ui(ui, |ui| {
+                        let (main, more): (Vec<_>, Vec<_>) =
+                            self.catalog.models.iter().partition(|model| model.main);
+                        for model in main {
+                            ui.selectable_value(&mut chosen, model.id.clone(), &model.name);
                         }
-                    }
-                    if self.catalog.model(&current).is_none() {
-                        ui.separator();
-                        ui.selectable_value(&mut chosen, current.clone(), &current);
-                    }
-                });
+                        if !more.is_empty() {
+                            ui.separator();
+                            for model in more {
+                                ui.selectable_value(
+                                    &mut chosen,
+                                    model.id.clone(),
+                                    RichText::new(&model.name).weak(),
+                                );
+                            }
+                        }
+                        if self.catalog.model(&current).is_none() {
+                            ui.separator();
+                            ui.selectable_value(&mut chosen, current.clone(), &current);
+                        }
+                    });
+            });
             if chosen != current {
                 self.resolution.model = owners(chosen);
                 changed = true;
@@ -499,27 +497,29 @@ impl Dialog {
         });
 
         let efforts = self.efforts(preflight);
-        let reason = suggested(self.resolution.effort.reason());
+        let reason = picker_reason(visual, self.resolution.effort.reason());
         field(ui, "Effort", &reason, |ui| {
             let current = self.resolution.effort.value.clone();
             let mut chosen = current.clone();
-            egui::ComboBox::from_id_salt("launch-effort")
-                .width(combo)
-                .selected_text(current.as_deref().unwrap_or("the CLI's default"))
-                .show_ui(ui, |ui| {
-                    for level in &efforts {
-                        ui.selectable_value(&mut chosen, Some(level.clone()), level);
-                    }
-                    if let Some(level) = &current
-                        && !efforts.contains(level)
-                    {
-                        ui.selectable_value(
-                            &mut chosen,
-                            current.clone(),
-                            format!("{level} (not offered)"),
-                        );
-                    }
-                });
+            ui.add_enabled_ui(!visual, |ui| {
+                egui::ComboBox::from_id_salt("launch-effort")
+                    .width(combo)
+                    .selected_text(current.as_deref().unwrap_or("the CLI's default"))
+                    .show_ui(ui, |ui| {
+                        for level in &efforts {
+                            ui.selectable_value(&mut chosen, Some(level.clone()), level);
+                        }
+                        if let Some(level) = &current
+                            && !efforts.contains(level)
+                        {
+                            ui.selectable_value(
+                                &mut chosen,
+                                current.clone(),
+                                format!("{level} (not offered)"),
+                            );
+                        }
+                    });
+            });
             if chosen != current {
                 self.resolution.effort = owners(chosen);
                 changed = true;
@@ -527,14 +527,20 @@ impl Dialog {
         });
 
         let listed = flags_of(preflight).is_some_and(|flags| flags.ultracode());
-        let reason = suggested(self.resolution.ultracode.reason());
+        let reason = picker_reason(visual, self.resolution.ultracode.reason());
         field(ui, "Ultracode", &reason, |ui| {
             let mut on = self.resolution.ultracode.value;
-            ui.add_enabled(listed, egui::Checkbox::new(&mut on, "--effort ultracode"))
-                .on_disabled_hover_text(
-                    "This claude's help does not list --effort ultracode: it is passed only when \
-                     listed (D-15)",
-                );
+            let why = if visual {
+                "Headless only: the new tab's panel chooses a visual session's effort"
+            } else {
+                "This claude's help does not list --effort ultracode: it is passed only when \
+                 listed (D-15)"
+            };
+            ui.add_enabled(
+                listed && !visual,
+                egui::Checkbox::new(&mut on, "--effort ultracode"),
+            )
+            .on_disabled_hover_text(why);
             if on != self.resolution.ultracode.value {
                 self.resolution.ultracode = owners(on);
                 changed = true;
@@ -638,6 +644,28 @@ impl Dialog {
         }
         if changed {
             self.chose();
+        }
+    }
+
+    /// The model's reason, and below it the downshift's judgement when the rules' reason does not
+    /// say it already (D-23; EP-18).
+    fn model_reason(&self) -> String {
+        let model = &self.resolution.model;
+        let reason = picker_reason(self.visual(), model.reason());
+        match &self.resolution.downshift {
+            Some(judged) if model.source != Source::Downshift => {
+                let words = if judged.applied {
+                    format!(
+                        "the downshift proposed {}: {}",
+                        rules::DOWNSHIFT_MODEL,
+                        judged.words
+                    )
+                } else {
+                    judged.words.clone()
+                };
+                format!("{reason}\n{words}")
+            }
+            _ => reason,
         }
     }
 
@@ -821,6 +849,21 @@ impl Dialog {
     }
 }
 
+/// A picker's reason: in Visual it serves Headless only, since the new tab's panel chooses the
+/// model and effort and the link carries the prompt alone; the rules' reason stays, for the
+/// suggestion the opener names (EP-18).
+fn picker_reason(visual: bool, reason: String) -> String {
+    if !visual {
+        return reason;
+    }
+    let by = if reason == Source::Owner.to_string() {
+        "your choice in Headless".to_owned()
+    } else {
+        reason
+    };
+    format!("headless only: choose it in the new tab's panel; suggested by {by}")
+}
+
 /// A choice the owner made here.
 fn owners<T>(value: T) -> Choice<T> {
     Choice {
@@ -919,10 +962,16 @@ mod tests {
     }
 
     fn dialog(registry: Registry) -> Dialog {
+        dialog_with(registry, &rules::Usage::unread(chrono::Utc::now()))
+    }
+
+    /// The dialog of the registry's first project, a folder of the fake portfolio, its downshift
+    /// weighing `usage`.
+    fn dialog_with(registry: Registry, usage: &rules::Usage) -> Dialog {
         let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("fixtures")
             .join("portfolio")
-            .join("harbor");
+            .join(&registry.projects[0].name);
         let snapshot = snapshot::read_tree(&folder);
         let draft = prompt::draft(
             &registry,
@@ -930,6 +979,7 @@ mod tests {
             &snapshot,
             None,
             &[],
+            usage,
             "2026-11-02",
         )
         .unwrap();
@@ -1071,6 +1121,74 @@ mod tests {
         dialog.chose();
         assert!(dialog.prompt.ends_with("Keep this."));
         assert!(dialog.prompt.contains("into VS Code"));
+    }
+
+    #[test]
+    fn the_downshift_reaches_a_visual_dialog_as_the_suggestion_its_panel_takes() {
+        use chrono::{TimeDelta, Utc};
+        use crw_core::usage::Limit;
+
+        // Lantern's next brief is EP-3, an S, launched visually; Fable stands at 82 %.
+        let mut registry = registry(Vec::new());
+        let mut lantern = Project::new("lantern", Path::new("lantern"), State::Active);
+        lantern.launch.mode = Some(LaunchMode::Visual);
+        registry.projects = vec![lantern];
+        let now = Utc::now();
+        let usage = rules::Usage {
+            fable: Some(rules::Fable {
+                limit: Limit {
+                    percent: 82.0,
+                    resets_at: Some(now + TimeDelta::days(3)),
+                    active: Some(true),
+                    severity: None,
+                },
+                at: now - TimeDelta::minutes(2),
+            }),
+            now,
+        };
+        let mut dialog = dialog_with(registry, &usage);
+        assert_eq!(dialog.size, Some(Size::S));
+        assert!(dialog.visual());
+        assert_eq!(dialog.resolution.model.value, rules::DOWNSHIFT_MODEL);
+        assert_eq!(dialog.resolution.model.source, Source::Downshift);
+        // In Visual the pickers serve Headless only; the rules' reason stays as the suggestion.
+        let reason = dialog.model_reason();
+        assert_eq!(
+            reason,
+            "headless only: choose it in the new tab's panel; suggested by the Fable downshift \
+             (D-23) (Fable at 82 %, read 2 min ago, above 60 %)"
+        );
+        assert!(
+            dialog
+                .prompt
+                .contains("(the launch suggested claude-opus-5-5 at high effort)"),
+            "{}",
+            dialog.prompt
+        );
+        // Headless: the reason as the rules gave it.
+        dialog.resolution.mode = owners(LaunchMode::Headless);
+        assert_eq!(
+            dialog.model_reason(),
+            "the Fable downshift (D-23) (Fable at 82 %, read 2 min ago, above 60 %)"
+        );
+        assert_eq!(picker_reason(false, "why".to_owned()), "why");
+        // The owner's own choice keeps what the downshift proposed in view.
+        dialog.resolution.model = owners("fable".to_owned());
+        assert_eq!(
+            dialog.model_reason(),
+            "chosen here\nthe downshift proposed claude-opus-5-5: Fable at 82 %, read 2 min ago, \
+             above 60 %"
+        );
+        // Back in Visual, a choice made in Headless is the suggestion.
+        dialog.resolution.mode = owners(LaunchMode::Visual);
+        assert!(
+            dialog.model_reason().starts_with(
+                "headless only: choose it in the new tab's panel; suggested by your \
+                              choice in Headless\n"
+            ),
+            "{}",
+            dialog.model_reason()
+        );
     }
 
     #[test]

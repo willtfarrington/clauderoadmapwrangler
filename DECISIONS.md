@@ -490,6 +490,13 @@ workspace file's first folder.
 > Visual written for this project in the registry; Headless everywhere, each release build an
 > owner task; the resume after a crash folded into EP-19, or left to `claude --resume` by hand.
 
+> **Addendum (2026-11-04, EP-18).** In Visual mode the launch dialog greys out the model, effort
+> and ultracode pickers, as it does the permission mode, with "headless only: choose it in the new
+> tab's panel" (the owner's choice). The extension's link carries the prompt alone: at EP-16 an
+> effort chosen in the dialog did not reach the tab. The rules' choice, the Fable downshift's
+> among them (D-23 addendum), stays in view as the suggestion the opener names, and switching to
+> Headless enables the pickers. *Alternatives.* The pickers left enabled, with a plainer line.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -793,6 +800,33 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > *Alternatives.* The token kept in memory between polls; a poll from `crw`; a mark notified at
 > each crossing whatever the window; egui_plot for the sparkline (it would move the egui family,
 > D-15).
+
+> **Addendum (2026-11-04, EP-18).** The downshift is built as the resolver's last layer, after the
+> project's own rules: `rules::resolve` takes a `rules::Usage`, the meter's Fable figure with the
+> time it was read.
+>
+> - **What it weighs.** An S brief whose model so far is a Fable model (the alias or a Fable id,
+>   whether the default, the project or a rule chose it) is proposed `claude-opus-5-5` at the
+>   same effort while the figure is above `settings.fable_downshift_percent`. That is a whole
+>   percent, 60 by default (`crw setting fable_downshift_percent <n>`, or `default`, which takes
+>   the key out). M and L briefs are not weighed, and the owner's choice in the dialog stands over
+>   it.
+> - **The figure's age.** A figure above the mark counts whatever its age, since a window's share
+>   only grows. One whose window has ended counts for nothing. One under the mark and older than
+>   15 minutes is said to be possibly higher now.
+> - **Where it shows.** The judgement is kept in words for every S brief on Fable. The launch
+>   dialog shows it under the model, and `crw prompt` prints it as its `downshift` line, from the
+>   reading the window cached in the ledger, without the credentials or the network.
+> - **The endpoint's `is_active`** is no sign of a window. On 2026-11-05 it gave the weekly limit
+>   `true` and the Fable-scoped one `false`, both resetting three days later. So a figure counts
+>   until its reset (`Limit::before_reset`), for the downshift and for the 80 % and 95 %
+>   notifications. Until EP-18 the notifications skipped a limit the endpoint called inactive,
+>   and so would have missed Fable's marks. `is_active` still hides a five-hour figure.
+> - **The attribution and the usage-share badge** moved to EP-18a when EP-18 was split at pickup
+>   (the owner's choice).
+>
+> *Alternatives.* The downshift before the rules, so that a rule's model stands over it; a figure
+> older than the meter's 15 minutes ignored; a rule's opt-out.
 
 ## Hosting, views, history
 

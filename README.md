@@ -81,7 +81,8 @@ target\release\crw.exe setting <key> <value>      # set a registry setting, such
 target\release\crw.exe prompt <folder> [--visual|--headless]
                                         # what a launch of the next brief starts from: the launch
                                         # mode, model, effort and permission mode with their
-                                        # reasons, the prompt worded for the mode
+                                        # reasons, the downshift's judgement, the prompt worded
+                                        # for the mode
 target\release\crw.exe sessions [<folder>] [--all]  # the ledger's sessions, the newest first; reads only
 target\release\crw.exe revert <project> [<id>]    # preview undoing its latest session, or the one named
 target\release\crw.exe revert <project> <id> --yes  # copy the work out, then put the project back
@@ -90,6 +91,7 @@ target\release\crw.exe notifications [--all]      # the window's notifications a
 target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
 target\release\crw.exe usage            # the usage meter's readings and changes of state; reads only
 target\release\crw.exe setting usage_endpoint off  # keep the meter on the status lines; on undoes it
+target\release\crw.exe setting fable_downshift_percent 70  # the downshift's mark; default undoes it
 target\release\crw.exe signals          # the hooks and status line in Claude Code's user settings,
                                         # whether a window listens, what an install would change
 target\release\crw.exe signals install [--inbox]  # write them, after a dated copy of the file
@@ -127,10 +129,14 @@ generated prompt in an editor, a Visual | Headless switch, and the model (from
 the catalog Claude Code caches), the effort, ultracode and the permission mode, each with the reason
 the rule table gave it. A project's `[project.launch]` in the registry sets its defaults (`mode`
 among them) and a prompt `template`; `[[rule]]` tables, global or per project, match a brief by
-size, phase or title words and set its model, effort or an effort step. Open in VS Code, for
+size, phase or title words and set its model, effort or an effort step. Last comes the Fable
+downshift: while the meter's Fable-scoped figure is above `fable_downshift_percent` (60 % by
+default), an S brief that would run on Fable is proposed Opus 5.5 at the same effort, and the
+dialog says how it judged the figure. Open in VS Code, for
 Visual (the default), opens the project's own workspace file, which brings its window to the front
 or opens it, and fills the prompt into a new Claude Code tab there, where the owner chooses the
-model and effort and sends it. Start headless runs the session and gives it a tab in the Sessions
+model and effort and sends it: the link carries the prompt alone, so in Visual the dialog's model,
+effort and ultracode pickers are greyed out, and the opener names the rules' suggestion. Start headless runs the session and gives it a tab in the Sessions
 pane: its transcript as it streams (the assistant's text, each tool call in one line with its result
 collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs, and,
 once it has ended, Resume, which runs it again under its session id with the message typed there.

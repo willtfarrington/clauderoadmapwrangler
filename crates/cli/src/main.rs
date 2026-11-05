@@ -43,7 +43,7 @@ use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, notify, paths, process, prompt, proposal, usage, workspace};
+use crw_core::{files, git, notify, paths, process, prompt, proposal, rules, usage, workspace};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -91,11 +91,14 @@ commands:
                                  answer resumes it), quiet_hours (HH:MM-HH:MM in local time, such
                                  as 22:00-07:00, when the window holds its notifications back;
                                  none for notifications at any hour), usage_endpoint (on, the
-                                 default, or off: the window's meter keeps to the status lines)
+                                 default, or off: the window's meter keeps to the status lines),
+                                 fable_downshift_percent (1 to 100, or default: 60; above it an S
+                                 brief that would run on Fable is proposed Opus 5.5)
   prompt <project|folder> [--visual|--headless]
                                  print what a launch of the next brief starts from: the launch
                                  mode, the model, effort, ultracode and permission mode with
-                                 their reasons (the rule table), the neighbour folders and the
+                                 their reasons (the rule table), the downshift's judgement on the
+                                 window's last usage reading, the neighbour folders and the
                                  prompt, worded for the project's launch mode or the one asked;
                                  launches nothing
   sessions [<project>] [--all]   print the ledger's sessions, the newest first: the last 20, or
@@ -1567,6 +1570,17 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 println!("note: a window that runs reads it at its next poll");
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "fable_downshift_percent" => {
+                let mark = registry.settings.fable_downshift_percent();
+                let default = if registry.settings.fable_downshift_percent.is_none() {
+                    " (the default)"
+                } else {
+                    ""
+                };
+                println!("fable_downshift_percent = {mark}{default}");
+                println!("note: the window weighs it at the next launch dialog it opens");
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
@@ -1599,9 +1613,13 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "decisions") => format!("{} (the default)", session::Route::default().as_str()),
             (None, "quiet_hours") => "none (the default: notifications at any hour)".to_owned(),
             (None, "usage_endpoint") => "on (the default: the window polls it)".to_owned(),
+            (None, "fable_downshift_percent") => format!(
+                "{} (the default: above it an S brief on Fable is proposed Opus 5.5)",
+                rules::DEFAULT_DOWNSHIFT_PERCENT
+            ),
             (None, _) => "not set".to_owned(),
         };
-        println!("  {name:<16} {value}");
+        println!("  {name:<23} {value}");
     }
     ExitCode::SUCCESS
 }
@@ -2374,10 +2392,26 @@ fn registered_name(store: &Store, folder: &Path) -> Option<String> {
         .map(|project| project.name.clone())
 }
 
+/// What the downshift weighs for `crw prompt` (D-23; EP-18): the endpoint's last reading, which
+/// the window keeps in the ledger's cache, read without migrating or writing it; nothing read
+/// when there is no ledger or no reading. The CLI never reads the credentials or polls.
+fn cached_usage(now: DateTime<Utc>) -> rules::Usage {
+    let cached = paths::ledger_file()
+        .filter(|path| path.exists())
+        .and_then(|path| Ledger::open_read_only(&path).ok())
+        .and_then(|ledger| ledger.cached_one("", usage::CACHE_SOURCE).ok().flatten())
+        .and_then(|row| Some((usage::Reading::from_json(&row.data)?, row.fetched_at)));
+    match cached {
+        Some((reading, at)) => rules::Usage::of_reading(&reading, at, now),
+        None => rules::Usage::unread(now),
+    }
+}
+
 /// Prints what a launch of a project's next brief starts from (D-17, D-22): the rule table's
-/// resolution with its reasons, the neighbour folders and the prompt, worded for `mode` when one
-/// is asked (EP-11). Reads, never launches, and asks nothing of the CLI: an effort step moves
-/// along the built-in levels here.
+/// resolution with its reasons, the downshift's judgement on the window's last usage reading
+/// (EP-18), the neighbour folders and the prompt, worded for `mode` when one is asked (EP-11).
+/// Reads, never launches, and asks nothing of the CLI: an effort step moves along the built-in
+/// levels here.
 fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
     println!("crw {} prompt", env!("CARGO_PKG_VERSION"));
     let folder = match project_folder(target) {
@@ -2399,12 +2433,14 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
     let snapshot = snapshot::take(&folder);
     let claude_md = prompt::claude_md(&folder);
     let today = files::today();
+    let usage = cached_usage(Utc::now());
     let mut draft = match prompt::draft(
         &registry,
         &project,
         &snapshot,
         claude_md.as_deref(),
         &[],
+        &usage,
         &today,
     ) {
         Ok(draft) => draft,
@@ -2458,6 +2494,10 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
         resolution.model.value,
         resolution.model.reason()
     );
+    if let Some(judged) = &resolution.downshift {
+        let applied = if judged.applied { "applied: " } else { "" };
+        println!("  downshift  {applied}{}", judged.words);
+    }
     println!(
         "  effort     {}: {}",
         resolution

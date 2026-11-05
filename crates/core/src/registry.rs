@@ -187,11 +187,14 @@ pub struct Settings {
     /// Whether the window polls the usage endpoint (D-23; EP-17): on by default, written only
     /// as `false`; off leaves the meter on the status lines alone.
     pub usage_endpoint: Option<bool>,
+    /// The Fable-scoped weekly share, a whole percent, above which an S brief is proposed the
+    /// downshift's model (D-23; EP-18); by default `rules::DEFAULT_DOWNSHIFT_PERCENT`.
+    pub fable_downshift_percent: Option<u8>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 10] = [
+    pub const KEYS: [&str; 11] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -202,17 +205,27 @@ impl Settings {
         "decisions",
         "quiet_hours",
         "usage_endpoint",
+        "fable_downshift_percent",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
-    /// two times and `usage_endpoint` on or off.
+    /// two times, `usage_endpoint` on or off and `fable_downshift_percent` a percent.
     pub fn is_path(key: &str) -> bool {
-        !matches!(key, "port" | "decisions" | "quiet_hours" | "usage_endpoint")
+        !matches!(
+            key,
+            "port" | "decisions" | "quiet_hours" | "usage_endpoint" | "fable_downshift_percent"
+        )
     }
 
     /// Whether the window may poll the usage endpoint.
     pub fn usage_endpoint_on(&self) -> bool {
         self.usage_endpoint != Some(false)
+    }
+
+    /// The Fable share above which the downshift proposes its model for an S brief (D-23).
+    pub fn fable_downshift_percent(&self) -> u8 {
+        self.fable_downshift_percent
+            .unwrap_or(crate::rules::DEFAULT_DOWNSHIFT_PERCENT)
     }
 
     /// A setting's value as written, by its key.
@@ -231,6 +244,7 @@ impl Settings {
             "usage_endpoint" => self
                 .usage_endpoint
                 .map(|on| if on { "on" } else { "off" }.to_owned()),
+            "fable_downshift_percent" => self.fable_downshift_percent.map(|p| p.to_string()),
             _ => None,
         }
     }
@@ -372,6 +386,13 @@ impl Registry {
         }
         if self.settings.port == Some(0) {
             return invalid("settings.port must be a port number, not 0".to_owned());
+        }
+        if let Some(percent) = self.settings.fable_downshift_percent
+            && !(1..=100).contains(&percent)
+        {
+            return invalid(format!(
+                "settings.fable_downshift_percent must be a percent from 1 to 100, not {percent}"
+            ));
         }
         for (key, path) in [
             ("data_root", &self.settings.data_root),
@@ -794,8 +815,9 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours` set to `none` and `usage_endpoint` set to `on` (the default, which a build
-    /// before EP-17 would refuse to read) are taken out.
+    /// `quiet_hours` set to `none`, `usage_endpoint` set to `on` and `fable_downshift_percent`
+    /// set to `default` (the defaults, which the builds before EP-17 and EP-18 would refuse to
+    /// read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -814,6 +836,7 @@ impl Changes<'_> {
                     )));
                 }
             },
+            "fable_downshift_percent" => value.trim() == "default",
             _ => false,
         };
         if default {
@@ -848,6 +871,14 @@ impl Changes<'_> {
                 Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             "usage_endpoint" => Value::from(false),
+            "fable_downshift_percent" => match value.trim().trim_end_matches('%').trim().parse() {
+                Ok(percent @ 1..=100u8) => Value::from(i64::from(percent)),
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "{key} takes a whole percent from 1 to 100, or default, not {value:?}"
+                    )));
+                }
+            },
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
             }
@@ -1602,6 +1633,62 @@ state = "paused"
                 .unwrap()
                 .contains("usage_endpoint")
         );
+    }
+
+    #[test]
+    fn the_downshift_percent_is_a_whole_percent_and_default_takes_it_out() {
+        let scratch = Scratch::new("registry-downshift");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let settings = store.load().unwrap().registry.settings;
+        assert_eq!(
+            settings.fable_downshift_percent(),
+            crate::rules::DEFAULT_DOWNSHIFT_PERCENT
+        );
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("fable_downshift_percent", " 75 % ")
+            })
+            .unwrap();
+        assert_eq!(registry.settings.fable_downshift_percent(), 75);
+        assert_eq!(
+            registry.settings.get("fable_downshift_percent").as_deref(),
+            Some("75")
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("fable_downshift_percent = 75"), "{text}");
+        for wrong in ["0", "101", "60.5", "high", ""] {
+            assert!(
+                store
+                    .change(TODAY, |c| c.set_setting("fable_downshift_percent", wrong))
+                    .is_err(),
+                "{wrong:?}"
+            );
+        }
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("fable_downshift_percent", "default")
+            })
+            .unwrap();
+        assert_eq!(registry.settings.fable_downshift_percent, None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("fable_downshift_percent")
+        );
+        // A hand-written percent out of range is refused with the file.
+        fs::write(
+            &store.path,
+            HAND_WRITTEN.replacen(
+                "[settings]\n",
+                "[settings]\nfable_downshift_percent = 0\n",
+                1,
+            ),
+        )
+        .unwrap();
+        let error = store.load().unwrap_err().to_string();
+        assert!(error.contains("from 1 to 100"), "{error}");
     }
 
     #[test]

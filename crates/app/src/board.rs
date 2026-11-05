@@ -28,7 +28,7 @@ use crw_core::registry::{State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
-use crw_core::{files, inbox, paths, prompt, revert, tasks};
+use crw_core::{files, inbox, paths, prompt, revert, rules, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
@@ -1163,12 +1163,16 @@ impl Board {
             .route(&program, version.as_deref(), registry.settings.decisions);
         let claude_md = prompt::claude_md(&folder);
         let today = files::today();
+        // The downshift weighs the meter's Fable figure as it stands (D-23; EP-18).
+        let now = chrono::Utc::now();
+        let usage = rules::Usage::of(&self.meter.gauge.figures(now), now);
         let draft = match prompt::draft(
             &registry,
             &project,
             &snapshot,
             claude_md.as_deref(),
             &levels,
+            &usage,
             &today,
         ) {
             Ok(draft) => draft,

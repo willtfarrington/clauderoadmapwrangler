@@ -340,9 +340,17 @@ pub struct Limit {
 }
 
 impl Limit {
-    /// Its window has not reset yet, and the endpoint did not call it inactive.
+    /// Its window has not reset yet: the share still counts. The endpoint's `is_active` says
+    /// nothing of that: on 2026-11-05 it gave the weekly limit `true` and the Fable-scoped one
+    /// `false`, both resetting three days later (EP-18), so the alerts and the downshift ask this.
+    pub fn before_reset(&self, now: DateTime<Utc>) -> bool {
+        self.resets_at.is_none_or(|at| at > now)
+    }
+
+    /// Its window has not reset yet, and the endpoint did not call it inactive: the five-hour
+    /// figure's test, shown only while its window is open.
     pub fn is_current(&self, now: DateTime<Utc>) -> bool {
-        self.active != Some(false) && self.resets_at.is_none_or(|at| at > now)
+        self.active != Some(false) && self.before_reset(now)
     }
 
     /// The same share with the same reset, within a minute.
@@ -901,7 +909,8 @@ impl Gauge {
     }
 
     /// The marks the weekly and Fable figures reach as of `now` and have not been notified in
-    /// their window.
+    /// their window: a figure counts until its reset, whatever the endpoint's `is_active` says
+    /// (EP-18).
     pub fn crossings(&mut self, now: DateTime<Utc>) -> Vec<Crossing> {
         let figures = self.figures(now);
         [
@@ -910,7 +919,7 @@ impl Gauge {
         ]
         .into_iter()
         .filter_map(|(which, figure)| {
-            let figure = figure.filter(|figure| figure.limit.is_current(now))?;
+            let figure = figure.filter(|figure| figure.limit.before_reset(now))?;
             self.alerts.check(which, &figure.limit)
         })
         .collect()
@@ -1591,6 +1600,19 @@ mod tests {
             .collect();
         assert_eq!(crossings, [(Which::Weekly, WARN), (Which::Fable, ALARM)]);
         assert!(gauge.crossings(now).is_empty());
+        // The endpoint calls the Fable-scoped limit inactive while its window runs (seen
+        // 2026-11-05): its marks are notified all the same.
+        let mut inactive = Gauge::default();
+        let mut reading = parse(BODY.as_bytes()).unwrap();
+        reading.scoped[0].limit.percent = 83.0;
+        reading.scoped[0].limit.active = Some(false);
+        inactive.polled(now, Ok(reading));
+        let marks: Vec<(Which, f64)> = inactive
+            .crossings(now)
+            .into_iter()
+            .map(|crossing| (crossing.which, crossing.mark))
+            .collect();
+        assert_eq!(marks, [(Which::Fable, WARN)]);
         // A limit whose window has reset is not notified from an old reading.
         let mut stale = Gauge::default();
         let mut reading = parse(BODY.as_bytes()).unwrap();
