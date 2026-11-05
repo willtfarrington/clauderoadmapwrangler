@@ -182,6 +182,11 @@ impl Opened {
     pub fn is_new_conversation(&self) -> bool {
         matches!(self.source.as_deref(), None | Some("startup"))
     }
+
+    /// Whether it went on with an earlier conversation under its id (EP-35).
+    pub fn is_resume(&self) -> bool {
+        self.source.as_deref() == Some("resume")
+    }
 }
 
 impl Seen {
@@ -228,6 +233,7 @@ impl Seen {
             interactive: interactive(self.entrypoint.as_deref()),
             at: self.started.unwrap_or(self.heard),
             claims: opened.is_new_conversation(),
+            resumed: opened.is_resume(),
         }
     }
 
@@ -285,6 +291,8 @@ pub enum Change {
         at: DateTime<Utc>,
         /// It began as a new conversation, so it may take up a visual launch.
         claims: bool,
+        /// It went on with an earlier conversation under its id: a run of its own (EP-35).
+        resumed: bool,
     },
     /// A session ended, with what its status line last gave (D-23).
     Ended {
@@ -390,13 +398,21 @@ impl Sessions {
         let seen = self.entry(&hook.session_id, &hook.cwd, entrypoint, projects, now);
         match hook.event.as_str() {
             "SessionStart" => {
+                // A session that had ended and starts again (resumed in VS Code soon after its
+                // end) begins anew: its start, its source and its work (EP-35).
+                let again = seen.status.is_over();
                 seen.status = Status::Idle;
                 seen.waiting_for = None;
-                if hook.source.as_deref() != Some("compact") && seen.opened.is_none() {
+                if hook.source.as_deref() != Some("compact") && (seen.opened.is_none() || again) {
                     seen.opened = Some(Opened {
                         source: hook.source.clone(),
                     });
-                    seen.started.get_or_insert(now);
+                    if again {
+                        seen.started = Some(now);
+                        seen.worked = false;
+                    } else {
+                        seen.started.get_or_insert(now);
+                    }
                 }
                 Change::Nothing
             }
@@ -579,8 +595,11 @@ fn waits_for(kind: &str) -> Option<&'static str> {
 /// of its project from the [`VISUAL_CLAIM`] before its start (EP-11's row gains its session id),
 /// else an interactive session of a registered project opens a manual row from its start; an end
 /// closes a visual or manual row with the status line's last figures. A session the ledger knows
-/// already (the runner's, a resumed one) keeps its row. Returns the mode the ledger gives the
-/// session, when it gives one.
+/// already keeps its row, unless it was resumed after that row ended, or after a headless run
+/// whose row is the runner's: that run has a row of its own under the same id, with the latest
+/// row's EP, visual when the window handed its link to VS Code within the [`VISUAL_CLAIM`] before
+/// its start, else manual (EP-35). Returns the mode the ledger gives the session, when it gives
+/// one.
 pub fn record(ledger: &Ledger, change: &Change) -> Result<Option<Mode>, ledger::Error> {
     match change {
         Change::Started {
@@ -589,9 +608,33 @@ pub fn record(ledger: &Ledger, change: &Change) -> Result<Option<Mode>, ledger::
             interactive: true,
             at,
             claims,
+            resumed,
         } => {
-            if let Some(mode) = ledger.mode_of(session_id)? {
-                return Ok(Mode::parse(&mode));
+            if let Some(latest) = ledger.latest_of(session_id)? {
+                let goes_on = latest.open && latest.mode != Mode::Headless.as_str();
+                if !*resumed || goes_on {
+                    return Ok(Mode::parse(&latest.mode));
+                }
+                let mode = if ledger.names_session(
+                    crate::visual::RESUME_KIND,
+                    session_id,
+                    *at - VISUAL_CLAIM,
+                )? {
+                    Mode::Visual
+                } else {
+                    Mode::Manual
+                };
+                ledger.start_session(&NewSession {
+                    session_id: Some(session_id.as_str()),
+                    project: project.as_str(),
+                    ep: latest.ep.as_deref(),
+                    mode: mode.as_str(),
+                    model: None,
+                    effort: None,
+                    ultracode: false,
+                    started_at: *at,
+                })?;
+                return Ok(Some(mode));
             }
             if *claims
                 && ledger
@@ -671,6 +714,7 @@ mod tests {
         }
     }
 
+    /// A row's start, from a new conversation (`claims`) or, in these tests, a resumed one.
     fn started(id: &str, project: &str, minute: i64, claims: bool) -> Change {
         Change::Started {
             session_id: id.to_owned(),
@@ -678,6 +722,7 @@ mod tests {
             interactive: true,
             at: at(minute),
             claims,
+            resumed: !claims,
         }
     }
 
@@ -1008,6 +1053,121 @@ mod tests {
         assert_eq!(
             (rows[0].session_id.as_deref(), rows[0].started_at.as_str()),
             (Some("tab"), "2026-11-02T10:00:00Z")
+        );
+    }
+
+    /// A session resumed in VS Code (EP-35): a run of its own under the same id once its latest
+    /// row has ended or is a headless run's, visual when the window handed its link over within
+    /// the claim's window, else manual, with the latest row's EP; a run that goes on in an open
+    /// row keeps it; a resume soon after the end, still in the model, begins anew.
+    #[test]
+    fn a_resumed_run_has_a_row_of_its_own() {
+        let scratch = Scratch::new("sessions-resume");
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        let projects = projects();
+        let mut sessions = Sessions::default();
+        let alpha = r"C:\Data\alpha";
+        let new = |session_id: Option<&'static str>, ep, mode, minute| NewSession {
+            session_id,
+            project: "alpha",
+            ep: Some(ep),
+            mode,
+            model: None,
+            effort: None,
+            ultracode: false,
+            started_at: at(minute),
+        };
+        // A visual launch of EP-5, taken up by its session, which works and ends.
+        ledger
+            .start_session(&new(None, "EP-5", "visual", 0))
+            .unwrap();
+        sessions.hook(&start("v1", alpha, "startup"), &projects, at(1));
+        let first = sessions.hook(&hook("Stop", "v1", alpha), &projects, at(2));
+        assert_eq!(record(&ledger, &first).unwrap(), Some(Mode::Visual));
+        let end = sessions.hook(&hook("SessionEnd", "v1", alpha), &projects, at(3));
+        record(&ledger, &end).unwrap();
+        // The window hands its link over five minutes later; still in the model as ended, the
+        // session resumes and begins anew, new until it works.
+        let handed = crate::visual::RESUME_KIND;
+        ledger
+            .add_event(at(8), handed, Some("alpha"), "v1 · EP-5")
+            .unwrap();
+        sessions.hook(&start("v1", alpha, "resume"), &projects, at(9));
+        let seen = sessions.get("v1").unwrap();
+        assert!(seen.is_new());
+        assert_eq!((seen.started, seen.status), (Some(at(9)), Status::Idle));
+        let again = sessions.hook(&hook("Stop", "v1", alpha), &projects, at(10));
+        assert_eq!(again, started("v1", "alpha", 9, false));
+        assert_eq!(record(&ledger, &again).unwrap(), Some(Mode::Visual));
+        assert_eq!(
+            sessions.hook(&hook("Stop", "v1", alpha), &projects, at(11)),
+            Change::Nothing,
+            "one row per run"
+        );
+        // Its usage share goes to the new row, and its end closes it.
+        let part = ledger::Part {
+            weekly: Some(1.0),
+            ..ledger::Part::default()
+        };
+        assert!(ledger.add_share("v1", &part).unwrap());
+        let end = sessions.hook(&hook("SessionEnd", "v1", alpha), &projects, at(12));
+        record(&ledger, &end).unwrap();
+        // Resumed by hand an hour on, long after the handover: manual, with the EP.
+        sessions.expire(at(40));
+        assert!(sessions.get("v1").is_none());
+        sessions.hook(&start("v1", alpha, "resume"), &projects, at(60));
+        let later = sessions.hook(&hook("Stop", "v1", alpha), &projects, at(61));
+        assert_eq!(record(&ledger, &later).unwrap(), Some(Mode::Manual));
+        // Its end unheard (no window ran), the next resume goes on in that open row.
+        let mut restarted = Sessions::default();
+        restarted.hook(&start("v1", alpha, "resume"), &projects, at(90));
+        let on = restarted.hook(&hook("Stop", "v1", alpha), &projects, at(91));
+        assert_eq!(record(&ledger, &on).unwrap(), Some(Mode::Manual));
+        // A headless run a crash cut short keeps the runner's open row, so its resume in VS Code
+        // has one of its own.
+        ledger
+            .start_session(&new(Some("h1"), "EP-6", "headless", 100))
+            .unwrap();
+        ledger
+            .add_event(at(110), handed, Some("alpha"), "h1 · EP-6")
+            .unwrap();
+        restarted.hook(&start("h1", alpha, "resume"), &projects, at(111));
+        let headless = restarted.hook(&hook("Stop", "h1", alpha), &projects, at(112));
+        assert_eq!(record(&ledger, &headless).unwrap(), Some(Mode::Visual));
+        let rows: Vec<_> = ledger
+            .sessions()
+            .unwrap()
+            .into_iter()
+            .map(|row| {
+                (
+                    row.session_id.unwrap_or_default(),
+                    row.mode,
+                    row.ep.unwrap_or_default(),
+                    row.started_at,
+                    row.ended_at.is_some(),
+                    row.usage.weekly_share,
+                )
+            })
+            .collect();
+        let row = |id: &str, mode: &str, ep: &str, start: &str, ended: bool, share| {
+            (
+                id.to_owned(),
+                mode.to_owned(),
+                ep.to_owned(),
+                format!("2026-11-02T{start}:00Z"),
+                ended,
+                share,
+            )
+        };
+        assert_eq!(
+            rows,
+            [
+                row("v1", "visual", "EP-5", "10:00", true, None),
+                row("v1", "visual", "EP-5", "10:09", true, Some(1.0)),
+                row("v1", "manual", "EP-5", "11:00", false, None),
+                row("h1", "headless", "EP-6", "11:40", false, None),
+                row("h1", "visual", "EP-6", "11:51", false, None),
+            ]
         );
     }
 }

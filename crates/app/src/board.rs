@@ -191,6 +191,13 @@ pub enum Action {
     },
     /// The VS Code window of the project a session waits in, brought forward (D-19).
     Focus(String),
+    /// A ledger row's session opened in a Claude Code tab of its project's VS Code window, through
+    /// the extension's `session=<id>` link (D-16; EP-35).
+    ResumeInCode {
+        project: String,
+        session: String,
+        ep: Option<String>,
+    },
     /// A toast shown whatever the quiet hours and the focus, so that the owner sees toasts reach
     /// the screen (EP-15).
     TestToast,
@@ -479,7 +486,9 @@ impl Board {
                 self.launch = None;
                 self.notify(text);
             }
-            Some(visual::Outcome::Focused(text)) => self.notify(text),
+            Some(visual::Outcome::Resumed(text) | visual::Outcome::Focused(text)) => {
+                self.notify(text);
+            }
             Some(visual::Outcome::Refused(why)) => match self.launch.as_mut() {
                 Some(dialog) => dialog.error = Some(why),
                 None => self.fail(why),
@@ -952,6 +961,11 @@ impl Board {
             } => self.respond(key, &request, response),
             Action::AnswerDeferred { key, response } => self.answer_deferred(key, response),
             Action::Focus(name) => self.focus(&name),
+            Action::ResumeInCode {
+                project,
+                session,
+                ep,
+            } => self.resume_in_code(&project, &session, ep),
             Action::TestToast => self.test_toast(),
             Action::TestToastLater => self.test_later(),
             Action::HideWindow => self.hide(),
@@ -1461,6 +1475,51 @@ impl Board {
             return;
         };
         self.visual.focus(name, &folder, &code, &self.ctx);
+    }
+
+    /// Opens the session `session` of the project called `name` in a Claude Code tab of the
+    /// project's VS Code window (D-16; EP-35), off the UI thread as a visual launch is, since the
+    /// window may take seconds to start; the ledger keeps the handover as an event, and the run
+    /// earns its row at its first work. A screenshot run opens nothing.
+    fn resume_in_code(&mut self, name: &str, session: &str, ep: Option<String>) {
+        if self.fixtures {
+            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            return;
+        }
+        if self.visual.is_opening() {
+            self.warn("A launch to VS Code is on its way: resume once it has gone through.");
+            return;
+        }
+        let Some(folder) = self
+            .portfolio
+            .project(name)
+            .and_then(|row| row.folder.as_ref())
+            .map(|folder| folder.path.clone())
+        else {
+            self.fail(format!("{name}: its folder is missing."));
+            return;
+        };
+        let setting = self
+            .store()
+            .load()
+            .ok()
+            .and_then(|loaded| loaded.registry.settings.vscode);
+        let Some(code) = crw_core::visual::locate(setting.as_deref()) else {
+            self.fail("VS Code was not found: set its Code.exe with crw setting vscode.");
+            return;
+        };
+        let Some(locks) = crw_core::visual::lock_folder() else {
+            self.fail("No profile folder: USERPROFILE is not set.");
+            return;
+        };
+        let mut launch = crw_core::visual::Launch::resume(name, &folder, session, &code, &locks);
+        launch.ep = ep;
+        launch.ledger = self.ledger.clone();
+        self.notify(format!(
+            "{name}: opening its session {} in VS Code…",
+            crw_core::revert::short(session)
+        ));
+        self.visual.start(launch, &self.ctx);
     }
 
     /// Resumes the window's ended session `key` with the message typed in its tab (D-16's EP-9

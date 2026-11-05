@@ -52,7 +52,9 @@ own, with notifications at 80 % and 95 %. Each poll's rise is split among the se
 window saw work since the poll before, so each session's row in the ledger keeps its share of the
 week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). Each project's
 sum, in points of the weekly limit, is a badge of its row, a line of its Detail pane and a sort
-key (EP-18b). The roadmap is
+key (EP-18b). A visual or manual session from the ledger reopens in a Claude Code tab of its
+project's VS Code window from the Sessions pane, and each resumed run gets a ledger row of its own
+(EP-35). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -146,8 +148,12 @@ pane: its transcript as it streams (the assistant's text, each tool call in one 
 collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs, and,
 once it has ended, Resume, which runs it again under its session id with the message typed there.
 The pane's All tab lists every session, the window's, those started elsewhere and the ledger's
-latest rows, filtered by project, mode and running only. The transcript stays in the window's
-memory: the tool writes none and reads none.
+latest rows, filtered by project, mode and running only. A ledger card of a visual or manual
+session has Resume in VS Code: it opens the project's window and hands the extension the session's
+id, so that the conversation opens in a tab, ready for the next message. A headless run's is
+greyed out, since the extension opens one as an empty tab; `claude --resume <id>` in a terminal
+takes it up, the id being on its card. The transcript stays in the window's memory: the tool
+writes none and reads none.
 
 The Decisions pane answers what a headless session asks while it waits: a permission request with
 Allow or Deny (its tool, its call, why it asks and its input shown; a reason optional), a question
@@ -174,7 +180,9 @@ registered project, and lists the sessions started elsewhere (visual, headless o
 waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row. A
 session gets its ledger row at its first sign of work (a finished turn, a wait for the owner, or the
 poll seeing it busy), so a tab opened and left unused, a helper the extension starts and a tab a
-window restores leave none; a visual launch no session takes up within 30 minutes lapses.
+window restores leave none; a visual launch no session takes up within 30 minutes lapses. A
+session resumed after its row ended gets a row per run under the same id: visual when the window
+handed it to VS Code, manual otherwise.
 
 The window calls the owner with a popup of its own: a small window at the screen's lower right,
 always on top, that takes no keyboard focus and has no taskbar button (Windows' toasts can be off,

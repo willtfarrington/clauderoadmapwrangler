@@ -690,7 +690,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-18 | [Downshift rule: the Fable-share downshift as the resolver's last layer with its registry mark, its judgement in the launch dialog and `crw prompt`, the dialog's Visual pickers greyed out for the tab's panel](EP-18-downshift-rule.md) (D-23, D-16) | S | EP-10, EP-17 | core | ☑ `8014ad6` |
 | EP-18a | [Usage attribution: each poll's rise in the weekly and Fable figures split among the sessions that worked since the poll before, manual ones too, each row's share and the figures around it in ledger schema 5, shown on the Sessions pane's cards and summed per project over the week in `crw sessions`](EP-18a-usage-attribution.md) (D-23, D-26) | S | EP-18 | core | ☑ `59c0a33` |
 | EP-18b | [Usage-share badge: each project's points of the weekly limit this week as a Usage column of the row's badges in both forms, its Fable sum and its part of all that was attributed in the hover text and a line of the Detail pane's Status section, the legend's key and the Usage share sort key](EP-18b-usage-share-badge.md) (D-23, D-25) | S | EP-18a | core | ☑ `84fb8b7` |
-| EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
+| EP-35 | [Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions](EP-35-resume-in-vs-code.md) (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
@@ -905,7 +905,13 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   their own judgement. A headless launch takes the dialog's choice and a chained run the rule
   table's (D-17), while a visual tab's panel stays the owner's, since the extension's link takes
   only `prompt` and `session`. So this brief lets the owner set each brief's model and effort
-  before a chain starts, the rules' choice the default.
+  before a chain starts, the rules' choice the default. **From EP-35:** the extension opens a
+  headless (`-p`) run's id as an empty tab (the supervised check, 2026-11-05), so Resume in VS
+  Code is greyed out on a headless card and cannot pick up a chained run that a crash or a quit
+  window cut short, as EP-16's note above expected. `claude --resume <id>` in a terminal takes
+  it up, the full id being on the run's ledger card, as a manual row of its own (D-26 addendum).
+  The window's own way back is the headless resume after a restart, still in the v2 notes, which
+  the chain may want first.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -1000,6 +1006,10 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   also holds its share of the week's usage, which the retro can set beside the briefs' sizes.
   **From EP-18b:** 16 briefs are still open once EP-18b is checked. The Projects pane's Usage
   column and its sort key give each project's points of the weekly limit this week.
+  **From EP-35:** 15 briefs are still open once EP-35 is checked. A session resumed after its row
+  ended now has a ledger row per run under the same id (D-26 addendum), and a `resume` event marks
+  each handover to VS Code, so the retro can count an EP's runs. Weigh the headless resume after a
+  restart (the v2 notes) against the autopilot's needs: VS Code cannot open a headless run.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1090,7 +1100,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   painter (`meter::sparkline`), which egui_plot may replace once the pins move. **From EP-18b:**
   a card's badges include the usage share (`badges::usage`, put into each row at each pass from
   the meter's `Week`). The chart of D-23 and D-26 needs each week's sums between two resets,
-  while `Ledger::shares_since` takes a start alone.
+  while `Ledger::shares_since` takes a start alone. **From EP-35:** a session resumed after its
+  row ended has a row per run under the same session id (D-26 addendum), so the heatmap's
+  sessions per day count runs unless it groups the rows by id.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to

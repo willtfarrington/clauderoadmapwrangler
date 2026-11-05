@@ -300,6 +300,15 @@ pub enum RowState<'a> {
     Open,
 }
 
+/// A session's latest row, as [`Ledger::latest_of`] reads it (EP-35).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Latest {
+    pub mode: String,
+    pub ep: Option<String>,
+    /// No end recorded yet.
+    pub open: bool,
+}
+
 /// What a row's run asked the owner, in words: `2 questions, answered in 40 s` (EP-14); none when
 /// it asked nothing and carried no answer.
 pub fn asked(row: &SessionRow) -> Option<String> {
@@ -594,6 +603,46 @@ impl Ledger {
                 |row| row.get(0),
             )
             .optional()?)
+    }
+
+    /// The latest row of `session_id`, the one its run goes on in or follows (EP-35): its mode, its
+    /// EP and whether it is still open.
+    pub fn latest_of(&self, session_id: &str) -> Result<Option<Latest>, Error> {
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT mode, ep, ended_at IS NULL FROM session WHERE session_id = ?1 \
+                 ORDER BY started_at DESC, id DESC LIMIT 1",
+                [session_id],
+                |row| {
+                    Ok(Latest {
+                        mode: row.get(0)?,
+                        ep: row.get(1)?,
+                        open: row.get(2)?,
+                    })
+                },
+            )
+            .optional()?)
+    }
+
+    /// Whether an event of `kind` names `session_id` first in its words and happened at `since`
+    /// or later: the window's handover of a session's link to VS Code (EP-35).
+    pub fn names_session(
+        &self,
+        kind: &str,
+        session_id: &str,
+        since: DateTime<Utc>,
+    ) -> Result<bool, Error> {
+        let found: Option<i64> = self
+            .connection
+            .query_row(
+                "SELECT id FROM event WHERE kind = ?1 AND instr(detail, ?2) = 1 AND at >= ?3 \
+                 LIMIT 1",
+                (kind, session_id, rfc3339(since)),
+                |row| row.get(0),
+            )
+            .optional()?;
+        Ok(found.is_some())
     }
 
     /// Gives `session_id` to the newest visual launch of `project` that has none yet and is

@@ -3,7 +3,9 @@
 //! message once it has ended; and an All tab that lists every session, the window's, those Claude
 //! Code reports elsewhere (EP-12) and the ledger's recent rows, with filters by project, mode and
 //! running only. An ended session's tab and a ledger row with a session id have Revert…, which
-//! opens the preview of undoing it (`revert`, EP-15c). The CLI's preflight is asked on a worker thread and kept an hour (D-15), and a
+//! opens the preview of undoing it (`revert`, EP-15c), and such a row has Resume in VS Code too,
+//! which opens its session in a tab of the project's VS Code window (`visual`, EP-35). The CLI's
+//! preflight is asked on a worker thread and kept an hour (D-15), and a
 //! start waits its turn and its spacing on one too (D-29), so the frame never blocks. Quitting the
 //! window drops the handles, which kills whatever still runs with its process tree (D-16
 //! addendum); closing it only hides it in the tray (D-29; EP-15). What a session waits on is answered in the Decisions tile (`decisions`, EP-14):
@@ -30,6 +32,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::board::{Action, Board};
 use crate::decisions::{self, Draft};
+use crate::portfolio::ProjectRow;
 use crate::style::{self, icons};
 use crate::transcript::Transcript;
 
@@ -1157,6 +1160,35 @@ impl Board {
                     .map(|seen| seen.session_id.as_str()),
             )
             .collect();
+        // What a ledger card's Resume in VS Code must not cross (EP-35).
+        let model = &self.watch.model;
+        let resumes = Resumes {
+            window: self
+                .sessions
+                .live
+                .iter()
+                .map(|live| live.session_id.as_str())
+                .collect(),
+            open: model
+                .all()
+                .into_iter()
+                .filter(|seen| !seen.status.is_over())
+                .map(|seen| seen.session_id.as_str())
+                .collect(),
+            unknown: match (&model.poll_problem, model.polled) {
+                (Some(why), _) => Some(format!(
+                    "the list of live sessions did not read ({why}), so whether the session runs \
+                     elsewhere is not known"
+                )),
+                (None, None) => Some(
+                    "the list of live sessions has not answered yet, so whether the session runs \
+                     elsewhere is not known: try again in a moment"
+                        .to_owned(),
+                ),
+                (None, Some(_)) => None,
+            },
+            opening: self.visual.is_opening(),
+        };
         let history = &self.sessions.history;
         let rows: Vec<&SessionRow> = if filter.running_only {
             Vec::new()
@@ -1173,7 +1205,7 @@ impl Board {
                 })
                 .collect()
         };
-        let (mut open, mut focus, mut revert) = (None, None, None);
+        let (mut open, mut focus, mut revert, mut resume) = (None, None, None, None);
         let portfolio = &self.portfolio;
         egui::ScrollArea::vertical()
             .auto_shrink(false)
@@ -1227,12 +1259,25 @@ impl Board {
                     heading(ui, "From the ledger: the latest first");
                     let now = Utc::now();
                     for row in &rows {
-                        // A row with a session id keeps its Revert, its tab gone or not (EP-15c).
-                        let available = row.session_id.as_ref().map(|_| {
-                            crate::revert::availability(portfolio.project(&row.project), &row.project)
+                        // A row with a session id keeps its Revert, its tab gone or not (EP-15c),
+                        // and can be resumed in VS Code (EP-35).
+                        let buttons = row.session_id.as_ref().map(|_| {
+                            let project = portfolio.project(&row.project);
+                            CardButtons {
+                                resume: resume_availability(row, project, &resumes),
+                                revert: crate::revert::availability(project, &row.project),
+                            }
                         });
-                        if ledger_line(ui, row, now, available.as_ref()) {
-                            revert = Some((row.project.clone(), row.session_id.clone()));
+                        match ledger_line(ui, row, now, buttons.as_ref()) {
+                            Some(Pressed::Revert) => {
+                                revert = Some((row.project.clone(), row.session_id.clone()));
+                            }
+                            Some(Pressed::Resume) => {
+                                resume = row.session_id.clone().map(|session| {
+                                    (row.project.clone(), session, row.ep.clone())
+                                });
+                            }
+                            None => {}
                         }
                         ui.add_space(4.0);
                     }
@@ -1249,6 +1294,13 @@ impl Board {
         }
         if let Some((project, session)) = revert {
             self.actions.push(Action::OpenRevert { project, session });
+        }
+        if let Some((project, session, ep)) = resume {
+            self.actions.push(Action::ResumeInCode {
+                project,
+                session,
+                ep,
+            });
         }
     }
 
@@ -1607,16 +1659,135 @@ fn duration_words(row: &SessionRow) -> Option<String> {
     row.took().map(ledger::length)
 }
 
+/// What a resume in VS Code must not cross (EP-35).
+#[derive(Debug, Default)]
+pub struct Resumes<'a> {
+    /// The window's own sessions, which their tabs here resume.
+    pub window: BTreeSet<&'a str>,
+    /// The sessions the hooks or the poll show open.
+    pub open: BTreeSet<&'a str>,
+    /// Why it is not known whether a session runs elsewhere, while it is not.
+    pub unknown: Option<String>,
+    /// A launch to VS Code is on its way.
+    pub opening: bool,
+}
+
+/// Whether a ledger row's session may be resumed in a tab of its project's VS Code window (D-16;
+/// EP-35), `project` being its row in the portfolio: the reason when not, which the disabled
+/// button gives on hover. A session that runs must not be opened twice.
+pub fn resume_availability(
+    row: &SessionRow,
+    project: Option<&ProjectRow>,
+    resumes: &Resumes,
+) -> Result<(), String> {
+    let name = &row.project;
+    let project = project.ok_or_else(|| format!("{name} is not a registered project"))?;
+    if project.folder.is_none() {
+        return Err(format!("{name}: its folder is missing"));
+    }
+    let id = row
+        .session_id
+        .as_deref()
+        .ok_or("no session id was recorded for this row")?;
+    if !crw_core::visual::is_uuid(id) {
+        return Err(format!(
+            "its session id {id} is not one the extension's link takes"
+        ));
+    }
+    // EP-35's check: the extension opens a `-p` run's id as an empty tab, as its own list leaves
+    // such runs out.
+    if row.mode == "headless" {
+        return Err(format!(
+            "VS Code opens a headless run as an empty tab, without its conversation (EP-35's \
+             check): claude --resume {id} in a terminal in the project's folder takes it up"
+        ));
+    }
+    if resumes.window.contains(id) {
+        return Err("it is this window's own session: its tab resumes it".to_owned());
+    }
+    if resumes.open.contains(id) {
+        return Err("it runs now: a tab or a terminal has it open".to_owned());
+    }
+    if let Some(why) = &resumes.unknown {
+        return Err(why.clone());
+    }
+    if resumes.opening {
+        return Err(
+            "a launch to VS Code is on its way: try again once it has gone through".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+/// What a ledger card's buttons may do (EP-15c, EP-35): each available, or disabled with the
+/// reason.
+pub struct CardButtons {
+    pub resume: Result<(), String>,
+    pub revert: Result<(), String>,
+}
+
+/// Which of a ledger card's buttons was pressed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Pressed {
+    Resume,
+    Revert,
+}
+
+/// A ledger card's Resume in VS Code (EP-35): it opens the row's session in a Claude Code tab of
+/// the project's window, and sends nothing; disabled, with its reason on hover. `true` when
+/// pressed.
+fn resume_button(ui: &mut egui::Ui, available: &Result<(), String>) -> bool {
+    let text = RichText::new("Resume in VS Code").small();
+    let button = ui.add_enabled(available.is_ok(), egui::Button::new(text));
+    match available {
+        Ok(()) => button
+            .on_hover_text(
+                "Open this session in a Claude Code tab of the project's VS Code window, to go on \
+                 with it there; nothing is sent, and a tab that holds it comes to the front",
+            )
+            .clicked(),
+        Err(why) => {
+            button.on_disabled_hover_text(why);
+            false
+        }
+    }
+}
+
+/// A ledger card's two buttons, Resume in VS Code then Revert…, in the order they read: in a
+/// right-to-left layout Revert… goes first, so that it keeps the line's end.
+fn card_buttons(ui: &mut egui::Ui, buttons: &CardButtons, right_to_left: bool) -> Option<Pressed> {
+    let mut pressed = None;
+    let mut resume = |ui: &mut egui::Ui| {
+        if resume_button(ui, &buttons.resume) {
+            pressed = Some(Pressed::Resume);
+        }
+    };
+    if right_to_left {
+        let revert = crate::revert::revert_button(ui, &buttons.revert, true);
+        resume(ui);
+        if revert {
+            pressed = Some(Pressed::Revert);
+        }
+    } else {
+        resume(ui);
+        if crate::revert::revert_button(ui, &buttons.revert, true) {
+            pressed = Some(Pressed::Revert);
+        }
+    }
+    pressed
+}
+
 /// A ledger row in the All tab: when, which project and EP, its mode, model and effort, how long,
 /// how it ended and the cost estimate, then its result's first line. A row with a session id has
-/// its Revert… (EP-15c), `available` or disabled with the reason; `true` when it was pressed.
+/// its Resume in VS Code (EP-35) and its Revert… (EP-15c), each available or disabled with the
+/// reason; which one was pressed.
 fn ledger_line(
     ui: &mut egui::Ui,
     row: &SessionRow,
     now: DateTime<Utc>,
-    available: Option<&Result<(), String>>,
-) -> bool {
-    let mut pressed = false;
+    buttons: Option<&CardButtons>,
+) -> Option<Pressed> {
+    let mut pressed = None;
     card(ui, |ui| {
         // Rows of their own, so that a narrow pane never squeezes a chip into a column of letters.
         ui.horizontal_wrapped(|ui| {
@@ -1635,28 +1806,28 @@ fn ledger_line(
             };
             ui.label(RichText::new(title).strong());
         });
-        // The Revert… at the chips' line's end when it fits there, else on a line of its own: a
+        // The buttons at the chips' line's end when they fit there, else on a line of their own: a
         // line wider than a narrow pane would widen everything after it (EP-13).
         let mut below = false;
         ui.horizontal(|ui| {
             style::chip(ui, &row.mode, ui.visuals().weak_text_color());
             let (state, why, colour) = row_state(ui, row, now);
             style::chip(ui, &state, colour).on_hover_text(why);
-            if let Some(available) = available {
+            if let Some(buttons) = buttons {
                 let width = style::width_of(ui, |ui| {
-                    crate::revert::revert_button(ui, available, true);
+                    card_buttons(ui, buttons, false);
                 });
                 if ui.available_width() >= width {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        pressed = crate::revert::revert_button(ui, available, true);
+                        pressed = card_buttons(ui, buttons, true);
                     });
                 } else {
                     below = true;
                 }
             }
         });
-        if let (true, Some(available)) = (below, available) {
-            pressed = crate::revert::revert_button(ui, available, true);
+        if let (true, Some(buttons)) = (below, buttons) {
+            ui.horizontal_wrapped(|ui| pressed = card_buttons(ui, buttons, false));
         }
         let mut figures = Vec::new();
         match (&row.model, &row.effort) {
@@ -1675,6 +1846,10 @@ fn ledger_line(
         }
         figures.extend(ledger::asked(row));
         figures.extend(ledger::shares(row));
+        // Whole, to copy for `claude --resume` or `crw revert` (EP-35).
+        if let Some(id) = &row.session_id {
+            figures.push(format!("session {id}"));
+        }
         if !figures.is_empty() {
             ui.label(RichText::new(figures.join(" · ")).weak());
         }
@@ -1798,12 +1973,9 @@ mod tests {
         );
     }
 
-    /// A ledger card's Revert… opens the preview from a bare context's press (EP-15c); disabled, it
-    /// does not; a row with no session id has none.
-    #[test]
-    fn a_ledger_cards_revert_opens_the_preview() {
-        use crate::testing::{self, Screen};
-        let row = SessionRow {
+    /// A headless run of alpha's that the window no longer holds.
+    fn ledger_row() -> SessionRow {
+        SessionRow {
             id: 1,
             session_id: Some("0e1d2c3b-4a59-4687-9a0b-1c2d3e4f5a6b".to_owned()),
             project: "alpha".to_owned(),
@@ -1822,32 +1994,134 @@ mod tests {
             answer_latency_s: None,
             start: None,
             usage: Default::default(),
-        };
-        let pressed_with = |available: Option<Result<(), String>>| {
+        }
+    }
+
+    /// A ledger card's buttons answer a bare context's press (EP-15c, EP-35): Revert… opens the
+    /// preview and Resume in VS Code the session; disabled, neither does; a row with no session id
+    /// has neither.
+    #[test]
+    fn a_ledger_cards_buttons_answer_a_press() {
+        use crate::testing::{self, Screen};
+        let row = ledger_row();
+        let press = |label: &str, buttons: Option<CardButtons>| {
             let mut screen = Screen::new();
             let now = Utc::now();
-            let mut pressed = false;
+            let mut pressed = None;
             let output = screen.pass(Vec::new(), |ui| {
-                pressed |= ledger_line(ui, &row, now, available.as_ref());
+                pressed = pressed.or(ledger_line(ui, &row, now, buttons.as_ref()));
             });
-            let at = testing::text_at(&output, "Revert…")?;
+            let at = testing::text_at(&output, label)?;
             for events in [
                 testing::moved(at),
                 testing::button(at, egui::PointerButton::Primary, true),
                 testing::button(at, egui::PointerButton::Primary, false),
             ] {
                 screen.pass(events, |ui| {
-                    pressed |= ledger_line(ui, &row, now, available.as_ref());
+                    pressed = pressed.or(ledger_line(ui, &row, now, buttons.as_ref()));
                 });
             }
             Some(pressed)
         };
-        assert_eq!(pressed_with(Some(Ok(()))), Some(true));
+        let both = |resume: Result<(), String>, revert: Result<(), String>| {
+            Some(CardButtons { resume, revert })
+        };
         assert_eq!(
-            pressed_with(Some(Err("Revert is off for alpha".to_owned()))),
-            Some(false)
+            press("Revert…", both(Ok(()), Ok(()))),
+            Some(Some(Pressed::Revert))
         );
-        assert_eq!(pressed_with(None), None, "no Revert… without a session id");
+        assert_eq!(
+            press("Resume in VS Code", both(Ok(()), Ok(()))),
+            Some(Some(Pressed::Resume))
+        );
+        // Each is disabled on its own.
+        let off = |why: &str| Err(why.to_owned());
+        assert_eq!(
+            press("Revert…", both(Ok(()), off("Revert is off for alpha"))),
+            Some(None)
+        );
+        assert_eq!(
+            press("Resume in VS Code", both(off("it runs now"), Ok(()))),
+            Some(None)
+        );
+        assert_eq!(
+            press("Resume in VS Code", None),
+            None,
+            "no buttons without an id"
+        );
+        assert_eq!(press("Revert…", None), None);
+    }
+
+    /// Resume in VS Code is refused for a project or folder it cannot open, an id the link would
+    /// drop, a headless run, which the extension opens empty, and a session that may run: the
+    /// window's, one open elsewhere, or one the list of live sessions has not answered for; and
+    /// while another launch is on its way (EP-35).
+    #[test]
+    fn a_resume_in_vs_code_is_refused_for_what_it_cannot_open_or_may_run() {
+        use crw_core::discovery::Folder;
+        use crw_core::proposal::Facts;
+        use crw_core::registry::{Project, State};
+        use crw_core::roadmap::snapshot::Snapshot;
+        let project = ProjectRow {
+            project: Project::new("alpha", Path::new("alpha"), State::Active),
+            path: PathBuf::from("alpha"),
+            folder: Some(Folder {
+                name: "alpha".to_owned(),
+                path: PathBuf::from("alpha"),
+                git: true,
+                roadmap: true,
+                own_workspace: true,
+            }),
+            snapshot: Snapshot::default(),
+            facts: Facts::default(),
+            outgoing: Vec::new(),
+            git: None,
+            badges: Default::default(),
+        };
+        let mut row = ledger_row();
+        row.mode = "visual".to_owned();
+        let id = row.session_id.clone().unwrap();
+        let free = Resumes::default();
+        assert_eq!(resume_availability(&row, Some(&project), &free), Ok(()));
+        let mut manual = row.clone();
+        manual.mode = "manual".to_owned();
+        assert_eq!(resume_availability(&manual, Some(&project), &free), Ok(()));
+        let headless = resume_availability(&ledger_row(), Some(&project), &free).unwrap_err();
+        assert!(headless.starts_with("VS Code opens a headless run as an empty tab"));
+        assert!(headless.contains(&format!("claude --resume {id}")));
+        let why = |row: &SessionRow, project: Option<&ProjectRow>, resumes: &Resumes| {
+            resume_availability(row, project, resumes).unwrap_err()
+        };
+        assert_eq!(why(&row, None, &free), "alpha is not a registered project");
+        let mut gone = project.clone();
+        gone.folder = None;
+        assert_eq!(
+            why(&row, Some(&gone), &free),
+            "alpha: its folder is missing"
+        );
+        let mut odd = row.clone();
+        odd.session_id = Some("s1".to_owned());
+        assert!(why(&odd, Some(&project), &free).contains("not one the extension's link takes"));
+        let mut window = Resumes::default();
+        window.window.insert(&id);
+        assert!(why(&row, Some(&project), &window).contains("this window's own session"));
+        let mut open = Resumes::default();
+        open.open.insert(&id);
+        assert!(why(&row, Some(&project), &open).starts_with("it runs now"));
+        let unknown = Resumes {
+            unknown: Some("the list of live sessions has not answered yet".to_owned()),
+            ..Resumes::default()
+        };
+        assert!(why(&row, Some(&project), &unknown).starts_with("the list of live sessions"));
+        let opening = Resumes {
+            opening: true,
+            ..Resumes::default()
+        };
+        assert!(why(&row, Some(&project), &opening).starts_with("a launch to VS Code"));
+        // Another session's being open changes nothing for this one.
+        let mut other = Resumes::default();
+        other.open.insert("7c4e1a2d-8f53-4b06-9a0b-3b9d2f105e8c");
+        assert_eq!(resume_availability(&row, Some(&project), &other), Ok(()));
     }
 
     #[test]

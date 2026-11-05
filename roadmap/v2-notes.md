@@ -5,7 +5,8 @@ Everything named during planning and not built in v1. Every re-plan EP grows thi
 items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those marked *(EP-10)*, at
 EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 by those marked
 *(EP-12)*, at EP-13 by those marked *(EP-13)*, at EP-14 by those marked *(EP-14)*, at EP-15b by the
-revert's, and at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*.
+revert's, at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*, and at EP-35 by those
+marked *(EP-35)*.
 
 ## 1 Launch modes
 
@@ -50,6 +51,8 @@ revert's, and at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*.
   as EP-35, for a headless run a crash cut short too.)*
 - *(EP-13)* Resume of a headless session after the window restarted, from its ledger row: its
   launch's permission mode and neighbours would need keeping in the ledger (D-16 addendum).
+  *(EP-35: VS Code's extension opens a headless run's id as an empty tab, so this is the window's
+  only way back to such a run; `claude --resume <id>` in a terminal meanwhile.)*
 - *(EP-14)* "Allow always" in the Decisions tile: a permission request's suggestions
   (`permission_suggestions`) offered as an allow that writes the rule (`updatedPermissions`);
   EP-14 allows or denies one request at a time (D-19 addendum).
@@ -71,6 +74,15 @@ revert's, and at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*.
 - *(EP-16)* Headless as the default launch mode, with Visual written for this project in the
   registry (the alternative the owner did not pick: a headless run asks at every shell command
   where no allow rule admits it, and this project's release build ends it; D-16 addendum).
+- *(EP-35)* A prompt handed with Resume in VS Code: the link takes `prompt` beside `session`, but
+  a tab that holds the session already takes none ("Session is already open. Your prompt was not
+  applied"), so EP-35 hands the session alone and the owner writes in the tab.
+- *(EP-35)* `crw resume <project> [<session>]`, the window's Resume in VS Code from the command
+  line.
+- *(EP-35)* A headless run's row that a crash left open closed when the window starts again: no
+  hook closes a row of the runner's, and a resume in a terminal starts a manual row beside it.
+- *(EP-35)* Resume in VS Code for a session whose working folder was a subfolder of the project:
+  its transcript lies under the subfolder's slug, which the project's window may not look in.
 
 ## 2 Analytics
 

@@ -388,6 +388,9 @@ fn canned_sessions(board: &mut Board) {
         seen.heard = now;
         board.watch.model.insert(seen);
     }
+    // The list of live sessions has answered, so a ledger card's Resume in VS Code shows as it
+    // would (EP-35).
+    board.watch.model.polled = Some(now);
     board.watch.listening = Some(Listening::On(signals::DEFAULT_PORT));
     board.watch.entries = Some(Ok("hooks installed, status line installed".to_owned()));
     board.sessions.live.insert(0, canned_deferred());

@@ -497,6 +497,24 @@ workspace file's first folder.
 > among them (D-23 addendum), stays in view as the suggestion the opener names, and switching to
 > Headless enables the pickers. *Alternatives.* The pickers left enabled, with a plainer line.
 
+> **Addendum (2026-11-05, EP-35).** Resume in VS Code is built. A ledger card in the Sessions
+> pane's All tab whose row has a session id shows it beside Revert…. It opens the project's own
+> workspace file, waits for the extension's lock file as a visual launch does, then hands
+> `vscode://anthropic.claude-code/open?session=<id>` to `Code.exe --open-url --`. Nothing is sent:
+> the owner writes the next message in the tab. The extension takes a UUID only and drops any other
+> id without a word, so the tool refuses one first. A session that a tab already holds comes to the
+> front; any other opens in a new tab. One supervised check at this project's window, on the
+> owner's yes, found that a visual session's id opens with its conversation, while a headless
+> (`-p`) run's opens as an empty tab: the extension's list of past sessions leaves out the SDK's,
+> and its tab loads none. So a headless card's button is disabled, and its hover text says that
+> `claude --resume <id>` in a terminal takes the run up; each card now shows its session's full
+> id. The headless resume after a restart stays in the v2 notes, as the window's only way back to
+> such a run. The button is also disabled, its reason on hover, for a project that is not
+> registered or whose folder is missing, for the window's own session or one that runs elsewhere,
+> while the list of live sessions has not answered or fails, and while another launch is on its
+> way. *Alternatives.* The resume offered on headless rows too, opening an empty tab; a prompt
+> handed with the resume; the button enabled while the list of live sessions is unknown.
+
 **D-17 The launch prompt.** A generated house-style opener, the same for Visual and Headless, shown in an
 editor before launch and overridable by a per-project template: project name and path; the project's own
 read-first order; the next EP row (id, title, size, depends-on) and its brief-notes bullet; open inbox
@@ -1107,6 +1125,19 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > first interval that counted and after the latest. A ledger opened to read at an older schema
 > reads none, and a build before EP-18a refuses the ledger. *Alternatives.* The parts in a table
 > of their own; the shares in the event log.
+
+> **Addendum (2026-11-05, EP-35).** A resumed run has a row of its own (the owner's choice). The
+> hooks see a session start with the source `resume`; at its first work, if the session's latest
+> row has ended or is a headless run's (a row the runner keeps), a new row starts under the same
+> id at the resume's start, with the latest row's EP. The new row is `visual` when the window
+> handed the session to VS Code within the 30 minutes before, else `manual`; the handover is a
+> `resume` event whose words begin with the session's id. Its end hook closes the row, and its
+> usage share goes to it, as the session's latest row (EP-18a). A session whose latest row never
+> got its end goes on in that row. Revert still goes back to the session's first start (EP-15b).
+> In the watch's model, a session that starts again after an end the window heard begins anew, so
+> a run resumed within ten minutes of that end earns its row too. No schema change.
+> *Alternatives.* The old row reopened, its end moved to the new run's; no row for a resumed run,
+> as before.
 
 ## Chat, remote access, operations
 

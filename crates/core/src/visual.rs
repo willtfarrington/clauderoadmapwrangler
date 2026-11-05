@@ -4,8 +4,10 @@
 //! (the D-7 and D-16 addenda), which opens the project's window or brings it to the front; once the
 //! extension shows that window in its lock file, the link goes to `Code.exe --open-url`, as
 //! Windows' handler for `vscode://` hands it over. The tool never sees the session itself: it
-//! records the launch as visual, with no process, and the hooks see the rest (EP-12). The tests
-//! inject the processes; nothing here is started by a test (D-29).
+//! records the launch as visual, with no process, and the hooks see the rest (EP-12). A resume
+//! hands over a session's id the same way, and the extension opens that session in a tab of the
+//! project's window for the owner to go on with (EP-35). The tests inject the processes; nothing
+//! here is started by a test (D-29).
 
 use std::ffi::OsString;
 use std::fmt::Write as _;
@@ -47,7 +49,11 @@ const HANDOVER: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(250);
 
 /// What a cancelled launch says.
-pub const CANCELLED: &str = "cancelled before the prompt was handed to VS Code";
+pub const CANCELLED: &str = "cancelled before the link was handed to VS Code";
+
+/// The ledger's event of a resume handed to VS Code (EP-35): its words begin with the session's
+/// id, and the run that resumes within the claim's window is the tool's (`visual`).
+pub const RESUME_KIND: &str = "resume";
 
 /// The link that opens a Claude Code tab with `prompt` filled in, or why it cannot be handed over.
 pub fn link(prompt: &str) -> Result<String, String> {
@@ -62,15 +68,42 @@ pub fn link(prompt: &str) -> Result<String, String> {
     Ok(link)
 }
 
-/// The link with `prompt` as its `prompt` parameter. VS Code decodes a link once and the
-/// extension reads its query with `URLSearchParams`, which decodes it again and takes `&`, `+`
-/// and `%` its own way; those three are escaped twice, every other byte outside the unreserved
-/// set once.
+/// The link that opens the session `id` in a Claude Code tab (EP-35), or why it cannot: the
+/// extension takes a UUID only and drops any other id without a word.
+pub fn session_link(id: &str) -> Result<String, String> {
+    if !is_uuid(id) {
+        return Err(format!(
+            "the session id {id:?} is not a UUID, which the extension's link would drop"
+        ));
+    }
+    Ok(encode_as("session", id))
+}
+
+/// Whether `id` is a UUID as Claude Code writes them: 8-4-4-4-12 hexadecimal digits.
+pub fn is_uuid(id: &str) -> bool {
+    let groups: Vec<&str> = id.split('-').collect();
+    groups.len() == 5
+        && groups
+            .iter()
+            .zip([8, 4, 4, 4, 12])
+            .all(|(group, len)| group.len() == len && group.bytes().all(|b| b.is_ascii_hexdigit()))
+}
+
+/// The link with `prompt` as its `prompt` parameter.
 fn encode(prompt: &str) -> String {
-    let mut out = String::with_capacity(LINK.len() + 8 + prompt.len() * 3);
+    encode_as("prompt", prompt)
+}
+
+/// The link with `value` as its parameter `name`. VS Code decodes a link once and the extension
+/// reads its query with `URLSearchParams`, which decodes it again and takes `&`, `+` and `%` its
+/// own way; those three are escaped twice, every other byte outside the unreserved set once.
+fn encode_as(name: &str, value: &str) -> String {
+    let mut out = String::with_capacity(LINK.len() + name.len() + 2 + value.len() * 3);
     out.push_str(LINK);
-    out.push_str("?prompt=");
-    for byte in prompt.bytes() {
+    out.push('?');
+    out.push_str(name);
+    out.push('=');
+    for byte in value.bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
                 out.push(char::from(byte));
@@ -273,6 +306,8 @@ pub struct Launch {
     /// The EP the session works on, such as `EP-3`.
     pub ep: Option<String>,
     pub prompt: String,
+    /// The session to resume in place of a prompt to fill in (EP-35).
+    pub session: Option<String>,
     /// `Code.exe`.
     pub code: PathBuf,
     /// The folder of the extension's lock files.
@@ -293,11 +328,29 @@ impl Launch {
             folder: folder.to_owned(),
             ep: None,
             prompt: prompt.to_owned(),
+            session: None,
             code: code.to_owned(),
             locks: locks.to_owned(),
             wait: WAIT,
             settle: SETTLE,
             ledger: None,
+        }
+    }
+
+    /// A resume of the session `id` in `folder`'s window (EP-35): the usual wait and pause, no
+    /// prompt, nothing recorded.
+    pub fn resume(project: &str, folder: &Path, id: &str, code: &Path, locks: &Path) -> Self {
+        Self {
+            session: Some(id.to_owned()),
+            ..Self::new(project, folder, "", code, locks)
+        }
+    }
+
+    /// The link this launch hands over, or why it cannot.
+    pub fn link(&self) -> Result<String, String> {
+        match &self.session {
+            Some(id) => session_link(id),
+            None => link(&self.prompt),
         }
     }
 }
@@ -311,13 +364,15 @@ pub struct Opened {
     pub was_open: bool,
     /// From the workspace file's opening to the window's showing.
     pub waited: Duration,
+    /// The launch's session row, or a resume's event (EP-35).
     pub ledger_row: Option<i64>,
     /// Why the ledger did not take the launch, when it did not.
     pub ledger_problem: Option<String>,
 }
 
-/// Opens the project's window and fills the prompt into a Claude Code tab there (D-16), waiting
-/// while the window starts; a `cancel` raised meanwhile stops it before the link is handed over.
+/// Opens the project's window and fills the prompt into a Claude Code tab there (D-16), or opens
+/// the session a resume names in one (EP-35), waiting while the window starts; a `cancel` raised
+/// meanwhile stops it before the link is handed over.
 pub fn open(launch: &Launch, cancel: &AtomicBool) -> Result<Opened, String> {
     open_with(launch, cancel, &mut Children)
 }
@@ -334,7 +389,7 @@ fn open_with(
     cancel: &AtomicBool,
     starter: &mut dyn Starter,
 ) -> Result<Opened, String> {
-    let link = link(&launch.prompt)?;
+    let link = launch.link()?;
     let workspace = discovery::write_own_file(&launch.folder).map_err(|e| e.to_string())?;
     let file = workspace
         .path()
@@ -399,11 +454,25 @@ fn focus_with(folder: &Path, code: &Path, starter: &mut dyn Starter) -> Result<P
 }
 
 /// The launch's ledger row: `visual`, with no session id, model or effort, since VS Code chooses
-/// them; none when no ledger was asked for.
+/// them. A resume writes no row, which its run earns at its first work, but a [`RESUME_KIND`]
+/// event whose words begin with the session's id, which makes that run the tool's (EP-35). None
+/// when no ledger was asked for.
 fn record(launch: &Launch) -> Result<Option<i64>, String> {
     let Some(path) = &launch.ledger else {
         return Ok(None);
     };
+    if let Some(id) = &launch.session {
+        let detail = match &launch.ep {
+            Some(ep) => format!("{id} · {ep}"),
+            None => id.clone(),
+        };
+        return Ledger::open(path)
+            .and_then(|ledger| {
+                ledger.add_event(Utc::now(), RESUME_KIND, Some(&launch.project), &detail)
+            })
+            .map(Some)
+            .map_err(|e| format!("the ledger did not record the resume: {e}"));
+    }
     Ledger::open(path)
         .and_then(|ledger| {
             ledger.start_session(&NewSession {
@@ -552,6 +621,36 @@ mod tests {
         // space: why the three are escaped twice.
         let once = format!("{LINK}?prompt=a%20%26%20b%20%2B%20c");
         assert_eq!(read_back(&once)[0].1, "a ");
+    }
+
+    #[test]
+    fn a_resume_links_a_uuid_only() {
+        let id = "8a379a7c-1668-46f2-bca8-966db5df8380";
+        let link = session_link(id).unwrap();
+        assert_eq!(link, format!("{LINK}?session={id}"));
+        assert_eq!(read_back(&link), [("session".to_owned(), id.to_owned())]);
+        assert!(is_uuid(&id.to_uppercase()));
+        for bad in [
+            "",
+            "8a379a7c",
+            "8a379a7c-1668-46f2-bca8-966db5df838",
+            "8a379a7c-1668-46f2-bca8-966db5df8380-",
+            "8a379a7c_1668_46f2_bca8_966db5df8380",
+            "8a379a7c-1668-46f2-bca8-966db5df838z",
+            "8a379a7c-1668-46f2-bca8-966db5df8380&prompt=x",
+        ] {
+            assert!(session_link(bad).is_err(), "{bad:?}");
+        }
+        // A resume's link is the session's, in place of the prompt's.
+        let launch = Launch::resume(
+            "alpha",
+            Path::new("alpha"),
+            id,
+            Path::new("Code.exe"),
+            Path::new("ide"),
+        );
+        assert_eq!(launch.link().unwrap(), link);
+        assert!(launch.prompt.is_empty());
     }
 
     #[test]
@@ -792,6 +891,60 @@ mod tests {
             (&None, &None, &None)
         );
         assert_eq!(rows[0].outcome, None);
+    }
+
+    #[test]
+    fn a_resume_hands_over_the_session_and_records_an_event_not_a_row() {
+        let Setup {
+            scratch,
+            mut launch,
+            mut fake,
+        } = setup("visual-resume", true);
+        let id = "0e1d2c3b-4a59-4687-9a0b-1c2d3e4f5a6b";
+        launch.session = Some(id.to_owned());
+        launch.prompt = String::new();
+        let opened = open_with(&launch, &AtomicBool::new(false), &mut fake).unwrap();
+        let own = scratch.0.join("data").join("alpha.code-workspace");
+        assert_eq!(
+            fake.calls,
+            [
+                vec![own.to_string_lossy().into_owned()],
+                vec![
+                    "--open-url".to_owned(),
+                    "--".to_owned(),
+                    session_link(id).unwrap()
+                ],
+            ]
+        );
+        // The run earns its row at its first work; the event makes it the tool's.
+        let ledger = Ledger::open(launch.ledger.as_deref().unwrap()).unwrap();
+        assert!(ledger.sessions().unwrap().is_empty());
+        let events = ledger.events(RESUME_KIND, None).unwrap();
+        assert_eq!(events.len(), 1);
+        assert_eq!(opened.ledger_row, Some(events[0].id));
+        assert_eq!(
+            (events[0].project.as_deref(), events[0].detail.as_deref()),
+            (Some("alpha"), Some(format!("{id} · EP-3").as_str()))
+        );
+        let since = Utc::now() - chrono::TimeDelta::minutes(1);
+        assert!(ledger.names_session(RESUME_KIND, id, since).unwrap());
+        assert!(
+            !ledger
+                .names_session(RESUME_KIND, "4a59-0e1d2c3b", since)
+                .unwrap()
+        );
+
+        // An id the extension would drop stops the resume before anything is started or written.
+        let Setup {
+            scratch,
+            mut launch,
+            mut fake,
+        } = setup("visual-resume-bad", true);
+        launch.session = Some("not-a-session".to_owned());
+        let why = open_with(&launch, &AtomicBool::new(false), &mut fake).unwrap_err();
+        assert!(why.contains("not a UUID"), "{why}");
+        assert!(fake.calls.is_empty());
+        assert!(!scratch.0.join("data").join("alpha.code-workspace").exists());
     }
 
     #[test]
