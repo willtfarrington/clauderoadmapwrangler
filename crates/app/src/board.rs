@@ -512,6 +512,9 @@ impl Board {
         let now = chrono::Utc::now();
         self.meter.receive(now);
         self.split_usage();
+        // Each project's share of the week, into its row again after a files read (EP-18b).
+        self.meter.read_week(now);
+        self.meter.week.apply(&mut self.portfolio);
         for line in self.watch.take_lines() {
             self.meter.status_line(&line, now);
         }
@@ -578,7 +581,10 @@ impl Board {
             Ok(any)
         });
         match written {
-            Ok(true) => self.sessions.history.stale = true,
+            Ok(true) => {
+                self.sessions.history.stale = true;
+                self.meter.week.stale = true;
+            }
             Ok(false) => {}
             Err(e) => {
                 self.meter.problem =

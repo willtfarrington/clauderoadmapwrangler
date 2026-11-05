@@ -136,7 +136,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   session's first step finds its row: `target\release\crw.exe sessions clauderoadmapwrangler`
   lists it as visual, EP-18a, with its session id, once its first turn has run. If a step goes
   another way, put what you saw in `roadmap/inbox.md` [before EP-18a]
-- [ ] OT-15 (EP-18a, 2026-11-05) Reopen Roadmap Wrangler from its shortcut; its first start
+- [x] OT-15 (EP-18a, 2026-11-05) Reopen Roadmap Wrangler from its shortcut; its first start
   brings the ledger to schema 5, after which an older build refuses it. Keep it running through
   your next session in any registered project, manual or launched, then run
   `target\release\crw.exe sessions <project>`. The session's line should end with its share,
@@ -146,3 +146,12 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   points. The same share shows on the session's card in the Sessions pane's All tab. The session
   checked this only on scratch ledgers and the fake portfolio (rules 5 and 13). Notes go to
   `roadmap/inbox.md` [before EP-18b]
+- [ ] OT-16 (EP-18b, 2026-11-05) Reopen Roadmap Wrangler from its shortcut. The Projects pane
+  has a Usage column after Backup: each project's points of the weekly limit since the weekly
+  reset, such as `+1 %`. A weak `+0 %` marks a project whose sessions worked through no rise, and
+  a project without a share this week shows nothing. The figures should match the sums that
+  `target\release\crw.exe sessions` prints at its top. Hover a figure for its sentence, which
+  adds its Fable sum and its part of all that was attributed. Select the project for the same
+  sentence at the foot of the Detail pane's Status section, under Usage. Sort, Usage share orders
+  each group by the figures, the largest first. The session checked this only on the fake
+  portfolio (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-35]

@@ -18,7 +18,8 @@
 //! - `adopt=<folder>`, `ignore=<folder>`, `pin=<project>`, `tick=<project>:<OT-n>` (the action a
 //!   click queues, through the same path: the first three write the run's registry, the tick is
 //!   refused);
-//! - `sort=<key>` (`priority`, `completion`, `remaining`, `last-activity`, `hosting`, `name`);
+//! - `sort=<key>` (`priority`, `completion`, `remaining`, `last-activity`, `hosting`,
+//!   `usage-share`, `name`);
 //!   `stack=<stack>` (`rust`, `python`, … or the chip's letters) and `hosting=<class>` (`public`,
 //!   `private`, `remote`, `local`), each adding to its filter;
 //! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read;
@@ -46,8 +47,10 @@
 //!   with Close alone) and `revert=<project>:done` (what the revert did);
 //! - `usage` (the usage meter's strip and pane with a canned reading, from EP-17: weekly 41 %,
 //!   Fable past its 80 % mark, a five-hour window open, the week by surface, a status line and a
-//!   week of samples across the weekly reset); `usage=degraded` (the same with the endpoint's
-//!   last poll failed and a newer status line); `tile=usage` brings its pane forward;
+//!   week of samples across the weekly reset; from EP-18b also the week's shares of harbor,
+//!   lantern, quarry and orchard, orchard's `+0 %`, in the list's Usage column and the Detail
+//!   pane); `usage=degraded` (the same with the endpoint's last poll failed and a newer status
+//!   line); `tile=usage` brings its pane forward; `sort=usage-share` orders by the shares;
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup

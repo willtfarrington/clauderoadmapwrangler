@@ -4,13 +4,14 @@
 //! legend under the Projects pane lists the same tables, so the key cannot drift from the row
 //! (EP-7a).
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use crw_core::badges::activity::Staleness;
 use crw_core::badges::backup::State as BackupState;
 use crw_core::badges::health::Outcome;
 use crw_core::badges::hosting::{Class, Hosting, Verdict, Visibility};
 use crw_core::badges::short_age;
 use crw_core::badges::stack::Kind;
+use crw_core::ledger;
 use eframe::egui::{self, Align, Color32, Layout, RichText, vec2};
 use egui_material_icons::MaterialIcon;
 
@@ -147,6 +148,10 @@ const BACKUP_FAILING: Sign = Sign::icon(icons::ICON_ERROR, Tone::Bad, "the job r
 const NOT_COVERED: Sign = Sign::icon(icons::ICON_CLOUD_OFF, Tone::Warn, "not in the job");
 const BACKUP_UNKNOWN: Sign = Sign::icon(icons::ICON_HELP, Tone::Weak, "no archive yet");
 
+// Usage (D-23, D-25): the project's share of the week, in points of the weekly limit.
+const USED: Sign = Sign::text("+2 %", Tone::Plain, "points of the weekly limit this week");
+const UNMOVED: Sign = Sign::text("+0 %", Tone::Weak, "worked, no rise yet");
+
 // The row's other marks.
 pub const PINNED: Sign = Sign::icon(icons::ICON_PUSH_PIN, Tone::Weak, "pinned");
 pub const PROPOSAL: Sign = Sign::icon(icons::ICON_LIGHTBULB, Tone::Warn, "state change proposed");
@@ -165,7 +170,7 @@ pub struct Group {
 
 /// Every sign a mark is made from, in the badge column's order and then the row's other marks;
 /// the legend shows the stack chips before them.
-pub const KEY: [Group; 6] = [
+pub const KEY: [Group; 7] = [
     Group {
         title: "Hosting",
         signs: &[
@@ -210,6 +215,10 @@ pub const KEY: [Group; 6] = [
             NOT_COVERED,
             BACKUP_UNKNOWN,
         ],
+    },
+    Group {
+        title: "Usage",
+        signs: &[USED, UNMOVED],
     },
     Group {
         title: "Row",
@@ -552,6 +561,50 @@ pub fn backup(row: &ProjectRow, now: DateTime<Utc>) -> Option<Mark> {
     })
 }
 
+/// The project's share of the week's usage (D-23, D-25; EP-18b): its sessions' weekly sum in
+/// points of the limit, `+0 %` weak when they worked through no rise. The sentence adds Fable's
+/// sum and the project's part of all the points the window attributed this week.
+pub fn usage(row: &ProjectRow) -> Option<Mark> {
+    let usage = row.badges.usage?;
+    let weekly = usage.weekly?;
+    let points = ledger::points(weekly);
+    let sign = if points == "0" { UNMOVED } else { USED };
+    let fable = usage
+        .fable
+        .map(|fable| format!(" and {} of Fable's", ledger::points(fable)))
+        .unwrap_or_default();
+    let sessions = match usage.sessions {
+        1 => "1 session".to_owned(),
+        n => format!("{n} sessions"),
+    };
+    let since = usage.since.with_timezone(&Local).format("%a %d %b %H:%M");
+    let part = match ledger::points(usage.attributed).as_str() {
+        "0" => String::new(),
+        all => format!(
+            ": {:.0} % of the {} the window attributed",
+            weekly / usage.attributed * 100.0,
+            of_points(all)
+        ),
+    };
+    Some(Mark::worded(
+        sign,
+        format!("+{points} %"),
+        format!(
+            "{} of the weekly limit{fable} over {sessions} this week, since the reset on \
+             {since}{part}",
+            of_points(&points)
+        ),
+    ))
+}
+
+/// `1 point`, `2.5 points`.
+fn of_points(points: &str) -> String {
+    match points {
+        "1" => "1 point".to_owned(),
+        points => format!("{points} points"),
+    }
+}
+
 /// Space between the legend's groups, side by side.
 const GROUP_GAP: f32 = 28.0;
 
@@ -686,7 +739,7 @@ mod tests {
     use crw_core::roadmap::snapshot::Snapshot;
 
     use super::*;
-    use crate::portfolio::{Badges, Fetched};
+    use crate::portfolio::{Badges, Fetched, Usage};
 
     fn row(badges: Badges) -> ProjectRow {
         ProjectRow {
@@ -900,6 +953,78 @@ mod tests {
         // Each of the job's five states has a sign of its own.
         assert_eq!(seen.len(), group("Backup").len());
         assert!(group("Backup").iter().all(|sign| seen.contains(sign)));
+
+        let since = now - TimeDelta::days(2);
+        let usage = |weekly, fable| Badges {
+            usage: Some(Usage {
+                weekly,
+                fable,
+                sessions: 2,
+                since,
+                attributed: 12.0,
+            }),
+            ..Badges::default()
+        };
+        let mut shown = Vec::new();
+        for (weekly, fable) in [(6.0, Some(4.5)), (0.04, None), (0.0, Some(0.0))] {
+            let mark = super::usage(&row(usage(Some(weekly), fable))).unwrap();
+            assert!(group("Usage").contains(&mark.sign), "{mark:?}");
+            shown.push(mark.sign);
+        }
+        // Under a twentieth of a point writes `0`, weak like none at all.
+        assert_eq!(shown, [USED, UNMOVED, UNMOVED]);
+        // No mark without a weekly share: Fable's alone, or none.
+        assert!(super::usage(&row(usage(None, Some(1.0)))).is_none());
+        assert!(super::usage(&row(Badges::default())).is_none());
+    }
+
+    #[test]
+    fn a_usage_mark_gives_the_weeks_points_and_the_projects_part() {
+        let since = DateTime::parse_from_rfc3339("2026-10-31T22:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let local = since.with_timezone(&Local).format("%a %d %b %H:%M");
+        let mark = |weekly, fable, sessions, attributed| {
+            usage(&row(Badges {
+                usage: Some(Usage {
+                    weekly: Some(weekly),
+                    fable,
+                    sessions,
+                    since,
+                    attributed,
+                }),
+                ..Badges::default()
+            }))
+            .unwrap()
+        };
+        let six = mark(6.0, Some(4.5), 3, 12.0);
+        assert_eq!((six.sign, six.text.as_deref()), (USED, Some("+6 %")));
+        assert_eq!(
+            six.hover,
+            format!(
+                "6 points of the weekly limit and 4.5 of Fable's over 3 sessions this week, \
+                 since the reset on {local}: 50 % of the 12 points the window attributed"
+            )
+        );
+        let third = mark(1.0 / 3.0, None, 1, 1.0);
+        assert_eq!(third.text.as_deref(), Some("+0.3 %"));
+        assert_eq!(
+            third.hover,
+            format!(
+                "0.3 points of the weekly limit over 1 session this week, since the reset on \
+                 {local}: 33 % of the 1 point the window attributed"
+            )
+        );
+        // Nothing attributed yet: no part to give.
+        let none = mark(0.0, Some(0.0), 1, 0.0);
+        assert_eq!((none.sign, none.text.as_deref()), (UNMOVED, Some("+0 %")));
+        assert_eq!(
+            none.hover,
+            format!(
+                "0 points of the weekly limit and 0 of Fable's over 1 session this week, since \
+                 the reset on {local}"
+            )
+        );
     }
 
     #[test]

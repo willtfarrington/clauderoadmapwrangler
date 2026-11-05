@@ -854,6 +854,23 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > *Alternatives.* The figures before and after each session, at its last turn or at its row's
 > end, whose sums count parallel use twice; launched sessions only; a split weighted by busy time.
 
+> **Addendum (2026-11-05, EP-18b).** The usage-share badge is built (D-25 addendum).
+>
+> - **Its figure** is the project's weekly sum this week in points of the weekly limit, the unit
+>   of the meter's own figure (the owner's choice). So it holds while other projects work, and
+>   the projects' figures never add up to more than the account's. The project's part of all
+>   that was attributed joins its sentence. Fable's sum is in the sentence alone, also the
+>   owner's choice.
+> - **The window's reading.** The meter reads the sums from the ledger without a write
+>   (`meter::Week`), for the week that the weekly figure's reset closes. It reads them again when
+>   that week moves on and after a split wrote shares, and tries a failed read again after 30 s.
+>   At each pass the board puts each registered project's sums into its row by name, case aside,
+>   since a files read replaces the rows.
+>
+> *Alternatives.* The part of all that was attributed as the figure, which sums to 100 % but
+> moves whenever any project works; both figures in the cell; a read every half minute, like
+> the Sessions pane's.
+
 ## Hosting, views, history
 
 **D-24 Hosting, backup and the site.** Remote badges none / private / public, ahead / behind / diverged by
@@ -1006,6 +1023,24 @@ state; graphs only in the detail tile or a separate window.
 > does not, and nothing does while the revert runs. Afterwards it shows what the revert did, and the
 > status bar says where the work is kept. No new colour. *Alternatives.* The plan's parts as a
 > table; Revert in the tab's header beside Dismiss; a card's Revert shown on hover only.
+
+> **Addendum (2026-11-05, EP-18b).** The usage share is a badge column of its own, Usage, after
+> Backup and in both of the badges' forms. The give-way order is otherwise as before.
+>
+> - **The cell.** It shows the project's points of the weekly limit this week (`+6 %`, D-23
+>   addendum) in the text's own colour, or `+0 %` weak when its sessions worked through no rise.
+>   It shows nothing without a share or a weekly reading. The figure is written whole or to a
+>   tenth, and Fable's sum stays in the sentence. No new colour.
+> - **The key and the Detail pane.** The legend's Usage group sits between Backup and Row. The
+>   Status section's sixth subsection, Usage, gives the badge's sentence, or why there is none,
+>   and a line on the method.
+> - **The sort.** Usage share ranks the weekly sums as the cell writes them, the largest first,
+>   equal figures by name and the projects without one last. Every key of D-25 now has its data,
+>   so the menu greys none out.
+>
+> *Alternatives.* Both figures in the cell (`+1 % · F +0 %`); the column among the hosting
+> badges, where D-25 lists the usage share; the raw sums as the sort's key, which orders figures
+> the cell writes alike.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

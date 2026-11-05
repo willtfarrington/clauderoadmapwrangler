@@ -689,7 +689,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-17 | [Usage meter: endpoint poller with per-poll token read, status-line feed merge, degrade mode, strip and tile with countdowns and surface breakdown, samples, 80 and 95 percent toasts (D-23)](EP-17-usage-meter.md) | M | EP-12 | core | ☑ `3cf6dcf` |
 | EP-18 | [Downshift rule: the Fable-share downshift as the resolver's last layer with its registry mark, its judgement in the launch dialog and `crw prompt`, the dialog's Visual pickers greyed out for the tab's panel](EP-18-downshift-rule.md) (D-23, D-16) | S | EP-10, EP-17 | core | ☑ `8014ad6` |
 | EP-18a | [Usage attribution: each poll's rise in the weekly and Fable figures split among the sessions that worked since the poll before, manual ones too, each row's share and the figures around it in ledger schema 5, shown on the Sessions pane's cards and summed per project over the week in `crw sessions`](EP-18a-usage-attribution.md) (D-23, D-26) | S | EP-18 | core | ☑ `59c0a33` |
-| EP-18b | Usage-share badge: each project's share of the week as one more column of the row's badges in both forms, a line of the Detail pane's Status section, the legend's key and the sort key (D-23, D-25) | S | EP-18a | core | ☐ |
+| EP-18b | [Usage-share badge: each project's points of the weekly limit this week as a Usage column of the row's badges in both forms, its Fable sum and its part of all that was attributed in the hover text and a line of the Detail pane's Status section, the legend's key and the Usage share sort key](EP-18b-usage-share-badge.md) (D-23, D-25) | S | EP-18a | core | ☐ |
 | EP-35 | Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions (D-16, D-26) | S | EP-11, EP-13 | core | ☐ |
 | EP-19 | Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log (D-22) | L | EP-14, EP-17 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
@@ -899,7 +899,13 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   `Resolution::downshift`. The mark is the registry's `fable_downshift_percent` (60 by default);
   a figure above it counts whatever its age. A figure counts until its reset
   (`Limit::before_reset`): the endpoint calls the Fable-scoped limit inactive while its window
-  runs, so the pause must not read `is_active` (D-23 addendum).
+  runs, so the pause must not read `is_active` (D-23 addendum). **From EP-18b (the owner's word,
+  placed here by the owner):** until the tool can set each session's model and effort to the
+  owner's liking, whether run one by one or chained, the owner chooses them in the tab's panel by
+  their own judgement. A headless launch takes the dialog's choice and a chained run the rule
+  table's (D-17), while a visual tab's panel stays the owner's, since the extension's link takes
+  only `prompt` and `session`. So this brief lets the owner set each brief's model and effort
+  before a chain starts, the rules' choice the default.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -992,6 +998,8 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   session-hours, 17 still open once EP-18a is checked. EP-18a was started from the window's launch
   (OT-14), with the model and effort chosen in the tab's panel. From EP-18a each session's row
   also holds its share of the week's usage, which the retro can set beside the briefs' sizes.
+  **From EP-18b:** 16 briefs are still open once EP-18b is checked. The Projects pane's Usage
+  column and its sort key give each project's points of the weekly limit this week.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1036,7 +1044,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   re-plan's (D-15). **From EP-15a (the owner's answer at its close):** a brief's notes, written for
   the sessions that carry them out, are hard to read for what the brief plans (its references,
   its pickup notes); the owner left them so for the sessions' sake and expects to ask the chat
-  tile what a brief plans, in plain words.
+  tile what a brief plans, in plain words. **From EP-18b:** a row's badges hold its share of the
+  week (`Badges::usage`: the weekly and Fable sums in points of each limit, the sessions counted,
+  the week's start), which the digest's usage figures can give per project.
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note
@@ -1077,7 +1087,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   rebuilt section wraps them. **From EP-17:** the usage samples are `usage_sample` rows (source
   `endpoint` every 5 minutes while a window runs, `statusline` when a session's figures change),
   read with `Ledger::samples_since`; the Usage pane's 7-day sparkline is drawn with egui's
-  painter (`meter::sparkline`), which egui_plot may replace once the pins move.
+  painter (`meter::sparkline`), which egui_plot may replace once the pins move. **From EP-18b:**
+  a card's badges include the usage share (`badges::usage`, put into each row at each pass from
+  the meter's `Week`). The chart of D-23 and D-26 needs each week's sums between two resets,
+  while `Ledger::shares_since` takes a start alone.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to

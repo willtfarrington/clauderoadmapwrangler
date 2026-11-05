@@ -6,17 +6,18 @@
 //! (degraded, back) as `usage` events, and hands the 80 % and 95 % marks to the notifications,
 //! once per mark and limit window. It draws the strip in the status bar and the Usage pane: each
 //! limit's bar with its reset countdown, the week's use by surface, extra usage and a sparkline of
-//! the last seven days. Nothing polls before `main` starts it: never in a test or a screenshot
-//! run, whose meter is canned.
+//! the last seven days. It also reads each project's share of the week from the ledger, which
+//! the list's Usage badge and the Detail pane show (EP-18b). Nothing polls before `main` starts
+//! it: never in a test or a screenshot run, whose meter is canned.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, TimeDelta, Utc};
 use crw_core::badges::short_age;
-use crw_core::ledger::{Ledger, Sample};
+use crw_core::ledger::{Ledger, ProjectShare, Sample};
 use crw_core::registry::Store;
 use crw_core::signals::StatusLine;
 use crw_core::usage::{
@@ -26,6 +27,7 @@ use crw_core::usage::{
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
 
 use crate::board::Board;
+use crate::portfolio::{Portfolio, Usage};
 use crate::style;
 
 /// The days the sparkline spans, and the samples the window keeps.
@@ -76,10 +78,87 @@ pub struct Meter {
     previous: Option<Sample>,
     /// The readings since the board last took them, each with this run's one before.
     readings: Vec<(Option<Sample>, Sample)>,
+    /// Each project's share of the week, for the list's badge and the Detail line (EP-18b).
+    pub week: Week,
     ledger: Option<PathBuf>,
     worker: Option<Worker>,
     /// Started by `main`, or canned in a screenshot run.
     on: bool,
+}
+
+/// A failed read of the week's shares is tried again after this.
+const WEEK_RETRY: Duration = Duration::from_secs(30);
+
+/// The week's shares of the usage by project (D-23, D-25; EP-18b), read from the ledger without
+/// a write: when the week the weekly figure's reset closes is first known or moves on, again
+/// after a split wrote shares (`stale`), and a while after a read failed.
+#[derive(Debug, Default)]
+pub struct Week {
+    /// The weekly window's start, seven days before the weekly figure's reset.
+    pub since: Option<DateTime<Utc>>,
+    /// Each project's sums, the largest weekly first.
+    pub shares: Vec<ProjectShare>,
+    /// A split wrote shares since the last read.
+    pub stale: bool,
+    /// Why the last read failed.
+    pub problem: Option<String>,
+    retry_at: Option<Instant>,
+    /// A screenshot run's sums: the ledger is not read.
+    canned: bool,
+}
+
+impl Week {
+    /// Reads the sums of the week that starts at `since` from the ledger at `ledger`, when they
+    /// are due; none without a week or a ledger.
+    fn refresh(&mut self, ledger: Option<&Path>, since: Option<DateTime<Utc>>, now: Instant) {
+        let moved = since != self.since;
+        let retry = self.retry_at.is_some_and(|at| now >= at);
+        if self.canned || !(moved || self.stale || retry) {
+            return;
+        }
+        self.since = since;
+        self.stale = false;
+        self.retry_at = None;
+        self.problem = None;
+        let read = match (ledger, since) {
+            (Some(path), Some(since)) if path.exists() => {
+                Ledger::open_read_only(path).and_then(|ledger| ledger.shares_since(since))
+            }
+            _ => Ok(Vec::new()),
+        };
+        match read {
+            Ok(shares) => self.shares = shares,
+            Err(e) => {
+                // A week that moved on keeps nothing of the one before.
+                if moved {
+                    self.shares.clear();
+                }
+                self.problem = Some(format!("The ledger's shares of the week did not read: {e}"));
+                self.retry_at = Some(now + WEEK_RETRY);
+            }
+        }
+    }
+
+    /// Puts each registered project's sums into its row, the name matched case aside. A files
+    /// read replaces the rows, so the board does this at each pass.
+    pub fn apply(&self, portfolio: &mut Portfolio) {
+        let attributed = self.shares.iter().filter_map(|share| share.weekly).sum();
+        for row in &mut portfolio.projects {
+            row.badges.usage = self.since.and_then(|since| {
+                let share = self
+                    .shares
+                    .iter()
+                    .find(|share| share.project.eq_ignore_ascii_case(row.name()))?;
+                Some(Usage {
+                    weekly: share.weekly,
+                    fable: share.fable,
+                    sessions: share.sessions,
+                    since,
+                    attributed,
+                })
+            });
+        }
+    }
 }
 
 impl Meter {
@@ -209,6 +288,19 @@ impl Meter {
     /// for the run's first), for the usage's split (D-23; EP-18a).
     pub fn take_readings(&mut self) -> Vec<(Option<Sample>, Sample)> {
         std::mem::take(&mut self.readings)
+    }
+
+    /// Reads the week's shares when they are due (EP-18b), the week being the one the weekly
+    /// figure's reset closes.
+    pub fn read_week(&mut self, now: DateTime<Utc>) {
+        let since = self
+            .gauge
+            .figures(now)
+            .weekly
+            .and_then(|figure| figure.limit.resets_at)
+            .map(|resets_at| usage::share::week_start(resets_at, now));
+        self.week
+            .refresh(self.ledger.as_deref(), since, Instant::now());
     }
 
     /// The marks the standing figures reach, kept in the ledger's cache so that a restart does
@@ -728,8 +820,9 @@ fn draw_run(painter: &egui::Painter, run: Vec<Pos2>, ink: Color32) {
 }
 
 /// A screenshot run's meter (rule 5): an endpoint's reading two minutes old with Fable past its
-/// 80 % mark, a status line, and a week of hourly samples across the weekly reset; `degraded`
-/// adds the endpoint's failure a minute ago and a newer status line.
+/// 80 % mark, a status line, a week of hourly samples across the weekly reset, and the week's
+/// shares of four fake projects; `degraded` adds the endpoint's failure a minute ago and a newer
+/// status line.
 #[cfg(feature = "screenshot")]
 pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
     use crw_core::usage::{Limit, Scoped, Surface};
@@ -824,10 +917,30 @@ pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
         );
     }
     samples.sort_by_key(|sample| sample.taken_at);
+    // The week's shares of four fake projects (EP-18b): 16 of the 41 points attributed, and
+    // orchard's manual session worked through no rise.
+    let share = |project: &str, weekly, fable, sessions| ProjectShare {
+        project: project.to_owned(),
+        weekly: Some(weekly),
+        fable,
+        sessions,
+    };
+    let week = Week {
+        since: Some(began),
+        shares: vec![
+            share("harbor", 9.5, Some(6.0), 4),
+            share("lantern", 6.0, Some(4.5), 3),
+            share("quarry", 0.5, None, 1),
+            share("orchard", 0.0, Some(0.0), 1),
+        ],
+        canned: true,
+        ..Week::default()
+    };
     Meter {
         gauge,
         samples,
         next: Some(now + TimeDelta::minutes(if degraded { 1 } else { 3 })),
+        week,
         on: true,
         ..Meter::default()
     }
@@ -916,5 +1029,99 @@ mod tests {
             ),
             "{state}"
         );
+    }
+
+    #[test]
+    fn the_weeks_shares_are_read_when_due_and_put_into_the_rows() {
+        use crw_core::ledger::{NewSession, Part};
+
+        use crate::portfolio::tests::{Scratch, fake_store};
+
+        let scratch = Scratch::new("meter-week");
+        let path = scratch.0.join("ledger.sqlite");
+        let ledger = Ledger::open(&path).unwrap();
+        let session = |id: &str, project: &str, started: &str| {
+            ledger
+                .start_session(&NewSession {
+                    session_id: Some(id),
+                    project,
+                    ep: None,
+                    mode: "manual",
+                    model: None,
+                    effort: None,
+                    ultracode: false,
+                    started_at: at(started),
+                })
+                .unwrap();
+        };
+        let part = |weekly| Part {
+            weekly: Some(weekly),
+            ..Part::default()
+        };
+        session("s-1", "harbor", "2026-11-02T10:00:00Z");
+        session("s-2", "Lantern", "2026-11-03T10:00:00Z");
+        // Started before the week.
+        session("s-3", "quarry", "2026-10-30T10:00:00Z");
+        for (id, weekly) in [("s-1", 2.0), ("s-2", 0.5), ("s-3", 4.0)] {
+            assert!(ledger.add_share(id, &part(weekly)).unwrap());
+        }
+        let sums = |week: &Week| -> Vec<(String, Option<f64>)> {
+            week.shares
+                .iter()
+                .map(|share| (share.project.clone(), share.weekly))
+                .collect()
+        };
+        let named = |name: &str, weekly: f64| (name.to_owned(), Some(weekly));
+
+        let mut week = Week::default();
+        let now = Instant::now();
+        // No weekly reading yet: no week to sum over.
+        week.refresh(Some(&path), None, now);
+        assert!(week.shares.is_empty());
+        let since = at("2026-10-31T17:00:00Z");
+        week.refresh(Some(&path), Some(since), now);
+        assert_eq!(sums(&week), [named("harbor", 2.0), named("Lantern", 0.5)]);
+        // A share written since is not read until a split marks the week stale.
+        assert!(ledger.add_share("s-2", &part(2.0)).unwrap());
+        week.refresh(Some(&path), Some(since), now);
+        assert_eq!(sums(&week)[1], named("Lantern", 0.5));
+        week.stale = true;
+        week.refresh(Some(&path), Some(since), now);
+        assert_eq!(sums(&week), [named("Lantern", 2.5), named("harbor", 2.0)]);
+
+        // Into the rows, the name case aside; a project without a share has none.
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        week.apply(&mut portfolio);
+        let usage =
+            |portfolio: &Portfolio, name: &str| portfolio.project(name).unwrap().badges.usage;
+        assert_eq!(
+            usage(&portfolio, "lantern"),
+            Some(Usage {
+                weekly: Some(2.5),
+                fable: None,
+                sessions: 1,
+                since,
+                attributed: 4.5,
+            })
+        );
+        assert_eq!(usage(&portfolio, "quarry"), None);
+
+        // The week moves on: its sessions started before it.
+        week.refresh(Some(&path), Some(at("2026-11-07T17:00:00Z")), now);
+        assert!(week.shares.is_empty());
+        week.apply(&mut portfolio);
+        assert_eq!(usage(&portfolio, "lantern"), None);
+
+        // A ledger that does not read: the problem is kept, and tried again after a while.
+        let broken = scratch.0.join("broken.sqlite");
+        std::fs::write(&broken, "not a ledger").unwrap();
+        week.refresh(Some(&broken), Some(since), now);
+        assert!(week.problem.is_some());
+        assert!(week.shares.is_empty(), "the week moved, so nothing is kept");
+        week.refresh(Some(&path), Some(since), now + Duration::from_secs(1));
+        assert!(week.problem.is_some(), "not tried again so soon");
+        week.refresh(Some(&path), Some(since), now + WEEK_RETRY);
+        assert_eq!(week.problem, None);
+        assert_eq!(sums(&week).len(), 2);
     }
 }

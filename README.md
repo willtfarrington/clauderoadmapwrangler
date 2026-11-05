@@ -50,7 +50,9 @@ project's own briefs are started from the tool, as visual launches by default. T
 (EP-17) shows the account's weekly, Fable and five-hour usage in the status bar and a pane of its
 own, with notifications at 80 % and 95 %. Each poll's rise is split among the sessions the
 window saw work since the poll before, so each session's row in the ledger keeps its share of the
-week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). The roadmap is
+week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). Each project's
+sum, in points of the weekly limit, is a badge of its row, a line of its Detail pane and a sort
+key (EP-18b). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -111,8 +113,9 @@ leaves a proposed state out until the fact it rests on changes (`crw undismiss` 
 `CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
-grouped by state, each with its next brief, its progress, what waits on the owner, its badges and
-whether a session is in progress, in columns as wide as their widest value under a header row; the
+grouped by state, each with its next brief, its progress, what waits on the owner, its badges (this
+week's share of the usage among them) and whether a session is in progress, in columns as wide as
+their widest value under a header row; the
 Legend switch shows a key to every mark; a click anywhere on a row selects it and a right click opens
 its menu. The detail pane shows the selected project's brief notes, status, owner items, inbox,
 handed-on mail and problems, the notes set for reading: each `From …:` segment under its label,
@@ -202,7 +205,10 @@ limits are the meter's second series: when the endpoint fails, it shows the newe
 marked degraded with the reason. A notification comes when the weekly or the Fable limit passes
 80 % and 95 %, once per mark in each limit window. Each reading is a sample in the ledger, which
 `crw usage` prints with the meter's changes of state; `crw setting usage_endpoint off` keeps the
-meter on the status lines alone.
+meter on the status lines alone. Each poll's rise is split among the sessions the window saw work
+since the poll before, manual ones too, and each project's sum since the weekly reset is the Usage
+badge of its row, in points of the weekly limit (`+6 %`); its hover text and the Detail pane add
+its Fable sum and its part of all that was attributed, and the Usage share sort key ranks by it.
 
 Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio

@@ -1,13 +1,14 @@
 //! The Detail pane (D-25): everything the files say about the selected project — its proposals
 //! (confirmed or dismissed here, a dismissed one restored), its next brief with the brief notes
 //! verbatim, why a session is taken to be in progress, the progress per phase, its badges spelt
-//! out (EP-7), what waits on the owner (ticked here when it lives in `owner-tasks.md`), the inbox
+//! out (EP-7) with this week's usage share (EP-18b), what waits on the owner (ticked here when it
+//! lives in `owner-tasks.md`), the inbox
 //! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
 //! met. For an unadopted folder: what it holds, Adopt and Ignore. From EP-12 a session that runs
 //! there, by the window's or Claude Code's account, joins the in-progress reasons, which from
 //! EP-13 show whatever the roadmap holds.
 
-use chrono::Utc;
+use chrono::{Local, Utc};
 use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
 use crw_core::roadmap::snapshot::{InProgress, Snapshot};
@@ -18,6 +19,7 @@ use eframe::egui::{self, RichText};
 use crate::badges::{self, Mark};
 use crate::board::{Action, Board};
 use crate::markup::{self, Look};
+use crate::meter::Week;
 use crate::portfolio::{Portfolio, ProjectRow, Selection};
 use crate::style::{self, icons};
 
@@ -38,6 +40,7 @@ impl Board {
                         row,
                         &running,
                         &self.portfolio,
+                        &self.meter.week,
                         &mut self.drafts,
                         &mut actions,
                     ),
@@ -102,6 +105,7 @@ fn project(
     row: &ProjectRow,
     running: &[InProgress],
     portfolio: &Portfolio,
+    week: &Week,
     drafts: &mut std::collections::HashMap<(String, String), String>,
     actions: &mut Vec<Action>,
 ) {
@@ -182,7 +186,7 @@ fn project(
     in_progress(ui, row, running);
     next_brief(ui, row, actions);
     progress(ui, snapshot);
-    status(ui, row, portfolio);
+    status(ui, row, portfolio, week);
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
@@ -383,7 +387,7 @@ fn progress(ui: &mut egui::Ui, snapshot: &Snapshot) {
 }
 
 /// The Status section's subsections, in order.
-const SUBSECTIONS: [&str; 5] = ["Stack", "Activity", "Hosting", "Health", "Backup"];
+const SUBSECTIONS: [&str; 6] = ["Stack", "Activity", "Hosting", "Health", "Backup", "Usage"];
 /// The mark column's least width, so the sentences start at the same place for most projects.
 const MARK_AT_LEAST: f32 = 40.0;
 /// Between a subsection's name and its lines.
@@ -432,9 +436,9 @@ fn divider(ui: &mut egui::Ui) {
     ui.add(egui::Separator::default().horizontal().spacing(9.0));
 }
 
-/// The badges spelt out (D-24, D-25): stack, activity, hosting with the head check, health and
-/// backup, each with where it comes from and how old it is.
-fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
+/// The badges spelt out (D-24, D-25): stack, activity, hosting with the head check, health,
+/// backup and this week's usage share (EP-18b), each with where it comes from and how old it is.
+fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio, week: &Week) {
     let now = Utc::now();
     let badges = &row.badges;
     let activity = badges::activity(row, now);
@@ -443,6 +447,7 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
     let ci = badges::ci(row, now);
     let warning = badges::license_warning(row);
     let backup = badges::backup(row, now);
+    let usage = badges::usage(row);
     section(ui, "Status");
     let name = SUBSECTIONS
         .iter()
@@ -461,6 +466,7 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
         ci.as_ref(),
         warning.as_ref(),
         backup.as_ref(),
+        usage.as_ref(),
     ];
     let mark = marks
         .into_iter()
@@ -579,6 +585,33 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio) {
             };
             columns.weak_line(ui, format!("The job's {target}{run}"));
         }
+    });
+    divider(ui);
+
+    columns.subsection(ui, SUBSECTIONS[5], |ui| {
+        match &usage {
+            Some(mark) => columns.mark_line(ui, mark),
+            None => columns.weak_line(
+                ui,
+                match (&week.problem, week.since) {
+                    (Some(problem), _) => problem.clone(),
+                    (None, Some(since)) => format!(
+                        "No session of this project has taken a share of the weekly limit since \
+                         the reset on {}",
+                        since.with_timezone(&Local).format("%a %d %b %H:%M")
+                    ),
+                    (None, None) => {
+                        "No reading of the weekly limit yet, so no week to sum the shares over"
+                            .to_owned()
+                    }
+                },
+            ),
+        }
+        columns.weak_line(
+            ui,
+            "From the ledger: each poll's rise split among the sessions that worked since the \
+             poll before, manual ones too (D-23)",
+        );
     });
 }
 

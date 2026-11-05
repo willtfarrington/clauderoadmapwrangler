@@ -68,7 +68,8 @@ pub struct Fetched<T> {
 }
 
 /// What a row's badges show (D-24, D-25): the files' readings at once, the backup and git's with
-/// the git pass, GitHub's from the cache or the GitHub pass.
+/// the git pass, GitHub's from the cache or the GitHub pass, and the week's usage from the
+/// ledger at each pass (EP-18b).
 #[derive(Debug, Clone)]
 pub struct Badges {
     pub stack: Vec<Chip>,
@@ -83,6 +84,22 @@ pub struct Badges {
     pub backup: Option<Backup>,
     pub head: Option<Fetched<Check>>,
     pub run: Option<Fetched<Result<Option<Run>, String>>>,
+    /// None while no session of the project has a share this week, or no week is known.
+    pub usage: Option<Usage>,
+}
+
+/// A project's share of the week's usage (D-23, D-25; EP-18b): its sessions' parts since the
+/// weekly window opened, in points of each limit, with the week they cover.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Usage {
+    pub weekly: Option<f64>,
+    pub fable: Option<f64>,
+    /// Its sessions with a share.
+    pub sessions: u32,
+    /// The weekly window's start.
+    pub since: DateTime<Utc>,
+    /// Every project's weekly sum: all that the window attributed this week.
+    pub attributed: f64,
 }
 
 impl Default for Badges {
@@ -97,6 +114,7 @@ impl Default for Badges {
             backup: None,
             head: None,
             run: None,
+            usage: None,
         }
     }
 }
@@ -238,6 +256,13 @@ impl ProjectRow {
     /// The hosting class the sort key and the filter use; `None` when the folder is missing.
     pub fn hosting_class(&self) -> Option<Class> {
         self.folder.as_ref().map(|_| self.badges.hosting.class())
+    }
+
+    /// This week's share in tenths of a point of the weekly limit, as the badge writes it
+    /// (`ledger::points`), for the sort key; `None` without one (EP-18b).
+    pub fn usage_tenths(&self) -> Option<i64> {
+        let weekly = self.badges.usage?.weekly?;
+        Some((weekly * 10.0).round() as i64)
     }
 
     /// Adds the git pass's reading.
@@ -856,14 +881,6 @@ impl SortKey {
         }
     }
 
-    /// The brief that brings a key's data, for the keys that have none yet.
-    pub fn arrives_at(self) -> Option<&'static str> {
-        match self {
-            SortKey::UsageShare => Some("EP-18"),
-            _ => None,
-        }
-    }
-
     pub fn hint(self) -> &'static str {
         match self {
             SortKey::Priority => "1 first",
@@ -1027,12 +1044,14 @@ impl Portfolio {
 
 /// Pinned first, then the key, then the name; projects without the key's data last.
 fn compare(a: &ProjectRow, b: &ProjectRow, sort: SortKey) -> Ordering {
-    let last_if_none = |a: Option<usize>, b: Option<usize>| match (a, b) {
-        (Some(a), Some(b)) => a.cmp(&b),
-        (Some(_), None) => Ordering::Less,
-        (None, Some(_)) => Ordering::Greater,
-        (None, None) => Ordering::Equal,
-    };
+    fn last_if_none<T: Ord>(a: Option<T>, b: Option<T>) -> Ordering {
+        match (a, b) {
+            (Some(a), Some(b)) => a.cmp(&b),
+            (Some(_), None) => Ordering::Less,
+            (None, Some(_)) => Ordering::Greater,
+            (None, None) => Ordering::Equal,
+        }
+    }
     b.project
         .pinned
         .cmp(&a.project.pinned)
@@ -1048,7 +1067,11 @@ fn compare(a: &ProjectRow, b: &ProjectRow, sort: SortKey) -> Ordering {
                 a.hosting_class().map(|c| c as usize),
                 b.hosting_class().map(|c| c as usize),
             ),
-            SortKey::UsageShare | SortKey::Name => Ordering::Equal,
+            // The largest share first (EP-18b): the negated tenths keep "last if none".
+            SortKey::UsageShare => {
+                last_if_none(a.usage_tenths().map(|t| -t), b.usage_tenths().map(|t| -t))
+            }
+            SortKey::Name => Ordering::Equal,
         })
         .then_with(|| key(a.name()).cmp(&key(b.name())))
 }
@@ -1283,6 +1306,60 @@ pub(crate) mod tests {
             portfolio
                 .groups(SortKey::Name, Filter::name("nothing"))
                 .is_empty()
+        );
+    }
+
+    #[test]
+    fn the_usage_share_sort_puts_the_largest_share_first() {
+        let scratch = Scratch::new("portfolio-usage");
+        let store = fake_store(&scratch);
+        let mut portfolio = read_files(&store);
+        let since = Utc::now() - TimeDelta::days(2);
+        // lantern's raw figure is the larger, but both write `6`: the name decides. quarry's
+        // `0` is a share all the same, so meadow, which has none, comes last.
+        for (name, weekly) in [("harbor", 6.0), ("lantern", 6.04), ("quarry", 0.0)] {
+            let row = portfolio
+                .projects
+                .iter_mut()
+                .find(|row| row.name() == name)
+                .unwrap();
+            row.badges.usage = Some(Usage {
+                weekly: Some(weekly),
+                fable: None,
+                sessions: 1,
+                since,
+                attributed: 12.04,
+            });
+        }
+        let active = |portfolio: &Portfolio| {
+            let groups = portfolio.groups(SortKey::UsageShare, Filter::name(""));
+            names(portfolio, &groups[0])
+        };
+        // harbor is pinned in the fixture, so it leads whatever its share.
+        portfolio.projects[0].project.pinned = false;
+        assert_eq!(
+            active(&portfolio),
+            ["harbor", "lantern", "quarry", "meadow"]
+        );
+        let harbor = &mut portfolio.projects[0];
+        harbor.badges.usage = harbor.badges.usage.map(|usage| Usage {
+            weekly: Some(0.5),
+            ..usage
+        });
+        assert_eq!(
+            active(&portfolio),
+            ["lantern", "harbor", "quarry", "meadow"]
+        );
+        // A share of Fable alone is no weekly share.
+        let harbor = &mut portfolio.projects[0];
+        harbor.badges.usage = harbor.badges.usage.map(|usage| Usage {
+            weekly: None,
+            fable: Some(3.0),
+            ..usage
+        });
+        assert_eq!(
+            active(&portfolio),
+            ["lantern", "quarry", "harbor", "meadow"]
         );
     }
 

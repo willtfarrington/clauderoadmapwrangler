@@ -1,7 +1,8 @@
 //! The Projects pane (D-25): a toolbar (the name filter, the sort key, the stack and hosting
 //! filters, the legend's switch), a header row that names the columns, then the groups by state,
 //! each with a header that folds it, and one dense row per project: its next brief, its progress,
-//! what waits on the owner, its badges (EP-7), whether a session is in progress, and the switches
+//! what waits on the owner, its badges (EP-7) with this week's usage share (EP-18b), whether a
+//! session is in progress, and the switches
 //! later briefs bring to life. Each column is as wide as the widest value the portfolio holds
 //! (EP-7a); a wide window shares its spare width between the title and the gaps, a narrow one
 //! drops the optional columns in D-25's order. A row expands inline; a right click pins it or
@@ -65,13 +66,14 @@ enum Column {
     Age,
     Health,
     Backup,
+    Usage,
     Session,
     Autopilot,
     Start,
 }
 
 impl Column {
-    const ALL: [Column; 17] = [
+    const ALL: [Column; 18] = [
         Column::Expander,
         Column::Pin,
         Column::Name,
@@ -86,6 +88,7 @@ impl Column {
         Column::Age,
         Column::Health,
         Column::Backup,
+        Column::Usage,
         Column::Session,
         Column::Autopilot,
         Column::Start,
@@ -103,7 +106,7 @@ impl Column {
     const RIGHT: [Column; 3] = [Column::Session, Column::Autopilot, Column::Start];
     /// The optional columns, from the most a row shows to the least: the badges in full (the
     /// stack chip and the age as well), compact, then the counts go, then the badges, then the
-    /// progress (D-25, EP-7 addendum).
+    /// progress (D-25, EP-7 addendum). The week's usage share is a badge of both forms (EP-18b).
     const GIVE_WAY: [&'static [Column]; 5] = [
         &[
             Column::Progress,
@@ -114,6 +117,7 @@ impl Column {
             Column::Age,
             Column::Health,
             Column::Backup,
+            Column::Usage,
         ],
         &[
             Column::Progress,
@@ -122,6 +126,7 @@ impl Column {
             Column::Sync,
             Column::Health,
             Column::Backup,
+            Column::Usage,
         ],
         &[
             Column::Progress,
@@ -129,6 +134,7 @@ impl Column {
             Column::Sync,
             Column::Health,
             Column::Backup,
+            Column::Usage,
         ],
         &[Column::Progress],
         &[],
@@ -161,6 +167,11 @@ impl Column {
                  license",
             ),
             Column::Backup => ("Backup", "The Documents job's last archive"),
+            Column::Usage => (
+                "Usage",
+                "This week's share of the usage: the points of the weekly limit the project's \
+                 sessions took since the reset",
+            ),
             Column::Session => ("Session", "A session in progress, or git not asked yet"),
             Column::Expander | Column::Pin | Column::Autopilot | Column::Start => return None,
         })
@@ -221,6 +232,7 @@ impl Widths {
         for row in &portfolio.projects {
             widths.fit(ui, Column::Name, |ui| name_label(ui, row.name()));
             widths.fit(ui, Column::State, |ui| state_cell(ui, row, now));
+            widths.fit(ui, Column::Usage, |ui| usage_cell(ui, row));
             widths.fit(ui, Column::Session, |ui| session_cell(ui, row, None));
             if row.folder.is_none() {
                 continue;
@@ -483,19 +495,8 @@ impl Board {
                 |ui| {
                     ui.label(RichText::new("Within each group, pinned first, then").weak());
                     for key in SortKey::ALL {
-                        let available = key.arrives_at().is_none();
-                        let response = ui
-                            .add_enabled_ui(available, |ui| {
-                                ui.radio_value(&mut self.view.sort, key, key.label())
-                                    .on_hover_text(key.hint())
-                            })
-                            .inner;
-                        if let Some(brief) = key.arrives_at() {
-                            response.on_disabled_hover_text(format!(
-                                "{} needs data that arrives at {brief}.",
-                                key.label()
-                            ));
-                        }
+                        ui.radio_value(&mut self.view.sort, key, key.label())
+                            .on_hover_text(key.hint());
                     }
                 },
             );
@@ -733,6 +734,8 @@ fn project_row(
         plan.draw(ui, rect, Column::Health, |ui| health_cell(ui, row, now));
         plan.draw(ui, rect, Column::Backup, |ui| backup_cell(ui, row, now));
     }
+    // The ledger's figures need no folder.
+    plan.draw(ui, rect, Column::Usage, |ui| usage_cell(ui, row));
     plan.draw(ui, rect, Column::Session, |ui| session_cell(ui, row, live));
     plan.draw(ui, rect, Column::Autopilot, |ui| {
         let mut on = row.project.autopilot.enabled;
@@ -983,6 +986,13 @@ fn health_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
 
 fn backup_cell(ui: &mut egui::Ui, row: &ProjectRow, now: DateTime<Utc>) {
     if let Some(mark) = badges::backup(row, now) {
+        mark.show(ui);
+    }
+}
+
+/// This week's share of the usage (EP-18b).
+fn usage_cell(ui: &mut egui::Ui, row: &ProjectRow) {
+    if let Some(mark) = badges::usage(row) {
         mark.show(ui);
     }
 }
