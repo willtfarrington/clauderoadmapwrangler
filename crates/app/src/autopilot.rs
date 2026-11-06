@@ -6,17 +6,21 @@
 //! pause alone makes holds the chain, read again every five minutes and at the owner's Resume;
 //! any other ends it. A run that works past its cap is stopped gracefully, which ends the chain.
 //! The owner turns a project's autopilot on in the list, pauses every chain in the Sessions pane
-//! or the tray, and reads the log at the top of the Sessions pane's All tab. A screenshot run
-//! reads no gate and starts nothing.
+//! or the tray, and reads the log at the top of the Sessions pane's All tab. The **chain plan**
+//! (EP-19a) is the owner's word on the briefs a chain may run, made in the launch dialog and
+//! kept here from Start headless until the chain ends: the gate takes the owner's choice of
+//! model and effort for a brief they chose, the rules' for one they left alone, and ends the
+//! chain before one they left out. Each change of a chain's state is a notification of its own
+//! kind (the chain's moment). A screenshot run reads no gate and starts nothing.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, Utc};
-use crw_core::autopilot::{self, Ask, Cap, Refusal};
+use crw_core::autopilot::{self, Answer, Ask, Cap, Plan, Refusal};
 use crw_core::ledger::EventRow;
 use crw_core::prompt::Draft;
 use crw_core::registry::{Project, Registry};
@@ -28,6 +32,7 @@ use eframe::egui::{self, RichText};
 use crate::board::{Action, Board};
 use crate::sessions::{Run, Started};
 use crate::style;
+use crate::toasts::Toast;
 
 /// How often a held chain's gate is read again: the meter's poll.
 const HOLD_EVERY: Duration = Duration::from_secs(5 * 60);
@@ -95,6 +100,11 @@ pub struct Pilot {
     pub mark: u8,
     /// A screenshot run's log: nothing is read or written.
     pub canned: bool,
+    /// The chain plans (EP-19a), by project in lower case: each kept from Start headless until
+    /// its chain ends.
+    pub plans: BTreeMap<String, Plan>,
+    /// The chain's moments since the last pass, for the popup.
+    moments: Vec<Toast>,
 }
 
 impl Default for Pilot {
@@ -115,6 +125,8 @@ impl Default for Pilot {
             paused: false,
             mark: autopilot::DEFAULT_PAUSE_PERCENT,
             canned: false,
+            plans: BTreeMap::new(),
+            moments: Vec::new(),
         }
     }
 }
@@ -123,6 +135,26 @@ impl Pilot {
     /// Whether the chain's start is on its way, so that the next start's result is the chain's.
     pub fn is_starting(&self) -> bool {
         self.starting.is_some()
+    }
+
+    /// Keeps a project's chain plan (EP-19a), in place of any kept before.
+    pub fn keep_plan(&mut self, plan: Plan) {
+        self.plans.insert(plan.project.to_lowercase(), plan);
+    }
+
+    /// Lets a project's plan go: its chain ended, or its autopilot was turned off.
+    pub fn drop_plan(&mut self, project: &str) {
+        self.plans.remove(&project.to_lowercase());
+    }
+
+    /// A project's plan, while one is kept.
+    pub fn plan_of(&self, project: &str) -> Option<&Plan> {
+        self.plans.get(&project.to_lowercase())
+    }
+
+    /// The chain's moments since the last pass (EP-19a), each a toast of the chain's kind.
+    pub fn take_moments(&mut self) -> Vec<Toast> {
+        std::mem::take(&mut self.moments)
     }
 
     /// Whether a chained start waits for the slot or is on its way in `project`.
@@ -145,8 +177,10 @@ impl Board {
                 .iter()
                 .find(|live| live.key == key)
                 .map(|live| live.project.clone());
-            self.warn(format!("{}: {words}", project.as_deref().unwrap_or("?")));
-            self.log_chain(project.as_deref(), &words);
+            match project {
+                Some(project) => self.chain_moment(&project, &words, true, true),
+                None => self.log_chain(None, &words),
+            }
         }
         for key in self.sessions.take_ended() {
             self.weigh_run(key);
@@ -204,7 +238,7 @@ impl Board {
                 "the chain ends{}: the project's folder is missing",
                 after.map_or(String::new(), |ep| format!(" after {ep}"))
             );
-            self.log_chain(Some(&entry.name), &words);
+            self.chain_moment(&entry.name, &words, true, true);
             return;
         };
         if !self.autopilot.reading.insert(entry.name.to_lowercase()) {
@@ -330,29 +364,45 @@ impl Board {
                     words: words.clone(),
                 });
                 if !unchanged {
-                    self.notify(format!("{project}: the autopilot {words}"));
-                    self.log_chain(Some(&project), &words);
+                    self.chain_moment(&project, &words, true, false);
                 }
             } else {
                 if let Some(at) = was_held {
                     self.autopilot.held.remove(at);
                 }
-                self.warn(format!("{project}: {words}"));
-                self.log_chain(Some(&project), &words);
+                self.chain_moment(&project, &words, true, true);
             }
             return;
         }
         if let Some(at) = was_held {
             self.autopilot.held.remove(at);
         }
-        let Some(draft) = draft else {
+        let Some(mut draft) = draft else {
             let words = format!(
                 "the chain ends{}: the next brief could not be drafted",
                 after.map_or(String::new(), |ep| format!(" after {ep}"))
             );
-            self.log_chain(Some(&project), &words);
+            self.chain_moment(&project, &words, true, true);
             return;
         };
+        // The plan's word on the brief (EP-19a): the owner's choice, the rules', or the end.
+        let answer = self
+            .autopilot
+            .plan_of(&project)
+            .map(|plan| plan.answer(draft.ep));
+        let (picked, whose) = match answer {
+            Some(Answer::LeftOut) => {
+                let words = autopilot::left_out_words(after, draft.ep);
+                self.chain_moment(&project, &words, true, true);
+                return;
+            }
+            Some(Answer::Picked(picked)) => (Some(picked), "your choice"),
+            Some(Answer::Rules) | None => (None, "the rules' choice"),
+            Some(Answer::NotListed) => (None, "not in your plan, the rules' choice"),
+        };
+        // Headless whatever the project's launch mode, the owner's choice in place of the
+        // rules' when they made one.
+        draft.for_chain(picked.as_ref(), entry.launch.template.as_deref());
         let mut launch = autopilot::launch(
             &draft,
             &entry,
@@ -366,8 +416,13 @@ impl Board {
         }
         launch.hooks = crate::board::crw_exe();
         let resolution = &draft.resolution;
-        let mut chosen = format!("{} at {}", resolution.model.value, draft.parts.effort);
-        if let Some(downshift) = resolution.downshift.as_ref().filter(|d| d.applied) {
+        let mut chosen = format!(
+            "{} at {}, {whose}",
+            resolution.model.value, draft.parts.effort
+        );
+        if picked.is_none()
+            && let Some(downshift) = resolution.downshift.as_ref().filter(|d| d.applied)
+        {
             chosen.push_str(&format!(" (the downshift: {})", downshift.words));
         }
         self.autopilot.queued = Some(Queued {
@@ -450,7 +505,7 @@ impl Board {
                     words: words.clone(),
                 });
             }
-            self.log_chain(Some(&queued.project), &words);
+            self.chain_moment(&queued.project, &words, true, !enabled);
             return;
         }
         // A session opened in the project since the gate was read would edit the same files.
@@ -462,8 +517,7 @@ impl Board {
         if !others.is_empty() {
             let queued = self.autopilot.queued.take().expect("a start is queued");
             let words = autopilot::refused_words(queued.after, &[Refusal::Busy(others)]);
-            self.warn(format!("{}: {words}", queued.project));
-            self.log_chain(Some(&queued.project), &words);
+            self.chain_moment(&queued.project, &words, true, true);
             return;
         }
         let ctx = self.ctx().clone();
@@ -479,8 +533,7 @@ impl Board {
                 queued.after,
                 &refusals.join("; "),
             );
-            self.warn(format!("{}: {words}", queued.project));
-            self.log_chain(Some(&queued.project), &words);
+            self.chain_moment(&queued.project, &words, true, true);
             return;
         }
         queued.launch.route = self
@@ -513,16 +566,27 @@ impl Board {
                 let cap = Cap::new(queued.size, Instant::now());
                 let words =
                     autopilot::chained_words(queued.next, queued.after, &queued.chosen, &cap);
-                self.notify(format!("{}: the autopilot {words}", queued.project));
-                self.log_chain(Some(&queued.project), &words);
+                self.chain_moment(&queued.project, &words, false, false);
             }
             Started::Refused(why) => {
                 self.sessions.forget_preflight();
                 let words =
                     autopilot::not_started_words(&queued.next.to_string(), queued.after, &why);
-                self.warn(format!("{}: {words}", queued.project));
-                self.log_chain(Some(&queued.project), &words);
+                self.chain_moment(&queued.project, &words, true, true);
             }
+        }
+    }
+
+    /// A change of a chain's state (D-21, D-22; EP-19a): a line of the chain log and a
+    /// notification of the chain's own kind, which the status bar says instead while the window
+    /// is in front. `ended` lets the project's plan go: the chain is over.
+    fn chain_moment(&mut self, project: &str, words: &str, warning: bool, ended: bool) {
+        self.log_chain(Some(project), words);
+        self.autopilot
+            .moments
+            .push(Toast::chain(project, words, warning));
+        if ended {
+            self.autopilot.drop_plan(project);
         }
     }
 
@@ -603,6 +667,7 @@ impl Board {
                     self.autopilot
                         .held
                         .retain(|held| !held.project.eq_ignore_ascii_case(name));
+                    self.autopilot.drop_plan(name);
                 }
             }
             Err(e) => self.fail(e.to_string()),
@@ -745,6 +810,22 @@ impl Board {
                         RichText::new(format!("{}: {}", held.project, held.words))
                             .small()
                             .color(style::amber(ui)),
+                    );
+                }
+                // The plans the chains follow (EP-19a), in the autopilot's violet.
+                for plan in self.autopilot.plans.values() {
+                    ui.add(
+                        egui::Label::new(
+                            RichText::new(format!("{}: your plan {}", plan.project, plan.words()))
+                                .small()
+                                .color(style::reference(ui)),
+                        )
+                        .wrap(),
+                    )
+                    .on_hover_text(
+                        "The chain takes your choice for each brief you chose, the rules' for \
+                         one you left alone, and ends before one you left out; kept until the \
+                         chain ends or the autopilot is turned off",
                     );
                 }
                 if let Some(problem) = &self.autopilot.problem {

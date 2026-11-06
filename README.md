@@ -164,13 +164,18 @@ condition that fails: the brief's completion note and its checked row, the next 
 re-plan and no larger than M, no owner task due before it, a clean tree, the day's caps (2 chained
 runs a project, 4 in all), the weekly and Fable figures under 90 % (and recent enough to trust),
 no other session open there, and runs that would not wait at every shell command (a permission
-mode of `auto`, or allow rules). If it passes, the next brief starts headless with the rules'
-model and effort; if only the pause refuses, the chain is held until the pause lifts. Each such
-run has a cap by size (S 45 min, M 90 min, L 3 h) counted in working time, a question's wait left
-out, and is stopped gracefully at it. Pause, in the Sessions pane or the tray, holds every chain;
-the runs that work go on. The Sessions pane's All tab opens with the chain log, and
-`crw autopilot` prints it. The tool's own project is never chained: its briefs end with a release
-build that needs the window quit.
+mode of `auto`, or allow rules). If it passes, the next brief starts headless as the owner's
+chain plan says: the launch dialog of a project whose autopilot is on lists the briefs a chain
+may run after the one being started, each with a Chain box and the same Model and Effort
+pickers, the rules' resolution the default, so the chain runs a brief as the owner set it, the
+rules' way where they left it alone, and ends before a brief they unticked. If only the pause
+refuses, the chain is held until the pause lifts. Each such run has a cap by size (S 45 min, M 90
+min, L 3 h) counted in working time, a question's wait left out, and is stopped gracefully at it.
+Pause, in the Sessions pane or the tray, holds every chain; the runs that work go on. The
+Sessions pane's All tab opens with the chain log and the plans in hand, and `crw autopilot`
+prints the log; each change of a chain's state, a brief chained, a hold or an end, is a
+notification of its own, whose Show opens that tab. The tool's own project is never chained: its
+briefs end with a release build that needs the window quit.
 
 The Decisions pane answers what a headless session asks while it waits: a permission request with
 Allow or Deny (its tool, its call, why it asks and its input shown; a reason optional), a question

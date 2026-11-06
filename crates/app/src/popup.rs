@@ -246,6 +246,8 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                 Some(Kind::Waiting) => style::amber(ui),
                 Some(Kind::Failed) => style::red(ui),
                 Some(Kind::Finished) => style::green(ui),
+                // The autopilot's violet, as a chained tab's line (EP-19, EP-19a).
+                Some(Kind::Chain) => style::reference(ui),
                 _ => style::blue(ui),
             };
             ui.label(RichText::new("●").color(colour));
@@ -268,6 +270,9 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                     Target::Decisions => "Show the window on the Decisions pane",
                     Target::Session(_) => "Show the window on the session's tab",
                     Target::Usage => "Show the window on the Usage pane",
+                    Target::ChainLog => {
+                        "Show the window on the Sessions pane's All tab, where the chain log is"
+                    }
                     Target::Window => "Show the window",
                 };
                 if ui

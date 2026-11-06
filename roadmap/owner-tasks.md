@@ -165,7 +165,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   greyed out, and its hover text names `claude --resume <id>` for a terminal. The session checked
   the window only on the fake portfolio (rules 5 and 13). Notes go to `roadmap/inbox.md`
   [before EP-19]
-- [ ] OT-18 (EP-19, 2026-11-05) Reopen Roadmap Wrangler from its shortcut. The Sessions pane's
+- [x] OT-18 (EP-19, 2026-11-05) Reopen Roadmap Wrangler from its shortcut. The Sessions pane's
   All tab opens with the Autopilot section: off everywhere, not paused, and Pause beside it; the
   tray's menu has Pause autopilot, and `target\release\crw.exe autopilot` prints the same state.
   The list's autopilot box (or A on a selected row) now turns a project's autopilot on, and its
@@ -177,3 +177,16 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   condition that refused it. Untick the box afterwards if you do not want it on. The session
   checked the window only on the fake portfolio (rules 5 and 13). Notes go to
   `roadmap/inbox.md` [before EP-19a]
+- [ ] OT-19 (EP-19a, 2026-11-06) Reopen Roadmap Wrangler from its shortcut. The next time you
+  start a brief headless in a project whose autopilot is on (its box in the list, or A), choose
+  Headless in the launch dialog: a Chain plan shows under the prompt, one row per brief the
+  chain may run after this one, each with a Chain box, the Model and Effort pickers and the
+  Ultracode box, the rules' choice filled in. Set what you want for each row, or untick a row
+  to stop the chain before it, then press Start headless. When the run completes and the gate
+  passes, the chain starts the next brief with your choice, and the chain log's line ends
+  "your choice" (or "the rules' choice" for a row you left alone); the Sessions pane's
+  Autopilot section shows the plan while the chain runs, and `target\release\crw.exe autopilot`
+  prints the log. Each change of a chain (a brief chained, a hold, an end) now comes as a
+  notification of its own in the popup, whose Show opens the Sessions pane's All tab. The
+  session checked the dialog, the section and the popup only on the fake portfolio and started
+  no real session (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-19b]

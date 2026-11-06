@@ -718,6 +718,17 @@ pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; e
 > eframe, which waits for a re-plan (D-15); keeping the immediate popup's window open at all times;
 > catching the panic.
 
+> **Addendum (2026-11-06, EP-19a).** A chain's moment is a kind of its own, `chain`, a toast
+> (the owner's choice: every change of a chain's state): a brief chained, the chain held (once
+> per change of its words) and the chain ended (a refusal, a cap, a start the runner refused, a
+> brief left out of the plan). Its title is the project's name and the chain log's line up to
+> its first colon, its text the rest; its Show brings the Sessions pane's All tab forward, where
+> the chain log is; a hold or an end is said in amber, and the popup marks the kind in the
+> autopilot's violet. The quiet hours and a window in front hold it back like every toast, the
+> status bar saying it instead, and the notifications' log keeps it as `chain`, which `crw
+> notifications` prints. *Alternatives.* Ends only, or ends and holds, the chained start left to
+> the status bar; the chain's moments as the project's `finished` and `failed`.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:
@@ -805,6 +816,40 @@ committing and recording hashes; one model and effort per project; usage thresho
 > owner task; chaining whatever the permission mode, the runs waiting in the Decisions pane; every
 > chained run under `auto`; ending a chain at any refusal, the pause's too; the log as a table of
 > its own (a schema 6).
+
+> **Addendum (2026-11-06, EP-19a).** The chain plan, on the owner's choices at pickup, after the
+> first real chain (2026-11-06) ran its second brief at the rules' choice where the owner had
+> wanted another model and effort.
+>
+> - **The plan** is the owner's word on the briefs a chain may run after the one they start
+>   headless. The launch dialog of a project whose autopilot is on lists, under the prompt and
+>   the choices, the next unchecked rows in table order after the launched brief, up to the
+>   project's `daily`, each with a Chain box (ticked), its size and title, and the Model and
+>   Effort pickers and the Ultracode box as the main choices offer them, the rule table's
+>   resolution over its row the default (the downshift included) and its reason on hover. The
+>   list stops at a row the gate would refuse on its own account (a re-plan, a size over
+>   `max_size`, no size) and says so, and names the owner tasks due before a row. In Visual the
+>   section is one line, since a chain follows a headless run only.
+> - **The chain takes it.** Start headless keeps the plan in the window, by project, as a held
+>   chain is kept (the owner's choice: a chain does not outlive the window either, and no
+>   registry key is added). When the gate drafts a brief, a row the owner touched runs with the
+>   pickers as they left them, a row left alone with the rules' choice resolved then (the
+>   downshift judged then), a row unticked ends the chain before it ("left out of your plan",
+>   which gives the number of runs, the owner's choice over a count), and a brief the plan does
+>   not list (a row added since) runs with the rules' choice, the log saying so; the chained
+>   line names whose choice it was. The plan goes when the chain ends, when the project's
+>   autopilot is turned off, when a start the runner refuses leaves no run, or when a new
+>   headless launch of the project replaces it; a held chain keeps it. The Sessions pane's
+>   Autopilot section shows each plan.
+> - **Every chained draft is headless**: its opener says the model and effort the run is given.
+>   Before, the chain took the project's launch mode's wording (Visual by default), so a chained
+>   run read that VS Code's panel chooses its model and effort.
+> - **The chain's moment** is D-21's: a notification of the chain's own kind at each change of
+>   its state.
+>
+> *Alternatives.* The plan in the registry (`[project.autopilot]`), consumed at each chained
+> start and printed by `crw autopilot`, stale after a restart and refused by the builds before;
+> a count of runs beside the plan; the plan-time resolution kept for a row left alone.
 
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and

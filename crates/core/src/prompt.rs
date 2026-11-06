@@ -416,7 +416,7 @@ fn list_or_none(items: &[String]) -> String {
     }
 }
 
-fn effort_words(effort: Option<&str>, ultracode: bool) -> String {
+pub fn effort_words(effort: Option<&str>, ultracode: bool) -> String {
     match effort {
         _ if ultracode => "ultracode".to_owned(),
         Some(effort) if !effort.trim().is_empty() => effort.trim().to_owned(),
@@ -641,6 +641,28 @@ pub struct Draft {
     pub resolution: Resolution,
     pub parts: Parts,
     pub prompt: Prompt,
+}
+
+impl Draft {
+    /// The draft as a chained run takes it (D-22; EP-19a): headless whatever the project's
+    /// launch mode, so the opener says what the session runs with rather than that VS Code's
+    /// panel chooses; and with the owner's choice from the chain plan, when they made one, in
+    /// place of the rules'. The prompt is generated again, through `template` when the project
+    /// has one.
+    pub fn for_chain(&mut self, picked: Option<&rules::Picked>, template: Option<&str>) {
+        if let Some(picked) = picked {
+            self.resolution.pick(picked);
+        }
+        let date = self.parts.date.clone();
+        self.parts.choose(&Chosen {
+            model: &self.resolution.model.value,
+            effort: self.resolution.effort.value.as_deref(),
+            ultracode: self.resolution.ultracode.value,
+            date: &date,
+            visual: false,
+        });
+        self.prompt = generate(&self.parts, template);
+    }
 }
 
 /// The draft for `project`'s next brief: the rule table's resolution (`levels` are the CLI's
@@ -902,6 +924,37 @@ Intro.
         );
         assert_eq!(draft.prompt.text, "EP-3 for house on fable/xhigh: {nope}");
         assert_eq!(draft.prompt.problems.len(), 1);
+
+        // A chained run takes the owner's choice from the plan, headless (EP-19a).
+        let mut chained = draft.clone();
+        let picked = rules::Picked {
+            model: " claude-opus-5-5 ".to_owned(),
+            effort: Some("max".to_owned()),
+            ultracode: false,
+        };
+        chained.for_chain(Some(&picked), project.launch.template.as_deref());
+        assert_eq!(chained.resolution.model.value, "claude-opus-5-5");
+        assert_eq!(chained.resolution.model.source, rules::Source::Owner);
+        assert_eq!(chained.resolution.effort.value.as_deref(), Some("max"));
+        assert_eq!(
+            chained.prompt.text,
+            "EP-3 for house on claude-opus-5-5/max: {nope}"
+        );
+        assert!(!chained.parts.visual);
+        // Without a choice, the rules' values stand, and the opener speaks headless.
+        let mut plain = draft.clone();
+        plain.for_chain(None, None);
+        assert_eq!(plain.resolution.model.value, "fable");
+        assert_eq!(plain.resolution.model.source, rules::Source::Default);
+        assert!(!plain.parts.visual);
+        assert!(
+            plain
+                .prompt
+                .text
+                .contains("with fable at xhigh effort: write those"),
+            "{}",
+            plain.prompt.text
+        );
 
         // No next row: why, in words.
         let done = Snapshot {

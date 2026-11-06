@@ -8,16 +8,20 @@
 //! it, the Fable downshift's among them (D-23; EP-18). A visual launch hands VS Code the prompt
 //! alone, so its model, effort and ultracode pickers are greyed out: the new tab's panel chooses,
 //! and the opener names the rules' suggestion. A headless launch says how its questions reach the
-//! owner: the route and the project's time limit (D-19; EP-14).
+//! owner: the route and the project's time limit (D-19; EP-14). For a project whose autopilot is
+//! on, the **chain plan** (D-22; EP-19a) lists under the columns the briefs a chain may run after
+//! this one, each with the same pickers, the rules' resolution the default and a Chain box; the
+//! window keeps it at Start headless for the chain to follow.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use crw_core::autopilot::{Plan, Planned};
 use crw_core::catalog::Catalog;
 use crw_core::prompt::{self, Chosen, Draft, Parts};
 use crw_core::registry::LaunchMode;
 use crw_core::roadmap::{EpId, Size};
-use crw_core::rules::{self, Choice, Resolution, Source};
+use crw_core::rules::{self, Choice, Picked, Resolution, Source};
 use crw_core::session::{self, Preflight, Route};
 use crw_core::visual::{self, Readiness};
 use eframe::egui::{self, RichText};
@@ -40,6 +44,9 @@ const CHOICES: f32 = 390.0;
 const GAP: f32 = 16.0;
 /// The width of a choice's name.
 const NAME: f32 = 84.0;
+/// The chain plan's pickers, in points: the model's and the effort's.
+const PLAN_MODEL: f32 = 180.0;
+const PLAN_EFFORT: f32 = 110.0;
 /// How often an open dialog in Visual looks again at VS Code's windows.
 const READINESS_EVERY: Duration = Duration::from_secs(2);
 
@@ -79,6 +86,8 @@ pub struct Dialog {
     pub answer_timeout: Option<Duration>,
     /// How a headless session's questions reach the owner, and why the defer route when it is.
     pub route: (Route, Option<String>),
+    /// The chain plan (EP-19a), for a project whose autopilot is on, as the owner leaves it.
+    pub plan: Option<Plan>,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -94,6 +103,7 @@ pub struct Opening {
     pub vscode_setting: Option<PathBuf>,
     pub answer_timeout: Option<Duration>,
     pub route: (Route, Option<String>),
+    pub plan: Option<Plan>,
 }
 
 impl Dialog {
@@ -129,12 +139,21 @@ impl Dialog {
             error: None,
             answer_timeout: opening.answer_timeout,
             route: opening.route,
+            plan: opening.plan,
         }
     }
 
     /// Whether the launch is visual (D-16).
     pub fn visual(&self) -> bool {
         self.resolution.mode.value == LaunchMode::Visual
+    }
+
+    /// The launch mode chosen for the owner (a screenshot run's `launch=<project>:headless`),
+    /// the prompt following it.
+    pub fn set_mode(&mut self, mode: LaunchMode) {
+        self.resolution.mode = owners(mode);
+        self.read_at = None;
+        self.chose();
     }
 
     /// Whether VS Code's windows are worth a fresh look: in Visual, every few seconds.
@@ -261,23 +280,11 @@ impl Dialog {
 
     /// The effort levels to offer: the model's that the CLI lists too, in the CLI's order.
     pub fn efforts(&self, preflight: Option<&Preflight>) -> Vec<String> {
-        let cli: Vec<String> = flags_of(preflight)
-            .map(|flags| flags.efforts.clone())
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|level| level != "ultracode")
-            .collect();
-        let model: Vec<String> = self
-            .catalog
-            .model(&self.resolution.model.value)
-            .map(|model| model.efforts.clone())
-            .unwrap_or_default();
-        match (cli.is_empty(), model.is_empty()) {
-            (false, false) => cli.into_iter().filter(|l| model.contains(l)).collect(),
-            (false, true) => cli,
-            (true, false) => model,
-            (true, true) => rules::EFFORTS.map(str::to_owned).to_vec(),
-        }
+        efforts_of(
+            &self.catalog,
+            &cli_efforts(preflight),
+            &self.resolution.model.value,
+        )
     }
 
     /// The permission modes to offer: the CLI's, else the usual ones.
@@ -347,7 +354,7 @@ impl Dialog {
         let mut actions = Vec::new();
         let screen = ui.ctx().content_rect();
         let width = (screen.width() - 80.0).clamp(600.0, WIDTH);
-        let height = (screen.height() - 300.0).clamp(200.0, 620.0);
+        let height = (screen.height() - 300.0 - self.plan_height()).clamp(200.0, 620.0);
         ui.set_width(width);
         ui.horizontal(|ui| {
             ui.heading(format!("Launch {} {}", self.project, self.ep));
@@ -386,9 +393,101 @@ impl Dialog {
             egui::Rangef::new(left.top(), left.bottom().max(right.bottom())),
             ui.visuals().widgets.noninteractive.bg_stroke,
         );
+        self.plan_section(ui, preflight);
         ui.separator();
         self.footer(ui, preflight, starting, opening, &mut actions);
         actions
+    }
+
+    /// The room the chain plan takes under the columns, which the editor gives up.
+    fn plan_height(&self) -> f32 {
+        match &self.plan {
+            Some(plan) if !self.visual() => 80.0 + 30.0 * plan.briefs.len().max(1) as f32,
+            Some(_) => 40.0,
+            None => 0.0,
+        }
+    }
+
+    /// The chain plan (EP-19a) under the columns, for a project whose autopilot is on. In
+    /// Headless, one row per brief a chain may run after this one: its Chain box, its id and
+    /// size, its title, and the Model and Effort pickers and the Ultracode box as the choices
+    /// above offer them, the rules' resolution over its row the default and the reason on
+    /// hover; a row the owner touches keeps their choice as shown. In Visual, one line, since a
+    /// chain follows a headless run only (D-22).
+    fn plan_section(&mut self, ui: &mut egui::Ui, preflight: Option<&Preflight>) {
+        let visual = self.visual();
+        let listed = flags_of(preflight).is_some_and(|flags| flags.ultracode());
+        let cli = cli_efforts(preflight);
+        let catalog = &self.catalog;
+        let Some(plan) = self.plan.as_mut() else {
+            return;
+        };
+        ui.separator();
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Chain plan").strong());
+            let note = if visual {
+                "a chain follows a headless run only (D-22): switch to Headless to plan one"
+                    .to_owned()
+            } else {
+                format!(
+                    "the briefs a chain may run after {}, each as the rules resolve it until \
+                     you choose; a row you leave alone takes the rules' choice when the chain \
+                     reaches it, the downshift judged then; untick a row and the chain ends \
+                     before it",
+                    plan.after
+                )
+            };
+            ui.label(RichText::new(note).small().weak());
+        });
+        if visual {
+            return;
+        }
+        if plan.briefs.is_empty() {
+            let why = match &plan.stop {
+                Some(stop) => format!("Nothing to chain after {}: {}.", plan.after, stop.why),
+                None => format!("No brief follows {} in the roadmap.", plan.after),
+            };
+            ui.label(RichText::new(why).small().color(style::amber(ui)));
+            return;
+        }
+        let spacing = ui.spacing().item_spacing.x;
+        let title_width =
+            (ui.available_width() - 76.0 - 40.0 - PLAN_MODEL - PLAN_EFFORT - 120.0 - 7.0 * spacing)
+                .max(120.0);
+        egui::Grid::new("chain-plan")
+            .num_columns(6)
+            .spacing([12.0, 6.0])
+            .show(ui, |ui| {
+                for (n, planned) in plan.briefs.iter_mut().enumerate() {
+                    plan_row(ui, n, planned, catalog, &cli, listed, title_width);
+                    ui.end_row();
+                }
+            });
+        for planned in &plan.briefs {
+            if !planned.due.is_empty() {
+                ui.label(
+                    RichText::new(format!(
+                        "{}: owner tasks due before it are open ({}); the gate refuses it until \
+                         they are ticked.",
+                        planned.ep,
+                        planned.due.join(", ")
+                    ))
+                    .small()
+                    .color(style::amber(ui)),
+                );
+            }
+        }
+        let mut notes = Vec::new();
+        if let Some(stop) = &plan.stop {
+            notes.push(format!("The chain would end at {}: {}.", stop.ep, stop.why));
+        }
+        notes.push(format!(
+            "At most {} chained run{} a day in the project (its daily); the day's caps and the \
+             gate's other conditions still hold when the chain reaches each brief.",
+            plan.daily,
+            if plan.daily == 1 { "" } else { "s" }
+        ));
+        ui.add(egui::Label::new(RichText::new(notes.join(" ")).small().weak()).wrap());
     }
 
     fn editor(&mut self, ui: &mut egui::Ui, height: f32) {
@@ -468,36 +567,18 @@ impl Dialog {
 
         let reason = self.model_reason();
         field(ui, "Model", &reason, |ui| {
-            let current = self.resolution.model.value.clone();
-            let mut chosen = current.clone();
+            let mut picked = None;
             ui.add_enabled_ui(!visual, |ui| {
-                egui::ComboBox::from_id_salt("launch-model")
-                    .width(combo)
-                    .selected_text(model_text(&self.catalog, &current))
-                    .show_ui(ui, |ui| {
-                        let (main, more): (Vec<_>, Vec<_>) =
-                            self.catalog.models.iter().partition(|model| model.main);
-                        for model in main {
-                            ui.selectable_value(&mut chosen, model.id.clone(), &model.name);
-                        }
-                        if !more.is_empty() {
-                            ui.separator();
-                            for model in more {
-                                ui.selectable_value(
-                                    &mut chosen,
-                                    model.id.clone(),
-                                    RichText::new(&model.name).weak(),
-                                );
-                            }
-                        }
-                        if self.catalog.model(&current).is_none() {
-                            ui.separator();
-                            ui.selectable_value(&mut chosen, current.clone(), &current);
-                        }
-                    });
+                picked = model_picker(
+                    ui,
+                    "launch-model",
+                    &self.catalog,
+                    &self.resolution.model.value,
+                    combo,
+                );
             });
-            if chosen != current {
-                self.resolution.model = owners(chosen);
+            if let Some(model) = picked {
+                self.resolution.model = owners(model);
                 changed = true;
             }
         });
@@ -505,29 +586,18 @@ impl Dialog {
         let efforts = self.efforts(preflight);
         let reason = picker_reason(visual, self.resolution.effort.reason());
         field(ui, "Effort", &reason, |ui| {
-            let current = self.resolution.effort.value.clone();
-            let mut chosen = current.clone();
+            let mut picked = None;
             ui.add_enabled_ui(!visual, |ui| {
-                egui::ComboBox::from_id_salt("launch-effort")
-                    .width(combo)
-                    .selected_text(current.as_deref().unwrap_or("the CLI's default"))
-                    .show_ui(ui, |ui| {
-                        for level in &efforts {
-                            ui.selectable_value(&mut chosen, Some(level.clone()), level);
-                        }
-                        if let Some(level) = &current
-                            && !efforts.contains(level)
-                        {
-                            ui.selectable_value(
-                                &mut chosen,
-                                current.clone(),
-                                format!("{level} (not offered)"),
-                            );
-                        }
-                    });
+                picked = effort_picker(
+                    ui,
+                    "launch-effort",
+                    &efforts,
+                    self.resolution.effort.value.as_deref(),
+                    combo,
+                );
             });
-            if chosen != current {
-                self.resolution.effort = owners(chosen);
+            if let Some(effort) = picked {
+                self.resolution.effort = owners(effort);
                 changed = true;
             }
         });
@@ -883,6 +953,206 @@ fn flags_of(preflight: Option<&Preflight>) -> Option<&session::cli::Flags> {
     preflight.and_then(|preflight| preflight.flags.as_ref().ok())
 }
 
+/// The effort levels the CLI's help lists, ultracode aside.
+fn cli_efforts(preflight: Option<&Preflight>) -> Vec<String> {
+    flags_of(preflight)
+        .map(|flags| flags.efforts.clone())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|level| level != "ultracode")
+        .collect()
+}
+
+/// The effort levels to offer for `model`: the model's that the CLI lists too (`cli`), in the
+/// CLI's order; the built-in ones when neither says.
+fn efforts_of(catalog: &Catalog, cli: &[String], model: &str) -> Vec<String> {
+    let model: Vec<String> = catalog
+        .model(model)
+        .map(|model| model.efforts.clone())
+        .unwrap_or_default();
+    match (cli.is_empty(), model.is_empty()) {
+        (false, false) => cli.iter().filter(|l| model.contains(l)).cloned().collect(),
+        (false, true) => cli.to_vec(),
+        (true, false) => model,
+        (true, true) => rules::EFFORTS.map(str::to_owned).to_vec(),
+    }
+}
+
+/// The model picker: the catalog's main models, the rest below a line, and the current value
+/// when the catalog lacks it. The new value, when the owner chose another.
+fn model_picker(
+    ui: &mut egui::Ui,
+    salt: impl std::hash::Hash + std::fmt::Debug,
+    catalog: &Catalog,
+    current: &str,
+    width: f32,
+) -> Option<String> {
+    let mut chosen = current.to_owned();
+    egui::ComboBox::from_id_salt(salt)
+        .width(width)
+        .selected_text(model_text(catalog, current))
+        .show_ui(ui, |ui| {
+            let (main, more): (Vec<_>, Vec<_>) =
+                catalog.models.iter().partition(|model| model.main);
+            for model in main {
+                ui.selectable_value(&mut chosen, model.id.clone(), &model.name);
+            }
+            if !more.is_empty() {
+                ui.separator();
+                for model in more {
+                    ui.selectable_value(
+                        &mut chosen,
+                        model.id.clone(),
+                        RichText::new(&model.name).weak(),
+                    );
+                }
+            }
+            if catalog.model(current).is_none() {
+                ui.separator();
+                ui.selectable_value(&mut chosen, current.to_owned(), current);
+            }
+        });
+    (chosen != current).then_some(chosen)
+}
+
+/// The effort picker: `efforts` in the CLI's order, the current level marked when it is not
+/// offered. The new value, when the owner chose another.
+fn effort_picker(
+    ui: &mut egui::Ui,
+    salt: impl std::hash::Hash + std::fmt::Debug,
+    efforts: &[String],
+    current: Option<&str>,
+    width: f32,
+) -> Option<Option<String>> {
+    let current = current.map(str::to_owned);
+    let mut chosen = current.clone();
+    egui::ComboBox::from_id_salt(salt)
+        .width(width)
+        .selected_text(current.as_deref().unwrap_or("the CLI's default"))
+        .show_ui(ui, |ui| {
+            for level in efforts {
+                ui.selectable_value(&mut chosen, Some(level.clone()), level);
+            }
+            if let Some(level) = &current
+                && !efforts.contains(level)
+            {
+                ui.selectable_value(
+                    &mut chosen,
+                    current.clone(),
+                    format!("{level} (not offered)"),
+                );
+            }
+        });
+    (chosen != current).then_some(chosen)
+}
+
+/// One row of the chain plan (EP-19a): the Chain box with the brief's id, its size, its title,
+/// and the pickers, which keep the owner's choice as shown once one is touched.
+fn plan_row(
+    ui: &mut egui::Ui,
+    n: usize,
+    planned: &mut Planned,
+    catalog: &Catalog,
+    cli: &[String],
+    listed: bool,
+    title_width: f32,
+) {
+    let hover = if planned.chain {
+        "The chain may run it; untick it and the chain ends before it"
+    } else {
+        "Left out: the chain ends before it"
+    };
+    ui.checkbox(&mut planned.chain, planned.ep.to_string())
+        .on_hover_text(hover);
+    match planned.size {
+        Some(size) => {
+            style::chip(ui, size.as_str(), ui.visuals().weak_text_color());
+        }
+        None => {
+            ui.label(RichText::new("no size").weak());
+        }
+    }
+    ui.add_sized(
+        [title_width, 20.0],
+        egui::Label::new(RichText::new(&planned.title)).truncate(),
+    )
+    .on_hover_text(&planned.title);
+    let shown = planned.shown();
+    let reason = plan_reason(planned);
+    let mut picked = None;
+    ui.add_enabled_ui(planned.chain, |ui| {
+        if let Some(model) = model_picker(ui, ("plan-model", n), catalog, &shown.model, PLAN_MODEL)
+        {
+            picked = Some(Picked {
+                model,
+                ..shown.clone()
+            });
+        }
+    })
+    .response
+    .on_hover_text(&reason);
+    ui.add_enabled_ui(planned.chain, |ui| {
+        let efforts = efforts_of(catalog, cli, &shown.model);
+        if let Some(effort) = effort_picker(
+            ui,
+            ("plan-effort", n),
+            &efforts,
+            shown.effort.as_deref(),
+            PLAN_EFFORT,
+        ) {
+            picked = Some(Picked {
+                effort,
+                ..shown.clone()
+            });
+        }
+    })
+    .response
+    .on_hover_text(&reason);
+    ui.add_enabled_ui(planned.chain && listed, |ui| {
+        let mut on = shown.ultracode;
+        if ui
+            .checkbox(&mut on, "ultracode")
+            .on_disabled_hover_text(
+                "This claude's help does not list --effort ultracode: it is passed only when \
+                 listed (D-15)",
+            )
+            .changed()
+        {
+            picked = Some(Picked {
+                ultracode: on,
+                ..shown.clone()
+            });
+        }
+    });
+    if let Some(picked) = picked {
+        planned.picked = Some(picked);
+    }
+}
+
+/// A planned brief's reason on hover: the rules' resolution over its row, with the downshift's
+/// judgement, and whether the owner's choice stands over it.
+fn plan_reason(planned: &Planned) -> String {
+    let resolution = &planned.resolution;
+    let rules = format!(
+        "the rules: {} at {} (model: {}; effort: {})",
+        resolution.model.value,
+        prompt::effort_words(
+            resolution.effort.value.as_deref(),
+            resolution.ultracode.value
+        ),
+        resolution.model.reason(),
+        resolution.effort.reason()
+    );
+    let downshift = resolution
+        .downshift
+        .as_ref()
+        .map_or(String::new(), |judged| format!("\n{}", judged.words));
+    match &planned.picked {
+        Some(_) => format!("your choice; {rules}{downshift}"),
+        None => format!("{rules}{downshift}"),
+    }
+}
+
 /// A model as the picker names it: the catalog's name, an alias with what it stands for, or the
 /// id as written.
 fn model_text(catalog: &Catalog, value: &str) -> String {
@@ -1008,8 +1278,116 @@ mod tests {
                 vscode_setting: None,
                 answer_timeout: None,
                 route: (Route::Protocol, None),
+                plan: None,
             },
         )
+    }
+
+    /// Harbor's dialog with its autopilot on and the chain plan after EP-4: EP-5 (M), then EP-6,
+    /// a re-plan, where the list stops.
+    fn dialog_with_plan() -> Dialog {
+        let mut registry = registry(Vec::new());
+        registry.projects[0].autopilot.enabled = true;
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("portfolio")
+            .join("harbor");
+        let snapshot = snapshot::read_tree(&folder);
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        let plan = crw_core::autopilot::plan(
+            &registry,
+            &registry.projects[0],
+            &snapshot,
+            EpId::new(4),
+            &[],
+            &usage,
+        );
+        let mut dialog = dialog_with(registry, &usage);
+        dialog.plan = Some(plan);
+        dialog
+    }
+
+    #[test]
+    fn the_chain_plan_lists_the_briefs_after_the_launched_one_and_takes_the_owners_box() {
+        use crate::testing::{self, Screen};
+
+        let mut dialog = dialog_with_plan();
+        let plan = dialog.plan.as_ref().unwrap();
+        assert_eq!(plan.after, EpId::new(4));
+        assert_eq!(plan.briefs.len(), 1);
+        assert_eq!(plan.briefs[0].ep, EpId::new(5));
+        assert_eq!(plan.stop.as_ref().map(|stop| stop.ep), Some(EpId::new(6)));
+        assert!(plan.briefs[0].chain && plan.briefs[0].picked.is_none());
+        // In Visual the section is a line, and the editor keeps its room.
+        assert!(dialog.visual());
+        assert_eq!(dialog.plan_height(), 40.0);
+        dialog.set_mode(LaunchMode::Headless);
+        assert!(!dialog.visual());
+        assert_eq!(dialog.plan_height(), 110.0);
+        assert!(dialog.prompt.contains("with fable at xhigh effort"));
+
+        // The plan's row is drawn with its box, which a click unticks (EP-15a's screen).
+        let preflight = canned_preflight();
+        let mut screen = Screen::new();
+        let mut draw = |dialog: &mut Dialog, events| {
+            screen.pass(events, |ui| {
+                dialog.ui(ui, Some(&preflight), false, false, false);
+            })
+        };
+        let output = draw(&mut dialog, Vec::new());
+        let at = testing::text_at(&output, "EP-5").expect("the plan's row names EP-5");
+        draw(&mut dialog, testing::moved(at));
+        draw(
+            &mut dialog,
+            testing::button(at, egui::PointerButton::Primary, true),
+        );
+        draw(
+            &mut dialog,
+            testing::button(at, egui::PointerButton::Primary, false),
+        );
+        draw(&mut dialog, Vec::new());
+        let plan = dialog.plan.as_ref().unwrap();
+        assert!(!plan.briefs[0].chain, "the box is unticked by the click");
+        assert_eq!(
+            plan.answer(EpId::new(5)),
+            crw_core::autopilot::Answer::LeftOut
+        );
+        // The owner's choice, as a picker would keep it, over the rules' resolution.
+        let plan = dialog.plan.as_mut().unwrap();
+        plan.briefs[0].chain = true;
+        let rules = plan.briefs[0].shown();
+        assert_eq!(
+            (rules.model.as_str(), rules.effort.as_deref()),
+            ("fable", Some("xhigh"))
+        );
+        assert!(plan_reason(&plan.briefs[0]).starts_with("the rules: fable at xhigh"));
+        plan.briefs[0].picked = Some(Picked {
+            effort: Some("max".to_owned()),
+            ..rules
+        });
+        assert!(plan_reason(&plan.briefs[0]).starts_with("your choice; the rules:"));
+        assert_eq!(
+            plan.words(),
+            "after EP-4: EP-5 fable at max (your choice); the chain would end at EP-6: EP-6 is \
+             a re-plan, the owner's to run"
+        );
+    }
+
+    #[test]
+    fn the_efforts_offered_are_the_models_that_the_cli_lists() {
+        let catalog = Catalog::built_in("for the test".to_owned());
+        let cli: Vec<String> = ["low", "medium", "high", "xhigh", "max"]
+            .map(str::to_owned)
+            .to_vec();
+        assert_eq!(efforts_of(&catalog, &cli, "fable"), cli);
+        assert_eq!(
+            efforts_of(&catalog, &[], "fable"),
+            catalog.model("fable").unwrap().efforts
+        );
+        assert_eq!(efforts_of(&catalog, &cli, "model-unknown"), cli);
+        assert_eq!(efforts_of(&catalog, &[], "model-unknown"), rules::EFFORTS);
+        assert_eq!(cli_efforts(None), Vec::<String>::new());
+        assert!(!cli_efforts(Some(&canned_preflight())).contains(&"ultracode".to_owned()));
     }
 
     #[test]

@@ -25,7 +25,7 @@ use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
 use crw_core::ledger::{Ledger, Part};
 use crw_core::notify::QuietHours;
 use crw_core::proposal::{self, Reason};
-use crw_core::registry::{State, Store};
+use crw_core::registry::{LaunchMode, State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
@@ -322,6 +322,9 @@ pub struct Board {
     pub catalog_folder: Option<PathBuf>,
     /// A launch dialog to open once the files are read (a screenshot run's `launch=`).
     pub open_when_read: Option<String>,
+    /// That dialog opens on Headless (a screenshot run's `launch=<project>:headless`), where
+    /// the chain plan shows (EP-19a).
+    pub open_headless: bool,
     /// The ledger a session is recorded in.
     ledger: Option<PathBuf>,
     ctx: egui::Context,
@@ -376,6 +379,7 @@ impl Board {
             test_due: None,
             catalog_folder: Catalog::folder(),
             open_when_read: None,
+            open_headless: false,
             ledger,
             ctx: ctx.clone(),
             notice: None,
@@ -480,6 +484,10 @@ impl Board {
                 // The CLI may have changed under the tool: the next launch asks it again.
                 self.sessions.forget_preflight();
                 let why = format!("The session did not start: {why}");
+                // No run, so the chain plan kept at the start goes (EP-19a).
+                if let Some(project) = self.launch.as_ref().map(|dialog| dialog.project.clone()) {
+                    self.autopilot.drop_plan(&project);
+                }
                 match self.launch.as_mut() {
                     Some(dialog) => dialog.error = Some(why),
                     None => self.fail(why),
@@ -677,6 +685,8 @@ impl Board {
             self.meter.session_ended();
         }
         let crossings = self.meter.take_crossings();
+        // The chain's moments (EP-19a), taken whether or not toasts are on.
+        let chain = self.autopilot.take_moments();
         if !self.toasts.is_on() {
             return;
         }
@@ -695,6 +705,7 @@ impl Board {
         );
         let now = chrono::Utc::now();
         moments.extend(crossings.iter().map(|crossing| Toast::usage(crossing, now)));
+        moments.extend(chain);
         if !moments.is_empty() {
             let quiet = self.quiet_hours();
             for toast in self.toasts.deliver(moments, quiet, in_front, ctx) {
@@ -886,6 +897,11 @@ impl Board {
                 Target::Usage => {
                     self.show();
                     self.bring = Some(Pane::Usage);
+                }
+                Target::ChainLog => {
+                    self.show();
+                    self.sessions.tab = None;
+                    self.bring = Some(Pane::Sessions);
                 }
                 Target::Window => self.show(),
             }
@@ -1321,6 +1337,11 @@ impl Board {
             Catalog::read,
         );
         let vscode_setting = registry.settings.vscode.clone();
+        // The chain plan (EP-19a): the briefs a chain may run after this one, each as the rules
+        // resolve it, for a project whose autopilot is on.
+        let plan = project.autopilot.enabled.then(|| {
+            crw_core::autopilot::plan(&registry, &project, &snapshot, draft.ep, &levels, &usage)
+        });
         self.launch = Some(Dialog::new(
             draft,
             Opening {
@@ -1335,8 +1356,15 @@ impl Board {
                 vscode_setting,
                 answer_timeout: project.answer_timeout(),
                 route,
+                plan,
             },
         ));
+        // A screenshot run's launch opens on Headless, where the plan shows.
+        if self.open_headless
+            && let Some(dialog) = self.launch.as_mut()
+        {
+            dialog.set_mode(LaunchMode::Headless);
+        }
     }
 
     /// Hands the dialog's prompt to VS Code (D-16, EP-11), off the UI thread, since the project's
@@ -1392,6 +1420,7 @@ impl Board {
         let mut launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
         let (size, commits) = (dialog.size, dialog.commits());
+        let plan = dialog.plan.clone();
         let project = self
             .portfolio
             .project(&launch.project)
@@ -1406,6 +1435,11 @@ impl Board {
         let run = match project.filter(|project| project.autopilot.enabled) {
             Some(project) => {
                 launch.max_budget_usd = project.autopilot.max_budget_usd;
+                // The chain plan as the owner left it, kept in the window until the chain
+                // ends (EP-19a); a start the runner refuses lets it go again.
+                if let Some(plan) = plan {
+                    self.autopilot.keep_plan(plan);
+                }
                 crate::sessions::Run {
                     capped: true,
                     size,

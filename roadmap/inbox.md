@@ -89,3 +89,21 @@ and tick its box. Until EP-20 delivers messages, the owner carries them here by 
   (2026-11-02):** rolled in, as it fits the neighbour-folder brief and is S-sized; on the owner's
   choice the entry was dropped (the file held nothing else and is gone) and rule 11 now names the
   user-level grant, which leaves out the data repositories.
+- [x] IN-7 (from the owner, OT-18, 2026-11-06) Opting a project into a chain takes a hand edit of
+  the registry today: the gate refuses a project whose runs would wait at each shell command
+  (`Waits`), and the only way past it without allow rules is `permission_mode = "auto"` written
+  under the project's `[project.launch]`, which no window control and no `crw` command sets (so a
+  session can make the change only by editing the owner's registry by hand, rule 13). Make it GUI
+  friendly: (1) ticking the autopilot box (or A) on a project whose runs would wait says so and
+  offers to set its permission mode to `auto` there, with a line on what `auto` means; (2) beside
+  the launch dialog's Permissions picker, a "keep for this project" choice that writes `[project.launch]
+  permission_mode`, or takes it out to return to the default; (3) the Autopilot section, or the
+  Detail pane, shows each autopilot project's permission mode and whether the gate would refuse it
+  for waiting; (4) `crw set <project> permission_mode <mode|default>` as the command-line twin.
+  Perhaps the autopilot's limits too (`max_size`, `daily`, `max_budget_usd`), which are also
+  hand-written today. Suggested home: EP-19a, whose launch dialog already serves autopilot
+  projects; a row of its own if it does not fit an S. **Triaged at EP-19a (2026-11-06):** more
+  than an S with the limits and the owner's wish of the same day for a standing model and effort
+  per project or phase, so, on the owner's choice, a new M row EP-19b right after EP-19a takes
+  all four parts, the three limits and "keep for this project" (or phase) beside the dialog's
+  pickers; EP-19a stays on the chain plan and the chain's moment.

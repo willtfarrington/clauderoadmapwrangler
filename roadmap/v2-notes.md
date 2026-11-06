@@ -94,6 +94,13 @@ marked *(EP-35)*.
 - *(EP-19)* This project chained, its release build and install script left to an owner task
   after the chain, or built where the running window does not hold it (EP-28's install script);
   the owner chose never to chain it at pickup (D-22 addendum).
+- *(EP-19a)* A chain plan kept in the registry or across a restart of the window: EP-19a's
+  lives in the window, as a held chain does, and goes with it (the owner's choice, D-22
+  addendum); with it, `crw autopilot` printing the plan, or a plan set from the command line.
+- *(EP-19a)* A "back to the rules" button on a plan row, dropping the owner's choice; today a
+  touched row keeps its pickers as left until the dialog is opened again.
+- *(EP-19a)* A plan listing beyond the project's `daily`, greyed where the day's cap would stop
+  the chain, and a count of runs beside the boxes (the owner chose a box per brief at pickup).
 
 ## 2 Analytics
 

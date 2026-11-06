@@ -692,11 +692,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-18b | [Usage-share badge: each project's points of the weekly limit this week as a Usage column of the row's badges in both forms, its Fable sum and its part of all that was attributed in the hover text and a line of the Detail pane's Status section, the legend's key and the Usage share sort key](EP-18b-usage-share-badge.md) (D-23, D-25) | S | EP-18a | core | ☑ `84fb8b7` |
 | EP-35 | [Resume in VS Code: a ledger row's session reopened in the project's own window through the extension's `session=<id>` link, for a run a crash or a quit window cut short and for visual and manual sessions](EP-35-resume-in-vs-code.md) (D-16, D-26) | S | EP-11, EP-13 | core | ☑ `889f812` |
 | EP-19 | [Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log](EP-19-autopilot.md) (D-22) | L | EP-14, EP-17 | core | ☑ `86d3717` |
-| EP-19a | Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default; a notification of its own when a chain stops (D-22, D-21) | S | EP-19 | core | ☐ |
+| EP-19a | [Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default, a Chain box per brief; a notification of its own at each change of a chain's state](EP-19a-chain-plan.md) (D-22, D-21) | S | EP-19 | core | ☐ |
+| EP-19b | Launch settings in the window: "keep for this project" (or phase) beside the launch dialog's Permissions, Model and Effort pickers writing `[project.launch]` or a `[[project.rule]]`, the autopilot box's offer of `auto` for a project whose runs would wait, each autopilot project's permission mode and the gate's verdict in the Autopilot section, the autopilot's limits in the window, `crw set` twins (D-18, D-22) | M | EP-19a | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -709,6 +710,10 @@ usage-share badge, right after it and before EP-35. *(2026-11-05, EP-18a split a
 owner's choice.)* EP-18b takes EP-18a's usage-share badge, right after it and before EP-35.
 *(2026-11-05, EP-19 split at pickup, the owner's choice.)* EP-19a takes EP-19's per-brief model
 and effort before a chain starts and the chain's own notification, right after it.
+*(2026-11-06, IN-7 at EP-19a's pickup, the owner's choice.)* EP-19b takes IN-7's window controls
+for opting a project into a chain, the autopilot's limits and a standing model and effort set
+from the dialog, right after EP-19a and before EP-20, since a chain is opted into by a hand edit
+of the registry until then.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -932,6 +937,29 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   (`autopilot::refused_words`, `capped_words`, `not_started_words`), each a moment for
   `crw_core::notify`'s table as a `Kind` of its own, whose Show could bring the Sessions pane's
   All tab forward, where the chain log is.
+- **EP-19b.** Added on 2026-11-06 at EP-19a's pickup from IN-7 (the owner's message after
+  OT-18) and the owner's note of the same day (the owner's choice, D-13). Opting a project into
+  a chain takes a hand edit of the registry today: the gate refuses a project whose runs would
+  wait at each shell command (`Waits`), and the way past it without allow rules is
+  `permission_mode = "auto"` under its `[project.launch]`, which no window control and no `crw`
+  command sets. (1) **The box's offer**: ticking the autopilot box (or A) on a project whose
+  runs would wait says so and offers to set its permission mode to `auto` there, with a line on
+  what `auto` means (D-18). (2) **Keep for this project**: beside the launch dialog's Permissions
+  picker, a choice that writes `[project.launch] permission_mode`, or takes it out to return to
+  the default; the same beside the Model and Effort pickers, writing `[project.launch] model` and
+  `effort` (the resolver's second layer, D-22's EP-10 addendum), and "keep for this phase",
+  which writes a `[[project.rule]]` matching the phase: the standing model and effort the owner
+  asked for after the first real chain ran its second brief at the rules' choice. (3) **Shown**:
+  the Autopilot section, or the Detail pane, shows each autopilot project's permission mode and
+  whether the gate would refuse it for waiting (`autopilot::would_wait` over
+  `settings_files`). (4) **`crw set <project> permission_mode <mode|default>`**, and the
+  autopilot's limits (`max_size`, `daily`, `max_budget_usd`) in the window and as `crw set`
+  twins, hand-written today. The registry's writers follow `Changes::set_autopilot`: the tool's
+  inline form laid out afresh, a table the owner wrote kept with its comments, a default taken
+  out so that the builds before read the file. **From EP-19a:** the dialog's pickers are
+  `launch::model_picker` and `effort_picker`, shared with the chain plan's rows, so a "keep"
+  choice beside them serves both; the plan's rows take the rules' resolution per row
+  (`autopilot::plan`), which a `[[project.rule]]` by phase would change at once.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)

@@ -351,6 +351,27 @@ impl<T> Choice<T> {
     }
 }
 
+/// A model, effort and ultracode as the owner set them (EP-19a): the chain plan's choice for a
+/// brief, which the chain takes in place of the rules'.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Picked {
+    pub model: String,
+    /// `None` leaves the effort to the CLI.
+    pub effort: Option<String>,
+    pub ultracode: bool,
+}
+
+impl Picked {
+    /// The resolution's values, as the pickers show them before the owner touches one.
+    pub fn of(resolution: &Resolution) -> Self {
+        Self {
+            model: resolution.model.value.clone(),
+            effort: resolution.effort.value.clone(),
+            ultracode: resolution.ultracode.value,
+        }
+    }
+}
+
 /// A brief's launch values, each with its reason.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Resolution {
@@ -460,6 +481,20 @@ impl Resolution {
         if let Some(ultracode) = set.ultracode {
             self.ultracode = Choice::new(ultracode, source);
         }
+    }
+
+    /// The owner's choice over the rules' (EP-19a): the model, effort and ultracode as they
+    /// picked them, each with [`Source::Owner`].
+    pub fn pick(&mut self, picked: &Picked) {
+        self.model = Choice::new(picked.model.trim().to_owned(), Source::Owner);
+        self.effort = Choice::new(
+            picked
+                .effort
+                .as_ref()
+                .map(|effort| effort.trim().to_owned()),
+            Source::Owner,
+        );
+        self.ultracode = Choice::new(picked.ultracode, Source::Owner);
     }
 
     /// The last layer (D-23): an S brief whose model so far is a Fable model is proposed

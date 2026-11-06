@@ -235,7 +235,13 @@ impl Run {
                 "expand" => {
                     board.view.expanded.insert(value.to_owned());
                 }
-                "launch" => board.open_when_read = Some(value.to_owned()),
+                "launch" => {
+                    // `launch=harbor:headless` opens the dialog on Headless, where the chain
+                    // plan shows (EP-19a).
+                    let (project, mode) = value.split_once(':').unwrap_or((value, ""));
+                    board.open_when_read = Some(project.to_owned());
+                    board.open_headless = mode == "headless";
+                }
                 "sessions" => {
                     canned_sessions(board);
                     if !value.is_empty() {
@@ -352,6 +358,58 @@ impl Run {
 /// The autopilot as a screenshot shows it (EP-19): `project`'s turned on in the run's own
 /// registry, a chain held by the Fable figure, a canned log, and harbor's canned tab with its cap,
 /// ended so that its Commit shows. Nothing is read from or written to a ledger.
+/// A chain plan after `project`'s EP-4 (EP-19a): EP-5 at the owner's choice, Opus 5.5 at max,
+/// and the chain ending at EP-6, a re-plan; the rules' resolution over an M as its default.
+fn canned_chain_plan(project: &str) -> crw_core::autopilot::Plan {
+    use crw_core::autopilot::{Plan, Planned, Stop};
+    use crw_core::registry::{Project, Registry, State};
+    use crw_core::roadmap::Size;
+    use crw_core::rules::{self, Picked};
+
+    let entry = Project::new(project, Path::new(project), State::Active);
+    let registry = Registry {
+        format: 1,
+        ignore: Vec::new(),
+        settings: Default::default(),
+        rules: Vec::new(),
+        projects: vec![entry.clone()],
+    };
+    let brief = rules::Brief {
+        size: Some(Size::M),
+        phase: Some("P1"),
+        title: "Season fees",
+    };
+    let resolution = rules::resolve(
+        &registry,
+        &entry,
+        &brief,
+        &[],
+        &rules::Usage::unread(Utc::now()),
+    );
+    Plan {
+        project: project.to_owned(),
+        after: "EP-4".parse().expect("an EP id"),
+        briefs: vec![Planned {
+            ep: "EP-5".parse().expect("an EP id"),
+            title: "Season fees: rates by length band, invoices as PDF".to_owned(),
+            size: Some(Size::M),
+            resolution,
+            due: Vec::new(),
+            chain: true,
+            picked: Some(Picked {
+                model: "claude-opus-5-5".to_owned(),
+                effort: Some("max".to_owned()),
+                ultracode: false,
+            }),
+        }],
+        stop: Some(Stop {
+            ep: "EP-6".parse().expect("an EP id"),
+            why: "EP-6 is a re-plan, the owner's to run".to_owned(),
+        }),
+        daily: 2,
+    }
+}
+
 fn canned_autopilot(board: &mut Board, project: &str) {
     use crw_core::autopilot::{self, Cap, EVENT_KIND};
     use crw_core::ledger::EventRow;
@@ -388,12 +446,12 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         row(
             102,
             project,
-            "chained EP-5 after EP-4: fable at xhigh, M's cap of 1 h 30 min",
+            "chained EP-5 after EP-4: claude-opus-5-5 at max, your choice, M's cap of 1 h 30 min",
         ),
         row(
             140,
             "lantern",
-            "capped: EP-3 stopped after 45 min of work, S's cap of 45 min; the chain ends there",
+            "capped EP-3: stopped after 45 min of work, S's cap of 45 min; the chain ends there",
         ),
         row(160, "", autopilot::RESUMED_BY_OWNER),
     ];
@@ -402,6 +460,9 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         after: "EP-2".parse().ok(),
         words: held.to_owned(),
     }];
+    // The plan the chain follows (EP-19a): the owner's choice for EP-5, the chain ending at the
+    // re-plan.
+    board.autopilot.keep_plan(canned_chain_plan(project));
     if let Some(live) = board
         .sessions
         .live

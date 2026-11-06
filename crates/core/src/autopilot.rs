@@ -18,7 +18,9 @@ use chrono::{DateTime, Local, NaiveDate, TimeDelta, Utc};
 use crate::ledger::{self, EventRow, Ledger};
 use crate::prompt::{self, Draft};
 use crate::registry::{Project, Registry};
+use crate::roadmap::table::Row;
 use crate::roadmap::{EpId, Size, snapshot};
+use crate::rules::{Picked, Resolution};
 use crate::session::{Launch, Outcome};
 use crate::usage::{self, Figure, Figures};
 use crate::{git, paths, rules};
@@ -558,7 +560,7 @@ pub fn refused_words(after: Option<EpId>, refusals: &[Refusal]) -> String {
 /// A run stopped at its cap, as the log says it.
 pub fn capped_words(ep: &str, cap: &Cap, worked: Duration) -> String {
     format!(
-        "capped: {ep} stopped after {} of work, {}; the chain ends there",
+        "capped {ep}: stopped after {} of work, {}; the chain ends there",
         length(worked),
         cap.words()
     )
@@ -568,6 +570,197 @@ pub fn capped_words(ep: &str, cap: &Cap, worked: Duration) -> String {
 pub fn not_started_words(next: &str, after: Option<EpId>, why: &str) -> String {
     let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
     format!("the chain ends{after}: {next} did not start: {why}")
+}
+
+/// One brief a chain may run after the launched one (EP-19a): its row, the rule table's
+/// resolution over it as the pickers' default, and what the owner made of it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Planned {
+    pub ep: EpId,
+    pub title: String,
+    pub size: Option<Size>,
+    /// The rules' resolution over its row when the plan was made, the downshift included.
+    pub resolution: Resolution,
+    /// The open owner tasks gated before it, by id, which the gate would refuse it for.
+    pub due: Vec<String>,
+    /// Whether the chain may run it (the Chain box); unticked, the chain ends before it.
+    pub chain: bool,
+    /// The owner's choice, once they changed a picker: the chain takes it as shown.
+    pub picked: Option<Picked>,
+}
+
+impl Planned {
+    /// The model, effort and ultracode as the pickers show them.
+    pub fn shown(&self) -> Picked {
+        self.picked
+            .clone()
+            .unwrap_or_else(|| Picked::of(&self.resolution))
+    }
+
+    /// The brief's line of the plan in words: `EP-5 claude-opus-5-5 at max (your choice)`.
+    pub fn words(&self) -> String {
+        let whose = match (&self.picked, self.chain) {
+            (_, false) => return format!("{} left out", self.ep),
+            (Some(_), true) => "your choice",
+            (None, true) => "the rules' choice",
+        };
+        let picked = self.shown();
+        format!(
+            "{} {} at {} ({whose})",
+            self.ep,
+            picked.model,
+            prompt::effort_words(picked.effort.as_deref(), picked.ultracode)
+        )
+    }
+}
+
+/// Where a plan stops of its own: a row the gate would refuse whatever the owner does, and why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Stop {
+    pub ep: EpId,
+    pub why: String,
+}
+
+/// What the plan says of a brief the chain reaches.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Answer {
+    /// The owner's choice.
+    Picked(Picked),
+    /// A row the owner left alone: the rules' choice as the chain resolves it then.
+    Rules,
+    /// A row the owner unticked: the chain ends before it.
+    LeftOut,
+    /// A brief the plan does not list (a row added since): the rules' choice.
+    NotListed,
+}
+
+/// The plan of a chain (EP-19a, the owner's choice: kept in the window from Start headless
+/// until the chain ends): the briefs it may run after `after`, in table order, up to the
+/// project's `daily`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Plan {
+    pub project: String,
+    /// The brief the owner starts, which the chain follows.
+    pub after: EpId,
+    pub briefs: Vec<Planned>,
+    /// The row the list stopped at, when the gate would refuse it on its own account.
+    pub stop: Option<Stop>,
+    /// The project's chained runs a day: the most briefs listed.
+    pub daily: u32,
+}
+
+impl Plan {
+    /// What the plan says of `ep`.
+    pub fn answer(&self, ep: EpId) -> Answer {
+        match self.briefs.iter().find(|planned| planned.ep == ep) {
+            None => Answer::NotListed,
+            Some(planned) if !planned.chain => Answer::LeftOut,
+            Some(planned) => match &planned.picked {
+                Some(picked) => Answer::Picked(picked.clone()),
+                None => Answer::Rules,
+            },
+        }
+    }
+
+    /// The plan in words: `after EP-4: EP-5 claude-opus-5-5 at max (your choice), EP-6 left
+    /// out; the chain would end at EP-7: EP-7 is a re-plan, the owner's to run`.
+    pub fn words(&self) -> String {
+        let briefs = if self.briefs.is_empty() {
+            "no brief to chain".to_owned()
+        } else {
+            self.briefs
+                .iter()
+                .map(Planned::words)
+                .collect::<Vec<_>>()
+                .join(", ")
+        };
+        let stop = self.stop.as_ref().map_or(String::new(), |stop| {
+            format!("; the chain would end at {}: {}", stop.ep, stop.why)
+        });
+        format!("after {}: {briefs}{stop}", self.after)
+    }
+}
+
+/// The plan of a chain after `after` (EP-19a): the next unchecked rows in table order, up to the
+/// project's `daily`, each with the rules' resolution over its row (`levels` and `usage` as
+/// [`read`] takes them); the list stops at a row the gate would refuse on its own account (a
+/// re-plan, a size over `max_size`, no size), named with the reason.
+pub fn plan(
+    registry: &Registry,
+    project: &Project,
+    snapshot: &snapshot::Snapshot,
+    after: EpId,
+    levels: &[String],
+    usage: &rules::Usage,
+) -> Plan {
+    let daily = project.autopilot.daily();
+    let max = project.autopilot.max_size();
+    let mut plan = Plan {
+        project: project.name.clone(),
+        after,
+        briefs: Vec::new(),
+        stop: None,
+        daily,
+    };
+    let Some(roadmap) = snapshot.current() else {
+        return plan;
+    };
+    let rows: Vec<&Row> = roadmap.rows().collect();
+    let Some(at) = rows.iter().position(|row| row.id == after) else {
+        return plan;
+    };
+    for row in rows
+        .iter()
+        .skip(at + 1)
+        .filter(|row| !row.done.is_checked())
+    {
+        if plan.briefs.len() >= daily as usize {
+            break;
+        }
+        let refused = if is_replan(&row.brief.title) {
+            Some(Refusal::Replan(row.id))
+        } else {
+            match row.size {
+                Some(size) if size <= max => None,
+                size => Some(Refusal::Size {
+                    next: row.id,
+                    size,
+                    max,
+                }),
+            }
+        };
+        if let Some(refused) = refused {
+            plan.stop = Some(Stop {
+                ep: row.id,
+                why: refused.words(),
+            });
+            break;
+        }
+        let phase = roadmap
+            .phase_of(row.id)
+            .and_then(|phase| phase.heading.id.as_deref());
+        let brief = rules::Brief {
+            size: row.size,
+            phase,
+            title: &row.brief.title,
+        };
+        plan.briefs.push(Planned {
+            ep: row.id,
+            title: row.brief.title.trim().to_owned(),
+            size: row.size,
+            resolution: rules::resolve(registry, project, &brief, levels, usage),
+            due: prompt::due(snapshot, roadmap, row),
+            chain: true,
+            picked: None,
+        });
+    }
+    plan
+}
+
+/// A brief the owner left out of the plan, which ends the chain, as the log says it.
+pub fn left_out_words(after: Option<EpId>, ep: EpId) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    format!("the chain ends{after}: {ep} is left out of your plan")
 }
 
 /// Keeps one line of the chain log.
@@ -1100,9 +1293,164 @@ mod tests {
         assert_eq!(cap.words(), "S's cap of 45 min");
         let words = capped_words("EP-5", &cap, cap.clock.worked(at(85)));
         assert!(
-            words.starts_with("capped: EP-5 stopped after 45 min"),
+            words.starts_with("capped EP-5: stopped after 45 min"),
             "{words}"
         );
+    }
+
+    /// The house fixture (`crates/core/fixtures/projects/house`): EP-3 next, then EP-4 (L) and
+    /// EP-5 (a re-plan), OT-2 due before EP-3.
+    fn house() -> (Registry, snapshot::Snapshot) {
+        let registry: Registry = toml::from_str(
+            "format = 1\n\n[[project]]\nname = \"house\"\npath = \"house\"\nstate = \"active\"\n\
+             autopilot = { enabled = true, max_size = \"L\", daily = 3 }\n",
+        )
+        .unwrap();
+        let snapshot = snapshot::read_tree(
+            &Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("fixtures")
+                .join("projects")
+                .join("house"),
+        );
+        (registry, snapshot)
+    }
+
+    #[test]
+    fn the_plan_lists_the_rows_after_the_launched_brief_and_stops_where_the_gate_would() {
+        let (registry, snapshot) = house();
+        let project = &registry.projects[0];
+        let unread = rules::Usage::unread(now());
+        // After EP-3: EP-4 (L, within the project's L) and then EP-5, a re-plan, where it stops.
+        let plan = super::plan(&registry, project, &snapshot, ep("EP-3"), &[], &unread);
+        assert_eq!(plan.after, ep("EP-3"));
+        assert_eq!(plan.daily, 3);
+        assert_eq!(plan.briefs.len(), 1);
+        let viewer = &plan.briefs[0];
+        assert_eq!((viewer.ep, viewer.title.as_str()), (ep("EP-4"), "Viewer"));
+        assert_eq!(viewer.size, Some(Size::L));
+        assert_eq!(viewer.resolution.model.value, "fable");
+        assert_eq!(viewer.resolution.effort.value.as_deref(), Some("xhigh"));
+        assert_eq!(viewer.due, vec!["OT-2".to_owned()]);
+        assert!(viewer.chain && viewer.picked.is_none());
+        assert_eq!(
+            plan.stop,
+            Some(Stop {
+                ep: ep("EP-5"),
+                why: "EP-5 is a re-plan, the owner's to run".to_owned()
+            })
+        );
+        assert_eq!(
+            plan.words(),
+            "after EP-3: EP-4 fable at xhigh (the rules' choice); the chain would end at EP-5: \
+             EP-5 is a re-plan, the owner's to run"
+        );
+        // The plan's answers: the rules', the owner's, left out, not listed.
+        assert_eq!(plan.answer(ep("EP-4")), Answer::Rules);
+        assert_eq!(plan.answer(ep("EP-9")), Answer::NotListed);
+        let mut planned = plan.clone();
+        let picked = Picked {
+            model: "claude-opus-5-5".to_owned(),
+            effort: Some("max".to_owned()),
+            ultracode: false,
+        };
+        planned.briefs[0].picked = Some(picked.clone());
+        assert_eq!(planned.answer(ep("EP-4")), Answer::Picked(picked));
+        assert_eq!(
+            planned.briefs[0].words(),
+            "EP-4 claude-opus-5-5 at max (your choice)"
+        );
+        planned.briefs[0].chain = false;
+        assert_eq!(planned.answer(ep("EP-4")), Answer::LeftOut);
+        assert_eq!(planned.briefs[0].words(), "EP-4 left out");
+        assert_eq!(
+            left_out_words(Some(ep("EP-3")), ep("EP-4")),
+            "the chain ends after EP-3: EP-4 is left out of your plan"
+        );
+        // Under the default M, EP-4's L is where the list stops, so nothing is planned.
+        let mut under_m = registry.clone();
+        under_m.projects[0].autopilot.max_size = None;
+        let plan = super::plan(
+            &under_m,
+            &under_m.projects[0],
+            &snapshot,
+            ep("EP-3"),
+            &[],
+            &unread,
+        );
+        assert!(plan.briefs.is_empty());
+        assert!(
+            plan.words()
+                .starts_with("after EP-3: no brief to chain; the chain would end")
+        );
+        assert_eq!(
+            plan.stop.map(|stop| stop.why),
+            Some("EP-4 is L, over the autopilot's M".to_owned())
+        );
+        // A launched brief the roadmap does not list, or no roadmap: an empty plan.
+        let plan = super::plan(&registry, project, &snapshot, ep("EP-9"), &[], &unread);
+        assert!(plan.briefs.is_empty() && plan.stop.is_none());
+        let none = plan_of(&registry, &snapshot::Snapshot::default());
+        assert!(none.briefs.is_empty());
+    }
+
+    #[test]
+    fn the_plan_keeps_to_the_daily_cap_and_the_rules_per_row() {
+        // Four open rows after EP-1, the project's daily 2 and a rule for M rows.
+        let registry: Registry = toml::from_str(
+            "format = 1\n\n[[project]]\nname = \"alpha\"\npath = \"alpha\"\nstate = \"active\"\n\
+             autopilot = { enabled = true, daily = 2 }\n\n[[project.rule]]\nname = \"an M on \
+             Opus\"\nmatch = { size = \"M\" }\nset = { model = \"claude-opus-5-5\", effort = \
+             \"max\" }\n",
+        )
+        .unwrap();
+        let snapshot = snapshot::Snapshot {
+            tree: Some(crate::roadmap::table::parse(
+                "## Phase P1 — Build\n\n| # | Brief | Size | Depends on | Core | Done |\n\
+                 |---|---|---|---|---|---|\n\
+                 | EP-1 | One | S | — | core | ☐ |\n\
+                 | EP-2 | Two | M | EP-1 | core | ☐ |\n\
+                 | EP-3 | Three | S | EP-2 | core | ☑ `abc1234` |\n\
+                 | EP-4 | Four | S | EP-2 | core | ☐ |\n\
+                 | EP-5 | Five | M | EP-4 | core | ☐ |\n",
+            )),
+            ..snapshot::Snapshot::default()
+        };
+        let plan = plan_of(&registry, &snapshot);
+        let ids: Vec<EpId> = plan.briefs.iter().map(|planned| planned.ep).collect();
+        // The checked EP-3 is skipped; two rows, the daily.
+        assert_eq!(ids, vec![ep("EP-2"), ep("EP-4")]);
+        assert!(plan.stop.is_none());
+        assert_eq!(
+            plan.briefs[0].resolution.model.value, "claude-opus-5-5",
+            "the project's rule over an M"
+        );
+        assert_eq!(
+            plan.briefs[0].resolution.effort.value.as_deref(),
+            Some("max")
+        );
+        // An S under the built-in rule: one step lower than xhigh.
+        assert_eq!(plan.briefs[1].resolution.model.value, "fable");
+        assert_eq!(
+            plan.briefs[1].resolution.effort.value.as_deref(),
+            Some("high")
+        );
+        assert_eq!(plan.briefs[1].shown().model, "fable");
+        assert_eq!(
+            plan.words(),
+            "after EP-1: EP-2 claude-opus-5-5 at max (the rules' choice), EP-4 fable at high \
+             (the rules' choice)"
+        );
+    }
+
+    fn plan_of(registry: &Registry, snapshot: &snapshot::Snapshot) -> Plan {
+        plan(
+            registry,
+            &registry.projects[0],
+            snapshot,
+            ep("EP-1"),
+            &[],
+            &rules::Usage::unread(now()),
+        )
     }
 
     #[test]

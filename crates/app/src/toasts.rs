@@ -56,6 +56,8 @@ pub enum Target {
     VsCode(String),
     /// The window, the Usage pane in front (EP-17).
     Usage,
+    /// The window, the Sessions pane's All tab in front, where the chain log is (EP-19a).
+    ChainLog,
     /// The window as it stands.
     Window,
 }
@@ -73,6 +75,8 @@ pub struct Toast {
     pub target: Target,
     /// Shown whatever the quiet hours and the focus: the owner asked for it.
     pub forced: bool,
+    /// Said in amber beyond what its kind says: a chain held or ended (EP-19a).
+    pub warning: bool,
     /// Held back already, as a repeat.
     held: Option<Fate>,
 }
@@ -87,6 +91,7 @@ impl Toast {
             text: cut(&text, TEXT),
             target,
             forced: false,
+            warning: false,
             held: None,
         }
     }
@@ -101,8 +106,26 @@ impl Toast {
             text: "A test notification: Show brings the window forward.".to_owned(),
             target: Target::Window,
             forced: true,
+            warning: false,
             held: None,
         }
+    }
+
+    /// A chain's moment (D-22; EP-19a): a brief chained, the chain held or ended, from the chain
+    /// log's words, which begin with what happened: the title up to the first colon, the rest
+    /// the text. Its Show brings the Sessions pane's All tab forward, where the log is; a hold
+    /// or an end is a `warning`.
+    pub fn chain(project: &str, words: &str, warning: bool) -> Self {
+        let (what, rest) = words.split_once(": ").unwrap_or((words, ""));
+        let mut toast = Self::new(
+            Kind::Chain,
+            project,
+            format!("{project}: {what}"),
+            rest.to_owned(),
+            Target::ChainLog,
+        );
+        toast.warning = warning;
+        toast
     }
 
     /// The first close to the tray, said once (D-29).
@@ -123,6 +146,7 @@ impl Toast {
             ),
             target: Target::Window,
             forced: false,
+            warning: false,
             held: None,
         }
     }
@@ -165,6 +189,7 @@ impl Toast {
             ),
             target: Target::Usage,
             forced: false,
+            warning: false,
             held: None,
         }
     }
@@ -174,9 +199,10 @@ impl Toast {
         format!("{}: {}", self.title, self.text)
     }
 
-    /// Whether the status bar says it in amber: a wait, a failure, a usage mark.
+    /// Whether the status bar says it in amber: a wait, a failure, a usage mark, a chain held or
+    /// ended.
     pub fn is_warning(&self) -> bool {
-        matches!(self.kind, Some(Kind::Waiting | Kind::Failed | Kind::Usage))
+        self.warning || matches!(self.kind, Some(Kind::Waiting | Kind::Failed | Kind::Usage))
     }
 
     fn line(&self, fate: &Fate) -> String {
@@ -225,8 +251,8 @@ pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<To
     Some(toast)
 }
 
-/// The toasts a screenshot run's popup shows (EP-15), the oldest first: a test, a failure, an end
-/// and two waits, one of them in VS Code.
+/// The toasts a screenshot run's popup shows (EP-15), the oldest first: a test, a failure, an end,
+/// two waits, one of them in VS Code, and a chain's end (EP-19a).
 #[cfg(feature = "screenshot")]
 pub fn canned() -> Vec<Toast> {
     let failed = News::Ended(Outcome::Failed, "error max budget usd".to_owned());
@@ -242,12 +268,18 @@ pub fn canned() -> Vec<Toast> {
         "A visual session waits for you: a permission prompt.".to_owned(),
         Target::VsCode("lantern".to_owned()),
     );
+    let chain = Toast::chain(
+        "orchard",
+        "the chain ends after EP-6: EP-7 is a re-plan, the owner's to run",
+        true,
+    );
     [
         Some(Toast::test()),
         from_news(902, "compass", "compass EP-3", &failed),
         from_news(901, "quarry", "quarry EP-2", &finished),
         from_news(900, "harbor", "harbor EP-4", &asked),
         Some(in_vs_code),
+        Some(chain),
     ]
     .into_iter()
     .flatten()
@@ -571,7 +603,7 @@ impl Attention {
                     Kind::Remote => ("remote to look at", "remotes to look at"),
                     Kind::Backup => ("backup to look at", "backups to look at"),
                     Kind::Inbox => ("inbox message", "inbox messages"),
-                    Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage => {
+                    Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage | Kind::Chain => {
                         ("moment", "moments")
                     }
                 };
@@ -1068,6 +1100,39 @@ mod tests {
         );
         assert_eq!(toast.target, Target::Usage);
         assert!(toast.is_warning());
+        // A chain's moment (EP-19a): the log's words split at their first colon, the Show to the
+        // chain log; a chained start plain, a hold or an end in amber.
+        let chained = Toast::chain(
+            "harbor",
+            "chained EP-5 after EP-4: claude-opus-5-5 at max, your choice, M's cap of 1 h 30 min",
+            false,
+        );
+        assert_eq!(chained.title, "harbor: chained EP-5 after EP-4");
+        assert_eq!(
+            chained.text,
+            "claude-opus-5-5 at max, your choice, M's cap of 1 h 30 min"
+        );
+        assert_eq!(
+            (chained.kind, chained.target.clone(), chained.what),
+            (Some(Kind::Chain), Target::ChainLog, "chain")
+        );
+        assert!(!chained.is_warning());
+        let ended = Toast::chain(
+            "harbor",
+            "the chain ends after EP-5: EP-6 is a re-plan",
+            true,
+        );
+        assert_eq!(ended.title, "harbor: the chain ends after EP-5");
+        assert!(ended.is_warning());
+        assert_eq!(
+            ended.line(&Fate::Shown),
+            "popup · chain · harbor: the chain ends after EP-5 · EP-6 is a re-plan"
+        );
+        let bare = Toast::chain("harbor", "turned on by the owner", false);
+        assert_eq!(
+            (bare.title.as_str(), bare.text.as_str()),
+            ("harbor: turned on by the owner", "")
+        );
         // Weekly and Fable reached in one pass make two toasts, not one with "and 1 more".
         let weekly = Toast::usage(
             &Crossing {
