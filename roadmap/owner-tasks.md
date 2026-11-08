@@ -189,4 +189,5 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   prints the log. Each change of a chain (a brief chained, a hold, an end) now comes as a
   notification of its own in the popup, whose Show opens the Sessions pane's All tab. The
   session checked the dialog, the section and the popup only on the fake portfolio and started
-  no real session (rules 5 and 13). Notes go to `roadmap/inbox.md` [before EP-19b]
+  no real session (rules 5 and 13). Notes go to `roadmap/inbox.md` (the gate `before EP-19b`
+  taken off on 2026-11-08 under the D-10 addendum of that date: EP-19b does not build on it)

@@ -37,14 +37,16 @@ Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from
 notes** under the phase table, the decisions it cites and the current code; the brief opens with YAML
 front matter (`ep`, `title`, `size`, `model`, `effort`, `status`; D-12). It does the work, reviews open
 decisions with the owner (`AskUserQuestion`), appends a `> **Completion note (date; model/effort;
-duration).**` to the brief, appends any owner task to `owner-tasks.md` and any message for another project
-as `> **Handed on (to <project>).**`. Commit, then check the box here with one backticked hash. **The next
+duration).**` to the brief, appends an owner task to `owner-tasks.md` for what needs the owner's hands
+(gated `before EP-m` only when EP-m builds on it; D-10 addendum, 2026-11-08), closes its Verification
+section with a residual-risk paragraph, and appends any message for another project as `> **Handed on
+(to <project>).**`. Commit, then check the box here with one backticked hash. **The next
 EP is the first unchecked row in table order** (D-9). Depends on lists immediate prerequisites only; the
 order below supplies the rest. The schema these files follow, which the parser expects, is described in
 the top-level [`README.md`](../README.md#the-roadmap-house-style) (moved there at EP-1).
 
 **Sizes:** S ≈ 30 min, M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger
-is split at pickup. L is reserved for six engines: the tile shell (EP-6), the session runner (EP-9), the
+is split at pickup. A re-plan is M from EP-23: it opens with the phase walk (D-10 addendum, 2026-11-08). L is reserved for six engines: the tile shell (EP-6), the session runner (EP-9), the
 decisions tile (EP-14), the autopilot (EP-19), the chat tile (EP-24) and the web pages (EP-30).
 
 **Standing rules for every session:** the published repository never describes the managed projects —
@@ -694,10 +696,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-19 | [Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log](EP-19-autopilot.md) (D-22) | L | EP-14, EP-17 | core | ☑ `86d3717` |
 | EP-19a | [Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default, a Chain box per brief; a notification of its own at each change of a chain's state](EP-19a-chain-plan.md) (D-22, D-21) | S | EP-19 | core | ☑ `b7e8ba2` |
 | EP-19b | Launch settings in the window: "keep for this project" (or phase) beside the launch dialog's Permissions, Model and Effort pickers writing `[project.launch]` or a `[[project.rule]]`, the autopilot box's offer of `auto` for a project whose runs would wait, each autopilot project's permission mode and the gate's verdict in the Autopilot section, the autopilot's limits in the window, `crw set` twins (D-18, D-22) | M | EP-19a | core | ☐ |
+| EP-36 | Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive (D-29, D-3) | S | EP-6 | core | ☐ |
+| EP-37 | The installed exe and the window's restart: the release exe installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` with the shortcut, the hooks and the status line pointing there, Install and restart in the window and `crw install`, held chains and chain plans carried through a handover file, the gate's own-project condition dropped, this project chained under `auto` (D-22, D-29, D-5) | M | EP-19a, EP-19b | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3 | S | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-36, EP-37, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -713,7 +717,10 @@ and effort before a chain starts and the chain's own notification, right after i
 *(2026-11-06, IN-7 at EP-19a's pickup, the owner's choice.)* EP-19b takes IN-7's window controls
 for opting a project into a chain, the autopilot's limits and a standing model and effort set
 from the dialog, right after EP-19a and before EP-20, since a chain is opted into by a hand edit
-of the registry until then.
+of the registry until then. *(2026-11-08, planning session, the owner's choice.)* EP-36 and EP-37
+follow EP-19b and precede EP-20: the screenshot copy lets EP-20 … EP-22 check their panes on
+real-shaped content, and the installed exe lets them run as chained headless briefs of this project
+(D-22 addendum); the three re-plans grow to M for the phase walk (D-10 addendum).
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -959,7 +966,45 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   out so that the builds before read the file. **From EP-19a:** the dialog's pickers are
   `launch::model_picker` and `effort_picker`, shared with the chain plan's rows, so a "keep"
   choice beside them serves both; the plan's rows take the rules' resolution per row
-  (`autopilot::plan`), which a `[[project.rule]]` by phase would change at once.
+  (`autopilot::plan`), which a `[[project.rule]]` by phase would change at once. **From the planning
+  session (2026-11-08):** the owner means to set this project's `permission_mode = "auto"` through
+  "keep for this project", for EP-37's chains (D-22 addendum), so the control's line on `auto` should
+  also say what it means for a repository whose chained commits stay local until the owner pushes.
+- **EP-36.** Added on 2026-11-08 by a planning session (the owner's choice; D-29 addendum). A screenshot
+  run reads a data root named by `CRW_SCREENSHOT_ROOT=<folder>` (or the setup flag `root=<folder>`, the
+  v2 item of EP-8) in place of `fixtures/portfolio`, its registry written for that root (the fixture
+  registry's shape with `data_root` replaced, the projects the folders under it) and every guard kept:
+  no port, no poll of live sessions, no credentials and no endpoint, no session started, ticks and
+  every other write into the root refused, no GitHub pass; the copies are no repositories, so their
+  git, GitHub and backup readings stay canned (`FAKES`). A session's use: copy the files the parser
+  reads (`roadmap\*.md`, `DECISIONS.md`, `CLAUDE.md`, the stack's manifest files) of the non-data
+  projects into its scratchpad, one project at a time (rule 9), point a run at the copy and look at
+  the pictures there; the copy and the pictures never enter git, and the brief names what was checked,
+  not the projects (rule 3). The README's pictures come from a neutral root named by the flag, in
+  place of EP-8's substituted drive and junction. Acceptance: a test runs the fixtures copied to a
+  temp folder through the flag and gets the readings of the tracked ones; rule 5 names the flag.
+- **EP-37.** Added on 2026-11-08 by a planning session (the owner's choice; D-22 and D-5 addenda; the
+  v2 items of EP-19 and EP-19a on a held chain, a plan and this project chained, picked up). (1) **The
+  install**: `scripts\install-shortcut.ps1`, and `crw install` as its twin, build and copy
+  `target\release\crw.exe` to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\crw.exe`, renaming a running
+  one to a dated previous copy first (Windows allows the rename of a running exe, not its replacement)
+  and removing that copy at the next install; the shortcut and the Start-menu entry point at the
+  installed exe; the hooks and the status line are rewritten to it by `crw signals install` on the
+  owner's yes (a write into the user settings, rule 7: a hands-only task), `crw signals` and `crw
+  doctor` naming the path they run. (2) **The restart**: File, Install and restart (and the tray's),
+  and the install's request over the loopback server, write the window's held chains and chain plans,
+  and nothing else, to a handover file in `%LOCALAPPDATA%\clauderoadmapwrangler`, start the installed
+  exe with a flag that reads and deletes the file, and quit; refused with the reason while a headless
+  run of the window's works or waits (D-13); a held chain goes on in the new window, a plan is kept.
+  (3) **The gate**: the own-project condition goes; a pending install (the installed exe newer than
+  the running one) is taken at the gate's moment, the restart before the chained start, so a chain of
+  this project's briefs survives its own release build; the opener of this project's runs says that
+  the build runs with the window up and the install is the brief's last step. (4) **This project's
+  permissions**: `auto`, set through EP-19b's control (the owner's choice); the chained commit stays
+  local, never pushed (D-22), and rule 3's word check runs before it. Split at pickup if the handover
+  is more than an M. Acceptance: tests for the handover's write, read and deletion, the install's
+  rename and copy on a scratch folder, the gate without the own-project condition; a screenshot run
+  of the restart's refusal; the first real restart is a hands-only task.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -1067,6 +1112,15 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   week of autopilot runs is the chain log (`crw autopilot`, the ledger's `event` rows of kind
   `autopilot`): each `chained` line, each `the chain ends` line with the conditions that failed,
   each `held` and `capped` line. A held chain does not outlive the window (the v2 notes).
+  **From the planning session (2026-11-08, the owner's choice):** the re-plan opens with the **P3
+  walk** (D-10 addendum): the steps compiled from the residual-risk paragraphs of EP-19b … EP-22,
+  EP-36 and EP-37 (the briefs before had their owner tasks), each with where to look and the expected
+  result, taken by the owner live with the window beside VS Code, each finding a row, an addendum or a
+  v2 note at once; the row is M for it. EP-36 and EP-37 joined P3 and the three re-plans grew to M, so
+  the totals are 46 briefs, 12 S · 28 M · 6 L ≈ 46 session-hours, 17 still open once EP-19a is
+  checked; the planning session of 2026-11-08 (no brief, as `d8c166a`'s) is timed with the rest from
+  its transcript. The retro weighs the new cadence: the owner tasks written since EP-19b against the
+  walk's findings, and whether what the fake portfolio hides now surfaces a phase later (risk 16).
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1078,7 +1132,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
 | EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
 | EP-28 | Operations: `doctor` and the Diagnostics tile, rolling log, install script final, start-at-login entry, single instance, AV hints, start-up reconciliation (D-29) | M | EP-15 | core | ☐ |
-| EP-29 | Re-plan P4; P5 charters upgraded to full briefs | S | EP-24, EP-25, EP-26, EP-27, EP-34, EP-28 | core | ☐ |
+| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-24, EP-25, EP-26, EP-27, EP-34, EP-28 | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
 backfill feeds the graphs and the exports; operations polish lands before the phone view exposes the tool
@@ -1227,7 +1281,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   sessions that started while a window ran (none for EP-13 … EP-15a's), which a start at login
   makes the rule rather than luck.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
-  routes and templates decided from a month of desktop use), `v2-notes.md` grown.
+  routes and templates decided from a month of desktop use), `v2-notes.md` grown. **From the planning
+  session (2026-11-08):** the re-plan opens with the P4 walk, compiled from the residual-risk
+  paragraphs of P4's briefs and taken by the owner live (D-10 addendum); the row is M for it.
 
 ## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
 
@@ -1235,7 +1291,7 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
 |---|---|---|---|---|---|
 | EP-30 | Web pages: askama templates with SSE-driven updates — project list, project page with tasks and inbox tick, decisions answer form, start and pause actions; identity middleware and action log (D-28) | L | EP-12, EP-14, EP-19 | core | ☐ |
 | EP-31 | Session page and remote enable: streaming transcript over SSE with an input for answers, Enable remote view action running `tailscale serve`, serve status, QR code, disable (D-28) | M | EP-30 | core | ☐ |
-| EP-32 | Re-plan P5 and v1 close-out: timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | S | EP-30, EP-31 | core | ☐ |
+| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-30, EP-31 | core | ☐ |
 
 **Charters.** Each is upgraded to a full brief by EP-29 or at pickup.
 
@@ -1272,7 +1328,10 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   screenshot runs whose home holds a registry naming a neutral data root (`data_root = "P:\\Projects"`,
   the letter mapped by `subst` onto a folder with a junction `Projects` to `crates/app/fixtures/portfolio`),
   so no personal path shows in the Detail pane; drop the mapping and the junction (`rmdir`, never a
-  recursive delete) afterwards.
+  recursive delete) afterwards. **From the planning session (2026-11-08):** the re-plan opens with the
+  P5 walk, compiled from the residual-risk paragraphs of P5's briefs and taken by the owner live
+  (D-10 addendum); the row is M for it. From EP-36 the pictures' neutral root is named by the
+  screenshot run's own flag, so the substituted drive and the junction are no longer needed.
 
 ## Risks / open items
 
@@ -1353,6 +1412,12 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
     window runs gets no row, and a VS Code tab left open runs its row on for hours, so the ledger
     cannot yet time a brief: the re-plans time them from the transcripts, EP-26 decides the
     measure, and EP-28's start at login closes the gap in the rows.
+16. **The owner's look after each brief ends** (D-10 and D-29 addenda, 2026-11-08). From EP-19b a
+    brief leaves a residual-risk paragraph rather than an owner task, and the phase's re-plan walks
+    them: what the fake portfolio hides (P2 grew from 8 rows to 13 by the owner's looks) may now
+    surface a phase later and cost a fix brief then. The guards: the field check at each session's
+    start, screenshot runs over a copy of the real portfolio (EP-36), the review of the diff for M and
+    L briefs, and the hands-only tasks still written at once.
 
 ## Decision record
 

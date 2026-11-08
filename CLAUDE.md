@@ -6,13 +6,24 @@
    the brief and is at most S-sized; otherwise add it to a named later EP's brief notes or propose a new
    row, confirming with the owner through `AskUserQuestion`; or decline with a reason; write the
    disposition on the line and tick it). Parked work lives in `roadmap/v2-notes.md`; re-plans grow it.
+   **Field check** (D-29 addendum, 2026-11-08): then read what the real window recorded since the last
+   brief's record commit, `%LOCALAPPDATA%\clauderoadmapwrangler\crash.log` when present,
+   `target\release\crw.exe notifications`, `crw sessions` and `crw autopilot` (safe reads of the ledger),
+   and triage anything odd like an inbox message: rolled in if it fits the brief and is at most S-sized,
+   else parked in a named brief's notes; the brief's session-start paragraph says what was read.
 2. **Write the brief before touching files.** Each EP session starts by writing
    `roadmap/EP-N-<slug>.md` from its roadmap row: YAML front matter (`ep`, `title`, `size`, `model`,
    `effort`, `status`), context, in scope, out of scope, verification / acceptance. It ends with a
    `> **Completion note (date; model/effort; duration).**` that records each owner decision and its
    outcome, followed by `> **Handed on (to <project>).**` blocks for messages to other projects (the
    tool delivers them from EP-20; before that the owner carries them) and lines appended to
-   `roadmap/owner-tasks.md` for anything only the owner can do.
+   `roadmap/owner-tasks.md` for what needs the owner's hands only (D-10 addendum, 2026-11-08): a write
+   into the owner's user settings or into another project, a migration an older build refuses, the first
+   real run of a new route; gated `[before EP-m]` only when EP-m builds on it, since the autopilot's gate
+   refuses a chain into EP-m while such a task is open. A look at a changed surface is not an owner task:
+   the brief's Verification section ends with a **Residual risk** paragraph naming what the session could
+   not exercise (real sessions, hooks, the popup, VS Code) and why it expects it to hold, and the phase's
+   re-plan walks those paragraphs with the owner as its first item.
 3. **Public repository, private data (D-3).** The published repository never describes the projects
    this tool manages. Names, paths and states of the owner's projects stay in the git-ignored `private/`
    folder or in the runtime registry under the user profile; tracked files use generic names or the names
@@ -32,11 +43,19 @@
 5. **Tests never run the real `claude` CLI and never spend usage (D-29).** The session runner is tested
    against the stub executable replaying recorded stream-json; parser tests use the synthetic fixtures;
    UI checks use the `screenshot` feature (`CRW_SCREENSHOT=<file.png>` saves the app's own frame with fake
-   projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen.
+   projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen. From EP-36 a
+   screenshot run also reads a copy of the real portfolio's roadmap files made in the session's scratchpad
+   (`CRW_SCREENSHOT_ROOT=<folder>`, the same guards), so a layout is checked on real content; the copy and
+   the pictures never enter git, and the brief names what was checked, never the projects (rule 3).
 6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
    --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
-   (code only the feature uses is dead without it, EP-6), `cargo fmt --check`, then `cargo build
-   --release` with the app closed (a running exe cannot be replaced). `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
+   (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M or L brief a
+   review of the diff before the build (the `/code-review` skill at medium, or a review subagent given
+   the diff and not the session's conclusions; findings fixed or logged in the completion note; D-29
+   addendum, 2026-11-08); then `cargo build --release`, until EP-37 with the app closed (a running exe
+   cannot be replaced), from EP-37 with the window up, since the exe runs from
+   `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` and the install step asks the window to restart.
+   `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
    the Start-menu entry; run it last. `target\release\crw.exe doctor` prints the tool versions.
 7. **Owner decisions go through `AskUserQuestion`** before an EP is marked done: commits, scope changes,
    anything written into the owner's user settings (hooks, status line) or into another project, anything
@@ -61,8 +80,11 @@
     settings grant (IN-6). **Every EP is launched from the tool** (D-5, from EP-17): the owner presses
     Start on this project's row in Roadmap Wrangler, then Open in VS Code (Visual, the default, D-16),
     which puts the generated opener ("Run the next brief of clauderoadmapwrangler: …", launched from
-    clauderoadmapwrangler) in a new Claude Code tab of this window. Start headless suits only a brief
-    that builds no release: quitting the window for rule 6's release build ends a headless run. At its
+    clauderoadmapwrangler) in a new Claude Code tab of this window. Until EP-37, Start headless suits
+    only a brief that builds no release: quitting the window for rule 6's release build ends a headless
+    run. From EP-37 this project chains like any other (D-22 addendum, 2026-11-08), its runs under
+    `permission_mode = "auto"` set through EP-19b's control, each brief's last step the install that
+    restarts the window. At its
     start a session checks that its prompt is that opener and finds its row in `target\release\crw.exe
     sessions clauderoadmapwrangler` (mode, EP, session id); a session started by hand says why in its
     brief's session-start paragraph.

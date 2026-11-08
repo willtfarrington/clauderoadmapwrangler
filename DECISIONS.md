@@ -122,6 +122,13 @@ manages. *Alternatives.* Managing this project only after v1; no rule.
 > EP-16's close. `CLAUDE.md` rule 11 says so. *Alternatives.* The rule from EP-19, with the
 > autopilot; the first self-launched session checked by its own brief instead of the re-plan.
 
+> **Addendum (2026-11-08, planning session).** The caveat on headless starts ends with EP-37: the
+> exe runs from `%LOCALAPPDATA%\clauderoadmapwrangler\bin\`, so a release build no longer needs the
+> window quit, and the window restarts itself from the new exe between runs; from then this
+> project's briefs may also run as chained headless runs under `auto` (the owner's choice; D-22
+> addendum of the same date). Visual stays the way the owner starts a brief by hand, and rule 11
+> says both. *Alternatives.* The exclusion kept through v1; the choice left to EP-23.
+
 ## Project model, discovery, storage
 
 **D-6 Project model and states.** A managed project is **every git repository directly under `DATA`**,
@@ -239,6 +246,27 @@ forms only with ticks in the registry; tasks only in the registry.
 > completed brief only (the newest completion date, then table order): the sessions after a brief have
 > read its hand-offs. `> **Owner decisions (…).**` blocks record decisions taken and are not owner
 > items. *Alternatives.* A `.bak` copy beside the file; the blocks of every brief.
+
+> **Addendum (2026-11-08, planning session).** The cadence of this project's own tasks changes (the
+> owner's choice, after sixteen briefs in a row, OT-4 … OT-19, each ending with one task gated before
+> the next EP, a practice the P1 and P2 re-plans had kept because the owner's looks found what the
+> fake portfolio hides). From EP-19b a session writes an owner task for what needs the owner's hands
+> only: a write into the owner's user settings or into another project, a migration an older build
+> refuses, the first real run of a new route; it gates the task `[before EP-m]` only when EP-m builds
+> on it, since the autopilot's gate refuses a chain into EP-m while such a task is open
+> (`prompt::due`), which is unchanged. A look at a changed surface is no owner task: the brief's
+> Verification section ends with a **Residual risk** paragraph naming what the session could not
+> exercise and why it expects it to hold, and each phase's re-plan (EP-23, EP-29, EP-32, grown from S
+> to M) opens with the **walk**: the steps compiled from those paragraphs, taken by the owner live with
+> the window beside VS Code, each finding a row, an addendum or a v2 note at once; no task is written
+> for it. OT-19, the last task of the old practice, lost its gate the same day, since EP-19b does
+> not build on it. The other projects learn the cadence through the house style: its sentence went
+> to the environment repository's inbox (the owner's choice), never written from here into another
+> project's rules (rule 4). *Why.* A task between every two briefs slowed the owner more than it found, and the gate
+> turns each gated one into a stopped chain; the owner accepts some debugging where the session's own
+> checks (D-29 addendum of the same date) make success likely. *Alternatives.* Per-EP tasks kept but
+> never gated; a second, mid-phase walk; a checklist task walked before the re-plan; a task after each
+> change to a surface the owner uses daily.
 
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
@@ -851,6 +879,22 @@ committing and recording hashes; one model and effort per project; usage thresho
 > start and printed by `crw autopilot`, stale after a restart and refused by the builds before;
 > a count of runs beside the plan; the plan-time resolution kept for a row left alone.
 
+> **Addendum (2026-11-08, planning session).** This project chains (the owner's choice, reversing the
+> EP-19 pickup's), through EP-37: the install step copies the release exe to
+> `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` (the running one renamed first, which Windows allows)
+> and the shortcut, the hooks and the status line point there, so a build never meets the running
+> window or a hook; the window restarts itself from the installed exe when no headless run of its own
+> works, at the gate's moment or at the owner's word, its held chains and chain plans carried through
+> a handover file in its own folder (the v2 items of EP-19 and EP-19a picked up); the gate's
+> own-project condition goes. Its runs pass the waiting condition under `permission_mode = "auto"`,
+> set once through EP-19b's "keep for this project" (the owner's choice over allow rules): a chained
+> run runs its shell commands unasked, commits in the house pattern and never pushes, so the owner
+> reviews the diff before each push, and rule 3's word check runs before each commit. The gate's
+> owner-task condition is unchanged: a task gated before the next brief still refuses the chain, and
+> the D-10 addendum of the same date makes such a task rare. *Alternatives.* Never chaining this
+> project (EP-19); the release build left to an owner task after the chain; allow rules for the build
+> and git commands under `acceptEdits`; the handover kept in the registry.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1322,6 +1366,21 @@ an opt-in live smoke test; documented AV exclusions.
 > else after a question that names the runs it stops. Without a tray icon (one that failed to
 > start, or a screenshot run) closing quits, with the same question. *Alternatives.* Closing
 > quits and Minimize alone keeps the window; minimizing to the tray rather than hiding.
+
+> **Addendum (2026-11-08, planning session).** What a session verifies itself, in place of the owner's
+> look after each brief (the D-10 addendum of the same date; the owner chose all four): (1) the
+> **field check** at session start, the real window's records since the last brief's record commit
+> read through `crash.log`, `crw notifications`, `crw sessions` and `crw autopilot`, anything odd
+> triaged like an inbox message; (2) **screenshot runs over a copy of the real portfolio** (EP-36): a
+> run reads the roadmap files the session copied into its scratchpad (`CRW_SCREENSHOT_ROOT`), under
+> the run's guards (no port, no poll, no session, no tick, no GitHub), so a layout is checked on real
+> content, the pictures never entering git; (3) a **review of the diff** for an M or L brief before the
+> release build, by the `/code-review` skill at medium or a review subagent given the diff and not the
+> session's conclusions; (4) the **residual-risk paragraph** closing the brief's Verification section,
+> from which the phase walk is compiled. Tests still never run the real CLI, and no session starts the
+> window on the owner's files; the one supervised probe on the owner's yes stays for a brief that
+> drives the real CLI. *Alternatives.* The owner's look after each brief (the practice to EP-19a); an
+> opt-in live smoke test (rejected at planning); a review pass for every brief.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

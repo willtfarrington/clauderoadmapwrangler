@@ -84,7 +84,8 @@ marked *(EP-35)*.
 - *(EP-35)* Resume in VS Code for a session whose working folder was a subfolder of the project:
   its transcript lies under the subfolder's slug, which the project's window may not look in.
 - *(EP-19)* A held chain kept across a restart of the window: EP-19's lives in the window, and
-  the log says where it stood (D-22 addendum).
+  the log says where it stood (D-22 addendum). *(2026-11-08: planned as EP-37, the handover file
+  of the window's own restart.)*
 - *(EP-19)* A chain after a visual session: the gate follows the window's headless runs only, a
   visual tab's end coming hours after its last turn (D-22).
 - *(EP-19)* `crw autopilot gate <project>`: the gate read now from the command line, as if the
@@ -93,10 +94,13 @@ marked *(EP-35)*.
   second limit (the owner chose working time alone at pickup).
 - *(EP-19)* This project chained, its release build and install script left to an owner task
   after the chain, or built where the running window does not hold it (EP-28's install script);
-  the owner chose never to chain it at pickup (D-22 addendum).
+  the owner chose never to chain it at pickup (D-22 addendum). *(2026-11-08: planned as EP-37, the
+  exe installed outside `target`; the owner's choice reversed, D-22 addendum of that date.)*
 - *(EP-19a)* A chain plan kept in the registry or across a restart of the window: EP-19a's
   lives in the window, as a held chain does, and goes with it (the owner's choice, D-22
   addendum); with it, `crw autopilot` printing the plan, or a plan set from the command line.
+  *(2026-11-08: the plan across the window's own restart planned as EP-37 with the held chain; the
+  registry form and the command line stay parked.)*
 - *(EP-19a)* A "back to the rules" button on a plan row, dropping the owner's choice; today a
   touched row keeps its pickers as left until the dialog is opened again.
 - *(EP-19a)* A plan listing beyond the project's `daily`, greyed where the day's cap would stop
@@ -163,7 +167,8 @@ marked *(EP-35)*.
 - *(EP-8)* A pre-commit hook script that checks a commit's added lines against the word list kept in
   `private/` (the alternative to CLAUDE.md rule 3's check by hand; D-3 addendum).
 - *(EP-8)* A `root=` setup flag for screenshot runs that names a neutral data root, instead of the
-  substituted drive and junction EP-8 used for the README's pictures.
+  substituted drive and junction EP-8 used for the README's pictures. *(2026-11-08: planned as
+  EP-36, which also serves a scratch copy of the real portfolio.)*
 - *(EP-16)* A dialog at the moment of a crash, beside `crash.log` and the next start's line (it
   would need a Windows dependency of its own; D-14's EP-14a addendum).
 
