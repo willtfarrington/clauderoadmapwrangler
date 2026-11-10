@@ -55,7 +55,9 @@
 //!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
 //!   harbor's refused edit of a neighbour);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
-//!   EP-15); `popup` (the notifications' popup with canned toasts, drawn inside the window: a
+//!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
+//!   reasons in the status bar, from EP-37);
+//!   `popup` (the notifications' popup with canned toasts, drawn inside the window: a
 //!   real one is a window of its own at the screen's lower right);
 //! - `revert=<project>` (the preview of undoing the project's latest session with a canned plan,
 //!   from EP-15c: its session from the canned ledger rows when `sessions` comes first; no git is
@@ -334,6 +336,14 @@ impl Run {
                         canned_sessions(board);
                     }
                     board.quit_asked = true;
+                }
+                // File > Install and restart over the canned sessions (EP-37): refused, its
+                // reasons in the status bar.
+                "restart" => {
+                    if board.sessions.live.is_empty() {
+                        canned_sessions(board);
+                    }
+                    board.actions.push(Action::InstallAndRestart);
                 }
                 "popup" => {
                     ctx.set_embed_viewports(true);

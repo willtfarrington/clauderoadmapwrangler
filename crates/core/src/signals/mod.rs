@@ -30,6 +30,73 @@ pub const BUDGET: Duration = Duration::from_millis(500);
 pub const HOOK_ROUTE: &str = "/hook";
 pub const STATUS_ROUTE: &str = "/statusline";
 pub const HEALTH_ROUTE: &str = "/health";
+/// `crw install`'s request that the window restart into the installed build (EP-37).
+pub const RESTART_ROUTE: &str = "/restart";
+
+/// How long `crw install` waits for the window's answer to its request: the window answers at
+/// its next pass, which a hidden window runs when woken.
+pub const RESTART_BUDGET: Duration = Duration::from_secs(8);
+
+/// A restart request, who sends it, in words, and the install folder it wrote, which the window
+/// compares with its own: a trial's install (`CRW_HOME\bin`) never restarts the owner's window
+/// (EP-37).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestartAsk {
+    pub from: String,
+    #[serde(default)]
+    pub bin: Option<PathBuf>,
+}
+
+/// The window's answer to a restart request: whether it restarts, and why or why not.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RestartAnswer {
+    pub restarting: bool,
+    pub words: String,
+}
+
+/// What came of a restart request (EP-37).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RestartReply {
+    /// The window answered.
+    Answered(RestartAnswer),
+    /// No window listens on the port.
+    NoWindow,
+    /// The window has no restart route: a build from before EP-37.
+    NoRoute,
+    /// Something else, in words.
+    Failed(String),
+}
+
+/// Asks the window on `port` to restart into the installed build, saying the request comes
+/// `from` (`crw install`) and installed into `bin`: first whether a window listens at all, then
+/// the request itself, whose answer the window gives at its next pass.
+pub fn ask_restart(port: u16, from: &str, bin: Option<&Path>) -> RestartReply {
+    let health = relay::request(port, "GET", HEALTH_ROUTE, None, Duration::from_millis(500));
+    if !health.is_ok_and(|answer| answer.status == 200) {
+        return RestartReply::NoWindow;
+    }
+    let body = match serde_json::to_vec(&RestartAsk {
+        from: from.to_owned(),
+        bin: bin.map(Path::to_path_buf),
+    }) {
+        Ok(body) => body,
+        Err(e) => return RestartReply::Failed(e.to_string()),
+    };
+    match relay::request(port, "POST", RESTART_ROUTE, Some(&body), RESTART_BUDGET) {
+        Ok(answer) if answer.status == 200 => {
+            match serde_json::from_slice::<RestartAnswer>(&answer.body) {
+                Ok(answer) => RestartReply::Answered(answer),
+                Err(e) => RestartReply::Failed(format!("an answer that did not read: {e}")),
+            }
+        }
+        Ok(answer) if answer.status == 404 || answer.status == 405 => RestartReply::NoRoute,
+        Ok(answer) if answer.status == 504 => {
+            RestartReply::Failed("the window did not answer in time".to_owned())
+        }
+        Ok(answer) => RestartReply::Failed(format!("the window answered {}", answer.status)),
+        Err(e) => RestartReply::Failed(e),
+    }
+}
 
 /// The variable a session's children inherit naming its surface: `claude-vscode`, `cli`,
 /// `claude-desktop`, or an SDK's (`sdk-…`) for a `-p` run.

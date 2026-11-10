@@ -698,11 +698,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-19b | [Launch settings in the window: the autopilot box's offer of `auto` for a project whose runs would wait, a Keep menu beside the launch dialog's Permissions picker writing `[project.launch] permission_mode`, each autopilot project's permission mode, the gate's verdict and its limits in the Autopilot section, idle sessions no longer refusing a chain, a `git push` deny rule for the autopilot's runs, `crw set` twins](EP-19b-launch-settings.md) (D-18, D-22) | M | EP-19a | core | ☑ `e1ff1a2` |
 | EP-19c | [Standing model and effort: the Keep menu beside the launch dialog's Model and Effort pickers, "keep for this project" as a `[[project.rule]]` matching every brief and "keep for phase Pn" as one matching the phase, rules combined key by key, the chain plan's rows resolved again after a keep, `crw set` model and effort](EP-19c-standing-model-and-effort.md) (D-22) | S → M (re-scoped at pickup) | EP-19b | core | ☑ `946a97c` |
 | EP-36 | [Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive](EP-36-screenshot-runs-over-a-copy.md) (D-29, D-3) | S | EP-6 | core | ☑ `c463f75` |
-| EP-37 | The installed exe and the window's restart: the release exe installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` with the shortcut, the hooks and the status line pointing there, Install and restart in the window and `crw install`, held chains and chain plans carried through a handover file, the gate's own-project condition dropped, this project chained under `auto` (D-22, D-29, D-5) | M | EP-19a, EP-19b | core | ☐ |
+| EP-37 | [The installed exe and the window's restart: the release exes installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` by `crw install` and the script, the shortcuts there, `crw signals install` writing the installed `crw.exe`, File > Install and restart, the tray's item and `crw install`'s request over the loopback, refused while anything would be lost](EP-37-installed-exe-and-restart.md) (D-29, D-5) | M | EP-19a, EP-19b | core | ☐ |
+| EP-37a | The handover and the chained restart: held chains and chain plans carried across the window's restart in a handover file, a pending install taken at the gate's moment before the chained start, the gate's own-project condition dropped, the opener's words for this project's runs, this project chained under `auto` (D-22, D-5) | M | EP-37 | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22 | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -724,7 +725,10 @@ real-shaped content, and the installed exe lets them run as chained headless bri
 (D-22 addendum); the three re-plans grow to M for the phase walk (D-10 addendum).
 *(2026-11-09, EP-19b split at pickup, the owner's choice.)* EP-19c takes EP-19b's standing model
 and effort, right after it and before EP-36; EP-19b keeps the permission mode and the limits,
-which EP-37 needs.
+which EP-37 needs. *(2026-11-10, EP-37 split at pickup, the owner's choice.)* EP-37a takes the
+handover file, the restart at the gate's moment, the gate's own-project condition, the opener's
+words and this project's chaining, right after EP-37 and before EP-20, whose briefs it lets run
+as chained headless runs of this project; EP-37 keeps the install and the restart.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -1045,7 +1049,37 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   **From EP-19c:** a standing model and effort for this project's chained briefs is kept through
   the pins beside the launch dialog's Model and Effort (for every brief, or for one phase) or by
   `crw set clauderoadmapwrangler model|effort`, as `[[project.rule]]` tables the gate's drafts
-  resolve like any rule; a chain plan's rows the owner left alone take them.
+  resolve like any rule; a chain plan's rows the owner left alone take them. *(Split at pickup,
+  2026-11-10, the owner's choice: the handover, the restart at the gate's moment, the end of the
+  own-project condition, the opener's words and this project's permissions are EP-37a.)*
+- **EP-37a.** Added on 2026-11-10 when EP-37 was split at pickup (the owner's choice, D-4): the
+  parts of EP-37's note that carry a chain across the window's restart. (1) **The handover**:
+  before the window starts the installed window (`Board::install_and_restart`), it writes its
+  held chains (`Pilot::held`) and chain plans (`Pilot::plans`), and nothing else, to a handover
+  file in `%LOCALAPPDATA%\clauderoadmapwrangler`; the restarted window (`--restarted <pid>`, which
+  already waits for the old one's end) reads and deletes it, a held chain going on (its gate read
+  again once the first poll of live sessions has answered, so that an open session counts) and a
+  plan kept; EP-37's refusals for a held chain and a kept plan go. (2) **The gate's moment**: a
+  pending install (`restart::Standing::Installed`) is taken when a gate passes or holds, the
+  chain held for the restart and carried, so a chain of this project's briefs survives its own
+  release build; whether a chain's end restarts the window too (its popup would go with it) is
+  decided there. (3) **The gate**: the own-project condition goes (`Refusal::OwnProject`,
+  `Facts::own`, `autopilot::is_own`, which compares the project's folder with
+  `paths::repository()` from EP-37), and the Autopilot section's line with it. (4) **The opener**
+  of the tool's own project's runs says that the build runs with the window up and that the
+  install (`pwsh -File scripts\install-shortcut.ps1`) is the brief's last step, its restart
+  waiting for the run's end. (5) **This project's permissions**: `auto`, set by the owner through
+  EP-19b's control; the chained commit stays local, never pushed (D-22, `Launch::deny_push`), and
+  rule 3's word check runs before it. Acceptance: tests for the handover's write, read and
+  deletion, the gate without the own-project condition, a pending install taken at the gate's
+  moment; the first real chained restart is a hands-only task. **From EP-37:** the restarted
+  window opens shown even when the old one was hidden in the tray, which a restart at the gate's
+  moment may not want. A plan's rows carry a `rules::Resolution`, which has no serde form yet.
+  A refused restart request is not remembered, and inside a headless run of the window's the
+  install's own request is always refused (the run works), so the gate's moment is where a
+  chained brief's install is taken. The restart is also refused while a session's start waits
+  for its first prompt (EP-15b's starts live in the window's memory) and while a disposition is
+  being typed; the handover could carry both.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)
@@ -1166,6 +1200,9 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   checked; the planning session of 2026-11-08 (no brief, as `d8c166a`'s) is timed with the rest from
   its transcript. The retro weighs the new cadence: the owner tasks written since EP-19b against the
   walk's findings, and whether what the fake portfolio hides now surfaces a phase later (risk 16).
+  **From EP-37 (split at pickup, the owner's choice):** EP-37a joined P3, and EP-19c joined at
+  EP-19b's pickup as an M (re-scoped from S), so the totals are 48 briefs, 12 S · 30 M · 6 L ≈ 48
+  session-hours, 15 still open once EP-37 is checked.
   **From EP-36 (the owner's choice: parked here for the walk):** the first screenshot runs over a
   copy of the real roadmaps found three things the fake portfolio hides. The walk decides each
   with the real window beside it: a row, an addendum or a v2 note.

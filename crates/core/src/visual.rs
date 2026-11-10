@@ -159,7 +159,7 @@ pub fn lock_folder() -> Option<PathBuf> {
 
 /// The windows of the lock files in `dir`, by file name; a file that does not read is passed over.
 pub fn windows(dir: &Path) -> Vec<Window> {
-    windows_with(dir, running)
+    windows_with(dir, crate::process::running)
 }
 
 fn windows_with(dir: &Path, alive: impl Fn(u32) -> bool) -> Vec<Window> {
@@ -186,30 +186,6 @@ fn windows_with(dir: &Path, alive: impl Fn(u32) -> bool) -> Vec<Window> {
         .collect();
     found.sort_by(|a, b| a.0.cmp(&b.0));
     found.into_iter().map(|(_, window)| window).collect()
-}
-
-/// Whether the process `pid` runs.
-#[cfg(windows)]
-fn running(pid: u32) -> bool {
-    use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
-    use windows::Win32::System::Threading::{
-        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
-    };
-    // SAFETY: the handle is the one OpenProcess returned; it is asked once and closed.
-    unsafe {
-        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
-            return false;
-        };
-        let mut code = 0u32;
-        let alive = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE.0 as u32;
-        let _ = CloseHandle(handle);
-        alive
-    }
-}
-
-#[cfg(not(windows))]
-fn running(_pid: u32) -> bool {
-    true
 }
 
 /// Where VS Code is: the registry's `settings.vscode` when set, else the user install, the
@@ -699,8 +675,8 @@ mod tests {
         assert!(!found[1].opens(Path::new(r"C:\Data\beta")));
         // This test's own process runs; a process id Windows never gives (not a multiple of
         // four) does not.
-        assert!(running(std::process::id()));
-        assert!(!running(u32::MAX - 2));
+        assert!(crate::process::running(std::process::id()));
+        assert!(!crate::process::running(u32::MAX - 2));
     }
 
     #[test]

@@ -72,8 +72,12 @@ CLI `gh`, VS Code with the Claude Code extension, and Tailscale.
 
 ```powershell
 cargo build --release                   # target\release\clauderoadmapwrangler.exe and crw.exe
-pwsh -File scripts\install-shortcut.ps1 # rebuilds, then a desktop shortcut and a Start-menu entry
+pwsh -File scripts\install-shortcut.ps1 # rebuilds, installs (crw install), then a desktop shortcut
+                                        # and a Start-menu entry that open the installed window
+target\release\crw.exe install          # copy the build into %LOCALAPPDATA%\clauderoadmapwrangler\bin
+                                        # and ask the window to restart into it
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension,
+                                        # where the installed copy is, which crw.exe the hooks run,
                                         # and whether claude would start a headless session
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 target\release\crw.exe dismiss <project>          # leave its proposals out until their facts change
@@ -106,7 +110,13 @@ target\release\crw.exe signals remove   # take them out again
 
 The tool keeps its registry, a hand-editable `registry.toml`, in `%APPDATA%\clauderoadmapwrangler`, and
 its ledger and the copies it makes before changing a file in `%LOCALAPPDATA%\clauderoadmapwrangler`;
-nothing is kept in a project. The registry lists the folders of one data root (by default the folder
+nothing is kept in a project. Both exes run from an installed copy in that local folder's `bin`, so a
+release build never meets the running window or a hook: `crw install` copies the build there, each
+installed exe renamed to a dated previous copy first (Windows lets a running exe be renamed, not
+replaced), and asks the window to restart into it. The window does so at once, starting the installed
+window and closing, unless something would be lost, such as a headless run of its own that works or
+waits; a refused request is not remembered, and File > Install and restart, or the tray's item, does it
+later. The status bar says when a newer build waits. The registry lists the folders of one data root (by default the folder
 that holds this repository); `crw adopt` registers a folder, writes its own single-folder
 `<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
 file; `crw ignore` hides one, `crw set` changes a project's state, priority, pin or time limit for
@@ -205,7 +215,8 @@ asked and how long the answers took.
 
 The window also listens on `127.0.0.1` (the registry's `port`, 47831 by default) for Claude Code's
 hooks (SessionStart, Notification, Stop, SessionEnd) and its status line, which `crw signals install`
-writes into the user settings to run `crw.exe hook` and `crw.exe statusline`: each reads the
+writes into the user settings to run `crw.exe hook` and `crw.exe statusline` (the installed copy once
+there is one): each reads the
 session's input, keeps the session's id, folder and event (or the status line's model, cost, context
 and rate limits, never a transcript's text) and posts them within half a second, printing nothing
 and exiting quietly when no window listens. With `--inbox` the start hook also prints the project's

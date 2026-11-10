@@ -4,7 +4,9 @@
 //! dialog and the headless sessions it starts, EP-11 its visual launch, EP-12 the loopback server
 //! for the hooks and the status line and the sessions they report, EP-15 the notifications'
 //! popup and the tray icon, which the window closes to, EP-15c a session's revert behind its
-//! preview, EP-17 the usage meter's strip and tile; later briefs fill the other tiles.
+//! preview, EP-17 the usage meter's strip and tile, EP-37 the restart into the installed build
+//! (a window started with `--restarted <pid>` waits for the old one to end before it opens);
+//! later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -22,6 +24,7 @@ mod markup;
 mod meter;
 mod popup;
 mod portfolio;
+mod restart;
 mod revert;
 #[cfg(feature = "screenshot")]
 mod screenshot;
@@ -38,6 +41,7 @@ mod watch;
 
 use std::path::PathBuf;
 
+use crw_core::install::{self, Running, Stamp};
 use crw_core::registry::Store;
 use crw_core::session::cli;
 use crw_core::{paths, signals, usage};
@@ -59,6 +63,13 @@ fn main() -> eframe::Result {
         return screenshot_run(run);
     }
 
+    // A restart (EP-37): the old window saves its layout and frees the port as it ends, which
+    // this one waits for before it opens.
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let restarted = install::restarted_from(&args);
+    if let Some(pid) = restarted {
+        install::wait_for_end(pid, install::WAIT_FOR_OLD);
+    }
     // With CRW_HOME set, eframe's state lives there too, so a trial leaves the owner's layout
     // alone (rule 13).
     let persistence_path = paths::home().map(|home| home.join("app.ron"));
@@ -96,6 +107,17 @@ fn main() -> eframe::Result {
             if let Some(home) = paths::home() {
                 board.home_note = Some(format!("{}={}", paths::HOME_VAR, home.display()));
             }
+            // The build this window runs, the installed copy and the repository's build (EP-37).
+            let running = Running::now();
+            if restarted.is_some() {
+                let when = running
+                    .as_ref()
+                    .and_then(|running| running.stamp)
+                    .map_or_else(String::new, |stamp: Stamp| format!(" of {}", stamp.when()));
+                board.notify(format!("Restarted into the installed build{when}"));
+            }
+            board.restart =
+                restart::Restart::new(running, install::bin_dir(), install::build_dir());
             let backups = board.store().backups.clone();
             board.watch.start(port, program, backups, &cc.egui_ctx);
             // The usage meter (D-23; EP-17): the cached reading first, then the endpoint's polls

@@ -119,6 +119,14 @@ impl Watch {
         self.read_entries();
     }
 
+    /// The loopback's restart requests since the last call (EP-37), for the window to answer.
+    pub fn take_restarts(&mut self) -> Vec<crate::server::RestartRequest> {
+        self.server
+            .as_mut()
+            .map(Server::take_restarts)
+            .unwrap_or_default()
+    }
+
     /// The status lines heard since the last call, for the usage meter (EP-17).
     pub fn take_lines(&mut self) -> Vec<StatusLine> {
         std::mem::take(&mut self.lines)
@@ -395,6 +403,34 @@ impl Watch {
                 .and_then(|seen| seen.project.as_deref())
                 .is_some_and(|project| project.eq_ignore_ascii_case(name))
         })
+    }
+
+    /// The projects of the sessions whose start is being read or waits for their row (EP-15b), a
+    /// session the poll does not place named "a session": the window keeps those starts in memory
+    /// only, so a restart would lose them, and their reverts would go back to the last recorded
+    /// brief (EP-37).
+    pub fn unrecorded_starts(&self) -> Vec<String> {
+        let mut projects: Vec<String> = self
+            .starts
+            .asked
+            .iter()
+            .chain(self.starts.pending.keys())
+            .map(|id| {
+                self.model
+                    .get(id)
+                    .and_then(|seen| seen.project.clone())
+                    .unwrap_or_else(|| "a session".to_owned())
+            })
+            .collect();
+        projects.sort();
+        projects.dedup();
+        projects
+    }
+
+    /// A start being read for `session_id`, as the worker would have it (a test's seam).
+    #[cfg(test)]
+    pub fn reading_start_of(&mut self, session_id: &str) {
+        self.starts.asked.insert(session_id.to_owned());
     }
 
     /// The sessions that work in the project called `name` and are not the window's own: a

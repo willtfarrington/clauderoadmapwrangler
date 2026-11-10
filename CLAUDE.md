@@ -57,8 +57,11 @@
    addendum, 2026-11-08); then `cargo build --release`, until EP-37 with the app closed (a running exe
    cannot be replaced), from EP-37 with the window up, since the exe runs from
    `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` and the install step asks the window to restart.
-   `pwsh -File scripts\install-shortcut.ps1` rebuilds and refreshes the desktop shortcut and
-   the Start-menu entry; run it last. `target\release\crw.exe doctor` prints the tool versions.
+   `pwsh -File scripts\install-shortcut.ps1` rebuilds, installs the exes there (`crw install`, which
+   asks the window to restart into them: refused while something would be lost, such as a headless
+   run of its own that works or waits, and then taken later from File > Install and restart or the
+   tray's) and refreshes the desktop shortcut and the Start-menu entry; run it last. `target\release\crw.exe
+   doctor` prints the tool versions, the installed copy and which `crw.exe` the hooks run.
 7. **Owner decisions go through `AskUserQuestion`** before an EP is marked done: commits, scope changes,
    anything written into the owner's user settings (hooks, status line) or into another project, anything
    outward-facing (the remote, visibility, the site export), unresolved risks. Routine, reversible
@@ -84,7 +87,10 @@
     which puts the generated opener ("Run the next brief of clauderoadmapwrangler: …", launched from
     clauderoadmapwrangler) in a new Claude Code tab of this window. Until EP-37, Start headless suits
     only a brief that builds no release: quitting the window for rule 6's release build ends a headless
-    run. From EP-37 this project chains like any other (D-22 addendum, 2026-11-08), its runs under
+    run. From EP-37 a headless run builds and installs with the window up; the window refuses the
+    install's restart while the run works, and File > Install and restart (or the tray's) takes it
+    afterwards, until EP-37a takes it at the gate's moment. From EP-37a (split from EP-37 at pickup) this
+    project chains like any other (D-22 addendum, 2026-11-08), its runs under
     `permission_mode = "auto"` set through EP-19b's control, each brief's last step the install that
     restarts the window. At its
     start a session checks that its prompt is that opener and finds its row in `target\release\crw.exe

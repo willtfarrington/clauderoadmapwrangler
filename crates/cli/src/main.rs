@@ -14,7 +14,9 @@
 //! chain log, a project's switch and the owner's Pause, with its three settings, from EP-19; the
 //! permission mode and the autopilot's limits through `set`, and whether a project's runs would
 //! wait in `autopilot`, from EP-19b; a project's standing model and effort through `set`, kept in
-//! its rule for every brief, from EP-19c; `inbox send` arrives with its brief.
+//! its rule for every brief, from EP-19c; `install`, the release build copied into the install
+//! folder and the window asked to restart into it, with `signals` and `doctor` naming the
+//! installed copy, from EP-37; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -33,6 +35,7 @@ use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
 use crw_core::inbox::{self, Recipient};
+use crw_core::install;
 use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
@@ -53,7 +56,17 @@ usage: crw <command>
 
 commands:
   doctor                         print the versions of claude, gh, tailscale, code and the extension,
-                                 and whether claude would start a headless session (no usage)
+                                 where this exe and the installed copy are and which one the hooks
+                                 run, and whether claude would start a headless session (no usage)
+  install [--no-restart]         copy the release build of the repository crw was built in (its
+                                 target\\release: the window's exe and crw.exe) into the install
+                                 folder, %LOCALAPPDATA%\\clauderoadmapwrangler\\bin, each exe there
+                                 renamed to a dated previous copy first (a running one included)
+                                 and an earlier install's previous copies removed; then ask the
+                                 window to restart into it, which it does unless something would
+                                 be lost (a headless run of its own that works or waits, a
+                                 dialog...): then its File > Install and restart, or the tray's,
+                                 does it later; a trial (CRW_HOME) asks no window
   scan                           print the registry: projects, unadopted folders, proposals
   adopt <folder>...              register folders of the data root, write each one's own
                                  <folder>.code-workspace beside it unless one is there, and add
@@ -165,8 +178,9 @@ commands:
                                  listens for them
   signals install [--inbox|--no-inbox] [--no-status-line]
                                  write the SessionStart, Notification, Stop and SessionEnd hooks
-                                 and the status line into the user settings, running this
-                                 crw.exe, after a dated copy of the file; --inbox has the start
+                                 and the status line into the user settings, running the
+                                 installed crw.exe once there is one (else this crw.exe), after a
+                                 dated copy of the file; --inbox has the start
                                  hook print the project's open inbox messages and takes the
                                  stopgap inbox hook out (kept at a later install unless
                                  --no-inbox)
@@ -258,6 +272,7 @@ fn main() -> ExitCode {
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
+        ["install", flags @ ..] => install_build(flags),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -308,6 +323,7 @@ fn doctor() -> ExitCode {
         };
         println!("  {:<10} {:<9} {detail}", check.name, version);
     }
+    print_exes();
     let meets = doctor::claude_meets_minimum(&checks);
     if meets {
         println!("claude meets the minimum version {MIN_CLAUDE_CODE}");
@@ -2515,34 +2531,65 @@ fn live_sessions(
     (working, idle)
 }
 
+/// The user settings and the `crw.exe` the hooks and the status line are to run: the installed
+/// copy once there is one (EP-37), else this exe.
 fn signals_places() -> Result<(PathBuf, PathBuf), String> {
     let settings = signal_entries::settings_file()
         .ok_or("no profile folder: neither CLAUDE_CONFIG_DIR nor USERPROFILE is set")?;
-    let exe = std::env::current_exe().map_err(|e| format!("this exe's path did not read: {e}"))?;
+    let exe = match installed_cli() {
+        Some(installed) => installed,
+        None => this_exe()?,
+    };
     Ok((settings, exe))
 }
 
+fn this_exe() -> Result<PathBuf, String> {
+    std::env::current_exe().map_err(|e| format!("this exe's path did not read: {e}"))
+}
+
+/// The installed `crw.exe`, when there is one (EP-37).
+fn installed_cli() -> Option<PathBuf> {
+    install::bin_dir()
+        .map(|bin| bin.join(install::CLI_EXE))
+        .filter(|path| path.is_file())
+}
+
+/// A `crw.exe` the entries run, in words: the installed copy, this exe, or its path.
+fn exe_words(theirs: &Path, this: Option<&Path>) -> String {
+    if installed_cli().is_some_and(|installed| paths::same(theirs, &installed)) {
+        "the installed copy".to_owned()
+    } else if this.is_some_and(|this| paths::same(theirs, this)) {
+        "this exe".to_owned()
+    } else {
+        theirs.display().to_string()
+    }
+}
+
 /// Prints the tool's entries in Claude Code's user settings (D-20, D-23), whether a window listens
-/// for them, and what an install from this exe would change; reads, never writes.
+/// for them, and what an install would change: the entries run the installed copy once there is
+/// one (EP-37), else this exe; reads, never writes.
 fn signals_status() -> ExitCode {
     println!("crw {} signals", env!("CARGO_PKG_VERSION"));
     let (path, exe) = match signals_places() {
         Ok(places) => places,
         Err(e) => return failed(e),
     };
+    let this = this_exe().ok();
     println!("  settings     {}", path.display());
-    println!("  this exe     {}", exe.display());
+    println!(
+        "  this exe     {}",
+        this.as_ref()
+            .map_or_else(|| "?".to_owned(), |this| this.display().to_string())
+    );
+    match installed_cli() {
+        Some(installed) => println!("  installed    {}", installed.display()),
+        None => println!("  installed    none: crw install copies the release build there"),
+    }
     let status = match signal_entries::status(&path) {
         Ok(status) => status,
         Err(e) => return failed(e),
     };
-    let which = |theirs: &Path| {
-        if paths::same(theirs, &exe) {
-            "this exe".to_owned()
-        } else {
-            theirs.display().to_string()
-        }
-    };
+    let which = |theirs: &Path| exe_words(theirs, this.as_deref());
     for (event, hooked) in &status.hooks {
         let text = match hooked {
             Hooked::Missing => "not installed".to_owned(),
@@ -2588,7 +2635,10 @@ fn signals_status() -> ExitCode {
     };
     match signal_entries::preview(&path, &exe, options) {
         Ok((changes, _)) if changes.is_empty() => {
-            println!("\nThe entries are installed and run this exe.");
+            println!(
+                "\nThe entries are installed and run {}.",
+                exe_words(&exe, this.as_deref())
+            );
         }
         Ok((changes, kept)) => {
             let flag = if options.inbox { " --inbox" } else { "" };
@@ -2608,7 +2658,10 @@ fn signals_status() -> ExitCode {
                 }
             );
         }
-        Err(e) => println!("\nAn install from this exe is refused: {e}"),
+        Err(e) => println!(
+            "\nAn install of {} is refused: {e}",
+            exe_words(&exe, this.as_deref())
+        ),
     }
     ExitCode::SUCCESS
 }
@@ -2676,6 +2729,131 @@ fn signals_remove() -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => failed(e),
+    }
+}
+
+/// Copies the release build of the repository this crw was compiled in into the install folder
+/// (D-29; EP-37), the installed exes renamed to previous copies first, then asks the window to
+/// restart into it, unless `--no-restart`.
+fn install_build(flags: &[&str]) -> ExitCode {
+    let mut restart = true;
+    for flag in flags {
+        match *flag {
+            "--no-restart" => restart = false,
+            other => return usage_error(&format!("install takes no {other}")),
+        }
+    }
+    let Some(bin) = install::bin_dir() else {
+        return failed(format!(
+            "no local folder: neither LOCALAPPDATA nor {} is set",
+            paths::HOME_VAR
+        ));
+    };
+    let from = install::build_dir();
+    println!("crw {} install", env!("CARGO_PKG_VERSION"));
+    println!("  from  {}", from.display());
+    println!("  to    {}", bin.display());
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let report = match install::install(&from, &bin, &stamp) {
+        Ok(report) => report,
+        Err(e) => return failed(e),
+    };
+    for line in report.lines() {
+        println!("  - {line}");
+    }
+    if !restart {
+        println!("The window was not asked to restart (--no-restart).");
+        return ExitCode::SUCCESS;
+    }
+    // A trial installs into its own folder and leaves the owner's window alone (rule 13).
+    if let Some(home) = paths::home() {
+        println!(
+            "The window was not asked to restart: {}={} is a trial.",
+            paths::HOME_VAR,
+            home.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+    let port = signals::port();
+    match signals::ask_restart(port, "crw install", Some(bin.as_path())) {
+        signals::RestartReply::Answered(answer) if answer.restarting => {
+            println!("The window restarts: {}.", answer.words);
+        }
+        signals::RestartReply::Answered(answer) => println!(
+            "The window keeps running: {}. It does not ask again: its File > Install and \
+             restart, or the tray's, opens the installed build once nothing stands in the way.",
+            answer.words
+        ),
+        signals::RestartReply::NoWindow => println!(
+            "No window listens on 127.0.0.1:{port}: the shortcut opens the installed build."
+        ),
+        signals::RestartReply::NoRoute => println!(
+            "The window runs a build from before the restart: quit it from the tray and start it \
+             from the shortcut, which opens the installed build."
+        ),
+        signals::RestartReply::Failed(why) => println!("The window did not answer: {why}."),
+    }
+    ExitCode::SUCCESS
+}
+
+/// Where this exe and the installed copy are, and which `crw.exe` the hooks and the status line
+/// run (D-29; EP-37).
+fn print_exes() {
+    let this = this_exe().ok();
+    println!(
+        "  this exe   {}",
+        this.as_ref()
+            .map_or_else(|| "?".to_owned(), |this| this.display().to_string())
+    );
+    match install::bin_dir() {
+        Some(bin) => match install::Stamp::of(&bin.join(install::CLI_EXE)) {
+            Some(stamp) => println!("  installed  {}, built {}", bin.display(), stamp.when()),
+            None => println!(
+                "  installed  none in {}: crw install copies the release build there",
+                bin.display()
+            ),
+        },
+        None => println!("  installed  ? no local folder"),
+    }
+    let Some(status) =
+        signal_entries::settings_file().and_then(|path| signal_entries::status(&path).ok())
+    else {
+        println!("  hooks      ? the user settings did not read");
+        return;
+    };
+    let all = status
+        .hooks
+        .iter()
+        .filter_map(|(_, hooked)| match hooked {
+            Hooked::Ours { exe, .. } => Some(exe.clone()),
+            _ => None,
+        })
+        .chain(match &status.line {
+            Line::Ours(exe) => Some(exe.clone()),
+            _ => None,
+        });
+    let mut run: Vec<PathBuf> = Vec::new();
+    for exe in all {
+        if !run.iter().any(|seen| paths::same(seen, &exe)) {
+            run.push(exe);
+        }
+    }
+    let words: Vec<String> = run
+        .iter()
+        .map(|exe| exe_words(exe, this.as_deref()))
+        .collect();
+    match words.as_slice() {
+        [] => println!("  hooks      not installed (crw signals install)"),
+        [one] if one == "the installed copy" => println!("  hooks      run the installed copy"),
+        _ => println!(
+            "  hooks      run {}{}",
+            words.join(" and "),
+            if installed_cli().is_some() {
+                ": crw signals install points them at the installed copy"
+            } else {
+                ""
+            }
+        ),
     }
 }
 

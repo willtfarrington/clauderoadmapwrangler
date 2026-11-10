@@ -55,6 +55,8 @@ pub enum Order {
     Start(String),
     /// The owner's Pause of every chain, or its Resume (D-22; EP-19).
     Pause,
+    /// The newer build installed and opened in place of the window (EP-37).
+    Restart,
     Quit,
 }
 
@@ -63,6 +65,7 @@ impl Order {
         match id {
             "show" => Some(Order::Show),
             "pause" => Some(Order::Pause),
+            "restart" => Some(Order::Restart),
             "quit" => Some(Order::Quit),
             _ => id
                 .strip_prefix("start:")
@@ -85,6 +88,8 @@ pub struct State {
     pub paused: bool,
     /// Why the chains hold meanwhile when usage holds them, in a few words.
     pub held: Option<String>,
+    /// A newer build is built or installed, to restart into (EP-37).
+    pub restart: bool,
     /// The icon's side in pixels.
     pub size: u32,
 }
@@ -207,6 +212,7 @@ impl Tray {
             starts: Vec::new(),
             paused: false,
             held: None,
+            restart: false,
             size: SIZE,
         };
         let look = look(&state);
@@ -404,6 +410,7 @@ fn entries(state: &State) -> Vec<Entry> {
     entries.extend([
         Entry::item("pause", pause, true),
         Entry::Separator,
+        Entry::item("restart", "Install and restart", state.restart),
         Entry::item("quit", "Quit Roadmap Wrangler", true),
     ]);
     entries
@@ -559,6 +566,7 @@ mod tests {
             starts: Vec::new(),
             paused: false,
             held: None,
+            restart: false,
             size: 24,
         }
     }
@@ -646,9 +654,13 @@ mod tests {
                 ),
                 ("start:R&D", "R&D: no brief to start", false),
                 ("pause", "Pause autopilot", true),
+                ("restart", "Install and restart", false),
                 ("quit", "Quit Roadmap Wrangler", true),
             ]
         );
+        // A newer build to restart into enables the restart (EP-37).
+        with.restart = true;
+        assert!(entries(&with).contains(&Entry::item("restart", "Install and restart", true)));
         // The item says the owner's Pause, and usage's hold meanwhile.
         let pause_text = |paused: bool, held: Option<&str>| {
             let mut state = state(0, "");
@@ -683,5 +695,6 @@ mod tests {
         );
         assert_eq!(Order::from_id("show"), Some(Order::Show));
         assert_eq!(Order::from_id("pause"), Some(Order::Pause));
+        assert_eq!(Order::from_id("restart"), Some(Order::Restart));
     }
 }

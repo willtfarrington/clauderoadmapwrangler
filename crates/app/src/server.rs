@@ -4,23 +4,39 @@
 //! with a repaint; `GET /health` names the app (single instance probes it at EP-28). Loopback
 //! callers are trusted (D-28), and only they get through: a request that carries an `Origin` (a web
 //! page's) or names another host than the loopback (a page whose name was pointed at 127.0.0.1) is
-//! refused, and a body is JSON, which a page cannot send across origins without asking first. The
-//! phone's routes join at EP-30.
+//! refused, and a body is JSON, which a page cannot send across origins without asking first.
+//! `POST /restart` (EP-37) is `crw install`'s request that the window restart into the installed
+//! build: the window answers it at its next pass, and the server waits for that answer a few
+//! seconds. The phone's routes join at EP-30.
 
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
+use std::time::Duration;
 
 use axum::extract::{DefaultBodyLimit, State};
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::routing::{get, post};
 use axum::{Json, Router};
-use crw_core::signals::{self, Hook, Signal, StatusLine};
+use crw_core::signals::{self, Hook, RestartAnswer, RestartAsk, Signal, StatusLine};
 use serde::Serialize;
+use tokio::sync::oneshot;
 
 /// The largest body taken: the relays' forms are a few hundred bytes.
 const BODY_LIMIT: usize = 256 << 10;
+
+/// How long a restart request waits for the window's answer, within `crw install`'s budget.
+const RESTART_WAIT: Duration = Duration::from_secs(6);
+
+/// A restart request from the loopback (EP-37), waiting for the window's answer: who sends it,
+/// the install folder it wrote, and where the answer goes, closed once the caller stopped
+/// waiting.
+pub struct RestartRequest {
+    pub from: String,
+    pub bin: Option<std::path::PathBuf>,
+    pub reply: oneshot::Sender<RestartAnswer>,
+}
 
 /// What the window is woken with when the server has news.
 type Wake = Arc<dyn Fn() + Send + Sync>;
@@ -37,6 +53,7 @@ pub enum Listening {
 /// The server's handle: what it heard, and whether it listens.
 pub struct Server {
     signals: Receiver<Signal>,
+    restarts: Receiver<RestartRequest>,
     bound: Receiver<Result<u16, String>>,
     pub listening: Listening,
 }
@@ -44,6 +61,7 @@ pub struct Server {
 struct Shared {
     port: u16,
     sender: Sender<Signal>,
+    restarts: Sender<RestartRequest>,
     wake: Wake,
 }
 
@@ -52,6 +70,7 @@ impl Server {
     /// window for a frame.
     pub fn start(port: u16, wake: impl Fn() + Send + Sync + 'static) -> Server {
         let (sender, signals) = mpsc::channel();
+        let (restart_sender, restarts) = mpsc::channel();
         let (bound_sender, bound) = mpsc::channel();
         let wake: Wake = Arc::new(wake);
         let spawned = thread::Builder::new()
@@ -84,6 +103,7 @@ impl Server {
                     let shared = Arc::new(Shared {
                         port: actual,
                         sender,
+                        restarts: restart_sender,
                         wake,
                     });
                     // It serves until the window closes, which ends the process.
@@ -96,6 +116,7 @@ impl Server {
         };
         Server {
             signals,
+            restarts,
             bound,
             listening,
         }
@@ -111,6 +132,11 @@ impl Server {
         }
         self.signals.try_iter().collect()
     }
+
+    /// The restart requests waiting for the window's answer (EP-37).
+    pub fn take_restarts(&mut self) -> Vec<RestartRequest> {
+        self.restarts.try_iter().collect()
+    }
 }
 
 fn router(shared: Arc<Shared>) -> Router {
@@ -118,8 +144,35 @@ fn router(shared: Arc<Shared>) -> Router {
         .route(signals::HOOK_ROUTE, post(hook))
         .route(signals::STATUS_ROUTE, post(status_line))
         .route(signals::HEALTH_ROUTE, get(health))
+        .route(signals::RESTART_ROUTE, post(restart))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(shared)
+}
+
+/// `crw install`'s request (EP-37): handed to the window, whose answer goes back; none within
+/// [`RESTART_WAIT`] is a 504.
+async fn restart(
+    State(shared): State<Arc<Shared>>,
+    headers: HeaderMap,
+    Json(ask): Json<RestartAsk>,
+) -> Result<Json<RestartAnswer>, StatusCode> {
+    if !shared.local(&headers) {
+        return Err(StatusCode::FORBIDDEN);
+    }
+    let (reply, answer) = oneshot::channel();
+    shared
+        .restarts
+        .send(RestartRequest {
+            from: ask.from,
+            bin: ask.bin,
+            reply,
+        })
+        .map_err(|_| StatusCode::SERVICE_UNAVAILABLE)?;
+    (shared.wake)();
+    match tokio::time::timeout(RESTART_WAIT, answer).await {
+        Ok(Ok(answer)) => Ok(Json(answer)),
+        _ => Err(StatusCode::GATEWAY_TIMEOUT),
+    }
 }
 
 async fn hook(
@@ -360,5 +413,49 @@ mod tests {
             "{:?}",
             second.listening
         );
+    }
+
+    /// `crw install`'s request (EP-37) reaches the window, and the window's answer goes back; a
+    /// page's request is refused before the window hears of it.
+    #[test]
+    fn a_restart_request_waits_for_the_windows_answer() {
+        let (mut server, port, _) = listening();
+        let client = std::thread::spawn(move || {
+            signals::ask_restart(
+                port,
+                "a test",
+                Some(std::path::Path::new(r"C:\scratch\bin")),
+            )
+        });
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let request = loop {
+            if let Some(request) = server.take_restarts().pop() {
+                break request;
+            }
+            assert!(Instant::now() < deadline, "the request never came");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(request.from, "a test");
+        assert_eq!(
+            request.bin.as_deref(),
+            Some(std::path::Path::new(r"C:\scratch\bin"))
+        );
+        let answer = RestartAnswer {
+            restarting: false,
+            words: "a headless run works".to_owned(),
+        };
+        request.reply.send(answer.clone()).unwrap();
+        assert_eq!(
+            client.join().unwrap(),
+            signals::RestartReply::Answered(answer)
+        );
+        let local = format!("127.0.0.1:{port}");
+        let body = r#"{"from":"a page"}"#;
+        let page = format!(
+            "POST /restart HTTP/1.1\r\nHost: {local}\r\nOrigin: http://example.test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
+        );
+        assert_eq!(raw(port, &page), 403);
+        assert!(server.take_restarts().is_empty());
     }
 }

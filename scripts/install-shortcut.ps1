@@ -1,14 +1,24 @@
 <#
 .SYNOPSIS
-    Builds the release exes and (re)creates the desktop shortcut and the Start-menu entry (D-29).
+    Builds the release exes, installs them and (re)creates the desktop shortcut and the
+    Start-menu entry (D-29, EP-37).
 .DESCRIPTION
     pwsh -File scripts\install-shortcut.ps1
-    Close the app first: Windows will not let the build replace a running exe.
-    Both shortcuts are called "Roadmap Wrangler" (D-2 addendum) and open the app exe. Both carry
-    the AppUserModelID below, the id Windows attributes the app's toasts to (D-21, EP-15), and
-    the icon the window's title bar shows: eframe's default (egui's logo, eframe's
-    data\icon.png, MIT OR Apache-2.0), written beside the exe as an .ico at the sizes Windows
-    asks for (the owner's ask, 2026-11-05; the app's own icon replaces both at EP-28).
+    The build runs with the window up: the window runs from its installed copy in
+    %LOCALAPPDATA%\clauderoadmapwrangler\bin (CRW_HOME\bin in a trial), not from target\release.
+    `crw install` copies the build there, each installed exe renamed to a dated previous copy
+    first (Windows lets a running exe be renamed, not replaced), and asks the window to restart
+    into it, which it does unless something would be lost (a headless run of its own that works
+    or waits, an open dialog...): it then keeps running, and its File > Install and restart, or
+    the tray's, restarts it later. -NoRestart leaves the window as it is. A window started from
+    target\release before the first install (EP-37) holds its exe, so that one build needs the
+    window quit from the tray first. A trial (CRW_HOME set) installs into CRW_HOME\bin, asks no
+    window to restart, and must name scratch folders with -Desktop and -StartMenu.
+    Both shortcuts are called "Roadmap Wrangler" (D-2 addendum) and open the installed window.
+    Both carry the AppUserModelID below, the id Windows attributes the app's toasts to (D-21,
+    EP-15), and the icon the window's title bar shows: eframe's default (egui's logo, eframe's
+    data\icon.png, MIT OR Apache-2.0), written beside the installed exe as an .ico at the sizes
+    Windows asks for (the owner's ask, 2026-11-05; the app's own icon replaces both at EP-28).
     -Desktop and -StartMenu put the shortcuts elsewhere (EP-1 checked the script against scratch
     folders); -NoBuild skips the build. Skeleton: the start-at-login entry and the final form
     arrive at EP-28.
@@ -16,11 +26,23 @@
 param(
     [string] $Desktop = [Environment]::GetFolderPath('Desktop'),
     [string] $StartMenu = [Environment]::GetFolderPath('Programs'),
-    [switch] $NoBuild
+    [switch] $NoBuild,
+    [switch] $NoRestart
 )
 $ErrorActionPreference = 'Stop'
+# A trial never points the owner's shortcuts at its scratch install (rule 13).
+if ($env:CRW_HOME -and -not ($PSBoundParameters.ContainsKey('Desktop') -and $PSBoundParameters.ContainsKey('StartMenu'))) {
+    throw "CRW_HOME is set (a trial): name scratch folders with -Desktop and -StartMenu"
+}
 $root = Split-Path -Parent $PSScriptRoot
-$exe = Join-Path $root 'target\release\clauderoadmapwrangler.exe'
+$crw = Join-Path $root 'target\release\crw.exe'
+# The install folder, as crw_core::install::bin_dir names it.
+$bin = if ($env:CRW_HOME) {
+    Join-Path $env:CRW_HOME 'bin'
+} else {
+    Join-Path $env:LOCALAPPDATA 'clauderoadmapwrangler\bin'
+}
+$exe = Join-Path $bin 'clauderoadmapwrangler.exe'
 $name = 'Roadmap Wrangler'
 $appId = 'willtfarrington.clauderoadmapwrangler'
 $description = 'Dashboard and session launcher for Claude Code roadmap projects'
@@ -29,7 +51,12 @@ if (-not $NoBuild) {
     cargo build --release --locked --manifest-path (Join-Path $root 'Cargo.toml')
     if ($LASTEXITCODE -ne 0) { throw "cargo build failed (exit $LASTEXITCODE)" }
 }
-if (-not (Test-Path $exe)) { throw "$exe is missing: build it first" }
+if (-not (Test-Path $crw)) { throw "$crw is missing: build it first" }
+# The copy, then the window's restart into it (crw install prints the window's answer). No
+# splatting: PowerShell reads a splatted `--no-restart` as a parameter name.
+if ($NoRestart) { & $crw install --no-restart } else { & $crw install }
+if ($LASTEXITCODE -ne 0) { throw "crw install failed (exit $LASTEXITCODE)" }
+if (-not (Test-Path $exe)) { throw "$exe is missing after the install" }
 
 # WScript.Shell cannot set an AppUserModelID, so the shell's link object is driven through COM.
 Add-Type -TypeDefinition @'
@@ -186,7 +213,7 @@ function Write-Icon([string] $png, [string] $ico) {
     $writer.Dispose()
 }
 
-$icon = Join-Path (Split-Path -Parent $exe) 'clauderoadmapwrangler.ico'
+$icon = Join-Path $bin 'clauderoadmapwrangler.ico'
 try {
     Write-Icon (Find-WindowIcon) $icon
     "Icon: $icon"
@@ -196,9 +223,10 @@ catch {
     $icon = ''
 }
 
+# The installed window starts in its own folder, so it holds no repository folder open.
 foreach ($folder in @($Desktop, $StartMenu)) {
     if (-not (Test-Path $folder)) { New-Item -ItemType Directory -Path $folder | Out-Null }
     $lnk = Join-Path $folder "$name.lnk"
-    [RoadmapWrangler.ShellLink]::Save($lnk, $exe, $root, $description, $appId, $icon)
+    [RoadmapWrangler.ShellLink]::Save($lnk, $exe, $bin, $description, $appId, $icon)
     "Shortcut: $lnk -> $exe"
 }

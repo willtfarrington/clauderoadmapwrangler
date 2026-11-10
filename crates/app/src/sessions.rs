@@ -1203,6 +1203,16 @@ impl Sessions {
         });
         running.chain(starting).collect()
     }
+
+    /// The headless runs being stopped, in words: their end is still to be recorded and the gate
+    /// still to read it, which a restart waits for (EP-37).
+    pub fn stopping(&self) -> Vec<String> {
+        self.live
+            .iter()
+            .filter(|live| live.is_running() && live.stopping)
+            .map(Live::title)
+            .collect()
+    }
 }
 
 impl Board {
@@ -2104,6 +2114,21 @@ mod tests {
             canned: false,
             news: Vec::new(),
         }
+    }
+
+    /// A run being stopped is no longer one Quit would stop, but its end is still to come, which
+    /// a restart waits for (EP-37).
+    #[test]
+    fn a_run_being_stopped_is_named_apart() {
+        let mut sessions = Sessions::default();
+        let mut run = live();
+        run.canned = true;
+        sessions.live.push(run);
+        assert_eq!(sessions.stoppable().len(), 1);
+        assert!(sessions.stopping().is_empty());
+        sessions.live[0].stopping = true;
+        assert!(sessions.stoppable().is_empty());
+        assert_eq!(sessions.stopping(), vec![sessions.live[0].title()]);
     }
 
     /// The window's own work in a project refuses a revert there (EP-15c): a start waiting its

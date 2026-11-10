@@ -10,7 +10,8 @@
 //! menu, closing to the tray and Quit, whose share of each pass runs while the window is hidden
 //! too (`attend`, from eframe's `App::logic`, D-29); from EP-15c a session's revert, previewed
 //! in a dialog and run on a worker thread (`revert`, D-11), which Quit waits for; from EP-17 the
-//! usage meter (`meter`, D-23): its strip in the status bar, its pane and its notifications.
+//! usage meter (`meter`, D-23): its strip in the status bar, its pane and its notifications; from
+//! EP-37 File's Install and restart (`restart`, D-29), the restart into the installed build.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -40,6 +41,7 @@ use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
 use crate::meter::Meter;
 use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
+use crate::restart::Standing;
 use crate::sessions::{News, SessionFilter, Sessions, Started};
 use crate::style::{self, Density, icons};
 use crate::toasts::{self, Target, Toast, Toasts};
@@ -206,6 +208,9 @@ pub enum Action {
     TestToastLater,
     /// The window hidden in the tray, as closing it does (D-29).
     HideWindow,
+    /// A newer build of the window's repository installed, and the installed window started in
+    /// place of this one, unless something would be lost (EP-37): File's item, the tray's.
+    InstallAndRestart,
     /// Quit: at once, or after a question when headless runs would stop (EP-15).
     Quit,
     /// The question's yes: quit, and the runs stop.
@@ -341,6 +346,9 @@ pub struct Board {
     pub quit_asked: bool,
     /// The preview of a session's revert, while it is open (EP-15c).
     pub revert: Option<crate::revert::Dialog>,
+    /// The restart into the installed build (EP-37); set by `main`, inert in a screenshot run
+    /// or a test.
+    pub restart: crate::restart::Restart,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -403,6 +411,7 @@ impl Board {
             told_tray: false,
             quit_asked: false,
             revert: None,
+            restart: crate::restart::Restart::default(),
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -707,8 +716,11 @@ impl Board {
                     let paused = !self.autopilot.paused;
                     self.actions.push(Action::PauseAutopilot(paused));
                 }
+                Order::Restart => self.restart_from_window(),
             }
         }
+        // The restart's share (EP-37), the window shown or hidden.
+        self.restart_pass(ctx);
         // The popup is drawn by the window's pass, which a minimized window skips unless asked.
         if !self.toasts.popup.is_empty() {
             ctx.send_viewport_cmd(egui::ViewportCommand::RequestPaintWhileHidden);
@@ -814,6 +826,7 @@ impl Board {
             starts,
             paused: self.autopilot.paused,
             held: (!held.is_empty()).then(|| held.join(", ")),
+            restart: self.restart.standing != Standing::Newest,
             size: (16.0 * scale).round() as u32,
         };
         if let Some(tray) = &mut self.tray {
@@ -822,7 +835,7 @@ impl Board {
     }
 
     /// Shows the window from the tray, restored and in front (D-29).
-    fn show(&mut self) {
+    pub(crate) fn show(&mut self) {
         self.hidden = false;
         self.ctx
             .send_viewport_cmd(egui::ViewportCommand::Visible(true));
@@ -869,6 +882,15 @@ impl Board {
         self.revert
             .as_ref()
             .is_some_and(crate::revert::Dialog::is_reverting)
+    }
+
+    /// Lets the window close for a restart whose new window has started (EP-37): nothing runs,
+    /// since a restart is refused while anything would stop.
+    pub(crate) fn close_for_restart(&mut self) {
+        self.quitting = true;
+        self.quit_asked = false;
+        self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        self.ctx.request_repaint();
     }
 
     /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
@@ -1060,6 +1082,7 @@ impl Board {
             Action::TestToast => self.test_toast(),
             Action::TestToastLater => self.test_later(),
             Action::HideWindow => self.hide(),
+            Action::InstallAndRestart => self.restart_from_window(),
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
             Action::KeepRunning => self.quit_asked = false,
@@ -1928,6 +1951,10 @@ impl Board {
                 if let Some(note) = &self.home_note {
                     style::chip(ui, note, style::amber(ui));
                 }
+                // A newer build built or installed (EP-37).
+                if let Some((chip, hover)) = self.restart.chip() {
+                    style::chip(ui, chip, style::amber(ui)).on_hover_text(hover);
+                }
             });
         });
         ui.add_space(2.0);
@@ -2003,6 +2030,38 @@ impl Dashboard {
                     self.board.actions.push(Action::TestToastLater);
                 }
                 ui.separator();
+                // The restart into the installed build (EP-37): enabled when a newer build waits
+                // and nothing would be lost, else its hover says why not.
+                self.board.restart.look(crate::restart::LOOK_OPEN);
+                let refusals = self.board.restart_refusals();
+                let standing = self.board.restart.standing;
+                let hover = match standing {
+                    Standing::Installed => {
+                        "Open the newer installed build in place of this window: the layout is \
+                         kept, and the window is back in a moment"
+                    }
+                    Standing::Built | Standing::Newest => {
+                        "Install the newer build of the window's repository (its target\\release) \
+                         into the install folder, then open it in place of this window"
+                    }
+                };
+                let why_not = if refusals.is_empty() {
+                    "The window runs the newest build: nothing to install or restart into"
+                        .to_owned()
+                } else {
+                    format!("Not now: {}", refusals.join("; "))
+                };
+                if ui
+                    .add_enabled(
+                        refusals.is_empty() && standing != Standing::Newest,
+                        egui::Button::new("Install and restart"),
+                    )
+                    .on_hover_text(hover)
+                    .on_disabled_hover_text(why_not)
+                    .clicked()
+                {
+                    self.board.actions.push(Action::InstallAndRestart);
+                }
                 if ui
                     .add_enabled(
                         self.board.tray.is_some(),

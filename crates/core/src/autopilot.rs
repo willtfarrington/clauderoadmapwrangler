@@ -176,7 +176,9 @@ pub struct Facts {
     pub daily_total: u32,
     /// The other sessions open in the project, in words.
     pub others: Vec<String>,
-    /// The project's folder holds the running window's exe (the owner's choice at EP-19).
+    /// The project is the repository the running window was built from (the owner's choice at
+    /// EP-19; by the build's repository from EP-37, since the window runs from its installed
+    /// copy).
     pub own: bool,
     /// The permission mode under which its runs would wait at each shell command, when they
     /// would.
@@ -322,8 +324,8 @@ impl Refusal {
                     others.join("; ")
                 )
             }
-            Refusal::OwnProject => "it is the tool's own project, whose briefs end with a \
-                                    release build that needs the window quit"
+            Refusal::OwnProject => "it is the tool's own project: the window's restart into \
+                                    each brief's build would end its chain"
                 .to_owned(),
             Refusal::Waits(mode) => format!(
                 "its runs would wait for you at each shell command: permission mode {mode} and \
@@ -500,38 +502,31 @@ pub fn would_wait(mode: &str, files: &[PathBuf]) -> Option<String> {
     (allowed == 0).then(|| mode.to_owned())
 }
 
-/// Whether `exe` lies inside `folder`: the running window was built from the project, which is
-/// never chained (the owner's choice at EP-19).
-pub fn is_own(exe: &Path, folder: &Path) -> bool {
-    let key = |path: &Path| {
-        paths::normalize(path)
-            .to_string_lossy()
-            .replace('/', "\\")
-            .to_lowercase()
-    };
-    let (exe, folder) = (key(exe), key(folder));
-    exe.strip_prefix(folder.trim_end_matches('\\'))
-        .is_some_and(|rest| rest.starts_with('\\'))
+/// Whether `folder` is `repository`, the one the running window was built from: the tool's own
+/// project, which is not chained (the owner's choice at EP-19). Until EP-37 the test was the
+/// window's exe inside the folder; the window now runs from its installed copy, outside it.
+pub fn is_own(repository: &Path, folder: &Path) -> bool {
+    paths::same(repository, folder)
 }
 
 /// The gate's conditions that stand between runs (D-22; EP-19b), for the window's Autopilot
 /// section, its offer of `auto` and `crw autopilot`, in the gate's order: [`Refusal::Waits`] when
 /// the project's runs would wait for the owner at each shell command (its permission mode, over
-/// the project's settings files and the user's), then [`Refusal::OwnProject`] when `exe`, the
-/// running window's, lies in `folder`. `home` is the user's profile folder, none in a screenshot
-/// run.
+/// the project's settings files and the user's), then [`Refusal::OwnProject`] when `folder` is
+/// `repository`, the one the running window was built from. `home` is the user's profile folder;
+/// both are none in a screenshot run.
 pub fn standing(
     project: &Project,
     folder: &Path,
     home: Option<&Path>,
-    exe: Option<&Path>,
+    repository: Option<&Path>,
 ) -> Vec<Refusal> {
     let mut no = Vec::new();
     let mode = rules::permission_mode(project).value;
     if let Some(mode) = would_wait(&mode, &settings_files(folder, home)) {
         no.push(Refusal::Waits(mode));
     }
-    if exe.is_some_and(|exe| is_own(exe, folder)) {
+    if repository.is_some_and(|repository| is_own(repository, folder)) {
         no.push(Refusal::OwnProject);
     }
     no
@@ -832,8 +827,8 @@ pub struct Ask<'a> {
     /// The CLI's effort levels in order, for the rule table's steps.
     pub levels: &'a [String],
     pub now: DateTime<Utc>,
-    /// The running window's exe.
-    pub exe: Option<&'a Path>,
+    /// The repository the running window was built from (`paths::repository`).
+    pub repository: Option<&'a Path>,
     /// The user's profile folder, for its settings file.
     pub home: Option<&'a Path>,
     pub ledger: Option<&'a Path>,
@@ -923,7 +918,9 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         chained_total,
         daily_total: settings.autopilot_daily_total(),
         others: ask.others.clone(),
-        own: ask.exe.is_some_and(|exe| is_own(exe, ask.folder)),
+        own: ask
+            .repository
+            .is_some_and(|repository| is_own(repository, ask.folder)),
         waits: would_wait(&mode, &settings_files(ask.folder, ask.home)),
     };
     Reading {
@@ -1243,17 +1240,16 @@ mod tests {
         assert_eq!(allow_rules("{}"), 0);
     }
 
+    /// The tool's own project is the repository the window was built from, wherever its exe runs
+    /// (EP-37: from the installed copy).
     #[test]
-    fn the_tools_own_project_is_the_one_whose_folder_holds_the_exe() {
+    fn the_tools_own_project_is_the_repository_the_window_was_built_from() {
         let folder = Path::new(r"C:\Data\Wrangler");
-        assert!(is_own(
-            Path::new(r"c:\data\wrangler\target\release\app.exe"),
-            folder
-        ));
-        assert!(is_own(Path::new("C:/Data/Wrangler/target/app.exe"), folder));
-        assert!(!is_own(Path::new(r"C:\Data\Wrangler2\app.exe"), folder));
-        assert!(!is_own(Path::new(r"C:\Data\app.exe"), folder));
-        assert!(!is_own(folder, folder));
+        assert!(is_own(Path::new(r"c:\data\wrangler"), folder));
+        assert!(is_own(Path::new("C:/Data/Wrangler/"), folder));
+        assert!(!is_own(Path::new(r"C:\Data\Wrangler2"), folder));
+        assert!(!is_own(Path::new(r"C:\Data"), folder));
+        assert!(!is_own(Path::new(r"C:\Data\Wrangler\crates"), folder));
     }
 
     /// The conditions that stand between runs (EP-19b): a waiting mode with no allow rule, then
@@ -1288,10 +1284,9 @@ mod tests {
             standing(&project, &folder, None, None),
             vec![Refusal::Waits("plan".to_owned())]
         );
-        // The window's exe in the folder: the tool's own project, after the waiting.
-        let exe = folder.join("target").join("release").join("app.exe");
+        // The window built from the folder: the tool's own project, after the waiting.
         assert_eq!(
-            standing(&project, &folder, None, Some(&exe)),
+            standing(&project, &folder, None, Some(&folder)),
             vec![Refusal::Waits("plan".to_owned()), Refusal::OwnProject]
         );
         project.launch.permission_mode = None;
@@ -1301,10 +1296,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            standing(&project, &folder, None, Some(&exe)),
+            standing(&project, &folder, None, Some(&folder)),
             vec![Refusal::OwnProject]
         );
-        let elsewhere = scratch.0.join("beta").join("app.exe");
+        let elsewhere = scratch.0.join("beta");
         assert_eq!(
             standing(&project, &folder, None, Some(&elsewhere)),
             Vec::new()

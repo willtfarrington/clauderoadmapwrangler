@@ -29,6 +29,31 @@ pub fn turn() -> MutexGuard<'static, ()> {
     guard
 }
 
+/// Whether the process `pid` runs: a VS Code window's lock (EP-11), the window a restart waits
+/// for (EP-37).
+#[cfg(windows)]
+pub fn running(pid: u32) -> bool {
+    use windows::Win32::Foundation::{CloseHandle, STILL_ACTIVE};
+    use windows::Win32::System::Threading::{
+        GetExitCodeProcess, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION,
+    };
+    // SAFETY: the handle is the one OpenProcess returned; it is asked once and closed.
+    unsafe {
+        let Ok(handle) = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid) else {
+            return false;
+        };
+        let mut code = 0u32;
+        let alive = GetExitCodeProcess(handle, &mut code).is_ok() && code == STILL_ACTIVE.0 as u32;
+        let _ = CloseHandle(handle);
+        alive
+    }
+}
+
+#[cfg(not(windows))]
+pub fn running(_pid: u32) -> bool {
+    true
+}
+
 /// The standard output of `program` run with `args`, if it exits successfully within `timeout`.
 /// A bare program name is looked up on PATH.
 pub fn output_of<I, S>(program: &Path, args: I, timeout: Duration) -> Result<String, String>

@@ -202,6 +202,15 @@ impl Pilot {
         std::mem::take(&mut self.moments)
     }
 
+    /// Whether a gate is read or a chained start waits for the slot or is on its way: a restart
+    /// would lose it (EP-37).
+    pub fn is_busy(&self) -> bool {
+        !self.gating.is_empty()
+            || !self.reading.is_empty()
+            || self.queued.is_some()
+            || self.starting.is_some()
+    }
+
     /// Whether a chained start waits for the slot or is on its way in `project`.
     pub fn is_starting_in(&self, project: &str) -> bool {
         [&self.queued, &self.starting]
@@ -303,7 +312,7 @@ impl Board {
         if self.autopilot.is_starting_in(&entry.name) {
             others.push("a chained start is on its way".to_owned());
         }
-        let exe = std::env::current_exe().ok();
+        let repository = crw_core::paths::repository();
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
         let ledger = self.ledger().map(PathBuf::from);
         let data_root = registry.data_root();
@@ -323,7 +332,7 @@ impl Board {
                         figures: &figures,
                         levels: &levels,
                         now,
-                        exe: exe.as_deref(),
+                        repository: Some(&repository),
                         home: home.as_deref(),
                         ledger: ledger.as_deref(),
                         others,
@@ -805,15 +814,12 @@ impl Board {
     }
 
     /// The gate's verdict on the conditions that stand between runs for each project whose
-    /// autopilot is on (EP-19b): runs that would wait, the tool's own project. A screenshot run
-    /// reads no user settings and is no project's build.
+    /// autopilot is on (EP-19b): runs that would wait, the tool's own project (the repository the
+    /// window was built from, EP-37). A screenshot run reads no user settings and is no
+    /// project's build.
     fn standing_of(&self, registry: &Registry) -> BTreeMap<String, Vec<Refusal>> {
         let home = self.user_home();
-        let exe = if self.fixtures {
-            None
-        } else {
-            std::env::current_exe().ok()
-        };
+        let repository = (!self.fixtures).then(crw_core::paths::repository);
         let root = registry.data_root();
         registry
             .projects
@@ -822,7 +828,7 @@ impl Board {
             .map(|project| {
                 let folder = project.folder(&root);
                 let refusals =
-                    autopilot::standing(project, &folder, home.as_deref(), exe.as_deref());
+                    autopilot::standing(project, &folder, home.as_deref(), repository.as_deref());
                 (project.name.to_lowercase(), refusals)
             })
             .collect()

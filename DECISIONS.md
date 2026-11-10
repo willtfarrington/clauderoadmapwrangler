@@ -1491,6 +1491,51 @@ an opt-in live smoke test; documented AV exclusions.
 > every root, which would cost the fake portfolio's copies their unadopted folder and missing
 > project; bare readings for a copy's projects, which would leave their badge columns empty.
 
+> **Addendum (2026-11-10, EP-37).** The installed copy and the window's restart. Split at pickup
+> (the owner's choice): the handover of held chains and plans, the restart at the gate's moment,
+> the end of the own-project condition and this project's chaining are EP-37a's.
+>
+> - **The install.** `crw install` (`crw_core::install`) copies the release build of the
+>   repository it was compiled in (`target\release`: the window's exe and `crw.exe`) into
+>   `%LOCALAPPDATA%\clauderoadmapwrangler\bin` (`CRW_HOME\bin` in a trial). Each exe that differs
+>   from the build is first copied beside its place under a staging name
+>   (`crw.installing.exe`), so that a copy that fails changes nothing. Then the installed exe is
+>   renamed to a dated previous copy (`crw.previous-20261110-081500.exe`), since Windows lets a
+>   running exe be renamed but not replaced, and the staged copy takes its name; a rename that
+>   fails puts the exe back and says what was installed. An earlier install's previous copies are
+>   removed, and one that still runs is left for the next install. A copy keeps its build's last
+>   write, so an exe installed as built is left alone. `crw install` does not build, since a build
+>   would replace its own running exe: the script builds, runs `crw install`, writes the icon
+>   into the folder and points both shortcuts at the installed window, started in that folder. A
+>   trial (`CRW_HOME`) asks no window to restart, and the script refuses one that names no
+>   scratch shortcut folders (rule 13).
+> - **The hooks** (D-20) run the installed `crw.exe` once `crw signals install` writes it, which
+>   it does whenever the copy exists (the owner's to run, rule 7). `crw signals` and `crw doctor`
+>   name this exe, the installed copy and the exe the entries run.
+> - **The restart.** File > Install and restart, the tray's item and `POST /restart` (`crw
+>   install`'s request, answered at the window's next pass, within six seconds) first install a
+>   build newer than the copy, once its exes have been left alone for 5 s (a linker still writing
+>   one keeps it fresh). Then, when the installed window is newer than the build the window runs,
+>   or the same build where the window does not run from, they start it with `--restarted <pid>`.
+>   The window closes 0.4 s later, once the answer has gone out, unless the new process has ended
+>   already, and the new one waits up to 10 s for the old process to end before it opens, so the
+>   layout is saved and the port free. A restart is refused, with every reason, while anything
+>   would be lost: a headless run of the window's that works, waits or is being stopped (D-13), a
+>   session starting, a visual launch on its way, a revert, a gate read or a chained start, a held
+>   chain or a kept plan (until EP-37a), a session's start not yet in the ledger (EP-15b), a
+>   disposition being typed, an open dialog; and in a screenshot run. A refused request is not
+>   remembered: the owner restarts later from the menu or the tray. A request that installed into
+>   another folder than the window's is refused, and one whose caller stopped waiting (the
+>   server's 504) is dropped. An amber chip in the status bar says when a newer build is built or
+>   installed, looked at every 30 s.
+> - **The own-project condition** reads the build's repository (`paths::repository()`), since
+>   the window no longer runs from the project's folder. EP-37a drops it.
+>
+> *Alternatives.* `crw install` building too, which would replace its own running exe; the new
+> window started at the old one's exit, where a failed start would leave no window; the held
+> chains and plans carried now (more than an M, so split); the restarted window opening hidden
+> when the old one was.
+
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored
 `private/portfolio-2026-10-31.md`. The interview ran 18 rounds and 72 questions on 2026-10-31; every
