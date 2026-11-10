@@ -599,6 +599,34 @@ default with the owner in the loop, without the terminal. *Alternatives.* `auto`
 > them, and only an OS-level sandbox would close that. *Alternatives.* Bash deny rules per
 > neighbour; a `PreToolUse` hook that checks paths; the sandbox.
 
+> **Addendum (2026-11-09, EP-19b).** The window sets the per-project override, and guards the
+> push it allows.
+>
+> - **The offer.** Turning a project's autopilot on where its headless runs would wait at each
+>   shell command (`autopilot::would_wait` over the project's two settings files and the user's)
+>   offers `auto` first. The dialog says why the runs would wait and what `auto` means (Claude
+>   Code's permission-modes page, read 2026-11-09: a classifier model reviews each action that is
+>   neither a read nor an edit in the working folder and blocks what goes beyond the task or looks
+>   risky; explicit ask and deny rules still apply). It also says what `auto` means for the
+>   project's commits. It offers Set auto and turn on (one write of the registry), Turn on as it
+>   is, and Cancel.
+> - **Keep for this project.** A pin beside the launch dialog's Permissions picker opens a menu
+>   (the owner's choice, over checkboxes written at Start and one Keep row under the pickers).
+>   Keep for this project writes `[project.launch] permission_mode` at once: the tool's inline
+>   form `launch = { permission_mode = "auto" }` when the project has no `launch`, and a table the
+>   owner wrote is kept with its comments. Back to the default takes the key out, as keeping
+>   `acceptEdits` does. `crw set <project> permission_mode <mode|default>` does the same.
+> - **The push guard** (the owner's choice). `auto` allows a plain push to a branch of the working
+>   repository by default. So every headless run of a project whose autopilot is on, chained or
+>   started from the dialog, gets the deny rule `Bash(git push *)` through `--settings`, beside
+>   the neighbours' `Edit` rules. The rule refuses `git push` as written, inside compound commands
+>   and under `auto`. It does not catch a push written another way (`git -C . push`), so it guards
+>   the usual case and is no boundary. A CLI without `--settings` drops the rule and says so; the
+>   prompt's "never push" stays.
+>
+> *Alternatives.* The prompt's "never push" alone; the deny rule for every headless run of the
+> window; a control for the mode in the Autopilot section; allow rules written by the tool.
+
 **D-19 Decision routing.** The **control protocol over stream-json first**: the tile shows each
 `AskUserQuestion` with its options and each permission request; the session blocks until the owner answers
 in the tool or on the phone; an optional timeout (default none) defers the run instead. The documented
@@ -894,6 +922,30 @@ committing and recording hashes; one model and effort per project; usage thresho
 > the D-10 addendum of the same date makes such a task rare. *Alternatives.* Never chaining this
 > project (EP-19); the release build left to an owner task after the chain; allow rules for the build
 > and git commands under `acceptEdits`; the handover kept in the registry.
+
+> **Addendum (2026-11-09, EP-19b).** The autopilot's settings are set in the window.
+>
+> - **The section.** The Sessions pane's Autopilot section has a line for each project whose
+>   autopilot is on. It shows the project's permission mode, and whether that mode is the
+>   project's own or the default. It shows the gate's verdict on the conditions that stand between
+>   runs (runs that would wait, the tool's own project), read with the log every 30 seconds, and
+>   the sessions open there that would end a chain now. It shows the limits as pickers that write
+>   at once: the largest size (S, M or L), the runs a day, and a budget from presets. `crw set
+>   <project> max_size|daily|max_budget_usd` takes any figure. A default is taken out of the
+>   registry, as `set_autopilot`'s writers do.
+> - **Idle sessions** (the owner's choice, after a real chain ended at two idle VS Code tabs on
+>   2026-11-09). The gate's "no other session open" condition counts the window's own runs, a
+>   chained start on its way and the sessions seen busy or waiting. A session whose turn is over
+>   no longer refuses; the chained line names it ("open there and idle, not counted"). Typing into
+>   it while a chain runs makes two sessions edit one tree, and that is the owner's own act.
+> - **The split** (the owner's choice). The standing model and effort set from the dialog are
+>   EP-19c's. There, "keep for this project" writes a `[[project.rule]]` that matches every brief,
+>   after any phase rule, so a kept effort holds for an S brief too. This was not the recommended
+>   option, which wrote `[project.launch]` as the base that the built-in S rule steps down from;
+>   `[project.launch]` model and effort stay hand-written.
+>
+> *Alternatives.* Idle sessions refusing as before, with the section naming them; the question
+> parked for the P3 re-plan; the limits in the Detail pane; figures typed into the section.
 
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and

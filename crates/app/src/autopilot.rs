@@ -11,7 +11,12 @@
 //! kept here from Start headless until the chain ends: the gate takes the owner's choice of
 //! model and effort for a brief they chose, the rules' for one they left alone, and ends the
 //! chain before one they left out. Each change of a chain's state is a notification of its own
-//! kind (the chain's moment). A screenshot run reads no gate and starts nothing.
+//! kind (the chain's moment). From EP-19b the window sets what a chain needs (D-18): turning a
+//! project's autopilot on where its runs would wait at each shell command **offers** permission
+//! mode `auto` first, and the Autopilot section shows each project's permission mode, the gate's
+//! verdict on the conditions that stand between runs, and its limits, which it sets; an idle
+//! session no longer refuses a chain (the owner's choice), it is named in the chained line. A
+//! screenshot run reads no gate and starts nothing.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::PathBuf;
@@ -23,10 +28,11 @@ use chrono::{DateTime, Local, Utc};
 use crw_core::autopilot::{self, Answer, Ask, Cap, Plan, Refusal};
 use crw_core::ledger::EventRow;
 use crw_core::prompt::Draft;
-use crw_core::registry::{Project, Registry};
+use crw_core::registry::{self, Limit, Project, Registry};
 use crw_core::roadmap::{EpId, Size};
 use crw_core::session::{Launch, Outcome, cli};
-use crw_core::{files, process};
+use crw_core::sessions::Status;
+use crw_core::{files, process, rules};
 use eframe::egui::{self, RichText};
 
 use crate::board::{Action, Board};
@@ -40,6 +46,36 @@ const HOLD_EVERY: Duration = Duration::from_secs(5 * 60);
 const READ_EVERY: Duration = Duration::from_secs(30);
 /// The log's lines the Sessions pane shows: `crw autopilot` prints more.
 const LOG_LINES: usize = 8;
+/// How long a chained start waits for a poll to confirm an idle session in its project before
+/// it counts it (EP-19b's review): two of the poll's turns while the window is not in front.
+const CONFIRM_FOR: chrono::TimeDelta = chrono::TimeDelta::seconds(75);
+/// The runs a day and the budgets the section's pickers offer (EP-19b); `crw set` takes any.
+const DAILY_CHOICES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 8];
+const BUDGET_CHOICES: [f64; 6] = [5.0, 10.0, 15.0, 20.0, 30.0, 50.0];
+
+/// What `auto` means, as the offer says it (D-18; EP-19b), from Claude Code's permission-modes
+/// and permissions pages (read 2026-11-09).
+pub const AUTO_WORDS: &str = "With auto, Claude Code runs a session's commands without asking \
+    you. A classifier model reviews each action that is not a read or an edit in the project's \
+    folder, and blocks one that goes beyond the task or looks risky: downloading and running \
+    code, sending data out, a force push, git reset --hard, a destroy command. Your own ask and \
+    deny rules still apply.";
+/// What it means for the project's commits (EP-19b): the push the classifier allows, the deny
+/// rule that refuses it, and the push that stays the owner's.
+pub const PUSH_WORDS: &str = "A plain git push to the project's own remote is one auto allows, \
+    so each headless run of a project whose autopilot is on is also given a deny rule that \
+    refuses git push as written, and is told never to push: its commits stay local until you \
+    push them yourself, after reading the diff. A push written another way (git -C . push) \
+    would get past the rule.";
+
+/// The offer of `auto` (D-18; EP-19b): the autopilot being turned on in a project whose
+/// headless runs would wait for the owner at each shell command, which the gate refuses.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Offer {
+    pub project: String,
+    /// The permission mode under which they would wait.
+    pub mode: String,
+}
 
 /// A chain held by the pause alone (D-22), read again once the pause may have lifted.
 #[derive(Debug, Clone, PartialEq)]
@@ -63,6 +99,11 @@ struct Queued {
     /// The model and effort in words, with the downshift's when it chose the model.
     chosen: String,
     program: PathBuf,
+    /// The sessions open and idle in the project at the start, which the chained line names
+    /// (EP-19b): they no longer refuse a chain.
+    idle: Vec<String>,
+    /// When the start was queued: a poll after it confirms an idle session (EP-19b's review).
+    queued_at: DateTime<Utc>,
 }
 
 /// What a gate's worker brings back.
@@ -105,6 +146,9 @@ pub struct Pilot {
     pub plans: BTreeMap<String, Plan>,
     /// The chain's moments since the last pass, for the popup.
     moments: Vec<Toast>,
+    /// The gate's verdict on the conditions that stand between runs (EP-19b), by project in
+    /// lower case, for each project whose autopilot is on: read with the log, never each frame.
+    pub standing: BTreeMap<String, Vec<Refusal>>,
 }
 
 impl Default for Pilot {
@@ -127,6 +171,7 @@ impl Default for Pilot {
             canned: false,
             plans: BTreeMap::new(),
             moments: Vec::new(),
+            standing: BTreeMap::new(),
         }
     }
 }
@@ -254,11 +299,7 @@ impl Board {
             .preflight(&program, &ctx)
             .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
             .unwrap_or_default();
-        let mut others: Vec<String> = self
-            .session_reasons(&entry.name)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        let (mut others, _idle) = self.gate_sessions(&entry.name);
         if self.autopilot.is_starting_in(&entry.name) {
             others.push("a chained start is on its way".to_owned());
         }
@@ -434,6 +475,8 @@ impl Board {
             chosen,
             launch,
             program,
+            idle: Vec::new(),
+            queued_at: Utc::now(),
         });
     }
 
@@ -508,12 +551,20 @@ impl Board {
             self.chain_moment(&queued.project, &words, true, !enabled);
             return;
         }
-        // A session opened in the project since the gate was read would edit the same files.
-        let others: Vec<String> = self
-            .session_reasons(&queued.project)
-            .iter()
-            .map(ToString::to_string)
-            .collect();
+        // A session working or waiting in the project since the gate was read would edit the
+        // same files; an idle one is named in the chained line (EP-19b). Without the prompt hook
+        // (EP-20) a tab the owner has just prompted reads idle until the next poll, so an idle
+        // one is left out only once a poll newer than the queued start has listed it; none
+        // within `CONFIRM_FOR`, and it counts as every open session did before (EP-19b's
+        // review).
+        let (mut others, idle) = self.gate_sessions(&queued.project);
+        if others.is_empty() && !idle.is_empty() {
+            match idle_confirmed(self.watch.model.polled, queued.queued_at, Utc::now()) {
+                None => return,
+                Some(true) => {}
+                Some(false) => others.clone_from(&idle),
+            }
+        }
         if !others.is_empty() {
             let queued = self.autopilot.queued.take().expect("a start is queued");
             let words = autopilot::refused_words(queued.after, &[Refusal::Busy(others)]);
@@ -540,6 +591,7 @@ impl Board {
             .sessions
             .route_for(&preflight, registry.settings.decisions)
             .0;
+        queued.idle = idle;
         let run = Run {
             capped: true,
             size: queued.size,
@@ -564,8 +616,9 @@ impl Board {
         match started {
             Started::Running(_) => {
                 let cap = Cap::new(queued.size, Instant::now());
-                let words =
+                let mut words =
                     autopilot::chained_words(queued.next, queued.after, &queued.chosen, &cap);
+                words.push_str(&idle_words(&queued.idle));
                 self.chain_moment(&queued.project, &words, false, false);
             }
             Started::Refused(why) => {
@@ -615,16 +668,24 @@ impl Board {
         }
     }
 
-    /// Reads the log and the registry's pause again when they changed or every half minute.
+    /// Reads the log, the registry's pause and the gate's standing verdicts again when they
+    /// changed or every half minute; a screenshot run keeps its canned log and pause.
     fn read_pilot(&mut self) {
         let pilot = &mut self.autopilot;
         let due = pilot.stale || pilot.read_at.is_none_or(|at| at.elapsed() >= READ_EVERY);
-        if !due || pilot.canned {
+        if !due {
             return;
         }
         pilot.read_at = Some(Instant::now());
         pilot.stale = false;
-        if let Ok(loaded) = self.store().load() {
+        let loaded = self.store().load().ok();
+        if let Some(loaded) = &loaded {
+            self.autopilot.standing = self.standing_of(&loaded.registry);
+        }
+        if self.autopilot.canned {
+            return;
+        }
+        if let Some(loaded) = &loaded {
             let settings = &loaded.registry.settings;
             self.autopilot.paused = settings.autopilot_paused();
             self.autopilot.mark = settings.autopilot_pause_percent();
@@ -643,36 +704,233 @@ impl Board {
     }
 
     /// Turns a project's autopilot on or off (the list's box, the A key): `true` when the
-    /// registry was written.
+    /// registry was written. Turned on where the project's runs would wait at each shell command,
+    /// it opens the offer of `auto` instead and writes nothing yet (EP-19b).
     pub fn set_autopilot(&mut self, name: &str, on: bool) -> bool {
+        if on && let Some(mode) = self.would_wait(name) {
+            self.offer = Some(Offer {
+                project: name.to_owned(),
+                mode,
+            });
+            return false;
+        }
         let changed = self
             .store()
             .change(&files::today(), |c| c.set_autopilot(name, on));
+        self.switched(
+            name,
+            on,
+            false,
+            changed.map(|_| ()).map_err(|e| e.to_string()),
+        );
+        true
+    }
+
+    /// The offer's answer (EP-19b): the autopilot turned on, and permission mode `auto` set
+    /// with it in the same write when `auto` holds.
+    pub fn autopilot_on(&mut self, name: &str, auto: bool) -> bool {
+        self.offer = None;
+        let changed = self.store().change(&files::today(), |c| {
+            if auto {
+                c.set_permission_mode(name, Some("auto"))?;
+            }
+            c.set_autopilot(name, true)
+        });
+        self.switched(
+            name,
+            true,
+            auto,
+            changed.map(|_| ()).map_err(|e| e.to_string()),
+        );
+        true
+    }
+
+    /// What follows a switch's write: the notice, the log's line and, when off, the held chain
+    /// and the plan let go.
+    fn switched(&mut self, name: &str, on: bool, auto: bool, changed: Result<(), String>) {
+        if let Err(e) = changed {
+            self.fail(e);
+            return;
+        }
+        let (words, log) = match (on, auto) {
+            (true, true) => (
+                "autopilot on, with permission mode auto: its runs commit themselves (your \
+                 standing yes) and run their commands unasked, never pushing, and after a \
+                 headless run completes the gate may chain its next brief",
+                "turned on by the owner, with permission mode auto",
+            ),
+            (true, false) => (
+                "autopilot on: its runs commit themselves (your standing yes), and after a \
+                 headless run completes the gate may chain its next brief",
+                "turned on by the owner",
+            ),
+            (false, _) => (
+                "autopilot off: its runs stop before committing, and no brief is chained",
+                "turned off by the owner",
+            ),
+        };
+        self.notify(format!("{name}: {words}."));
+        self.log_chain(Some(name), log);
+        self.autopilot.stale = true;
+        if !on {
+            self.autopilot
+                .held
+                .retain(|held| !held.project.eq_ignore_ascii_case(name));
+            self.autopilot.drop_plan(name);
+        }
+    }
+
+    /// The permission mode under which `name`'s headless runs would wait at each shell command,
+    /// when they would (D-22): the gate would refuse its chains (EP-19b).
+    fn would_wait(&self, name: &str) -> Option<String> {
+        let loaded = self.store().load().ok()?;
+        let project = loaded.registry.project(name)?;
+        let folder = project.folder(&loaded.registry.data_root());
+        let home = self.user_home();
+        autopilot::standing(project, &folder, home.as_deref(), None)
+            .into_iter()
+            .find_map(|refusal| match refusal {
+                Refusal::Waits(mode) => Some(mode),
+                _ => None,
+            })
+    }
+
+    /// The user's profile folder, whose `.claude\settings.json` may hold allow rules; none in a
+    /// screenshot run, which reads no Claude Code settings.
+    fn user_home(&self) -> Option<PathBuf> {
+        if self.fixtures {
+            return None;
+        }
+        std::env::var_os("USERPROFILE").map(PathBuf::from)
+    }
+
+    /// The gate's verdict on the conditions that stand between runs for each project whose
+    /// autopilot is on (EP-19b): runs that would wait, the tool's own project. A screenshot run
+    /// reads no user settings and is no project's build.
+    fn standing_of(&self, registry: &Registry) -> BTreeMap<String, Vec<Refusal>> {
+        let home = self.user_home();
+        let exe = if self.fixtures {
+            None
+        } else {
+            std::env::current_exe().ok()
+        };
+        let root = registry.data_root();
+        registry
+            .projects
+            .iter()
+            .filter(|project| project.autopilot.enabled)
+            .map(|project| {
+                let folder = project.folder(&root);
+                let refusals =
+                    autopilot::standing(project, &folder, home.as_deref(), exe.as_deref());
+                (project.name.to_lowercase(), refusals)
+            })
+            .collect()
+    }
+
+    /// The sessions open in `project` as the gate weighs them (D-22; EP-19b, the owner's
+    /// choice): those that refuse a chain, the window's own runs and the sessions seen busy or
+    /// waiting, and the idle ones, whose turn is over, which do not.
+    pub fn gate_sessions(&self, project: &str) -> (Vec<String>, Vec<String>) {
+        let (seen, idle) = self.open_elsewhere(project);
+        let refusing = self
+            .sessions
+            .summary(project)
+            .into_iter()
+            .chain(seen)
+            .collect();
+        (refusing, idle)
+    }
+
+    /// The sessions started elsewhere that are open in `project`: those busy or waiting, and the
+    /// idle ones. The Autopilot section's verdict reads these alone, since the window's own run
+    /// there is the one whose end the gate weighs (EP-19b's review).
+    fn open_elsewhere(&self, project: &str) -> (Vec<String>, Vec<String>) {
+        let own = |id: &str| self.sessions.owns(id);
+        let mut refusing = Vec::new();
+        let mut idle = Vec::new();
+        for seen in self.watch.running(project, own) {
+            if seen.status == Status::Idle {
+                idle.push(seen.summary());
+            } else {
+                refusing.push(seen.summary());
+            }
+        }
+        (refusing, idle)
+    }
+
+    /// Keeps a permission mode for a project from the launch dialog (D-18; EP-19b): written into
+    /// its `[project.launch]`, or taken out with `None` (back to the default). The open dialog's
+    /// choice then says where the mode comes from.
+    pub fn keep_permission_mode(&mut self, name: &str, mode: Option<&str>) -> bool {
+        let changed = self
+            .store()
+            .change(&files::today(), |c| c.set_permission_mode(name, mode));
+        let registry = match changed {
+            Ok((registry, ())) => registry,
+            Err(e) => {
+                self.fail(e.to_string());
+                return true;
+            }
+        };
+        let Some(project) = registry.project(name) else {
+            return true;
+        };
+        let kept = rules::permission_mode(project);
+        let words = if project.launch.permission_mode.is_some() {
+            format!(
+                "{name}: permission mode {} kept for its launches and chains.",
+                kept.value
+            )
+        } else {
+            format!(
+                "{name}: permission mode back to the default, {}.",
+                kept.value
+            )
+        };
+        if let Some(dialog) = self
+            .launch
+            .as_mut()
+            .filter(|dialog| dialog.project.eq_ignore_ascii_case(name))
+        {
+            dialog.kept_permission_mode(project.launch.permission_mode.clone(), kept);
+        }
+        self.autopilot.stale = true;
+        self.notify(words);
+        true
+    }
+
+    /// Sets one of a project's autopilot limits from the Autopilot section (D-22; EP-19b).
+    pub fn set_autopilot_limit(&mut self, name: &str, limit: &Limit) -> bool {
+        let changed = self
+            .store()
+            .change(&files::today(), |c| c.set_autopilot_limit(name, limit));
         match changed {
             Ok(_) => {
-                let words = if on {
-                    "autopilot on: its runs commit themselves (your standing yes), and after a \
-                     headless run completes the gate may chain its next brief"
-                } else {
-                    "autopilot off: its runs stop before committing, and no brief is chained"
-                };
-                self.notify(format!("{name}: {words}."));
-                let log = if on {
-                    "turned on by the owner"
-                } else {
-                    "turned off by the owner"
-                };
-                self.log_chain(Some(name), log);
-                if !on {
-                    self.autopilot
-                        .held
-                        .retain(|held| !held.project.eq_ignore_ascii_case(name));
-                    self.autopilot.drop_plan(name);
-                }
+                self.autopilot.stale = true;
+                self.notify(format!("{name}: {}.", limit_words(limit)));
             }
             Err(e) => self.fail(e.to_string()),
         }
         true
+    }
+
+    /// The offer of `auto` over the window (D-18; EP-19b): why the project's runs would wait,
+    /// what `auto` means, and three ways on. Escape or a click beside it puts it away.
+    pub fn offer_dialog(&mut self, ctx: &egui::Context) {
+        let Some(offer) = self.offer.clone() else {
+            return;
+        };
+        let width = 600.0_f32.min(ctx.content_rect().width() - 80.0);
+        let modal = egui::Modal::new(egui::Id::unique("autopilot-offer")).show(ctx, |ui| {
+            ui.set_width(width);
+            offer_ui(ui, &offer)
+        });
+        match modal.inner {
+            Some(action) => self.actions.push(action),
+            None if modal.should_close() => self.actions.push(Action::CloseOffer),
+            None => {}
+        }
     }
 
     /// The owner's Pause of every chain, or its Resume (the Sessions pane, the tray): kept in
@@ -805,6 +1063,7 @@ impl Board {
                             .color(style::amber(ui)),
                     );
                 }
+                self.autopilot_projects(ui, &mut actions);
                 for held in &self.autopilot.held {
                     ui.label(
                         RichText::new(format!("{}: {}", held.project, held.words))
@@ -848,6 +1107,293 @@ impl Board {
         ui.separator();
         self.actions.extend(actions);
     }
+
+    /// One entry for each project whose autopilot is on (EP-19b): its permission mode and where
+    /// it comes from, the gate's verdict on what stands between runs (runs that would wait, the
+    /// tool's own project, the sessions open there now), and its limits as pickers that write at
+    /// once.
+    fn autopilot_projects(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+        let rows = self
+            .portfolio
+            .projects
+            .iter()
+            .filter(|row| row.project.autopilot.enabled);
+        for row in rows {
+            let name = row.name();
+            let project = &row.project;
+            let mode = rules::permission_mode(project);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(name).strong());
+                let from = if project.launch.permission_mode.is_some() {
+                    "the project's"
+                } else {
+                    "the default"
+                };
+                ui.label(RichText::new(format!("permission mode {} ({from})", mode.value)).small())
+                    .on_hover_text(
+                        "Kept from the launch dialog (the pin beside Permissions), set by the \
+                         offer when the autopilot is turned on, or crw set <project> \
+                         permission_mode <mode|default>",
+                    );
+                limit_pickers(ui, name, &project.autopilot, actions);
+            });
+            let standing = self.autopilot.standing.get(&name.to_lowercase());
+            let (others, idle) = self.open_elsewhere(name);
+            let (amber, weak, green) = (
+                style::amber(ui),
+                ui.visuals().weak_text_color(),
+                style::green(ui),
+            );
+            let mut refused = false;
+            for refusal in standing.into_iter().flatten() {
+                refused = true;
+                // The log's words carry every way out; the section names the window's.
+                let words = match refusal {
+                    Refusal::Waits(mode) => format!(
+                        "The gate refuses its chains: its runs would wait for you at each shell \
+                         command ({mode}, no allow rule); keep auto with the pin beside the launch \
+                         dialog's Permissions."
+                    ),
+                    refusal => format!("The gate refuses its chains: {}.", refusal.words()),
+                };
+                verdict(ui, words, amber);
+            }
+            if !others.is_empty() {
+                refused = true;
+                let words = format!(
+                    "A chain would end here now: {}.",
+                    Refusal::Busy(others).words()
+                );
+                verdict(ui, words, amber);
+            }
+            if !idle.is_empty() {
+                let words = format!(
+                    "Open and idle, which does not stop a chain: {}.",
+                    idle.join("; ")
+                );
+                verdict(ui, words, weak);
+            }
+            if !refused && standing.is_some() {
+                let words = "Its runs would not wait, and no session there stops a chain.";
+                verdict(ui, words.to_owned(), green);
+            }
+        }
+    }
+}
+
+/// A line of a project's verdict in the Autopilot section, small and wrapped.
+fn verdict(ui: &mut egui::Ui, words: String, colour: egui::Color32) {
+    ui.add(egui::Label::new(RichText::new(words).small().color(colour)).wrap());
+}
+
+/// A project's limits as small pickers (D-22; EP-19b): the largest brief a chain starts, the
+/// chained runs a day and the budget of each run, the default taken out when chosen. `crw set`
+/// takes any figure; one the pickers do not list is offered as it stands.
+fn limit_pickers(
+    ui: &mut egui::Ui,
+    name: &str,
+    limits: &registry::Autopilot,
+    actions: &mut Vec<Action>,
+) {
+    let size = limits.max_size();
+    let mut chosen = size;
+    egui::ComboBox::from_id_salt(("autopilot-size", name))
+        .width(64.0)
+        .selected_text(format!("up to {size}"))
+        .show_ui(ui, |ui| {
+            for option in [Size::S, Size::M, Size::L] {
+                let label = if option == autopilot::DEFAULT_MAX_SIZE {
+                    format!("{option} (default)")
+                } else {
+                    option.to_string()
+                };
+                ui.selectable_value(&mut chosen, option, label);
+            }
+        })
+        .response
+        .on_hover_text("The largest brief a chain starts (D-22); a larger one needs your click");
+    if chosen != size {
+        let limit = Limit::MaxSize((chosen != autopilot::DEFAULT_MAX_SIZE).then_some(chosen));
+        actions.push(Action::SetAutopilotLimit(name.to_owned(), limit));
+    }
+
+    let daily = limits.daily();
+    let mut chosen = daily;
+    egui::ComboBox::from_id_salt(("autopilot-daily", name))
+        .width(64.0)
+        .selected_text(format!("{daily} a day"))
+        .show_ui(ui, |ui| {
+            let mut options = DAILY_CHOICES.to_vec();
+            if !options.contains(&daily) {
+                options.push(daily);
+                options.sort_unstable();
+            }
+            for option in options {
+                let label = if option == autopilot::DEFAULT_DAILY {
+                    format!("{option} (default)")
+                } else {
+                    option.to_string()
+                };
+                ui.selectable_value(&mut chosen, option, label);
+            }
+        })
+        .response
+        .on_hover_text(
+            "The chained runs a day in this project (D-22); the day's total is a setting",
+        );
+    if chosen != daily {
+        let limit = Limit::Daily((chosen != autopilot::DEFAULT_DAILY).then_some(chosen));
+        actions.push(Action::SetAutopilotLimit(name.to_owned(), limit));
+    }
+
+    let budget = limits.max_budget_usd;
+    let mut chosen = budget;
+    egui::ComboBox::from_id_salt(("autopilot-budget", name))
+        .width(84.0)
+        .selected_text(budget_words(budget))
+        .show_ui(ui, |ui| {
+            let mut options: Vec<Option<f64>> = std::iter::once(None)
+                .chain(BUDGET_CHOICES.iter().map(|&dollars| Some(dollars)))
+                .collect();
+            if !options.contains(&budget) {
+                options.push(budget);
+            }
+            for option in options {
+                ui.selectable_value(&mut chosen, option, budget_words(option));
+            }
+        })
+        .response
+        .on_hover_text(
+            "--max-budget-usd for each of its runs, in dollars of the CLI's own estimate; a run \
+             that reaches it stops, which ends the chain",
+        );
+    if chosen != budget {
+        actions.push(Action::SetAutopilotLimit(
+            name.to_owned(),
+            Limit::Budget(chosen),
+        ));
+    }
+}
+
+/// A budget as the picker says it: `no budget`, `$20 a run`.
+fn budget_words(budget: Option<f64>) -> String {
+    match budget {
+        None => "no budget".to_owned(),
+        Some(dollars) => format!("{} a run", dollars_text(dollars)),
+    }
+}
+
+/// Dollars without cents when whole: `$20`, `$12.50`.
+fn dollars_text(dollars: f64) -> String {
+    if dollars.fract() == 0.0 {
+        format!("${dollars:.0}")
+    } else {
+        format!("${dollars:.2}")
+    }
+}
+
+/// A limit's change in words, for the status bar (EP-19b).
+fn limit_words(limit: &Limit) -> String {
+    match limit {
+        Limit::MaxSize(Some(size)) => format!("the autopilot chains briefs up to {size}"),
+        Limit::MaxSize(None) => format!(
+            "the autopilot chains briefs up to {}, the default",
+            autopilot::DEFAULT_MAX_SIZE
+        ),
+        Limit::Daily(Some(runs)) => format!("{runs} chained runs a day at most"),
+        Limit::Daily(None) => format!(
+            "{} chained runs a day at most, the default",
+            autopilot::DEFAULT_DAILY
+        ),
+        Limit::Budget(Some(dollars)) => format!(
+            "each run of the autopilot's has a budget of {} (--max-budget-usd)",
+            dollars_text(*dollars)
+        ),
+        Limit::Budget(None) => "the autopilot's runs have no budget".to_owned(),
+    }
+}
+
+/// Whether a queued start may leave its project's idle sessions out (EP-19b's review): yes once
+/// the poll has answered after `queued_at` (it lists a tab the owner prompted as busy), `None`
+/// to wait for that until `CONFIRM_FOR` has passed, then no: they count.
+fn idle_confirmed(
+    polled: Option<DateTime<Utc>>,
+    queued_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Option<bool> {
+    if polled.is_some_and(|at| at > queued_at) {
+        Some(true)
+    } else if now - queued_at < CONFIRM_FOR {
+        None
+    } else {
+        Some(false)
+    }
+}
+
+/// The idle sessions a chained line names (EP-19b), or nothing.
+fn idle_words(idle: &[String]) -> String {
+    if idle.is_empty() {
+        String::new()
+    } else {
+        format!("; open there and idle, not counted: {}", idle.join("; "))
+    }
+}
+
+/// The offer's contents (D-18; EP-19b): why the project's runs would wait, what `auto` means and
+/// what it means for the project's commits, and the three ways on; the owner's answer, once
+/// given.
+fn offer_ui(ui: &mut egui::Ui, offer: &Offer) -> Option<Action> {
+    ui.heading(format!("Turn on the autopilot of {}?", offer.project));
+    ui.add_space(4.0);
+    ui.add(
+        egui::Label::new(format!(
+            "Its headless runs would wait for you at each shell command: its permission mode is \
+             {} and no allow rule lets a command through, in its .claude settings or yours. The \
+             gate refuses to chain a brief whose run would wait (D-22), so no chain would start.",
+            offer.mode
+        ))
+        .wrap(),
+    );
+    ui.add_space(4.0);
+    ui.add(egui::Label::new(AUTO_WORDS).wrap());
+    ui.add_space(4.0);
+    ui.add(egui::Label::new(PUSH_WORDS).wrap());
+    ui.add_space(8.0);
+    let mut chosen = None;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui.button("Cancel").clicked() {
+                chosen = Some(Action::CloseOffer);
+            }
+            if ui
+                .button("Turn on as it is")
+                .on_hover_text(
+                    "Its runs commit themselves (your standing yes); the gate refuses its chains \
+                     while its runs would wait",
+                )
+                .clicked()
+            {
+                chosen = Some(Action::AutopilotOn {
+                    project: offer.project.clone(),
+                    auto: false,
+                });
+            }
+            if ui
+                .button(RichText::new("Set auto and turn on").strong())
+                .on_hover_text(
+                    "Writes permission_mode = \"auto\" under the project's [project.launch] and \
+                     turns its autopilot on, in one change of the registry",
+                )
+                .clicked()
+            {
+                chosen = Some(Action::AutopilotOn {
+                    project: offer.project.clone(),
+                    auto: true,
+                });
+            }
+        });
+    });
+    chosen
 }
 
 /// A line of the chain log: its local time, its project and its words.
@@ -872,4 +1418,297 @@ fn log_line(row: &EventRow) -> RichText {
         row.detail.as_deref().unwrap_or_default()
     ))
     .small()
+}
+
+#[cfg(test)]
+mod tests {
+    use crw_core::registry::LaunchMode;
+    use crw_core::sessions::{Mode, Seen};
+
+    use super::*;
+    use crate::board::{Places, View};
+    use crate::portfolio::tests::{Scratch, fake_store};
+    use crate::testing::{self, Screen};
+
+    /// A board over the fake portfolio's registry in `scratch`, as a screenshot run has it: it
+    /// reads no user settings, so the fixtures' runs would wait (no allow rule anywhere).
+    fn board(scratch: &Scratch) -> Board {
+        let places = Places {
+            store: fake_store(scratch),
+            ledger: None,
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        board.fixtures = true;
+        board
+    }
+
+    fn harbor(board: &Board) -> Project {
+        board
+            .store()
+            .load()
+            .unwrap()
+            .registry
+            .project("harbor")
+            .cloned()
+            .unwrap()
+    }
+
+    #[test]
+    fn turning_the_autopilot_on_where_runs_would_wait_offers_auto_first() {
+        let scratch = Scratch::new("autopilot-offer");
+        let mut board = board(&scratch);
+        // harbor has no settings file and the default mode: its runs would wait.
+        assert!(
+            !board.set_autopilot("harbor", true),
+            "nothing is written yet"
+        );
+        assert_eq!(
+            board.offer,
+            Some(Offer {
+                project: "harbor".to_owned(),
+                mode: "acceptEdits".to_owned(),
+            })
+        );
+        assert!(!harbor(&board).autopilot.enabled);
+        // The offer's yes: the mode and the switch in one write.
+        assert!(board.autopilot_on("harbor", true));
+        assert_eq!(board.offer, None);
+        let entry = harbor(&board);
+        assert!(entry.autopilot.enabled);
+        assert_eq!(entry.launch.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(
+            entry.launch.mode,
+            Some(LaunchMode::Headless),
+            "the owner's [project.launch] keeps its other keys"
+        );
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some("turned on by the owner, with permission mode auto")
+        );
+        // Its runs no longer wait: off and on again write at once, with no offer.
+        assert!(board.set_autopilot("harbor", false));
+        assert!(board.set_autopilot("harbor", true));
+        assert_eq!(board.offer, None);
+        assert!(harbor(&board).autopilot.enabled);
+        // Turned on as it is, a waiting project's switch is written without the mode.
+        assert!(!board.set_autopilot("lantern", true));
+        assert!(board.autopilot_on("lantern", false));
+        let registry = board.store().load().unwrap().registry;
+        let lantern = registry.project("lantern").unwrap();
+        assert!(lantern.autopilot.enabled);
+        assert_eq!(lantern.launch.permission_mode, None);
+        // The section's verdicts: harbor's runs would not wait, lantern's would.
+        let standing = board.standing_of(&registry);
+        assert_eq!(standing.get("harbor"), Some(&Vec::new()));
+        assert_eq!(
+            standing.get("lantern"),
+            Some(&vec![Refusal::Waits("acceptEdits".to_owned())])
+        );
+    }
+
+    #[test]
+    fn a_kept_permission_mode_is_written_and_taken_back() {
+        let scratch = Scratch::new("autopilot-keep");
+        let mut board = board(&scratch);
+        assert!(board.keep_permission_mode("harbor", Some("auto")));
+        assert_eq!(
+            harbor(&board).launch.permission_mode.as_deref(),
+            Some("auto")
+        );
+        assert!(board.keep_permission_mode("harbor", None));
+        let entry = harbor(&board);
+        assert_eq!(entry.launch.permission_mode, None);
+        assert_eq!(entry.launch.mode, Some(LaunchMode::Headless));
+        // A limit, and its default taken out.
+        assert!(board.set_autopilot_limit("harbor", &Limit::Daily(Some(4))));
+        assert_eq!(harbor(&board).autopilot.daily(), 4);
+        assert!(board.set_autopilot_limit("harbor", &Limit::Daily(None)));
+        assert_eq!(harbor(&board).autopilot.daily, None);
+    }
+
+    #[test]
+    fn the_offer_says_why_and_takes_the_owners_answer() {
+        let offer = Offer {
+            project: "harbor".to_owned(),
+            mode: "acceptEdits".to_owned(),
+        };
+        let mut screen = Screen::new();
+        let mut answer = None;
+        let mut pass = |screen: &mut Screen, events| {
+            screen.pass(events, |ui| {
+                if let Some(action) = offer_ui(ui, &offer) {
+                    answer = Some(action);
+                }
+            })
+        };
+        let output = pass(&mut screen, Vec::new());
+        let at = testing::text_at(&output, "Set auto and turn on").expect("the offer's yes");
+        pass(&mut screen, testing::moved(at));
+        pass(
+            &mut screen,
+            testing::button(at, egui::PointerButton::Primary, true),
+        );
+        pass(
+            &mut screen,
+            testing::button(at, egui::PointerButton::Primary, false),
+        );
+        assert_eq!(
+            answer,
+            Some(Action::AutopilotOn {
+                project: "harbor".to_owned(),
+                auto: true,
+            })
+        );
+    }
+
+    #[test]
+    fn an_idle_session_no_longer_stops_a_chain_and_is_named() {
+        let scratch = Scratch::new("autopilot-idle");
+        let mut board = board(&scratch);
+        let now = Utc::now();
+        let ago = |minutes| now - chrono::TimeDelta::minutes(minutes);
+        let busy = Seen::canned(
+            "a1",
+            Some("harbor"),
+            Mode::Visual,
+            Status::Busy,
+            None,
+            ago(3),
+        );
+        let idle = Seen::canned(
+            "b2",
+            Some("harbor"),
+            Mode::Manual,
+            Status::Idle,
+            None,
+            ago(40),
+        );
+        let waiting = Seen::canned(
+            "c3",
+            Some("quarry"),
+            Mode::Manual,
+            Status::Waiting,
+            Some("a permission prompt"),
+            ago(5),
+        );
+        for mut seen in [busy, idle, waiting] {
+            seen.heard = now;
+            board.watch.model.insert(seen);
+        }
+        let (refusing, idle) = board.gate_sessions("harbor");
+        assert_eq!(refusing.len(), 1, "{refusing:?}");
+        assert!(refusing[0].contains("busy"), "{refusing:?}");
+        assert_eq!(idle.len(), 1, "{idle:?}");
+        assert!(idle[0].contains("idle"), "{idle:?}");
+        let (refusing, idle) = board.gate_sessions("quarry");
+        assert_eq!(
+            (refusing.len(), idle.len()),
+            (1, 0),
+            "a waiting one refuses"
+        );
+        assert_eq!(idle_words(&[]), "");
+        assert_eq!(
+            idle_words(&["a manual session is idle (since 13:11)".to_owned()]),
+            "; open there and idle, not counted: a manual session is idle (since 13:11)"
+        );
+    }
+
+    #[test]
+    fn an_idle_session_is_left_out_once_a_newer_poll_confirms_it() {
+        let queued = Utc::now();
+        let seconds = chrono::TimeDelta::seconds;
+        // A poll after the queue confirms; none yet waits; none within the time counts them.
+        assert_eq!(
+            idle_confirmed(Some(queued + seconds(5)), queued, queued + seconds(6)),
+            Some(true)
+        );
+        assert_eq!(
+            idle_confirmed(Some(queued - seconds(1)), queued, queued + seconds(30)),
+            None
+        );
+        assert_eq!(idle_confirmed(None, queued, queued + seconds(74)), None);
+        assert_eq!(
+            idle_confirmed(Some(queued - seconds(1)), queued, queued + seconds(76)),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn the_chained_line_names_the_idle_sessions() {
+        let scratch = Scratch::new("autopilot-chained-idle");
+        let mut board = board(&scratch);
+        board.autopilot.starting = Some(Queued {
+            project: "harbor".to_owned(),
+            after: Some(EpId::new(4)),
+            next: EpId::new(5),
+            size: Some(Size::M),
+            launch: Launch::new("harbor", std::path::Path::new("harbor"), "fable", "go"),
+            effort: "xhigh".to_owned(),
+            chosen: "fable at xhigh, the rules' choice".to_owned(),
+            program: PathBuf::from("claude.exe"),
+            idle: vec!["a manual session is idle (since 13:11)".to_owned()],
+            queued_at: Utc::now(),
+        });
+        board.chain_started(Started::Running("a1".to_owned()));
+        let line = board.autopilot.log[0].detail.clone().unwrap();
+        assert!(
+            line.starts_with("chained EP-5 after EP-4: fable at xhigh, the rules' choice"),
+            "{line}"
+        );
+        assert!(
+            line.ends_with(
+                "; open there and idle, not counted: a manual session is idle (since 13:11)"
+            ),
+            "{line}"
+        );
+    }
+
+    #[test]
+    fn escape_puts_the_offer_away() {
+        let scratch = Scratch::new("autopilot-offer-escape");
+        let mut board = board(&scratch);
+        board.offer = Some(Offer {
+            project: "harbor".to_owned(),
+            mode: "acceptEdits".to_owned(),
+        });
+        let escape = |pressed| egui::Event::Key {
+            key: egui::Key::Escape,
+            physical_key: None,
+            pressed,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let mut screen = Screen::new();
+        screen.pass(Vec::new(), |ui| board.offer_dialog(ui.ctx()));
+        assert!(board.actions.is_empty(), "{:?}", board.actions);
+        screen.pass(vec![escape(true)], |ui| board.offer_dialog(ui.ctx()));
+        screen.pass(vec![escape(false)], |ui| board.offer_dialog(ui.ctx()));
+        assert!(
+            board.actions.contains(&Action::CloseOffer),
+            "{:?}",
+            board.actions
+        );
+    }
+
+    #[test]
+    fn the_limits_read_in_words() {
+        assert_eq!(budget_words(None), "no budget");
+        assert_eq!(budget_words(Some(20.0)), "$20 a run");
+        assert_eq!(budget_words(Some(12.5)), "$12.50 a run");
+        assert_eq!(
+            limit_words(&Limit::MaxSize(Some(Size::S))),
+            "the autopilot chains briefs up to S"
+        );
+        assert_eq!(
+            limit_words(&Limit::Daily(None)),
+            "2 chained runs a day at most, the default"
+        );
+        assert_eq!(
+            limit_words(&Limit::Budget(None)),
+            "the autopilot's runs have no budget"
+        );
+    }
 }

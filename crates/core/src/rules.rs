@@ -25,6 +25,17 @@ pub const DEFAULT_MODEL: &str = "fable";
 pub const DEFAULT_EFFORT: &str = "xhigh";
 /// Edits in the project pass, everything else reaches the host (D-18).
 pub const DEFAULT_PERMISSION_MODE: &str = "acceptEdits";
+/// The permission modes the tool knows (D-18; EP-19b), from Claude Code's permission-modes page:
+/// `manual` is its Manual mode, which the CLI also names `default`, a word `crw set` keeps for
+/// taking the project's mode out.
+pub const PERMISSION_MODES: [&str; 6] = [
+    "acceptEdits",
+    "auto",
+    "plan",
+    "dontAsk",
+    "bypassPermissions",
+    "manual",
+];
 /// Visual (D-16's EP-16 addendum): with no allow rule, a headless run under `acceptEdits` waits
 /// for the owner at every shell command; this project's briefs end with a release build that
 /// needs the window quit, which ends the window's headless runs; and a brief's closing rounds of
@@ -388,6 +399,15 @@ pub struct Resolution {
     pub downshift: Option<Downshift>,
 }
 
+/// The permission mode a project's sessions start in (D-18; EP-19b): its `[project.launch]
+/// permission_mode`, else the tool's [`DEFAULT_PERMISSION_MODE`]. No rule sets one.
+pub fn permission_mode(project: &Project) -> Choice<String> {
+    match &project.launch.permission_mode {
+        Some(mode) => Choice::new(mode.trim().to_owned(), Source::Project),
+        None => Choice::new(DEFAULT_PERMISSION_MODE.to_owned(), Source::Default),
+    }
+}
+
 /// Resolves `brief`'s launch values for `project`; `levels` are the effort levels in order that a
 /// step moves along (the built-in [`EFFORTS`] when empty), and `usage` is what the downshift
 /// weighs, last of the layers.
@@ -403,7 +423,7 @@ pub fn resolve(
         model: Choice::new(DEFAULT_MODEL.to_owned(), Source::Default),
         effort: Choice::new(Some(DEFAULT_EFFORT.to_owned()), Source::Default),
         ultracode: Choice::new(false, Source::Default),
-        permission_mode: Choice::new(DEFAULT_PERMISSION_MODE.to_owned(), Source::Default),
+        permission_mode: permission_mode(project),
         notes: Vec::new(),
         downshift: None,
     };
@@ -416,9 +436,6 @@ pub fn resolve(
     }
     if let Some(effort) = &launch.effort {
         resolution.effort = Choice::new(Some(effort.trim().to_owned()), Source::Project);
-    }
-    if let Some(mode) = &launch.permission_mode {
-        resolution.permission_mode = Choice::new(mode.trim().to_owned(), Source::Project);
     }
     let levels: Vec<String> = if levels.is_empty() {
         EFFORTS.map(str::to_owned).to_vec()
@@ -874,6 +891,38 @@ mod tests {
             replan.effort.reason(),
             "the project's rule 1: title \"Re-plan\""
         );
+    }
+
+    /// The project's permission mode (EP-19b), the one layer of it: its own, else the tool's.
+    #[test]
+    fn the_permission_mode_is_the_projects_else_the_tools() {
+        let registry = registry(PROJECT);
+        let mode = permission_mode(&registry.projects[0]);
+        assert_eq!(mode.value, DEFAULT_PERMISSION_MODE);
+        assert_eq!(mode.reason(), "the tool's default");
+        let trusted = self::registry(&format!(
+            "{PROJECT}\n[project.launch]\npermission_mode = \" auto \"\n"
+        ));
+        let mode = permission_mode(&trusted.projects[0]);
+        assert_eq!(mode.value, "auto");
+        assert_eq!(mode.reason(), "the project's launch defaults");
+        // The resolution takes it as it is.
+        let resolved = resolve(
+            &trusted,
+            &trusted.projects[0],
+            &brief(Some(Size::M), "P2", "x"),
+            &[],
+            &unread(),
+        );
+        assert_eq!(resolved.permission_mode, mode);
+        // Every mode the gate waits in is one the tool knows, but the CLI's `default`.
+        for waiting in crate::autopilot::WAITING_MODES {
+            assert!(
+                waiting == "default" || PERMISSION_MODES.contains(&waiting),
+                "{waiting}"
+            );
+        }
+        assert!(PERMISSION_MODES.contains(&DEFAULT_PERMISSION_MODE));
     }
 
     #[test]

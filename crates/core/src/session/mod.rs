@@ -33,7 +33,9 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 
 pub use cli::Preflight;
 pub(crate) use launch::markers;
-pub use launch::{Answered, Launch, NEIGHBOUR_CLAUDE_MD, Route, STOP_TIMEOUT, edit_deny_rule};
+pub use launch::{
+    Answered, Launch, NEIGHBOUR_CLAUDE_MD, PUSH_DENY_RULE, Route, STOP_TIMEOUT, edit_deny_rule,
+};
 pub use protocol::{
     Choice, Deferred, Denied, Finish, Init, Question, Request, Response, ToolResult, ToolUse,
     Unreadable, answered_input,

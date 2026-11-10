@@ -177,7 +177,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   condition that refused it. Untick the box afterwards if you do not want it on. The session
   checked the window only on the fake portfolio (rules 5 and 13). Notes go to
   `roadmap/inbox.md` [before EP-19a]
-- [ ] OT-19 (EP-19a, 2026-11-06) Reopen Roadmap Wrangler from its shortcut. The next time you
+- [x] OT-19 (EP-19a, 2026-11-06) Reopen Roadmap Wrangler from its shortcut. The next time you
   start a brief headless in a project whose autopilot is on (its box in the list, or A), choose
   Headless in the launch dialog: a Chain plan shows under the prompt, one row per brief the
   chain may run after this one, each with a Chain box, the Model and Effort pickers and the

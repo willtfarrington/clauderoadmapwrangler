@@ -25,7 +25,7 @@ use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
 use crw_core::ledger::{Ledger, Part};
 use crw_core::notify::QuietHours;
 use crw_core::proposal::{self, Reason};
-use crw_core::registry::{LaunchMode, State, Store};
+use crw_core::registry::{LaunchMode, Limit, State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
@@ -222,8 +222,23 @@ pub enum Action {
     ConfirmRevert,
     /// The preview put away, or its result read.
     CloseRevert,
-    /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key.
+    /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key. Turned
+    /// on where its runs would wait at each shell command, it opens the offer of `auto` first
+    /// (EP-19b).
     SetAutopilot(String, bool),
+    /// The offer's answer (D-18; EP-19b): the autopilot turned on, with permission mode `auto`
+    /// set in the same write when `auto` holds.
+    AutopilotOn {
+        project: String,
+        auto: bool,
+    },
+    /// The offer put away: nothing is written.
+    CloseOffer,
+    /// A project's permission mode kept from the launch dialog (D-18; EP-19b): written into its
+    /// `[project.launch]`, or taken out with `None` (back to the default).
+    KeepPermissionMode(String, Option<String>),
+    /// One of a project's autopilot limits set in the Autopilot section (D-22; EP-19b).
+    SetAutopilotLimit(String, Limit),
     /// Every chain paused by the owner, or resumed (D-22): the Sessions pane, the tray.
     PauseAutopilot(bool),
     /// An ended session resumed with the owner's yes to its commit (D-22): its tab's Commit.
@@ -306,6 +321,9 @@ pub struct Board {
     pub meter: Meter,
     /// The autopilot's chains, held chains and log (D-22; EP-19).
     pub autopilot: crate::autopilot::Pilot,
+    /// The offer of `auto` while it is open (EP-19b): a project whose autopilot is being turned
+    /// on and whose runs would wait at each shell command.
+    pub offer: Option<crate::autopilot::Offer>,
     /// The window is hidden in the tray (D-29).
     pub hidden: bool,
     /// The first close to the tray has been said, once for good (kept with the layout).
@@ -371,6 +389,7 @@ impl Board {
             tray: None,
             meter: Meter::default(),
             autopilot: crate::autopilot::Pilot::default(),
+            offer: None,
             hidden: false,
             told_tray: false,
             quit_asked: false,
@@ -912,7 +931,8 @@ impl Board {
     /// revert's preview is open: ↑ ↓ select, → ← expand and fold the row, Enter opens the Detail
     /// pane, S opens the launch dialog, A says what is not built yet, F5 refreshes.
     pub fn keys(&mut self, ctx: &egui::Context) {
-        if self.launch.is_some() || self.revert.is_some() {
+        // A dialog over the window takes the keys: none reaches the list behind it.
+        if self.launch.is_some() || self.revert.is_some() || self.offer.is_some() {
             return;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&REFRESH)) {
@@ -1032,6 +1052,14 @@ impl Board {
             Action::ConfirmRevert => self.confirm_revert(),
             Action::CloseRevert => self.close_revert(),
             Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
+            Action::AutopilotOn { project, auto } => return self.autopilot_on(&project, auto),
+            Action::CloseOffer => self.offer = None,
+            Action::KeepPermissionMode(project, mode) => {
+                return self.keep_permission_mode(&project, mode.as_deref());
+            }
+            Action::SetAutopilotLimit(project, limit) => {
+                return self.set_autopilot_limit(&project, &limit);
+            }
             Action::PauseAutopilot(paused) => return self.pause_autopilot(paused),
             Action::CommitSession(key) => self.commit_session(key),
             Action::ToggleExpanded(name) => {
@@ -1357,6 +1385,7 @@ impl Board {
                 answer_timeout: project.answer_timeout(),
                 route,
                 plan,
+                kept_mode: project.launch.permission_mode.clone(),
             },
         ));
         // A screenshot run's launch opens on Headless, where the plan shows.
@@ -1421,10 +1450,19 @@ impl Board {
         let effort = dialog.effort_words().to_owned();
         let (size, commits) = (dialog.size, dialog.commits());
         let plan = dialog.plan.clone();
+        // The project as the registry says it now, so that an autopilot turned on a moment ago
+        // counts before the files are read again (EP-19b's review): its cap, budget, plan and
+        // push guard.
         let project = self
-            .portfolio
-            .project(&launch.project)
-            .map(|row| row.project.clone());
+            .store()
+            .load()
+            .ok()
+            .and_then(|loaded| loaded.registry.project(&launch.project).cloned())
+            .or_else(|| {
+                self.portfolio
+                    .project(&launch.project)
+                    .map(|row| row.project.clone())
+            });
         // The project's start, read just before the run for a revert, unless its switch is off
         // (EP-15b).
         if project.as_ref().is_some_and(|project| project.revert) {
@@ -1435,6 +1473,8 @@ impl Board {
         let run = match project.filter(|project| project.autopilot.enabled) {
             Some(project) => {
                 launch.max_budget_usd = project.autopilot.max_budget_usd;
+                // Its commits stay local until the owner pushes them (D-22; EP-19b).
+                launch.deny_push = true;
                 // The chain plan as the owner left it, kept in the window until the chain
                 // ends (EP-19a); a start the runner refuses lets it go again.
                 if let Some(plan) = plan {
@@ -2049,6 +2089,7 @@ impl eframe::App for Dashboard {
             .frame(egui::Frame::central_panel(ui.style()).inner_margin(0.0))
             .show(ui, |ui| self.layout.ui(&mut self.board, ui));
         self.board.launch_dialog(&ctx);
+        self.board.offer_dialog(&ctx);
         self.board.quit_dialog(&ctx);
         self.board.revert_dialog(&ctx);
         self.board.run_actions(&mut self.layout);

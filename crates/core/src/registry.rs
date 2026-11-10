@@ -413,6 +413,31 @@ fn size_named(text: &str) -> Option<Size> {
     }
 }
 
+/// One of the autopilot's limits for a project (D-22; EP-19b): its value, or `None` for its
+/// default.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Limit {
+    /// The largest brief a chain starts; `None` for the default (M,
+    /// `autopilot::DEFAULT_MAX_SIZE`).
+    MaxSize(Option<Size>),
+    /// The chained runs a day in the project, 0 to [`MAX_DAILY`]; `None` for the default
+    /// (`autopilot::DEFAULT_DAILY`).
+    Daily(Option<u32>),
+    /// `--max-budget-usd` for each run, in dollars above 0; `None` for no budget.
+    Budget(Option<f64>),
+}
+
+impl Limit {
+    /// The limit's key in the project's `autopilot` table.
+    pub fn key(&self) -> &'static str {
+        match self {
+            Limit::MaxSize(_) => "max_size",
+            Limit::Daily(_) => "daily",
+            Limit::Budget(_) => "max_budget_usd",
+        }
+    }
+}
+
 impl Registry {
     fn empty() -> Self {
         Self {
@@ -854,6 +879,63 @@ fn set_keeping_decor(table: &mut Table, key: &str, mut new: Value) {
     table[key] = Item::Value(new);
 }
 
+/// Sets `key` to `value` in the table `table` of a project's `[[project]]` table, or takes it out
+/// when `value` is `None`, as the writers of `autopilot` and `launch` do (D-22, D-18; EP-19,
+/// EP-19b): where the project has no such table, a value writes the tool's inline form,
+/// `autopilot = { enabled = true }`, and a removal changes nothing; the tool's inline form is laid
+/// out afresh at each change; a table the owner wrote keeps its layout and comments; and the table
+/// goes once nothing is left in it, so that the builds before read the file. `name` is the
+/// project's, for the error when `table` is neither form.
+fn set_in_table(
+    project: &mut Table,
+    name: &str,
+    table: &str,
+    key: &str,
+    value: Option<Value>,
+) -> Result<(), Error> {
+    let Some(item) = project.get_mut(table) else {
+        if let Some(value) = value {
+            let mut inline = InlineTable::new();
+            inline.insert(key, value);
+            inline.fmt();
+            project.insert(table, Item::Value(Value::InlineTable(inline)));
+        }
+        return Ok(());
+    };
+    // The table goes only when this change emptied it: a table the owner left empty, with a
+    // comment perhaps, stays when a removal finds nothing to take out (EP-19b's review).
+    let empty = match item {
+        // The tool's own form, laid out afresh at each change.
+        Item::Value(Value::InlineTable(inline)) => {
+            let removed = match value {
+                Some(value) => {
+                    inline.insert(key, value);
+                    false
+                }
+                None => inline.remove(key).is_some(),
+            };
+            inline.fmt();
+            removed && inline.is_empty()
+        }
+        // A table the owner wrote: its layout and comments stay.
+        Item::Table(owned) => {
+            let removed = match value {
+                Some(value) => {
+                    set_keeping_decor(owned, key, value);
+                    false
+                }
+                None => owned.remove(key).is_some(),
+            };
+            removed && owned.is_empty()
+        }
+        _ => return Err(Error::Invalid(format!("{name}: {table} must be a table"))),
+    };
+    if empty {
+        project.remove(table);
+    }
+    Ok(())
+}
+
 /// The changes one [`Store::change`] makes, applied to the document in place.
 pub struct Changes<'a> {
     document: &'a mut DocumentMut,
@@ -937,43 +1019,67 @@ impl Changes<'_> {
     /// `enabled` out, and the key with it when nothing else is left, so that a registry with no
     /// autopilot on reads in the builds before.
     pub fn set_autopilot(&mut self, name: &str, on: bool) -> Result<(), Error> {
-        let table = self.project_table(name)?;
-        let empty = match table.get_mut("autopilot") {
-            None if !on => false,
-            None => {
-                let mut autopilot = InlineTable::new();
-                autopilot.insert("enabled", Value::from(true));
-                autopilot.fmt();
-                table.insert("autopilot", Item::Value(Value::InlineTable(autopilot)));
-                false
+        let enabled = on.then(|| Value::from(true));
+        set_in_table(
+            self.project_table(name)?,
+            name,
+            "autopilot",
+            "enabled",
+            enabled,
+        )
+    }
+
+    /// Sets one of the autopilot's limits for a project, or takes it out with `None` (D-22;
+    /// EP-19b), in its `autopilot` table in either form, as [`Self::set_autopilot`] writes it: a
+    /// limit set where the project has no `autopilot` key writes `autopilot = { daily = 3 }`, the
+    /// switch left off, which the builds since EP-19 read; the key goes once nothing is left.
+    pub fn set_autopilot_limit(&mut self, name: &str, limit: &Limit) -> Result<(), Error> {
+        let value = match *limit {
+            Limit::MaxSize(size) => size.map(|size| Value::from(size.as_str())),
+            Limit::Daily(Some(daily)) if daily > MAX_DAILY => {
+                return Err(Error::Invalid(format!(
+                    "{name}: autopilot.daily is at most {MAX_DAILY}, not {daily}"
+                )));
             }
-            // The tool's own form, laid out afresh at each change.
-            Some(Item::Value(Value::InlineTable(autopilot))) => {
-                if on {
-                    autopilot.insert("enabled", Value::from(true));
-                } else {
-                    autopilot.remove("enabled");
-                }
-                autopilot.fmt();
-                autopilot.is_empty()
+            Limit::Daily(daily) => daily.map(|daily| Value::from(i64::from(daily))),
+            Limit::Budget(Some(budget)) if !(budget.is_finite() && budget > 0.0) => {
+                return Err(Error::Invalid(format!(
+                    "{name}: autopilot.max_budget_usd is dollars above 0, not {budget}"
+                )));
             }
-            // A table the owner wrote: its layout and comments stay.
-            Some(Item::Table(autopilot)) => {
-                if on {
-                    set_keeping_decor(autopilot, "enabled", Value::from(true));
-                } else {
-                    autopilot.remove("enabled");
-                }
-                autopilot.is_empty()
-            }
-            Some(_) => {
-                return Err(Error::Invalid(format!("{name}: autopilot must be a table")));
-            }
+            Limit::Budget(budget) => budget.map(Value::from),
         };
-        if empty {
-            table.remove("autopilot");
-        }
-        Ok(())
+        set_in_table(
+            self.project_table(name)?,
+            name,
+            "autopilot",
+            limit.key(),
+            value,
+        )
+    }
+
+    /// Sets the permission mode a project's sessions start in, or takes it out (D-18; EP-19b):
+    /// written as `launch = { permission_mode = "auto" }` where the project has no `launch`, or
+    /// into a `[project.launch]` table the owner wrote. `None`, or the tool's default
+    /// (`rules::DEFAULT_PERMISSION_MODE`, in any case), takes the key out, and the `launch` key
+    /// with it once nothing is left, so that the builds before read the file. A mode is one word.
+    pub fn set_permission_mode(&mut self, name: &str, mode: Option<&str>) -> Result<(), Error> {
+        let mode = match mode.map(str::trim) {
+            Some(mode) if mode.is_empty() || mode.contains(char::is_whitespace) => {
+                return Err(Error::Invalid(format!(
+                    "{name}: launch.permission_mode is one word, not {mode:?}"
+                )));
+            }
+            Some(mode) if mode.eq_ignore_ascii_case(crate::rules::DEFAULT_PERMISSION_MODE) => None,
+            mode => mode,
+        };
+        set_in_table(
+            self.project_table(name)?,
+            name,
+            "launch",
+            "permission_mode",
+            mode.map(Value::from),
+        )
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
@@ -2171,5 +2277,361 @@ state = "paused"
         ] {
             assert!(!Settings::is_path(key), "{key}");
         }
+    }
+
+    /// The permission mode's writer (D-18; EP-19b): the tool's inline form where the project has
+    /// no `launch`, laid out afresh; the owner's table kept with its comment; the default taken
+    /// out, and the key with it once nothing is left.
+    #[test]
+    fn the_permission_mode_is_set_in_either_form_and_the_default_taken_out() {
+        let scratch = Scratch::new("registry-permission-mode");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let after_beta = |line: &str| {
+            HAND_WRITTEN.replace(
+                "state = \"paused\"\n",
+                &format!("state = \"paused\"\n{line}\n"),
+            )
+        };
+
+        // No launch key: the tool's inline form.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_permission_mode("beta", Some("auto")))
+            .unwrap();
+        let mode = crate::rules::permission_mode(registry.project("beta").unwrap());
+        assert_eq!(
+            (mode.value.as_str(), mode.source),
+            ("auto", crate::rules::Source::Project)
+        );
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta("launch = { permission_mode = \"auto\" }")
+        );
+        // The tool's form again, laid out afresh, the word trimmed.
+        store
+            .change(TODAY, |c| c.set_permission_mode("beta", Some(" plan ")))
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta("launch = { permission_mode = \"plan\" }")
+        );
+        // The tool's default, in any case, takes the key out and the launch key with it.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_permission_mode("beta", Some("ACCEPTEDITS"))
+            })
+            .unwrap();
+        assert_eq!(registry.project("beta").unwrap().launch, Launch::default());
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+        // Taking out a mode the project does not have changes nothing.
+        store
+            .change(TODAY, |c| c.set_permission_mode("beta", None))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+        // An inline table written by hand keeps its other keys and is laid out afresh.
+        let inline = after_beta("launch = {model=\"opus\",   permission_mode = \"plan\"}");
+        fs::write(&store.path, &inline).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_permission_mode("beta", None))
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta("launch = { model = \"opus\" }")
+        );
+        let launch = &registry.project("beta").unwrap().launch;
+        assert_eq!(
+            (launch.model.as_deref(), launch.permission_mode.as_deref()),
+            (Some("opus"), None)
+        );
+
+        // A [project.launch] table the owner wrote, followed by the next [[project]]: the mode
+        // joins it, its comment stays, and the next project is left as it was.
+        let owned = HAND_WRITTEN.replace(
+            "[project.launch]\nmodel = \"fable\"\n",
+            "[project.launch]\n# chosen by hand\nmodel = \"fable\"\n",
+        );
+        fs::write(&store.path, &owned).unwrap();
+        store
+            .change(TODAY, |c| c.set_permission_mode("ALPHA", Some("auto")))
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            owned.replace(
+                "model = \"fable\"\n",
+                "model = \"fable\"\npermission_mode = \"auto\"\n"
+            )
+        );
+        let registry = store.load().unwrap().registry;
+        let alpha = &registry.project("alpha").unwrap().launch;
+        assert_eq!(
+            (alpha.model.as_deref(), alpha.permission_mode.as_deref()),
+            (Some("fable"), Some("auto"))
+        );
+        let beta = registry.project("beta").unwrap();
+        assert_eq!(
+            (beta.state, beta.path.as_path(), &beta.launch),
+            (State::Paused, Path::new("beta"), &Launch::default())
+        );
+        // Taken out again: the table keeps its model and its comment.
+        store
+            .change(TODAY, |c| c.set_permission_mode("alpha", None))
+            .unwrap();
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), owned);
+
+        // The owner's table left empty goes, and the next project with it stays.
+        let only = HAND_WRITTEN.replace(
+            "[project.launch]\nmodel = \"fable\"\n",
+            "[project.launch]\npermission_mode = \"auto\"  # chains without allow rules\n",
+        );
+        fs::write(&store.path, &only).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_permission_mode("alpha", Some("acceptEdits"))
+            })
+            .unwrap();
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert_eq!(
+            text,
+            HAND_WRITTEN.replace("\n[project.launch]\nmodel = \"fable\"\n", "")
+        );
+        assert_eq!(registry.project("alpha").unwrap().launch, Launch::default());
+        assert_eq!(registry.project("beta").unwrap().state, State::Paused);
+
+        // A mode is one word; nothing is written otherwise, nor for a project not registered.
+        for wrong in ["accept edits", "auto\tplan", " ", ""] {
+            let error = store
+                .change(TODAY, |c| c.set_permission_mode("alpha", Some(wrong)))
+                .unwrap_err();
+            assert!(
+                matches!(&error, Error::Invalid(why) if why.contains("one word")),
+                "{wrong:?}: {error}"
+            );
+        }
+        assert!(matches!(
+            store.change(TODAY, |c| c.set_permission_mode("delta", Some("auto"))),
+            Err(Error::UnknownProject(name)) if name == "delta"
+        ));
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+    }
+
+    /// The autopilot's limits (D-22; EP-19b): the tool's inline form where the project has no
+    /// `autopilot`, the switch left as it is; the owner's table kept with its comment; each
+    /// default taken out, and the key with it once nothing is left.
+    #[test]
+    fn an_empty_table_the_owner_wrote_stays_when_nothing_is_taken_out() {
+        let scratch = Scratch::new("registry-empty-table");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        let text = format!("{HAND_WRITTEN}\n[project.autopilot]\n# limits here, one day\n");
+        fs::write(&store.path, &text).unwrap();
+        store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("beta", &Limit::Daily(None))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            text,
+            "nothing was taken out, so the table and its comment stay"
+        );
+        // A key set, then taken out, empties the table: it goes with the key.
+        for daily in [Some(3), None] {
+            store
+                .change(TODAY, |c| {
+                    c.set_autopilot_limit("beta", &Limit::Daily(daily))
+                })
+                .unwrap();
+        }
+        let after = fs::read_to_string(&store.path).unwrap();
+        assert!(!after.contains("[project.autopilot]"), "{after}");
+    }
+
+    #[test]
+    fn the_autopilots_limits_are_set_in_either_form_and_taken_out() {
+        let scratch = Scratch::new("registry-autopilot-limits");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let after_beta = |line: &str| {
+            HAND_WRITTEN.replace(
+                "state = \"paused\"\n",
+                &format!("state = \"paused\"\n{line}\n"),
+            )
+        };
+        assert_eq!(
+            [
+                Limit::MaxSize(None).key(),
+                Limit::Daily(None).key(),
+                Limit::Budget(None).key()
+            ],
+            ["max_size", "daily", "max_budget_usd"]
+        );
+
+        // No autopilot key: the tool's inline form, the switch off.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("beta", &Limit::Daily(Some(3)))
+            })
+            .unwrap();
+        let autopilot = &registry.project("beta").unwrap().autopilot;
+        assert!(!autopilot.enabled);
+        assert_eq!(autopilot.daily(), 3);
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta("autopilot = { daily = 3 }")
+        );
+        // The switch and the other limits join it, laid out afresh.
+        store
+            .change(TODAY, |c| {
+                c.set_autopilot("beta", true)?;
+                c.set_autopilot_limit("beta", &Limit::MaxSize(Some(Size::L)))?;
+                c.set_autopilot_limit("beta", &Limit::Budget(Some(2.5)))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta(
+                "autopilot = { daily = 3, enabled = true, max_size = \"L\", \
+                 max_budget_usd = 2.5 }"
+            )
+        );
+        let registry = store.load().unwrap().registry;
+        let autopilot = &registry.project("beta").unwrap().autopilot;
+        assert!(autopilot.enabled);
+        assert_eq!(
+            (
+                autopilot.max_size(),
+                autopilot.daily(),
+                autopilot.max_budget_usd
+            ),
+            (Size::L, 3, Some(2.5))
+        );
+        // Off keeps the limits.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_autopilot("beta", false))
+            .unwrap();
+        assert!(!registry.project("beta").unwrap().autopilot.enabled);
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            after_beta("autopilot = { daily = 3, max_size = \"L\", max_budget_usd = 2.5 }")
+        );
+        // Each limit back to its default: the key goes, and the file reads as it did.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("beta", &Limit::MaxSize(None))?;
+                c.set_autopilot_limit("beta", &Limit::Daily(None))?;
+                c.set_autopilot_limit("beta", &Limit::Budget(None))
+            })
+            .unwrap();
+        assert_eq!(
+            registry.project("beta").unwrap().autopilot,
+            Autopilot::default()
+        );
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+
+        // A [project.autopilot] table the owner wrote: the limits join it, its comment stays.
+        let owned = HAND_WRITTEN.replace(
+            "priority = 2\n",
+            "priority = 2\n\n[project.autopilot]\n# set by hand\nmax_budget_usd = 2.5\n",
+        );
+        fs::write(&store.path, &owned).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("alpha", &Limit::Budget(Some(4.0)))?;
+                c.set_autopilot_limit("alpha", &Limit::Daily(Some(1)))?;
+                c.set_autopilot_limit("alpha", &Limit::MaxSize(Some(Size::S)))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            owned.replace(
+                "max_budget_usd = 2.5\n",
+                "max_budget_usd = 4.0\ndaily = 1\nmax_size = \"S\"\n"
+            )
+        );
+        let autopilot = &registry.project("alpha").unwrap().autopilot;
+        assert!(!autopilot.enabled);
+        assert_eq!(
+            (
+                autopilot.max_size(),
+                autopilot.daily(),
+                autopilot.max_budget_usd
+            ),
+            (Size::S, 1, Some(4.0))
+        );
+        assert_eq!(store.load().unwrap().registry, registry);
+        // Two defaults taken out: the table keeps the budget and its comment.
+        store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("alpha", &Limit::Daily(None))?;
+                c.set_autopilot_limit("alpha", &Limit::MaxSize(None))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            owned.replace("max_budget_usd = 2.5", "max_budget_usd = 4.0")
+        );
+        // The last one: the table goes, and the file reads as it did before it.
+        store
+            .change(TODAY, |c| {
+                c.set_autopilot_limit("alpha", &Limit::Budget(None))
+            })
+            .unwrap();
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+
+        // Limits out of range are refused, named by their key, and nothing is written.
+        for wrong in [
+            Limit::Daily(Some(MAX_DAILY + 1)),
+            Limit::Budget(Some(0.0)),
+            Limit::Budget(Some(-1.0)),
+            Limit::Budget(Some(f64::NAN)),
+            Limit::Budget(Some(f64::INFINITY)),
+        ] {
+            let error = store
+                .change(TODAY, |c| c.set_autopilot_limit("alpha", &wrong))
+                .unwrap_err();
+            let key = format!("alpha: autopilot.{}", wrong.key());
+            assert!(
+                matches!(&error, Error::Invalid(why) if why.starts_with(&key)),
+                "{wrong:?}: {error}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+    }
+
+    /// The offer's one write (EP-19b): the permission mode and the switch in a single change,
+    /// after a single copy of the day's first state.
+    #[test]
+    fn one_change_writes_the_permission_mode_and_the_switch() {
+        let scratch = Scratch::new("registry-offer");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_permission_mode("alpha", Some("auto"))?;
+                c.set_autopilot("alpha", true)
+            })
+            .unwrap();
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(alpha.launch.permission_mode.as_deref(), Some("auto"));
+        assert_eq!(alpha.launch.model.as_deref(), Some("fable"));
+        assert!(alpha.autopilot.enabled);
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            HAND_WRITTEN
+                .replace(
+                    "priority = 2\n",
+                    "priority = 2\nautopilot = { enabled = true }\n"
+                )
+                .replace(
+                    "model = \"fable\"\n",
+                    "model = \"fable\"\npermission_mode = \"auto\"\n"
+                )
+        );
+        let copy = store.backups.join("registry.2026-10-31.toml");
+        assert_eq!(fs::read_to_string(copy).unwrap(), HAND_WRITTEN);
+        assert_eq!(store.load().unwrap().registry, registry);
     }
 }

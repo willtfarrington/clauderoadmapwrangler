@@ -11,7 +11,9 @@
 //! owner: the route and the project's time limit (D-19; EP-14). For a project whose autopilot is
 //! on, the **chain plan** (D-22; EP-19a) lists under the columns the briefs a chain may run after
 //! this one, each with the same pickers, the rules' resolution the default and a Chain box; the
-//! window keeps it at Start headless for the chain to follow.
+//! window keeps it at Start headless for the chain to follow. Beside the Permissions picker a
+//! **Keep** menu (D-18; EP-19b, the owner's choice) writes the mode shown into the project's
+//! `[project.launch]` at once, or takes the project's own mode out.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -47,6 +49,8 @@ const NAME: f32 = 84.0;
 /// The chain plan's pickers, in points: the model's and the effort's.
 const PLAN_MODEL: f32 = 180.0;
 const PLAN_EFFORT: f32 = 110.0;
+/// The room the Keep menu's pin takes beside a picker, in points (EP-19b).
+const KEEP: f32 = 34.0;
 /// How often an open dialog in Visual looks again at VS Code's windows.
 const READINESS_EVERY: Duration = Duration::from_secs(2);
 
@@ -88,6 +92,9 @@ pub struct Dialog {
     pub route: (Route, Option<String>),
     /// The chain plan (EP-19a), for a project whose autopilot is on, as the owner leaves it.
     pub plan: Option<Plan>,
+    /// The project's own permission mode, its `[project.launch] permission_mode`, when it has
+    /// one (EP-19b): what the Keep menu beside Permissions can take back.
+    pub kept_mode: Option<String>,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -104,6 +111,7 @@ pub struct Opening {
     pub answer_timeout: Option<Duration>,
     pub route: (Route, Option<String>),
     pub plan: Option<Plan>,
+    pub kept_mode: Option<String>,
 }
 
 impl Dialog {
@@ -140,7 +148,16 @@ impl Dialog {
             answer_timeout: opening.answer_timeout,
             route: opening.route,
             plan: opening.plan,
+            kept_mode: opening.kept_mode,
         }
+    }
+
+    /// The project's permission mode as the registry says it after a Keep (EP-19b): the mode it
+    /// keeps, if any, and the dialog's choice with where it comes from.
+    pub fn kept_permission_mode(&mut self, kept: Option<String>, choice: Choice<String>) {
+        self.kept_mode = kept;
+        self.resolution.permission_mode = choice;
+        self.chose();
     }
 
     /// Whether the launch is visual (D-16).
@@ -381,7 +398,7 @@ impl Dialog {
                 let right = ui
                     .vertical(|ui| {
                         ui.set_width(choices);
-                        self.choices(ui, preflight, asking);
+                        self.choices(ui, preflight, asking, &mut actions);
                     })
                     .response
                     .rect;
@@ -536,7 +553,13 @@ impl Dialog {
         }
     }
 
-    fn choices(&mut self, ui: &mut egui::Ui, preflight: Option<&Preflight>, asking: bool) {
+    fn choices(
+        &mut self,
+        ui: &mut egui::Ui,
+        preflight: Option<&Preflight>,
+        asking: bool,
+        actions: &mut Vec<Action>,
+    ) {
         let mut changed = false;
         let combo = ui.available_width() - NAME - 12.0;
 
@@ -632,9 +655,10 @@ impl Dialog {
         field(ui, "Permissions", &reason, |ui| {
             let current = self.resolution.permission_mode.value.clone();
             let mut chosen = current.clone();
+            let mut keep = None;
             ui.add_enabled_ui(!visual, |ui| {
                 egui::ComboBox::from_id_salt("launch-mode")
-                    .width(combo)
+                    .width(combo - KEEP)
                     .selected_text(&current)
                     .show_ui(ui, |ui| {
                         for mode in &modes {
@@ -644,10 +668,28 @@ impl Dialog {
                             ui.selectable_value(&mut chosen, current.clone(), &current);
                         }
                     });
+                // The Keep menu (EP-19b): the mode shown, kept for the project's launches and
+                // chains, or the project's own taken back.
+                keep = keep_menu(
+                    ui,
+                    &current,
+                    self.kept_mode.as_deref(),
+                    rules::DEFAULT_PERMISSION_MODE,
+                );
             });
             if chosen != current {
                 self.resolution.permission_mode = owners(chosen);
                 changed = true;
+            }
+            match keep {
+                Some(Keep::Project) => actions.push(Action::KeepPermissionMode(
+                    self.project.clone(),
+                    Some(current),
+                )),
+                Some(Keep::Default) => {
+                    actions.push(Action::KeepPermissionMode(self.project.clone(), None));
+                }
+                None => {}
             }
         });
 
@@ -938,6 +980,67 @@ fn picker_reason(visual: bool, reason: String) -> String {
         reason
     };
     format!("headless only: choose it in the new tab's panel; suggested by {by}")
+}
+
+/// What the Keep menu beside a picker asked for (EP-19b).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Keep {
+    /// The value shown, kept for the project's launches and chains.
+    Project,
+    /// The project's own value taken out: back to the default.
+    Default,
+}
+
+/// The Keep menu beside a picker (D-18; EP-19b, the owner's choice): a pin that opens **Keep
+/// for this project**, which writes the value shown (`current`), and **Back to the default**
+/// when the project keeps a value of its own (`own`), which takes it out. The pin is lit in the
+/// reference colour while the project keeps one. The item that would change nothing is greyed
+/// out with its reason.
+fn keep_menu(ui: &mut egui::Ui, current: &str, own: Option<&str>, default: &str) -> Option<Keep> {
+    let lit = own.map(|_| style::reference(ui));
+    let mut asked = None;
+    let hover = match own {
+        Some(own) => format!("The project keeps {own}: its launches and chains take it"),
+        None => "Keep the choice for the project's launches and chains".to_owned(),
+    };
+    ui.menu_button(style::icon(icons::ICON_PUSH_PIN, lit), |ui| {
+        let same = match own {
+            Some(own) => own == current,
+            None => current.eq_ignore_ascii_case(default),
+        };
+        let why = if own.is_some() {
+            "the project keeps it already"
+        } else {
+            "it is the default already"
+        };
+        if ui
+            .add_enabled(
+                !same,
+                egui::Button::new(format!("Keep {current} for this project")),
+            )
+            .on_hover_text("Written into the project's [project.launch] in the registry")
+            .on_disabled_hover_text(why)
+            .clicked()
+        {
+            asked = Some(Keep::Project);
+            ui.close();
+        }
+        if ui
+            .add_enabled(
+                own.is_some(),
+                egui::Button::new(format!("Back to the default ({default})")),
+            )
+            .on_hover_text("The project's own value is taken out of the registry")
+            .on_disabled_hover_text("the project keeps no value of its own")
+            .clicked()
+        {
+            asked = Some(Keep::Default);
+            ui.close();
+        }
+    })
+    .response
+    .on_hover_text(hover);
+    asked
 }
 
 /// A choice the owner made here.
@@ -1279,6 +1382,7 @@ mod tests {
                 answer_timeout: None,
                 route: (Route::Protocol, None),
                 plan: None,
+                kept_mode: registry.projects[0].launch.permission_mode.clone(),
             },
         )
     }
@@ -1370,6 +1474,69 @@ mod tests {
             plan.words(),
             "after EP-4: EP-5 fable at max (your choice); the chain would end at EP-6: EP-6 is \
              a re-plan, the owner's to run"
+        );
+    }
+
+    #[test]
+    fn the_keep_menu_beside_permissions_keeps_the_mode_or_takes_it_back() {
+        use crate::testing::{self, Screen};
+
+        let mut dialog = dialog(registry(Vec::new()));
+        dialog.set_mode(LaunchMode::Headless);
+        dialog.resolution.permission_mode = owners("auto".to_owned());
+        let preflight = canned_preflight();
+        let mut screen = Screen::new();
+        // A click at `at`, over four passes: what the last painted, and what the dialog asked.
+        let mut click = |dialog: &mut Dialog, at| {
+            let mut asked = Vec::new();
+            for events in [
+                testing::moved(at),
+                testing::button(at, egui::PointerButton::Primary, true),
+                testing::button(at, egui::PointerButton::Primary, false),
+            ] {
+                screen.pass(events, |ui| {
+                    asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+                });
+            }
+            let output = screen.pass(Vec::new(), |ui| {
+                asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+            });
+            (output, asked)
+        };
+        let pin = icons::ICON_PUSH_PIN.codepoint;
+        let (output, _) = click(&mut dialog, egui::Pos2::new(-10.0, -10.0));
+        let at = testing::text_at(&output, pin).expect("the pin beside Permissions");
+        let (output, _) = click(&mut dialog, at);
+        let item = testing::text_at(&output, "Keep auto for this project").expect("the menu");
+        let (_, asked) = click(&mut dialog, item);
+        assert!(
+            asked.contains(&Action::KeepPermissionMode(
+                "harbor".to_owned(),
+                Some("auto".to_owned())
+            )),
+            "{asked:?}"
+        );
+
+        // Once the project keeps it, the dialog says so, and the menu takes it back.
+        dialog.kept_permission_mode(
+            Some("auto".to_owned()),
+            Choice {
+                value: "auto".to_owned(),
+                source: Source::Project,
+                detail: None,
+            },
+        );
+        assert_eq!(
+            dialog.resolution.permission_mode.reason(),
+            "the project's launch defaults"
+        );
+        let (output, _) = click(&mut dialog, at);
+        let item = testing::text_at(&output, "Back to the default (acceptEdits)")
+            .expect("the menu's way back");
+        let (_, asked) = click(&mut dialog, item);
+        assert!(
+            asked.contains(&Action::KeepPermissionMode("harbor".to_owned(), None)),
+            "{asked:?}"
         );
     }
 

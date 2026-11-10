@@ -57,7 +57,13 @@
 //!   would wait); `autopilot=<project>` turns that project's on instead of harbor's; harbor's
 //!   canned run is a chained one with its cap, and a beacon EP-2 run of the window's has
 //!   completed under the rule that stops before committing: `transcript=beacon` after it shows
-//!   that tab's Commit button;
+//!   that tab's Commit button; from EP-19b the section's line per project: harbor turned on as
+//!   it is (its runs would wait, so the gate's refusal shows) and quarry with permission mode
+//!   `auto`, each with its limits;
+//! - `offer=<project>` (from EP-19b: the project's autopilot box ticked, which opens the offer of
+//!   `auto`, since a fixture's runs would wait: the run reads no user settings);
+//!   `keep=<project>:<mode>` (the permission mode kept for the project, as the launch dialog's
+//!   Keep menu writes it, before `launch=` opens the dialog);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -291,6 +297,16 @@ impl Run {
                     board.sessions.tab = None;
                     layout::show(dashboard.layout_mut(), Pane::Sessions);
                 }
+                "offer" => board
+                    .actions
+                    .push(Action::SetAutopilot(value.to_owned(), true)),
+                "keep" => match value.split_once(':') {
+                    Some((project, mode)) => board.actions.push(Action::KeepPermissionMode(
+                        project.to_owned(),
+                        Some(mode.to_owned()),
+                    )),
+                    None => eprintln!("screenshot: keep takes <project>:<mode>, not {value}"),
+                },
                 "revert" => {
                     let (project, form) = value.split_once(':').unwrap_or((value, ""));
                     let rows = &board.sessions.history.rows;
@@ -416,9 +432,18 @@ fn canned_autopilot(board: &mut Board, project: &str) {
     use crw_core::roadmap::Size;
 
     board.autopilot.canned = true;
-    board
-        .actions
-        .push(Action::SetAutopilot(project.to_owned(), true));
+    // Turned on as it is, past the offer of `auto` (EP-19b), so that the section shows the
+    // gate's refusal of a project whose runs would wait; quarry beside it with `auto`.
+    board.actions.push(Action::AutopilotOn {
+        project: project.to_owned(),
+        auto: false,
+    });
+    if !project.eq_ignore_ascii_case("quarry") {
+        board.actions.push(Action::AutopilotOn {
+            project: "quarry".to_owned(),
+            auto: true,
+        });
+    }
     let now = Utc::now();
     let row = |minutes: i64, project: &str, words: &str| EventRow {
         id: 0,
@@ -435,8 +460,9 @@ fn canned_autopilot(board: &mut Board, project: &str) {
             21,
             "orchard",
             "the chain ends after EP-6: its runs would wait for you at each shell command: \
-             permission mode acceptEdits and no allow rule (set permission_mode = \"auto\" under \
-             its [project.launch], or allow rules in its .claude settings)",
+             permission mode acceptEdits and no allow rule (keep auto with the pin beside the \
+             launch dialog's Permissions, crw set <project> permission_mode auto, or allow rules \
+             in its .claude settings)",
         ),
         row(
             48,

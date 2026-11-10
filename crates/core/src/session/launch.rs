@@ -3,9 +3,10 @@
 //! CLI's help lists. A feature is passed only when the help lists it (D-15): a wish the CLI cannot
 //! take, `--effort ultracode` or a budget, is left out and said so, and a flag the run cannot do
 //! without refuses the launch. Neighbour folders join with `--add-dir`, kept read-only by an
-//! `Edit` deny rule each in `--settings` (D-16, D-18 addenda); on the defer route the same
-//! settings carry the `PreToolUse` hook that ends the run at a question, and a deferred call's
-//! resume the one-shot hook that answers it (D-19; EP-14).
+//! `Edit` deny rule each in `--settings` (D-16, D-18 addenda), and the push guard of a project
+//! whose autopilot is on adds [`PUSH_DENY_RULE`] to the same rules (D-22; EP-19b); on the defer
+//! route the same settings carry the `PreToolUse` hook that ends the run at a question, and a
+//! deferred call's resume the one-shot hook that answers it (D-19; EP-14).
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf, Prefix};
@@ -22,6 +23,11 @@ pub const STOP_TIMEOUT: Duration = Duration::from_secs(30);
 /// With it, Claude Code loads the neighbours' `CLAUDE.md` and rules along with their files, which
 /// a folder granted in a settings file never does (D-16 addendum).
 pub const NEIGHBOUR_CLAUDE_MD: &str = "CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD";
+
+/// The push guard's deny rule (D-22; EP-19b): it refuses `git push` as written, in compound
+/// commands too and under `auto`, though not a push written another way, such as `git -C .
+/// push` (Claude Code's permissions page).
+pub const PUSH_DENY_RULE: &str = "Bash(git push *)";
 
 /// What a session's child never inherits besides the API key (D-15): the markers of a Claude
 /// Code session the tool itself may run in, with which a nested `claude -p` does not start; the
@@ -56,6 +62,10 @@ pub struct Launch {
     pub permission_mode: String,
     /// Full paths of the folders the session may read and never edit (D-16, D-18 addenda).
     pub neighbours: Vec<PathBuf>,
+    /// The push guard (D-22; EP-19b): set for every headless run of a project whose autopilot is
+    /// on, whose commits stay local until the owner pushes them; the run's settings then deny
+    /// [`PUSH_DENY_RULE`].
+    pub deny_push: bool,
     pub prompt: String,
     /// `--max-budget-usd`, when the CLI lists it (D-22).
     pub max_budget_usd: Option<f64>,
@@ -117,9 +127,9 @@ pub struct Answered {
 }
 
 impl Launch {
-    /// A run of `prompt` in `folder` with `model`: `acceptEdits` (D-18), no neighbour, a stop
-    /// that waits 30 seconds, nothing recorded, a new session whose questions take the control
-    /// protocol with no time limit.
+    /// A run of `prompt` in `folder` with `model`: `acceptEdits` (D-18), no neighbour, no push
+    /// guard, a stop that waits 30 seconds, nothing recorded, a new session whose questions take
+    /// the control protocol with no time limit.
     pub fn new(project: &str, folder: &Path, model: &str, prompt: &str) -> Self {
         Self {
             project: project.to_owned(),
@@ -130,6 +140,7 @@ impl Launch {
             ultracode: false,
             permission_mode: "acceptEdits".to_owned(),
             neighbours: Vec::new(),
+            deny_push: false,
             prompt: prompt.to_owned(),
             max_budget_usd: None,
             stop_timeout: STOP_TIMEOUT,
@@ -301,6 +312,19 @@ pub(crate) fn command_line(
         }
         for folder in &neighbours {
             push(&[os("--add-dir"), folder.as_os_str()]);
+        }
+    }
+    // The push guard goes with the neighbours' rules; a claude without settings starts anyway,
+    // kept from pushing by the prompt's rule alone (D-22; EP-19b).
+    if launch.deny_push {
+        if flags.has("--settings") {
+            rules.push(PUSH_DENY_RULE.to_owned());
+        } else {
+            dropped.push(
+                "the git push deny rule: this claude has no --settings, so only the prompt's rule \
+                 keeps the run from pushing"
+                    .to_owned(),
+            );
         }
     }
     let mut settings = serde_json::Map::new();
@@ -673,6 +697,81 @@ mod tests {
         bare.route = Route::Protocol;
         let line = command_line(&bare, &flags, "id", []).unwrap();
         assert!(value_after(&strings(&line), "--settings").is_empty());
+    }
+
+    /// The push guard (EP-19b): alone, beside a neighbour's rule and the defer route's hook in one
+    /// `--settings`, dropped and said by a claude without settings, absent when it is off.
+    #[test]
+    fn the_push_guard_denies_git_push_through_the_settings() {
+        let scratch = Scratch::new("launch-push");
+        let project = scratch.0.join("alpha");
+        let beta = scratch.0.join("beta");
+        for folder in [&project, &beta] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        let flags = Flags::parse(HELP);
+        let settings = |line: &CommandLine| -> serde_json::Value {
+            let args = strings(line);
+            let values = value_after(&args, "--settings");
+            assert_eq!(values.len(), 1, "one --settings: {args:?}");
+            serde_json::from_str(values[0]).unwrap()
+        };
+
+        // The rule alone.
+        let mut launch = Launch::new("alpha", &project, "opus", "Run EP-3.");
+        launch.deny_push = true;
+        let line = command_line(&launch, &flags, "id", []).unwrap();
+        assert_eq!(
+            settings(&line)["permissions"]["deny"],
+            serde_json::json!([PUSH_DENY_RULE])
+        );
+        assert!(line.dropped.is_empty(), "{:?}", line.dropped);
+        assert!(value_after(&strings(&line), "--add-dir").is_empty());
+
+        // Beside a neighbour's Edit rule, in one deny array, and beside the defer route's hook.
+        launch.neighbours = vec![beta.clone()];
+        launch.route = Route::Defer;
+        launch.hooks = Some(scratch.0.join("crw.exe"));
+        let line = command_line(&launch, &flags, "id", []).unwrap();
+        let both = settings(&line);
+        assert_eq!(
+            both["permissions"]["deny"],
+            serde_json::json!([edit_deny_rule(&beta), PUSH_DENY_RULE])
+        );
+        assert_eq!(both["hooks"]["PreToolUse"][0]["matcher"], "AskUserQuestion");
+
+        // A claude without --settings: the rule is dropped and said, and the run starts.
+        let without = Flags::parse(&HELP.replace("--settings", "--other"));
+        let mut alone = Launch::new("alpha", &project, "opus", "Run EP-3.");
+        alone.deny_push = true;
+        let line = command_line(&alone, &without, "id", []).unwrap();
+        let args = strings(&line);
+        assert!(value_after(&args, "--settings").is_empty());
+        assert!(!args.iter().any(|arg| arg.contains("git push")), "{args:?}");
+        assert_eq!(line.dropped.len(), 1, "{:?}", line.dropped);
+        assert!(
+            line.dropped[0].starts_with("the git push deny rule: this claude has no --settings"),
+            "{:?}",
+            line.dropped
+        );
+        // The neighbours still refuse such a claude, as before.
+        alone.neighbours = vec![beta.clone()];
+        assert!(
+            command_line(&alone, &without, "id", [])
+                .unwrap_err()
+                .contains("--settings")
+        );
+
+        // Off: no rule, and no --settings for it.
+        let mut off = Launch::new("alpha", &project, "opus", "Run EP-3.");
+        let line = command_line(&off, &flags, "id", []).unwrap();
+        assert!(value_after(&strings(&line), "--settings").is_empty());
+        off.neighbours = vec![beta.clone()];
+        let line = command_line(&off, &flags, "id", []).unwrap();
+        assert_eq!(
+            settings(&line)["permissions"]["deny"],
+            serde_json::json!([edit_deny_rule(&beta)])
+        );
     }
 
     #[test]

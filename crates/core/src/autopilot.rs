@@ -327,8 +327,8 @@ impl Refusal {
                 .to_owned(),
             Refusal::Waits(mode) => format!(
                 "its runs would wait for you at each shell command: permission mode {mode} and \
-                 no allow rule (set permission_mode = \"auto\" under its [project.launch], or \
-                 allow rules in its .claude settings)"
+                 no allow rule (keep auto with the pin beside the launch dialog's Permissions, \
+                 crw set <project> permission_mode auto, or allow rules in its .claude settings)"
             ),
         }
     }
@@ -512,6 +512,29 @@ pub fn is_own(exe: &Path, folder: &Path) -> bool {
     let (exe, folder) = (key(exe), key(folder));
     exe.strip_prefix(folder.trim_end_matches('\\'))
         .is_some_and(|rest| rest.starts_with('\\'))
+}
+
+/// The gate's conditions that stand between runs (D-22; EP-19b), for the window's Autopilot
+/// section, its offer of `auto` and `crw autopilot`, in the gate's order: [`Refusal::Waits`] when
+/// the project's runs would wait for the owner at each shell command (its permission mode, over
+/// the project's settings files and the user's), then [`Refusal::OwnProject`] when `exe`, the
+/// running window's, lies in `folder`. `home` is the user's profile folder, none in a screenshot
+/// run.
+pub fn standing(
+    project: &Project,
+    folder: &Path,
+    home: Option<&Path>,
+    exe: Option<&Path>,
+) -> Vec<Refusal> {
+    let mut no = Vec::new();
+    let mode = rules::permission_mode(project).value;
+    if let Some(mode) = would_wait(&mode, &settings_files(folder, home)) {
+        no.push(Refusal::Waits(mode));
+    }
+    if exe.is_some_and(|exe| is_own(exe, folder)) {
+        no.push(Refusal::OwnProject);
+    }
+    no
 }
 
 /// The chained starts the log records on `day` (local time): the project's and every project's.
@@ -862,12 +885,7 @@ pub fn read(ask: &Ask<'_>) -> Reading {
     });
     let mode = match &draft {
         Ok(draft) => draft.resolution.permission_mode.value.clone(),
-        Err(_) => ask
-            .project
-            .launch
-            .permission_mode
-            .clone()
-            .unwrap_or_else(|| rules::DEFAULT_PERMISSION_MODE.to_owned()),
+        Err(_) => rules::permission_mode(ask.project).value,
     };
     let day = ask.now.with_timezone(&Local).date_naive();
     let (chained_today, chained_total) = ask
@@ -904,7 +922,8 @@ pub fn read(ask: &Ask<'_>) -> Reading {
 
 /// The headless launch of a chained brief (D-22): the draft's model, effort, ultracode and
 /// permission mode as the launch dialog takes them, with the project's neighbours, time limit
-/// and budget. The caller adds the route, the hooks and the revert's start, as a headless start
+/// and budget, and the push guard, since a chained run is always of a project whose autopilot is
+/// on (EP-19b). The caller adds the route, the hooks and the revert's start, as a headless start
 /// from the dialog does.
 pub fn launch(
     draft: &Draft,
@@ -928,6 +947,7 @@ pub fn launch(
     launch.ledger = ledger;
     launch.answer_timeout = project.answer_timeout();
     launch.max_budget_usd = project.autopilot.max_budget_usd;
+    launch.deny_push = true;
     launch
 }
 
@@ -1222,6 +1242,87 @@ mod tests {
         assert!(!is_own(Path::new(r"C:\Data\Wrangler2\app.exe"), folder));
         assert!(!is_own(Path::new(r"C:\Data\app.exe"), folder));
         assert!(!is_own(folder, folder));
+    }
+
+    /// The conditions that stand between runs (EP-19b): a waiting mode with no allow rule, then
+    /// an allow rule, then `auto`; the tool's own project.
+    #[test]
+    fn the_standing_conditions_are_a_waiting_mode_and_the_tools_own_project() {
+        let scratch = Scratch::new("autopilot-standing");
+        let folder = scratch.0.join("alpha");
+        let home = scratch.0.join("home");
+        fs::create_dir_all(&folder).unwrap();
+        let mut project = Project::new("alpha", Path::new("alpha"), crate::registry::State::Active);
+        // No settings file anywhere: the tool's default waits.
+        assert_eq!(
+            standing(&project, &folder, Some(&home), None),
+            vec![Refusal::Waits("acceptEdits".to_owned())]
+        );
+        // An allow rule in the project's settings lets its commands through.
+        let settings = folder.join(".claude").join("settings.json");
+        fs::create_dir_all(settings.parent().unwrap()).unwrap();
+        fs::write(
+            &settings,
+            r#"{"permissions": {"allow": ["Bash(cargo test:*)"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(standing(&project, &folder, Some(&home), None), Vec::new());
+        fs::remove_file(&settings).unwrap();
+        // Under auto nothing waits; under plan, with no rule, it does.
+        project.launch.permission_mode = Some("auto".to_owned());
+        assert_eq!(standing(&project, &folder, Some(&home), None), Vec::new());
+        project.launch.permission_mode = Some("plan".to_owned());
+        assert_eq!(
+            standing(&project, &folder, None, None),
+            vec![Refusal::Waits("plan".to_owned())]
+        );
+        // The window's exe in the folder: the tool's own project, after the waiting.
+        let exe = folder.join("target").join("release").join("app.exe");
+        assert_eq!(
+            standing(&project, &folder, None, Some(&exe)),
+            vec![Refusal::Waits("plan".to_owned()), Refusal::OwnProject]
+        );
+        project.launch.permission_mode = None;
+        fs::write(
+            &settings,
+            r#"{"permissions": {"allow": ["Bash(git status)"]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            standing(&project, &folder, None, Some(&exe)),
+            vec![Refusal::OwnProject]
+        );
+        let elsewhere = scratch.0.join("beta").join("app.exe");
+        assert_eq!(
+            standing(&project, &folder, None, Some(&elsewhere)),
+            Vec::new()
+        );
+    }
+
+    /// A chained run always has the push guard: its project's autopilot is on (EP-19b).
+    #[test]
+    fn a_chained_launch_has_the_push_guard() {
+        let (registry, snapshot) = house();
+        let project = &registry.projects[0];
+        let unread = rules::Usage::unread(now());
+        let draft = prompt::draft(
+            &registry,
+            project,
+            &snapshot,
+            None,
+            &[],
+            &unread,
+            "2026-11-06",
+        )
+        .unwrap();
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("projects")
+            .join("house");
+        let launch = launch(&draft, project, &folder, folder.parent().unwrap(), None);
+        assert!(launch.deny_push);
+        assert_eq!(launch.ep.as_deref(), Some("EP-3"));
+        assert_eq!(launch.permission_mode, rules::DEFAULT_PERMISSION_MODE);
     }
 
     #[test]

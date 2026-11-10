@@ -11,8 +11,9 @@
 //! write, and the `quiet_hours` setting from EP-15; `revert`, a session undone back to its start,
 //! and a project's `revert` switch from EP-15b; `usage`, the meter's readings in the ledger read
 //! without a write, and the `usage_endpoint` setting from EP-17; `autopilot`, its state and its
-//! chain log, a project's switch and the owner's Pause, with its three settings, from EP-19;
-//! `inbox send` arrives with its brief.
+//! chain log, a project's switch and the owner's Pause, with its three settings, from EP-19; the
+//! permission mode and the autopilot's limits through `set`, and whether a project's runs would
+//! wait in `autopilot`, from EP-19b; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -34,7 +35,7 @@ use crw_core::inbox::{self, Recipient};
 use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
-use crw_core::registry::{LaunchMode, Project, Settings, State, Store};
+use crw_core::registry::{LaunchMode, Limit, MAX_DAILY, Project, Settings, State, Store};
 use crw_core::revert;
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
@@ -66,6 +67,20 @@ commands:
   set <project> revert <yes|no>  whether each session's start is recorded there (its HEAD and a
                                  copy of its uncommitted files, in the backups folder) and a
                                  session may be reverted; yes by default
+  set <project> permission_mode <mode|default>
+                                 the permission mode its sessions start in: acceptEdits by
+                                 default, which asks at each shell command without an allow rule,
+                                 so the autopilot's runs would wait; auto lets them through
+                                 without allow rules, a classifier blocking what goes beyond the
+                                 request; plan, dontAsk, bypassPermissions or manual; default
+                                 takes the project's own mode out
+  set <project> max_size <S|M|L|default>
+                                 the largest brief the autopilot chains there; M by default
+  set <project> daily <runs|default>
+                                 the chained runs a day there, 0 to 100; 2 by default
+  set <project> max_budget_usd <dollars|none>
+                                 --max-budget-usd for each headless run there while its autopilot
+                                 is on, in dollars of the CLI's own estimate; none by default
   dismiss <project> [<proposal>] leave a proposed state out until the fact it rests on changes;
                                  every open proposal of the project, or the one named:
                                  all_rows_checked, pickup_gate or no_commit_since
@@ -100,8 +115,9 @@ commands:
                                  autopilot_daily_total (chained runs a day in all projects, or
                                  default: 4), autopilot_paused (on or off: your Pause)
   autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
-                                 the projects with it on and their limits, and the chain log's
-                                 latest lines; reads only
+                                 the projects with it on, their limits and permission modes and
+                                 whether their runs would wait at each shell command, and the
+                                 chain log's latest lines; reads only
   autopilot <project> <on|off>   turn a project's autopilot on (its runs commit themselves, your
                                  standing yes, and a headless run's completion may chain its next
                                  brief) or off (its runs stop before committing)
@@ -611,11 +627,20 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
             "no" | "false" => store.change(&today, |c| c.set_revert(project, false)),
             _ => return usage_error(&format!("revert takes yes or no, not {value:?}")),
         },
-        _ => {
-            return usage_error(&format!(
-                "set changes state, priority, pinned, answer_timeout or revert, not {field:?}"
-            ));
-        }
+        "permission_mode" => match permission_mode_word(value) {
+            Ok(mode) => store.change(&today, |c| c.set_permission_mode(project, mode)),
+            Err(why) => return usage_error(&why),
+        },
+        _ => match limit_of(field, value) {
+            Some(Ok(limit)) => store.change(&today, |c| c.set_autopilot_limit(project, &limit)),
+            Some(Err(why)) => return usage_error(&why),
+            None => {
+                return usage_error(&format!(
+                    "set changes state, priority, pinned, answer_timeout, revert, \
+                     permission_mode, max_size, daily or max_budget_usd, not {field:?}"
+                ));
+            }
+        },
     };
     match changed {
         Ok((registry, ())) => {
@@ -627,6 +652,75 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
         }
         Err(e) => failed(e),
     }
+}
+
+/// The permission mode `crw set` writes for `value` (D-18; EP-19b): one of the modes the tool
+/// knows, in any case, in the tool's spelling; `None` for `default`, which takes the project's
+/// own mode out.
+fn permission_mode_word(value: &str) -> Result<Option<&'static str>, String> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    rules::PERMISSION_MODES
+        .into_iter()
+        .find(|mode| mode.eq_ignore_ascii_case(value))
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "permission_mode takes {} or default, not {value:?}",
+                rules::PERMISSION_MODES.join(", ")
+            )
+        })
+}
+
+/// The autopilot's limit `crw set` writes for `field` and `value` (D-22; EP-19b): `max_size` S,
+/// M or L in any case, `daily` runs from 0 to [`MAX_DAILY`], `max_budget_usd` dollars above 0
+/// with or without a `$`, each back to its default with `default` (the budget with `none` too).
+/// A value that is the default is taken out of the registry as `default` is, as the window's
+/// pickers do; `None` when `field` is not one of the limits.
+fn limit_of(field: &str, value: &str) -> Option<Result<Limit, String>> {
+    use crw_core::autopilot::{DEFAULT_DAILY, DEFAULT_MAX_SIZE};
+
+    let value = value.trim();
+    let default = value.eq_ignore_ascii_case("default");
+    let size = |size: Size| Limit::MaxSize((size != DEFAULT_MAX_SIZE).then_some(size));
+    Some(match field {
+        "max_size" => match value.to_ascii_uppercase().as_str() {
+            _ if default => Ok(Limit::MaxSize(None)),
+            "S" => Ok(size(Size::S)),
+            "M" => Ok(size(Size::M)),
+            "L" => Ok(size(Size::L)),
+            _ => Err(format!(
+                "max_size takes S, M or L, or default ({DEFAULT_MAX_SIZE}), not {value:?}"
+            )),
+        },
+        "daily" => match value.parse::<u32>() {
+            _ if default => Ok(Limit::Daily(None)),
+            Ok(runs) if runs <= MAX_DAILY => {
+                Ok(Limit::Daily((runs != DEFAULT_DAILY).then_some(runs)))
+            }
+            _ => Err(format!(
+                "daily takes a number of runs from 0 to {MAX_DAILY}, or default \
+                 ({DEFAULT_DAILY}), not {value:?}"
+            )),
+        },
+        "max_budget_usd" if default || value.eq_ignore_ascii_case("none") => {
+            Ok(Limit::Budget(None))
+        }
+        "max_budget_usd" => {
+            let dollars = value.strip_prefix('$').unwrap_or(value).trim();
+            match dollars.parse::<f64>() {
+                Ok(dollars) if dollars.is_finite() && dollars > 0.0 => {
+                    Ok(Limit::Budget(Some(dollars)))
+                }
+                _ => Err(format!(
+                    "max_budget_usd takes dollars above 0, or none (the default), not {value:?}"
+                )),
+            }
+        }
+        _ => return None,
+    })
 }
 
 /// Dismisses a project's open proposals, or the one named, keeping each one's fact in the
@@ -1554,10 +1648,9 @@ fn backup_text(backup: &Backup, now: DateTime<Utc>) -> String {
     format!("{text}{excluded}")
 }
 
-/// Prints the registry's settings, or one, or sets one through the store (a daily copy of the
-/// file first, D-8).
 /// `crw autopilot` (D-22; EP-19): the owner's Pause, the mark, the day's caps, the projects with
-/// the autopilot on and their limits, and the chain log's latest lines, read without a write.
+/// the autopilot on, their limits and permission modes and whether their runs would wait at each
+/// shell command (EP-19b), and the chain log's latest lines, read without a write.
 fn autopilot_state() -> ExitCode {
     let store = match store() {
         Ok(store) => store,
@@ -1587,18 +1680,31 @@ fn autopilot_state() -> ExitCode {
     if on.is_empty() {
         println!("  no project has it on (crw autopilot <project> on)");
     }
+    // The gate's waiting condition reads the project's settings files and the user's (EP-19b).
+    let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
+    let data_root = registry.data_root();
     for project in on {
         let autopilot = &project.autopilot;
-        let mode = project
-            .launch
-            .permission_mode
-            .as_deref()
-            .unwrap_or(rules::DEFAULT_PERMISSION_MODE);
+        let mode = rules::permission_mode(project).value;
+        let folder = project.folder(&data_root);
+        let waits = crw_core::autopilot::standing(project, &folder, home.as_deref(), None)
+            .iter()
+            .any(|refusal| matches!(refusal, crw_core::autopilot::Refusal::Waits(_)));
+        let waits = if waits {
+            format!(
+                " (its runs would wait at each shell command, so the gate refuses its chains: \
+                 crw set {} permission_mode auto, or allow rules)",
+                project.name
+            )
+        } else {
+            String::new()
+        };
         let budget = autopilot
             .max_budget_usd
             .map_or(String::new(), |usd| format!(", --max-budget-usd {usd}"));
         println!(
-            "  {}: on, briefs up to {}, {} chained runs a day, permission mode {mode}{budget}",
+            "  {}: on, briefs up to {}, {} chained runs a day, permission mode \
+             {mode}{waits}{budget}",
             project.name,
             autopilot.max_size(),
             autopilot.daily()
@@ -1697,6 +1803,8 @@ fn log_autopilot(project: Option<&str>, words: &str) {
     }
 }
 
+/// Prints the registry's settings, or one, or sets one through the store (a daily copy of the
+/// file first, D-8).
 fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
     let store = match store() {
         Ok(store) => store,
@@ -2768,4 +2876,77 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
     );
     println!("{}", draft.prompt.text);
     ExitCode::SUCCESS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `crw set`'s permission mode (EP-19b): a mode the tool knows, in its spelling; `default`
+    /// for taking the project's out; anything else refused with the modes named.
+    #[test]
+    fn set_reads_a_permission_mode_in_the_tools_spelling() {
+        assert_eq!(permission_mode_word("auto"), Ok(Some("auto")));
+        assert_eq!(permission_mode_word(" DONTASK "), Ok(Some("dontAsk")));
+        assert_eq!(permission_mode_word("acceptedits"), Ok(Some("acceptEdits")));
+        assert_eq!(
+            permission_mode_word("bypasspermissions"),
+            Ok(Some("bypassPermissions"))
+        );
+        assert_eq!(permission_mode_word("Manual"), Ok(Some("manual")));
+        assert_eq!(permission_mode_word("Default"), Ok(None));
+        for wrong in ["yolo", "accept edits", ""] {
+            let error = permission_mode_word(wrong).unwrap_err();
+            assert!(
+                error.starts_with("permission_mode takes acceptEdits, auto, plan")
+                    && error.ends_with(&format!("or default, not {wrong:?}")),
+                "{wrong:?}: {error}"
+            );
+        }
+    }
+
+    /// `crw set`'s limits (EP-19b): each in its words, back to its default (a value that is the
+    /// default taken out as `default` is), and refused out of range; a field that is no limit is
+    /// left to the caller.
+    #[test]
+    fn set_reads_the_autopilots_limits() {
+        for (field, value, limit) in [
+            ("max_size", "s", Limit::MaxSize(Some(Size::S))),
+            ("max_size", " M ", Limit::MaxSize(None)),
+            ("max_size", "L", Limit::MaxSize(Some(Size::L))),
+            ("max_size", "Default", Limit::MaxSize(None)),
+            ("daily", "0", Limit::Daily(Some(0))),
+            ("daily", "2", Limit::Daily(None)),
+            ("daily", "100", Limit::Daily(Some(MAX_DAILY))),
+            ("daily", "default", Limit::Daily(None)),
+            ("max_budget_usd", "2.5", Limit::Budget(Some(2.5))),
+            ("max_budget_usd", "$3", Limit::Budget(Some(3.0))),
+            ("max_budget_usd", " $ 0.75 ", Limit::Budget(Some(0.75))),
+            ("max_budget_usd", "None", Limit::Budget(None)),
+            ("max_budget_usd", "default", Limit::Budget(None)),
+        ] {
+            assert_eq!(limit_of(field, value), Some(Ok(limit)), "{field} {value:?}");
+        }
+        for (field, wrong) in [
+            ("max_size", "XL"),
+            ("max_size", ""),
+            ("daily", "101"),
+            ("daily", "-1"),
+            ("daily", "two"),
+            ("max_budget_usd", "0"),
+            ("max_budget_usd", "-1"),
+            ("max_budget_usd", "nan"),
+            ("max_budget_usd", "inf"),
+            ("max_budget_usd", "$"),
+        ] {
+            let error = limit_of(field, wrong).unwrap().unwrap_err();
+            assert!(
+                error.starts_with(&format!("{field} takes"))
+                    && error.ends_with(&format!("{wrong:?}")),
+                "{field} {wrong:?}: {error}"
+            );
+        }
+        assert_eq!(limit_of("permission_mode", "auto"), None);
+        assert_eq!(limit_of("state", "active"), None);
+    }
 }
