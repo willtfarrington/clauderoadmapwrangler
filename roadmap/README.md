@@ -702,11 +702,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-37a | [The handover and the chained restart: held chains and chain plans carried across the window's restart in a handover file, a pending install taken at the gate's moment before the chained start, the gate's own-project condition dropped, the opener's words for this project's runs, this project chained under `auto`](EP-37a-handover-and-chained-restart.md) (D-22, D-5, D-29) | M | EP-37 | core | ☑ `55907f7` |
 | EP-20 | [The mailman: a committed brief's `Handed on (to …)` blocks delivered into the receiver's inbox while no session works there, the first reading counted as delivered, the delivery log and `crw mail`, each block's state in the Detail pane, a revert redoing a delivery, the gate leaving `roadmap/inbox.md` out](EP-20-the-mailman.md) (D-13) | M | EP-5, EP-13 | core | ☑ `2d36090` |
 | EP-21 | [Formalise files: `crw_core::formalise` plans and writes a project's house-style files (the `CLAUDE.md` rule block between the roadmap-wrangler markers, `roadmap/owner-tasks.md` and `roadmap/inbox.md` with their headers, `roadmap/_TEMPLATE.md`), never replacing a file or touching the text outside the markers; `crw formalise` with its preview and `--yes`; the migration prompt for five-column and work-packet roadmaps (`--migration`)](EP-21-formalise-files.md) (D-10, D-11, D-12, D-13, D-9) | M | EP-5, EP-10 | core | ☑ `40b3cd4` |
-| EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
+| EP-22 | [Roadmap-wrangler plugin: the skills plan, replan, formalise and status and the house-style reference quoting the formalise engine's texts, the repository as its marketplace, the README's install notes, a structural test; the gate's test of a re-plan title](EP-22-roadmap-wrangler-plugin.md) (D-27, D-22) | M | EP-21 | core | ☐ |
+| EP-22a | The plugin in the tool's runs: `--plugin-dir` for every headless run, the plugin's files carried in the build and written under the tool's local folder, the flag passed only when `claude --help` lists it, the launch dialog and `crw doctor` naming the copy a run gets (D-27, D-15) | S | EP-22 | core | ☐ |
 | EP-20a | Compose and urgent: the compose dialog (target, text, urgent) writing `from the owner`, the urgent flag's popup and the ntfy publisher (`notify::ntfy`, host and topic in the registry), the `[urgent]` chip text, the finished popup's gist line (D-13, D-21) | M | EP-20 | core | ☐ |
 | EP-20b | The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event (D-20) | S | EP-20 | core | ☐ |
 | EP-21a | Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane, and Migrate… opening the launch dialog in Headless with the migration prompt (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-20a, EP-20b, EP-21a | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20b, EP-21a | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -740,6 +741,10 @@ headless start (EP-21, EP-22) runs as set; neither EP-21 nor EP-22 depends on th
 `crw formalise` and the migration prompt; EP-21a (M) takes the window's Formalise… dialog and
 Migrate… launch, after EP-20b and before EP-23, so that the chain plan's EP-22 follows EP-21 as
 set: EP-22's formalise skill needs the engine, not the window.
+*(2026-11-10, EP-22 split at pickup, the owner's choice.)* EP-22 keeps the plugin, its
+marketplace and the install notes; EP-22a (S) takes `--plugin-dir` for the tool's headless runs,
+right after EP-22 and before EP-20a, so that the method's two halves stay together and the P4
+chat (EP-24) finds the flag ready.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -1182,6 +1187,26 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   <project> --migration` prints the migration prompt of a five-column or work-packet roadmap,
   which the skill hands to a session in that project. A project with no roadmap README is the plan
   skill's: the formalise preview says so.
+  *(Split at pickup, 2026-11-10, the owner's choice: `--plugin-dir` for the tool's own runs is
+  EP-22a.)*
+- **EP-22a.** Added on 2026-11-10 when EP-22 was split at pickup (the owner's choice, D-4): the
+  tool's side of D-27's plugin. (1) **The plugin's copy**: the build carries the plugin's files
+  (each by `include_str!`, one table in `crw_core`) and writes them under the tool's local folder
+  (`%LOCALAPPDATA%\clauderoadmapwrangler\plugin\roadmap-wrangler\`, under `CRW_HOME` in a trial)
+  before a headless start, rewriting a file that differs and removing one the build no longer
+  has, so that a run gets the plugin of the build that starts it, whatever the working tree
+  holds; a structural test checks that the table lists every file of `plugins/roadmap-wrangler/`.
+  (2) **The flag**: `session::Launch` gains the plugin's folder, and `command_line` passes
+  `--plugin-dir <folder>` when `claude --help` lists it (2.1.316 does), else names the wish it
+  dropped (D-15); every headless run of the window gets it, resumes included, and the chat (EP-24)
+  reuses it. (3) **Saying so**: the launch dialog names the plugin a headless run gets, and `crw
+  doctor` prints the copy's folder and whether it matches the build. **From EP-22:** the plugin
+  is `plugins/roadmap-wrangler/` (`.claude-plugin/plugin.json`, four skills,
+  `reference/house-style.md`), its structural test `crates/core/tests/plugin.rs`, which the
+  table's test can sit beside. A `--plugin-dir` copy replaces an installed plugin of the same name
+  for its session, silently (Claude Code's loading reference, read 2026-11-10), so a run uses the
+  build's copy even where the owner installed the plugin from GitHub (OT-23). `claude plugin
+  validate <folder>` checks a copy by hand; a `claude --plugin-dir … --help` smoke in CI stays out.
 - **EP-20a.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4): the
   owner's side of the mail, from EP-20's note. (1) **The compose dialog** in the tool (target,
   text, urgent) writing the same line with `from the owner`; its preview through `markup::note`
@@ -1329,6 +1354,17 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   OT-20). The walk takes EP-21's residual-risk paragraph with the first real formalise (OT-22):
   the preview on a project the owner wants formalised, then the write, the files read again and
   the row's Waiting count unchanged.
+  **From EP-22 (split at pickup, the owner's choice):** EP-22a (S) joined P3 after EP-22, so the
+  totals are 52 briefs, 14 S · 32 M · 6 L ≈ 51 session-hours, 15 still open once EP-22 is
+  checked. EP-22 was started by hand from the window: the gate had taken it for a re-plan, its
+  title naming the replan skill. The gate's test now leaves out a comma list naming the skill and
+  a mention of another re-plan, and still fails safe elsewhere (D-22 addendum), so the first
+  week's review checks that no chain ran into a re-plan and counts the chains a stray mention
+  ended. The walk takes EP-22's residual-risk paragraph with OT-23: the plugin installed from
+  GitHub after the push, its skills listed in a new session of another project,
+  `/roadmap-wrangler:status` there reporting what `crw roadmap` prints, and, on a project the
+  owner wants formalised, `/roadmap-wrangler:formalise` writing from that session (`crw formalise
+  --yes` now leaves the calling session out of its check, D-11 addendum).
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

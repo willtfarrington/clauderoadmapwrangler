@@ -218,7 +218,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   file as it was is in `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\`), its row shows
   the open message, and the sender's Detail pane says "delivered to <project> as IN-n". The
   session exercised this only on scratch folders (rules 5 and 13). Notes go to `roadmap/inbox.md`
-- [ ] OT-22 (EP-21, 2026-11-10) The first real formalise, when you next want a project brought
+- [x] OT-22 (EP-21, 2026-11-10) The first real formalise, when you next want a project brought
   into the house style (it writes into that project). In a terminal in this folder, run
   `target\release\crw.exe formalise <project>`: it changes nothing and lists the four files, each
   `created`, `the rule block added at the end, the file's n lines kept`, `replaced between the
@@ -230,4 +230,17 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   write`; and the window's row (after F5) should show no new problem. For a project whose tables
   are the five-column or work-packet form, `--migration` prints the prompt to hand to a session
   there. The session wrote only into scratch folders (rules 4 and 13). Notes go to
+  `roadmap/inbox.md`
+- [ ] OT-23 (EP-22, 2026-11-10) Install the roadmap-wrangler plugin into your own Claude Code
+  sessions (it writes your user settings). First push this project's commits (the plugin must be
+  on GitHub). Then, in any terminal, run `claude plugin install roadmap-wrangler --marketplace
+  willtfarrington/clauderoadmapwrangler`: it should add the marketplace `clauderoadmapwrangler` to
+  your user settings and say the plugin is installed; `claude plugin list` should show
+  `roadmap-wrangler@clauderoadmapwrangler` enabled. In a new session of another project (VS Code or
+  a terminal), typing `/roadmap-wrangler:` should offer `plan`, `replan`, `formalise` and `status`,
+  and `/roadmap-wrangler:status` should report that project's next EP, its counts and its open
+  items as `target\release\crw.exe roadmap <its folder>` prints them. Later pushes reach your
+  sessions with `claude plugin update roadmap-wrangler@clauderoadmapwrangler` (Claude Code does
+  not update this marketplace by itself unless you turn its auto-update on under `/plugin`). The
+  session checked the plugin with `claude plugin validate` only (rules 5 and 13). Notes go to
   `roadmap/inbox.md`

@@ -353,6 +353,14 @@ with ticks in the registry.
 > *Alternatives.* The tool's forms only in the block, with a pointer to the owner's house-style
 > rules; the window's dialog in the same brief; a write that also replaces an older header.
 
+> **Addendum (2026-11-10, EP-22).** `crw formalise --yes` leaves the session that runs it out of
+> its session check, known by the `CLAUDE_CODE_SESSION_ID` Claude Code gives the commands its tools
+> run (2.1.316), so that the plugin's formalise skill can write from a session in the project:
+> that session's turn waits for the write. Any other session at work or waiting there still
+> refuses it, and `crw revert` still counts every session. Found by EP-22's review: the skill's
+> route had always been refused by the session itself. *Alternatives.* The skill handing the
+> owner the `--yes` command to run after its turn; the session found by its process id.
+
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20
 min).**`; (2) keep `- **EP-n.** …` under `**Brief notes.**` as the one form for upcoming EPs (the row's
@@ -1100,6 +1108,20 @@ committing and recording hashes; one model and effort per project; usage thresho
 > for the new window's popup, or the popup lost; the gate's moment installing a settled build
 > found in `target\release`; holding a chain until the restart can go.
 
+> **Addendum (2026-11-10, EP-22).** **What a re-plan is, to the gate.** The gate took EP-22 for a
+> re-plan and ended the chain after EP-21: its test matched `re-plan` or `replan` anywhere in a
+> title, and EP-22's names the plugin's replan skill. The test still fails safe, since a wrong yes
+> only ends a chain: the word (`re-plan`, `replan`, `re-planning`) counts wherever it stands, but
+> for an item inside a comma list (`skills plan, replan, formalise`) and a mention of another
+> re-plan, the word within two words after an article or a preposition (`Found at the P3 re-plan:
+> …`, `notes from the last re-plan`). It always counts as the first word, before a phase's id
+> (`re-plan P5`, `Re-plan R0`, `re-plan phase 2`) and after a leading one (`P3 re-plan: …`), the
+> forms every re-plan row read across the portfolio's roadmaps takes, the combined ones
+> (`Tooling, a template, re-plan P3`) among them (`autopilot::is_replan`, its test of 25 titles).
+> *Alternatives.* The title's first clause (it misses the combined rows); the word only as the
+> first or last word or before a phase's id (it missed a re-plan with a trailing note or markup,
+> found by the review); a marker in the row.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1504,6 +1526,32 @@ project, formalise or migrate a project, compose inbox messages and owner tasks.
 chat, in launched sessions and in the owner's own sessions. *Alternatives.* A full-tool session in `DATA`; a
 VS Code conversation with the question pre-filled; prompts only; skill files written into `~/.claude/skills`;
 nothing injected or a full registry dump; a portfolio report (parked).
+
+> **Addendum (2026-11-10, EP-22).** The plugin is built, split at pickup (the owner's choice):
+> loading it into the tool's own headless runs with `--plugin-dir` is EP-22a's.
+>
+> - **The plugin**, `plugins/roadmap-wrangler/`: `.claude-plugin/plugin.json` (the name
+>   `roadmap-wrangler`, no `version`, so each push that changes it is a release, versioned by
+>   Claude Code from the commit); the skills `plan`, `replan`, `formalise` and `status`, invoked as
+>   `/roadmap-wrangler:<skill>`; and `reference/house-style.md`, the schema in full, which quotes
+>   the formalise engine's texts byte for byte (a structural test, `crates/core/tests/plugin.rs`,
+>   fails when they differ). The formalise skill writes through `crw formalise` and its preview,
+>   from a session in the project it writes into or by the owner's hand; never by hand where the
+>   tool is there, and without it the reference's texts only on the owner's word, under the
+>   engine's rules (D-11 addendum of this date).
+> - **The marketplace**: this repository is one, `.claude-plugin/marketplace.json` at its root
+>   (the name `clauderoadmapwrangler`, one entry with the source `./plugins/roadmap-wrangler`).
+> - **The owner's own sessions** install it from GitHub after a push (the owner's choice): `claude
+>   plugin install roadmap-wrangler --marketplace willtfarrington/clauderoadmapwrangler`, later
+>   `claude plugin update`. A local clone added by its path loads in place from the working tree
+>   instead, unfinished edits included, which is why GitHub leads. A `--plugin-dir` copy replaces
+>   an installed plugin of the same name for its session, so the runs EP-22a gives the flag use the
+>   build's copy.
+> - `claude plugin validate` passes the plugin and the marketplace with two warnings (no
+>   `version`, no listing icon), run by hand: tests never run the CLI (D-29).
+>
+> *Alternatives.* The plugin and `--plugin-dir` in one brief; a `version` bumped by hand at each
+> change; the local folder as the install route; skill files written into `~/.claude/skills`.
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

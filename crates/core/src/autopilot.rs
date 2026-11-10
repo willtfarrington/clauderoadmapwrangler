@@ -341,10 +341,63 @@ impl Refusal {
     }
 }
 
-/// Whether a brief's title names a re-plan, which the owner runs (D-22).
+/// Words before `re-plan` that make it a mention of another re-plan (`Found at the P3 re-plan`,
+/// `notes from the last re-plan`, `a replan skill`) rather than the brief's own.
+const MENTIONS: [&str; 13] = [
+    "the", "a", "an", "at", "from", "after", "since", "before", "during", "of", "each", "every",
+    "last",
+];
+
+/// Whether a brief's title names a re-plan, which the owner runs (D-22). It fails safe, since a
+/// wrong yes only ends a chain: the word (`re-plan`, `replan`, `re-planning`) counts wherever it
+/// stands, but for an item inside a comma list (`skills plan, replan, formalise`, which once ended
+/// a chain at EP-22) and a mention of another re-plan, the word after an article or a preposition
+/// (`Found at the P3 re-plan: …`). It counts always as the first word, before a phase's id
+/// (`re-plan P5`, `Re-plan R0`, `re-plan phase 2`) and after a leading one (`P3 re-plan: …`), the
+/// forms every re-plan row across the portfolio takes (D-22 addendum).
 pub fn is_replan(title: &str) -> bool {
-    let title = title.to_lowercase();
-    title.contains("re-plan") || title.contains("replan")
+    let words: Vec<String> = title
+        .split_whitespace()
+        .map(|word| {
+            word.trim_start_matches(|c: char| !c.is_alphanumeric())
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    let plain = |word: &str| {
+        word.trim_end_matches(|c: char| !c.is_alphanumeric())
+            .to_owned()
+    };
+    let names = |word: &str| {
+        matches!(
+            plain(word).as_str(),
+            "re-plan" | "replan" | "re-planning" | "replanning"
+        )
+    };
+    let phase = |word: &str| {
+        let word = plain(word);
+        let digits = word.trim_start_matches(|c: char| c.is_ascii_alphabetic());
+        word == "phase"
+            || (word.len() - digits.len() <= 2
+                && digits.len() < word.len()
+                && !digits.is_empty()
+                && digits.chars().all(|c| c.is_ascii_digit()))
+    };
+    words.iter().enumerate().any(|(at, word)| {
+        if !names(word) {
+            return false;
+        }
+        let before = &words[at.saturating_sub(2)..at];
+        if at == 0
+            || words.get(at + 1).is_some_and(|next| phase(next))
+            || (at == 1 && phase(&words[0]))
+        {
+            return true;
+        }
+        let listed = word.ends_with(',') && before.last().is_some_and(|w| w.ends_with(','));
+        let mention = before.iter().any(|w| MENTIONS.contains(&plain(w).as_str()));
+        !listed && !mention
+    })
 }
 
 /// The gate (D-22): every condition that fails, in the order the log names them; none when the
@@ -1633,6 +1686,44 @@ mod tests {
         );
         assert!(not_started_words("EP-5", None, "claude is too old").contains("did not start"));
         assert!(is_replan("Re-plan P3") && is_replan("Replan and close") && !is_replan("Plans"));
+    }
+
+    #[test]
+    fn a_re_plan_is_told_from_a_list_naming_the_skill_and_a_mention() {
+        for title in [
+            "Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08)",
+            "Re-plan P2 / close-out",
+            "Re-plan: retro and timings",
+            "[Re-plan P0](EP-4-replan-p0.md): retro",
+            "**Re-plan M1**",
+            "Close-out, re-plan P5 and v2 direction",
+            "Tooling, a template, re-plan R1",
+            "Checks, then re-plan phase 2",
+            "Retro and re-plan",
+            "Replan",
+            "Close-out and re-plan (D-10 addendum, 2026-11-08)",
+            "Retro and **re-plan** P5",
+            "Retro and re-plan: P5",
+            "⚑ Re-plan and close-out",
+            "Retro and re-plan ⏱",
+            "Retro and re-plan of P3",
+            "P3 re-plan: retro and timings",
+            "Re-planning P4",
+        ] {
+            assert!(is_replan(title), "{title}");
+        }
+        for title in [
+            "Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style \
+             reference; loaded with `--plugin-dir`; install notes",
+            "Found at the P3 re-plan: a fix for the window",
+            "A replan skill and its reference",
+            "Notes from the last re-plan",
+            "Usage meter: the re-plan's figures, 2026",
+            "Plans and planning",
+            "",
+        ] {
+            assert!(!is_replan(title), "{title}");
+        }
     }
 
     #[test]

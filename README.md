@@ -296,7 +296,8 @@ and the signals' tests bind a free loopback port and write scratch settings file
 
 The tool reads each project's roadmap files in the shape below; this repository's own `roadmap/` folder
 is a complete example. Two older shapes (a five-column table and a "work packet" style) are read through
-format profiles, read-only. `crw roadmap <folder>` prints what the parser reads in one roadmap.
+format profiles, read-only. `crw roadmap <folder>` prints what the parser reads in one roadmap. The
+plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives the schema in full.
 
 - **Phase tables.** `## Phase P1 — <name> (<status>)` headings, each followed by a table with the header
   `| # | Brief | Size | Depends on | Core | Done |`. One row per brief: an `EP-n` id; a one-line summary,
@@ -341,6 +342,55 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in
   `roadmap/v2-notes.md`.
 - **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.
+
+## The roadmap-wrangler plugin
+
+The method these files follow ships as a Claude Code plugin in this repository,
+[`plugins/roadmap-wrangler/`](plugins/roadmap-wrangler): four skills and a reference.
+
+- `/roadmap-wrangler:plan` plans a project through an interview: a verified survey and a research
+  pass, a domain map written to the repository first, rounds of four questions with the recommended
+  option first, then the decision log, the roadmap, the session rules and the parked notes written
+  from the record.
+- `/roadmap-wrangler:replan` closes a phase: the walk of its residual risks, the retro timed from
+  the session transcripts, dated addenda, the next phase re-cut with pickup notes, the parked notes
+  grown.
+- `/roadmap-wrangler:formalise` gives a project the house-style files through `crw formalise` (the
+  preview, then `--yes` on the owner's word), hands an older roadmap's migration prompt to a session
+  in that project, or writes a first roadmap from a brief.
+- `/roadmap-wrangler:status` reports a roadmap the way the parser reads it: the next EP, the counts
+  and what waits on the owner.
+- [`reference/house-style.md`](plugins/roadmap-wrangler/reference/house-style.md) is the schema in
+  full, with the texts `crw formalise` writes quoted byte for byte (a test keeps them equal).
+
+Claude Code installs plugins from marketplaces, and this repository is one
+([`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json)). To install the plugin into
+your own sessions, in a terminal and in VS Code alike:
+
+```powershell
+claude plugin install roadmap-wrangler --marketplace willtfarrington/clauderoadmapwrangler
+# or in two steps, checking out only the plugin's folders:
+claude plugin marketplace add willtfarrington/clauderoadmapwrangler --sparse .claude-plugin plugins
+claude plugin install roadmap-wrangler@clauderoadmapwrangler
+# later, to take what was pushed since:
+claude plugin update roadmap-wrangler@clauderoadmapwrangler
+```
+
+The one-step form needs a Claude Code whose `claude plugin install` takes `--marketplace` (2.1.316
+does); the two steps work on older ones. The install copies the plugin as of the repository's last
+push. The plugin names no `version`, so each push that changes it is a release, which `claude
+plugin update` takes (Claude Code does not update a third-party marketplace by itself unless its
+auto-update is turned on under `/plugin`). Inside a session, `/plugin` opens the same choices.
+
+To follow a local clone instead, register the marketplace by the clone's path: `claude plugin
+marketplace add <clone folder>`, then `claude plugin install
+roadmap-wrangler@clauderoadmapwrangler`. The plugin then loads in place from the working tree at
+each session start, unfinished edits included. One name holds one marketplace, so to switch
+routes, `claude plugin marketplace remove clauderoadmapwrangler` first, which uninstalls the
+plugin too. To try it in one session without installing it, start `claude --plugin-dir
+plugins\roadmap-wrangler` in the clone. The tool's own headless runs are to load it that way
+(EP-22a); a visual launch cannot pass the flag, so a VS Code session has the plugin once it is
+installed.
 
 ## Notes
 

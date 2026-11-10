@@ -1,0 +1,16 @@
+{
+  "name": "clauderoadmapwrangler",
+  "owner": {
+    "name": "W. Taylor Farrington",
+    "url": "https://github.com/willtfarrington"
+  },
+  "description": "The roadmap-wrangler plugin of clauderoadmapwrangler: the house-style roadmap method as Claude Code skills.",
+  "plugins": [
+    {
+      "name": "roadmap-wrangler",
+      "source": "./plugins/roadmap-wrangler",
+      "description": "Plan, re-plan, formalise and read house-style roadmaps.",
+      "category": "productivity"
+    }
+  ]
+}

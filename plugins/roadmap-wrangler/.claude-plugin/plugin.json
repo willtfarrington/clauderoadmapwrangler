@@ -1,0 +1,13 @@
+{
+  "name": "roadmap-wrangler",
+  "displayName": "Roadmap Wrangler",
+  "description": "A roadmap method for projects run as session-sized briefs: plan a project through an interview, re-plan a phase, formalise a project into the house style, and report where a roadmap stands.",
+  "author": {
+    "name": "W. Taylor Farrington",
+    "url": "https://github.com/willtfarrington"
+  },
+  "homepage": "https://github.com/willtfarrington/clauderoadmapwrangler",
+  "repository": "https://github.com/willtfarrington/clauderoadmapwrangler",
+  "license": "MIT",
+  "keywords": ["roadmap", "planning", "briefs", "decision-log", "house-style"]
+}

@@ -2518,12 +2518,35 @@ fn revert_session(args: &[&str]) -> ExitCode {
     }
 }
 
+/// The variable Claude Code gives the commands its tools run: the session's id (seen in 2.1.316,
+/// EP-22).
+const CALLER: &str = "CLAUDE_CODE_SESSION_ID";
+
+/// The session that runs this command through its tools, if one does.
+fn caller() -> Option<String> {
+    std::env::var(CALLER)
+        .ok()
+        .map(|id| id.trim().to_owned())
+        .filter(|id| !id.is_empty())
+}
+
 /// The sessions `claude agents --json` lists in `folder`, in words (EP-15b): those that work or
 /// wait there, each of which refuses a revert, and those open with nothing to do. A listing
 /// that does not answer refuses it too: the revert must know that nothing works there.
 fn live_sessions(
     registry: &crw_core::registry::Registry,
     folder: &Path,
+) -> (Vec<String>, Vec<String>) {
+    live_sessions_but(registry, folder, None)
+}
+
+/// [`live_sessions`] with the session `caller` left out: the formalise step's, run by a session
+/// in the project it writes into, whose own turn waits for it (EP-22; the plugin's formalise
+/// skill), while any other session at work there still refuses the write.
+fn live_sessions_but(
+    registry: &crw_core::registry::Registry,
+    folder: &Path,
+    caller: Option<&str>,
 ) -> (Vec<String>, Vec<String>) {
     let Some(program) = session::cli::locate(registry.settings.claude_cli.as_deref()) else {
         return (
@@ -2542,14 +2565,27 @@ fn live_sessions(
             );
         }
     };
+    sessions_in(&agents, folder, caller)
+}
+
+/// The listed sessions in `folder`, in words: those that work or wait there, and those open with
+/// nothing to do; the session `caller` is left out.
+fn sessions_in(
+    agents: &[agents::Agent],
+    folder: &Path,
+    caller: Option<&str>,
+) -> (Vec<String>, Vec<String>) {
     let here = [Registered {
         name: String::new(),
         folder: folder.to_owned(),
         revert: true,
     }];
     let (mut working, mut idle) = (Vec::new(), Vec::new());
-    for agent in &agents {
+    for agent in agents {
         if project_of(&here, agent.folder()).is_none() {
+            continue;
+        }
+        if caller.is_some() && agent.session_id.as_deref() == caller {
             continue;
         }
         let id = agent.session_id.as_deref().map_or("-", revert::short);
@@ -3098,13 +3134,20 @@ fn formalise_project(args: &[&str]) -> ExitCode {
         println!("\nNothing changed. `crw formalise {target} --yes` writes.");
         return ExitCode::SUCCESS;
     }
-    let (working, _) = live_sessions(&registry, &folder);
+    let caller = caller();
+    let (working, _) = live_sessions_but(&registry, &folder, caller.as_deref());
     if !working.is_empty() {
         println!(
             "\nrefused while a session works or waits there: {}. Nothing changed.",
             working.join("; ")
         );
         return ExitCode::FAILURE;
+    }
+    if let Some(id) = &caller {
+        println!(
+            "\nthe session running this command ({}) is not counted",
+            revert::short(id)
+        );
     }
     let applied = match formalise::apply(&plan, &store.backups, &today) {
         Ok(applied) => applied,
@@ -3313,6 +3356,31 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The formalise step's session check (EP-22): the session that runs `crw formalise --yes`
+    /// in its own project is left out, another one at work there still refuses the write, and
+    /// the revert's check, given no caller, counts every session.
+    #[test]
+    fn the_session_running_the_command_is_left_out_of_its_check() {
+        let agents = agents::parse(
+            r#"[
+              {"cwd": "C:\\Data\\alpha", "sessionId": "caller-1", "status": "busy"},
+              {"cwd": "C:\\Data\\alpha\\crates", "sessionId": "other-2", "status": "waiting"},
+              {"cwd": "C:\\Data\\alpha", "sessionId": "tab-3", "status": "idle"},
+              {"cwd": "C:\\Data\\beta", "sessionId": "elsewhere", "status": "busy"}
+            ]"#,
+        )
+        .unwrap();
+        let alpha = Path::new(r"C:\Data\alpha");
+        let (working, idle) = sessions_in(&agents, alpha, Some("caller-1"));
+        assert_eq!(working.len(), 1, "{working:?}");
+        assert!(working[0].contains("is waiting"), "{working:?}");
+        assert_eq!(idle.len(), 1);
+        let (alone, _) = sessions_in(&agents[..1], alpha, Some("caller-1"));
+        assert!(alone.is_empty(), "{alone:?}");
+        let (all, _) = sessions_in(&agents, alpha, None);
+        assert_eq!(all.len(), 2, "{all:?}");
+    }
 
     /// `crw set`'s permission mode (EP-19b): a mode the tool knows, in its spelling; `default`
     /// for taking the project's out; anything else refused with the modes named.
