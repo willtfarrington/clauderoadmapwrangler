@@ -788,7 +788,9 @@ fn inbox(
         ui.horizontal_wrapped(|ui| {
             ui.label(RichText::new(&message.id).monospace().strong());
             if message.urgent {
-                style::chip(ui, "urgent", style::red(ui));
+                style::chip(ui, "urgent", style::red(ui)).on_hover_text(
+                    "Flagged [urgent]: the owner is notified, not the session (D-13)",
+                );
             }
             let from = [message.from.clone(), message.date.clone()]
                 .into_iter()
@@ -799,9 +801,15 @@ fn inbox(
                 ui.label(RichText::new(format!("from {from}")).weak());
             }
         });
+        // A trailing `[urgent]` is the chip's to say (EP-20a).
+        let text = if message.urgent {
+            crw_core::inbox::without_urgent(&message.text)
+        } else {
+            &message.text
+        };
         markup::note(
             ui,
-            &message.text,
+            text,
             Look {
                 sentences: true,
                 ..Look::default()

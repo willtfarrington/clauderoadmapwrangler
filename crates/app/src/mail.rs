@@ -94,7 +94,11 @@ impl Board {
         let polled = self.watch.model.polled.is_some();
         let serving = matches!(self.watch.listening, Some(Listening::On(_)));
         let read = !self.loader.reading_files && !self.portfolio.projects.is_empty();
-        if !self.mail.due || self.mail.running.is_some() || !polled || !serving || !read {
+        // The urgent messages' first look comes first, so that an urgent letter this window
+        // delivers is news to it, not part of what it takes as seen (EP-20a's review).
+        let looked = self.toasts.urgent_looked();
+        if !self.mail.due || self.mail.running.is_some() || !polled || !serving || !read || !looked
+        {
             return;
         }
         // Taken as done before the registry is read, so a registry that does not read is tried
@@ -314,6 +318,17 @@ mod tests {
         board.watch.model.polled = None;
         board.mail_pass();
         assert!(board.mail.running.is_none());
+        // With the notifications on, no round before the urgent messages' first look (EP-20a's
+        // review); the look lets it go.
+        board.watch.model.polled = Some(now);
+        board.toasts.start(None);
+        board.mail_pass();
+        assert!(board.mail.running.is_none());
+        assert!(
+            board.toasts.urgent(&board.portfolio).is_empty(),
+            "the first look"
+        );
+        assert!(board.toasts.urgent_looked());
         // With all of it, a round over the fake portfolio. Its folders hold no repository of
         // their own, so git is never asked for them and nothing is written into the tracked
         // fixtures: lantern's letter to harbor waits.

@@ -201,11 +201,17 @@ pub struct Settings {
     pub autopilot_daily_total: Option<u32>,
     /// The owner's Pause of every chain (D-22; EP-19): written only as `true`.
     pub autopilot_paused: Option<bool>,
+    /// The owner's ntfy server, reached over the tailnet, which each toast the popup shows is
+    /// pushed to (D-21; EP-20a): a name or an address with an optional port, `https://` unless
+    /// written `http://`; no push while it or the topic is missing.
+    pub ntfy_host: Option<String>,
+    /// The ntfy topic the pushes go to (letters, digits, `-` and `_`).
+    pub ntfy_topic: Option<String>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 14] = [
+    pub const KEYS: [&str; 16] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -220,11 +226,13 @@ impl Settings {
         "autopilot_pause_percent",
         "autopilot_daily_total",
         "autopilot_paused",
+        "ntfy_host",
+        "ntfy_topic",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
     /// two times, `usage_endpoint` and `autopilot_paused` on or off, the percents and the
-    /// day's total numbers.
+    /// day's total numbers, `ntfy_host` a server and `ntfy_topic` a word.
     pub fn is_path(key: &str) -> bool {
         !matches!(
             key,
@@ -236,6 +244,17 @@ impl Settings {
                 | "autopilot_pause_percent"
                 | "autopilot_daily_total"
                 | "autopilot_paused"
+                | "ntfy_host"
+                | "ntfy_topic"
+        )
+    }
+
+    /// The ntfy publisher the settings name (D-21; EP-20a): `None` while the host or the topic is
+    /// missing, an error in words when one does not read.
+    pub fn ntfy(&self) -> Option<Result<crate::notify::ntfy::Ntfy, String>> {
+        crate::notify::ntfy::Ntfy::from_settings(
+            self.ntfy_host.as_deref(),
+            self.ntfy_topic.as_deref(),
         )
     }
 
@@ -289,6 +308,8 @@ impl Settings {
             "autopilot_paused" => self
                 .autopilot_paused
                 .map(|on| if on { "on" } else { "off" }.to_owned()),
+            "ntfy_host" => self.ntfy_host.clone(),
+            "ntfy_topic" => self.ntfy_topic.clone(),
             _ => None,
         }
     }
@@ -1188,9 +1209,10 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours` set to `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to
-    /// `off` and the percents and the day's total set to `default` (the defaults, which the
-    /// builds before EP-17, EP-18 and EP-19 would refuse to read) are taken out.
+    /// `quiet_hours`, `ntfy_host` and `ntfy_topic` set to `none`, `usage_endpoint` set to `on`,
+    /// `autopilot_paused` set to `off` and the percents and the day's total set to `default`
+    /// (the defaults, which the builds before EP-17, EP-18, EP-19 and EP-20a would refuse to
+    /// read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -1199,7 +1221,7 @@ impl Changes<'_> {
             )));
         }
         let default = match key {
-            "quiet_hours" => value.trim() == "none",
+            "quiet_hours" | "ntfy_host" | "ntfy_topic" => value.trim().eq_ignore_ascii_case("none"),
             "usage_endpoint" => match value.trim() {
                 "on" => true,
                 "off" => false,
@@ -1275,6 +1297,19 @@ impl Changes<'_> {
                 }
             },
             "autopilot_paused" => Value::from(true),
+            // The refusal quotes the value to the owner who typed it, never into a log.
+            "ntfy_host" => match crate::notify::ntfy::server_url(value) {
+                Ok(_) => Value::from(value.trim()),
+                Err(why) => {
+                    return Err(Error::Invalid(format!("{why}, or none, not {value:?}")));
+                }
+            },
+            "ntfy_topic" => match crate::notify::ntfy::check_topic(value.trim()) {
+                Ok(()) => Value::from(value.trim()),
+                Err(why) => {
+                    return Err(Error::Invalid(format!("{why}, or none, not {value:?}")));
+                }
+            },
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
             }
@@ -2056,6 +2091,56 @@ state = "paused"
         let wrong = text.replace("22:00-07:30", "evenings");
         fs::write(&store.path, wrong).unwrap();
         assert!(store.load().is_err());
+    }
+
+    #[test]
+    fn the_ntfy_server_and_topic_are_set_read_back_and_taken_away() {
+        let scratch = Scratch::new("registry-ntfy");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let settings = store.load().unwrap().registry.settings;
+        assert_eq!(settings.ntfy(), None, "off until both are set");
+        store
+            .change(TODAY, |c| c.set_setting("ntfy_host", " ntfy.example "))
+            .unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("ntfy_topic", "crw-alerts"))
+            .unwrap();
+        assert_eq!(
+            registry.settings.get("ntfy_host").as_deref(),
+            Some("ntfy.example")
+        );
+        assert_eq!(
+            registry.settings.get("ntfy_topic").as_deref(),
+            Some("crw-alerts")
+        );
+        let ntfy = registry.settings.ntfy().unwrap().unwrap();
+        assert_eq!(ntfy.server(), "https://ntfy.example");
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(text.contains("ntfy_host = \"ntfy.example\""), "{text}");
+        // A server with a path or a topic ntfy refuses writes nothing.
+        for (key, wrong) in [
+            ("ntfy_host", "ntfy.example/alerts"),
+            ("ntfy_host", ""),
+            ("ntfy_topic", "two words"),
+        ] {
+            let refused = store.change(TODAY, |c| c.set_setting(key, wrong));
+            assert!(refused.is_err(), "{key} {wrong:?}");
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        // None takes a key out, and the publisher is off again.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("ntfy_topic", "none"))
+            .unwrap();
+        assert_eq!(registry.settings.ntfy_topic, None);
+        assert_eq!(registry.settings.ntfy(), None);
+        // `None` as typed is none too, never a server of that name.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("ntfy_host", "None"))
+            .unwrap();
+        assert_eq!(registry.settings.ntfy_host, None);
+        assert!(!Settings::is_path("ntfy_host") && !Settings::is_path("ntfy_topic"));
     }
 
     #[test]

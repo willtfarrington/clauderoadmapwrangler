@@ -151,7 +151,10 @@ commands:
                                  autopilot_pause_percent (1 to 100, or default: 90; at it the
                                  weekly or Fable figure holds every chain until its reset),
                                  autopilot_daily_total (chained runs a day in all projects, or
-                                 default: 4), autopilot_paused (on or off: your Pause)
+                                 default: 4), autopilot_paused (on or off: your Pause),
+                                 ntfy_host and ntfy_topic (your ntfy server, https:// unless
+                                 written http://, and its topic: each notification the popup
+                                 shows is pushed there too; none takes one out)
   autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
                                  the projects with it on, their limits and permission modes and
                                  whether their runs would wait at each shell command, and the
@@ -1928,6 +1931,24 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 println!("note: a window that runs reads it before its next notification");
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "ntfy_host" || key == "ntfy_topic" => {
+                match registry.settings.get(key) {
+                    Some(set) => println!("{key} = {set}"),
+                    None => println!("{key}: none"),
+                }
+                match registry.settings.ntfy() {
+                    Some(Ok(ntfy)) => println!(
+                        "note: a window that runs pushes each notification its popup shows to {} \
+                         from the next one; File > Send a test notification checks it",
+                        ntfy.server()
+                    ),
+                    Some(Err(why)) => println!("note: ntfy stays off: {why}"),
+                    None => {
+                        println!("note: ntfy stays off until ntfy_host and ntfy_topic are both set")
+                    }
+                }
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) if key == "usage_endpoint" => {
                 if registry.settings.usage_endpoint_on() {
                     println!("usage_endpoint = on (the default)");
@@ -1980,6 +2001,9 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "decisions") => format!("{} (the default)", session::Route::default().as_str()),
             (None, "quiet_hours") => "none (the default: notifications at any hour)".to_owned(),
             (None, "usage_endpoint") => "on (the default: the window polls it)".to_owned(),
+            (None, "ntfy_host" | "ntfy_topic") => {
+                "none (the default: nothing is pushed to a phone)".to_owned()
+            }
             (None, "fable_downshift_percent") => format!(
                 "{} (the default: above it an S brief on Fable is proposed Opus 5.5)",
                 rules::DEFAULT_DOWNSHIFT_PERCENT

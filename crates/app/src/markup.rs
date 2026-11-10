@@ -637,6 +637,143 @@ pub fn sentences(text: &str) -> Vec<&str> {
     out
 }
 
+/// What a run's result says it did, in one sentence (EP-20a, the owner's choice): the first
+/// sentence of its first prose paragraph, with list items, headings, rules, a bold label alone on
+/// its line, lines of links, tables, fenced code and an intro ending in a colon before a list
+/// skipped, and the markdown dropped (bold, code and struck marks gone, a link kept as its text).
+/// A first sentence of three words or fewer (`Done.`, `**Not exercised.**`) takes the next with
+/// it. With no prose at all, the first list item, else the first heading, else the first line
+/// that holds anything, markdown dropped. `None` for an empty text.
+pub fn gist(text: &str) -> Option<String> {
+    let text = text.replace("\r\n", "\n");
+    let mut fenced = false;
+    for paragraph in text.split("\n\n") {
+        let mut prose: Vec<&str> = Vec::new();
+        // The prose ends at a list, a heading or a label after it; the lines after that are still
+        // read for the fences they open or close (EP-20a's review).
+        let (mut ended, mut listed) = (false, false);
+        for line in paragraph.lines().map(str::trim) {
+            if is_fence(line) {
+                fenced = !fenced;
+                continue;
+            }
+            if fenced || ended || line.is_empty() {
+                continue;
+            }
+            if is_rule(line) {
+                // Under prose a rule makes it a heading (setext); alone it is a break.
+                prose.clear();
+                continue;
+            }
+            if list_marker(line).is_some() {
+                ended = true;
+                listed = !prose.is_empty();
+                continue;
+            }
+            if line.starts_with('#') || line.starts_with('|') || label_alone(line) || links(line) {
+                ended = !prose.is_empty();
+                continue;
+            }
+            let body = line.trim_start_matches('>').trim_start();
+            if !body.is_empty() {
+                prose.push(body);
+            }
+        }
+        let joined = prose.join(" ");
+        // An intro to the list after it says nothing of its own.
+        if prose.is_empty() || listed && joined.trim_end().ends_with(':') {
+            continue;
+        }
+        let plain = plain(&joined);
+        let said = sentences(&plain);
+        let Some(first) = said.first().copied() else {
+            continue;
+        };
+        return Some(match said.get(1) {
+            Some(next) if first.split_whitespace().count() <= 3 => format!("{first} {next}"),
+            _ => first.to_owned(),
+        });
+    }
+    // No prose: what a list says first, else a heading, else any line, outside fenced code.
+    let (mut item, mut heading, mut any) = (None, None, None);
+    fenced = false;
+    for line in text.lines().map(str::trim) {
+        if is_fence(line) {
+            fenced = !fenced;
+            continue;
+        }
+        if fenced || line.is_empty() || is_rule(line) {
+            continue;
+        }
+        if let Some(marker) = list_marker(line) {
+            item.get_or_insert(&line[marker..]);
+        } else if line.starts_with('#') {
+            heading.get_or_insert(line.trim_start_matches('#'));
+        } else {
+            any.get_or_insert(line.trim_start_matches(['>', '|']));
+        }
+    }
+    let said = plain(item.or(heading).or(any)?);
+    (!said.is_empty()).then_some(said)
+}
+
+/// Whether `line` opens or closes fenced code.
+fn is_fence(line: &str) -> bool {
+    line.starts_with("```") || line.starts_with("~~~")
+}
+
+/// Whether `line` is a thematic break (`---`, `***`, `___`) or a heading's underline (`===`).
+fn is_rule(line: &str) -> bool {
+    let marks: Vec<char> = line.chars().filter(|c| !c.is_whitespace()).collect();
+    marks.len() >= 3
+        && ['-', '*', '_', '=']
+            .iter()
+            .any(|mark| marks.iter().all(|c| c == mark))
+}
+
+/// The length of the list marker `line` opens with (`- `, `* `, `+ `, `1. `, `2) `).
+fn list_marker(line: &str) -> Option<usize> {
+    if ["- ", "* ", "+ "]
+        .iter()
+        .any(|marker| line.starts_with(marker))
+    {
+        return Some(2);
+    }
+    let digits = line.bytes().take_while(u8::is_ascii_digit).count();
+    let rest = &line[digits..];
+    (digits > 0 && (rest.starts_with(". ") || rest.starts_with(") "))).then_some(digits + 2)
+}
+
+/// Whether `line` is a bold label alone (`**What was built**`, `**Checks:**`, `**Verified.**`); a
+/// bold sentence of more than three words (`**EP-7 is done and committed.**`) is prose.
+fn label_alone(line: &str) -> bool {
+    let runs = spans(line);
+    let bold = runs.iter().any(|(_, marks)| marks.bold)
+        && runs
+            .iter()
+            .all(|(run, marks)| marks.bold || run.chars().all(|c| !c.is_alphanumeric()));
+    let said = plain(line);
+    bold && !(said.ends_with(['.', '!', '?']) && said.split_whitespace().count() > 3)
+}
+
+/// Whether `line` holds links and nothing else that says anything, or is a bare address.
+fn links(line: &str) -> bool {
+    let runs = spans(line);
+    let bare = (line.starts_with("http://") || line.starts_with("https://"))
+        && !line.contains(char::is_whitespace);
+    bare || (runs.iter().any(|(_, marks)| marks.link)
+        && runs
+            .iter()
+            .filter(|(_, marks)| !marks.link)
+            .all(|(run, _)| run.chars().all(|c| !c.is_alphanumeric())))
+}
+
+/// `text` without its markdown and with its whitespace runs made single spaces.
+fn plain(text: &str) -> String {
+    let runs: String = spans(text).into_iter().map(|(run, _)| run).collect();
+    runs.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
 /// Whether `before`, the sentence so far, ends with an abbreviation, whose full stop follows.
 fn abbreviated(before: &str) -> bool {
     let word = before
@@ -825,6 +962,94 @@ pub fn note(ui: &mut egui::Ui, text: &str, look: Look) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A result in the shape the ledger's real ones take (EP-20a's pickup): a summary first, then
+    /// labelled paragraphs, lists and a list of sources.
+    const RESULT: &str = "EP-7 is done and committed (`a1b2c3d`, then `e4f5a6b` recording the \
+hash). Nothing is pushed.
+
+**What was built**
+- **The export** in `crates/export`: a column per decade.
+- A [README](README.md) section.
+
+**Not exercised.** No session has run it yet. The re-plan reads it.
+
+Sources for the decade rule:
+- [Archive guide](https://example.org/guide): folders by decade.
+";
+
+    #[test]
+    fn the_gist_is_the_first_prose_paragraphs_first_sentence() {
+        assert_eq!(
+            gist(RESULT).as_deref(),
+            Some("EP-7 is done and committed (a1b2c3d, then e4f5a6b recording the hash).")
+        );
+        // Headings, a label alone, a line of links and a list before the prose are skipped.
+        let late = "## Summary\n\n**What it does now**\n- a list item first.\n\n\
+                    [one](https://example.org) · [two](https://example.org/2)\n\n\
+                    The archive reads its folders by decade. More follows.";
+        assert_eq!(
+            gist(late).as_deref(),
+            Some("The archive reads its folders by decade.")
+        );
+        // A label that is a sentence of its own takes the next sentence; markdown goes.
+        assert_eq!(
+            gist("**Done.** EP-5 is committed as `abc1234`; the [push](x) is yours. Then more.")
+                .as_deref(),
+            Some("Done. EP-5 is committed as abc1234; the push is yours.")
+        );
+        // Fenced code is no prose; CRLF reads as LF.
+        assert_eq!(
+            gist("```\nlet x = 1. Not this.\n```\r\n\r\nEP-2 is done and committed. Yes.")
+                .as_deref(),
+            Some("EP-2 is done and committed.")
+        );
+        // A result that is only a list says its first item; an empty one nothing.
+        assert_eq!(
+            gist("- **First** item.\n- Second item.").as_deref(),
+            Some("First item.")
+        );
+        assert_eq!(gist(" \n\n "), None);
+        // From EP-20a's review. A fence opened inside a list item, a blank line in its code.
+        let done = Some("EP-7 is done and committed.");
+        let fenced = "1. Run the install:\n   ```powershell\n   pwsh -File x.ps1\n\n   crw doctor\n   \
+                      ```\n2. Restart.\n\nEP-7 is done and committed.";
+        assert_eq!(gist(fenced).as_deref(), done);
+        // Rules, a heading's underline and an empty quote are no prose.
+        for text in [
+            "## Summary\n\n---\n\nEP-7 is done and committed.",
+            "## Summary\n---\nEP-7 is done and committed.",
+            "Summary\n=======\nEP-7 is done and committed.",
+            "## Summary\n\n>\n\nEP-7 is done and committed.",
+        ] {
+            assert_eq!(gist(text).as_deref(), done, "{text:?}");
+        }
+        // A bold sentence alone is prose; an intro to a list is not; a short first sentence takes
+        // the next, bold or not.
+        assert_eq!(
+            gist("**EP-7 is done and committed.**\n\n- Built X\n\nAsk for the push.").as_deref(),
+            done
+        );
+        assert_eq!(
+            gist("Here is what I did:\n- Built X\n\nNothing is pushed, as you asked.").as_deref(),
+            Some("Nothing is pushed, as you asked.")
+        );
+        assert_eq!(
+            gist("Done. EP-7 is committed as abc. More.").as_deref(),
+            Some("Done. EP-7 is committed as abc.")
+        );
+        // With no prose, a list's first item, else a heading, outside fenced code.
+        assert_eq!(
+            gist("```text\nok\n```\n\n- 412 passed").as_deref(),
+            Some("412 passed")
+        );
+        assert_eq!(
+            gist("## EP-7 complete\n\n```text\nok\n```").as_deref(),
+            Some("EP-7 complete")
+        );
+        assert_eq!(list_marker("12) twelve"), Some(4));
+        assert_eq!(list_marker("2026-11-10 is a date"), None);
+    }
 
     /// The runs as text and a tag: b bold, c code, s struck, l a link.
     fn marked(text: &str) -> Vec<(String, &'static str)> {

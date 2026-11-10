@@ -102,6 +102,8 @@ target\release\crw.exe revert <project> <id> --yes  # copy the work out, then pu
 target\release\crw.exe set <project> revert no    # record no session starts there, and allow no revert
 target\release\crw.exe notifications [--all]      # the window's notifications and badges; reads only
 target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
+target\release\crw.exe setting ntfy_host ntfy.example  # push each popup to this ntfy server too
+target\release\crw.exe setting ntfy_topic <topic>      # ...on this topic; none for either turns it off
 target\release\crw.exe usage            # the usage meter's readings and changes of state; reads only
 target\release\crw.exe setting usage_endpoint off  # keep the meter on the status lines; on undoes it
 target\release\crw.exe setting fable_downshift_percent 70  # the downshift's mark; default undoes it
@@ -240,13 +242,18 @@ The window calls the owner with a popup of its own: a small window at the screen
 always on top, that takes no keyboard focus and has no taskbar button (Windows' toasts can be off,
 and the popup does not depend on them). A notification comes when a session waits for an answer or
 a permission (one of the window's headless runs, a run deferred at its time limit, or a session
-Claude Code reports waiting in VS Code or a terminal), when a run finishes or fails, and when a
-session elsewhere ends a turn of two minutes' work or more. The popup lists the latest, the newest
+Claude Code reports waiting in VS Code or a terminal), when a run finishes (saying the first
+sentence of its result's first paragraph) or fails, when a session elsewhere ends a turn of two
+minutes' work or more, and when a message flagged `[urgent]` arrives in a project's inbox from
+anyone but the owner. The popup lists the latest, the newest
 first, each with Show, which brings the window forward on the pane that matters or the VS Code
 window a session waits in, and Dismiss; they stay until dismissed. Notifications are held back in
 the registry's quiet hours (`crw setting quiet_hours 22:00-07:00`, none by default) and while the
 window is in front, where the status bar says them instead; File, Send a test notification puts one
-in the popup. The tray icon counts what waits for the owner and marks what is new since the window
+in the popup. With `crw setting ntfy_host <server>` and `crw setting ntfy_topic <topic>`, each
+notification the popup shows is also pushed to that [ntfy](https://ntfy.sh) server for the phone
+(`https://` unless the host is written `http://`; urgent messages at ntfy's `urgent` priority, waits,
+failures and usage marks at `high`), and the test is pushed too. The tray icon counts what waits for the owner and marks what is new since the window
 was last in front: an unadopted folder, a remote or a backup to look at, an inbox message. A left
 click on it shows the window; its menu shows the window too, opens the launch dialog on a pinned
 project's next brief, or quits. Closing the window leaves it in the tray with its headless sessions
@@ -326,7 +333,8 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   `owner-decisions.md` and `open-questions.md` registers, handoff notes, and the `Parked` and
   `Handed on` blocks of the latest completed brief) are read and shown, never rewritten.
 - **Inbox.** `roadmap/inbox.md`, one line per message from another project:
-  `- [ ] IN-n (from <project> EP-k, date) text`, optionally `[urgent]`. A sending session writes
+  `- [ ] IN-n (from <project> EP-k, date) text`, optionally ending `[urgent]`, which notifies the
+  owner (the popup, and ntfy when set), never the receiving session. A sending session writes
   `> **Handed on (to <project>).** …` after its completion note and the tool delivers it once the brief
   is committed and no session works in the receiving project (its first reading of a project counts
   the blocks already there as delivered); the receiving

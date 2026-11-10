@@ -196,3 +196,7 @@ marked *(EP-35)*.
   the quiet hours and Dismiss all (D-21 addendum).
 - *(EP-16)* References and links in the Detail pane's notes that open what they name: a brief, a
   decision, a URL (EP-15a's out-of-scope list; D-25 addendum).
+- *(EP-20a)* An urgent message's push held during the quiet hours and sent at their end, a queue
+  that outlives the window's pass (the owner kept urgent pushes held back like the rest, the
+  alternative not picked at EP-20a's close); an ntfy access token setting for a server outside
+  the tailnet; ntfy for the badges; the two ntfy settings set from the window.

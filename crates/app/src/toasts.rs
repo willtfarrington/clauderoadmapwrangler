@@ -5,22 +5,30 @@
 //! reports elsewhere, told apart from one look to the next (a wait, the end of a long turn, a
 //! background session's end), and from the usage meter's marks (EP-17). A toast is held back in the quiet hours and while the window is in
 //! front (its status bar says it then); a session elsewhere's second wait within two minutes is a
-//! repeat; one session's moments of one pass make one toast. The popup's Show brings the window or
-//! the session's VS Code window forward. Each toast, toast held back, badge arrival and Show is a
-//! line of the ledger's `event` table. Nothing is shown or logged before `main` turns them on:
-//! never in a test or a screenshot run.
+//! repeat; one session's moments of one pass make one toast. A message flagged urgent that
+//! arrives in an inbox is a toast too (EP-20a). The popup's Show brings the window or the
+//! session's VS Code window forward. Each toast the popup shows also goes to the owner's phone
+//! through ntfy when the registry names a server and a topic (EP-20a), on a thread of its own.
+//! Each toast, toast held back, push, badge arrival and Show is a line of the ledger's `event`
+//! table. Nothing is shown, pushed or logged before `main` turns them on: never in a test or a
+//! screenshot run.
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, NaiveTime, TimeDelta, Utc};
 use crw_core::badges::backup::State as BackupState;
 use crw_core::badges::hosting::{Hosting, Verdict};
+use crw_core::inbox::Message;
 use crw_core::ledger::{self, Ledger};
+use crw_core::notify::ntfy::{Ntfy, Push};
 use crw_core::notify::{self, Fate, Kind, QuietHours};
 use crw_core::session::Outcome;
 use crw_core::sessions::{Mode, Seen, Status};
+use crw_core::tasks::legacy::is_owner;
 use crw_core::usage::{self, Crossing, Which};
 use eframe::egui;
 
@@ -58,6 +66,8 @@ pub enum Target {
     Usage,
     /// The window, the Sessions pane's All tab in front, where the chain log is (EP-19a).
     ChainLog,
+    /// The window, a project selected and the Detail pane in front, where its inbox is (EP-20a).
+    Project(String),
     /// The window as it stands.
     Window,
 }
@@ -126,6 +136,38 @@ impl Toast {
         );
         toast.warning = warning;
         toast
+    }
+
+    /// A message flagged urgent arrived in `project`'s inbox (D-13, D-21; EP-20a): who sent it and
+    /// what it says, its Show bringing the project's Detail pane forward, where its inbox is.
+    pub fn urgent(project: &str, message: &Message) -> Self {
+        let text = crw_core::inbox::without_urgent(&message.text);
+        let text = match &message.from {
+            Some(from) => format!("From {from}: {text}"),
+            None => text.to_owned(),
+        };
+        Self::new(
+            Kind::Urgent,
+            project,
+            format!("{project}: {} is urgent", message.id),
+            text,
+            Target::Project(project.to_owned()),
+        )
+    }
+
+    /// What its push to the owner's phone says (EP-20a): its title, its text and how hard it
+    /// asks; `None` for the tool's own words but the owner's test.
+    fn push(&self) -> Option<Push> {
+        let priority = match self.kind {
+            Some(kind) => kind.priority(),
+            None if self.what == "test" => notify::ntfy::Priority::Default,
+            None => return None,
+        };
+        Some(Push {
+            title: self.title.clone(),
+            text: self.text.clone(),
+            priority,
+        })
     }
 
     /// The first close to the tray, said once (D-29).
@@ -199,10 +241,14 @@ impl Toast {
         format!("{}: {}", self.title, self.text)
     }
 
-    /// Whether the status bar says it in amber: a wait, a failure, a usage mark, a chain held or
-    /// ended.
+    /// Whether the status bar says it in amber: a wait, a failure, a usage mark, an urgent
+    /// message, a chain held or ended.
     pub fn is_warning(&self) -> bool {
-        self.warning || matches!(self.kind, Some(Kind::Waiting | Kind::Failed | Kind::Usage))
+        self.warning
+            || matches!(
+                self.kind,
+                Some(Kind::Waiting | Kind::Failed | Kind::Usage | Kind::Urgent)
+            )
     }
 
     fn line(&self, fate: &Fate) -> String {
@@ -252,9 +298,16 @@ pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<To
 }
 
 /// The toasts a screenshot run's popup shows (EP-15), the oldest first: a test, a failure, an end,
-/// two waits, one of them in VS Code, and a chain's end (EP-19a).
+/// two waits, one of them in VS Code, a chain's end (EP-19a) and an urgent message (EP-20a).
 #[cfg(feature = "screenshot")]
 pub fn canned() -> Vec<Toast> {
+    let (messages, _) = crw_core::inbox::parse(
+        "- [ ] IN-4 (from quarry EP-3, 2026-11-10) The berth export renamed its length column; \
+         read it before your next brief. [urgent]\n",
+    );
+    let urgent = messages
+        .first()
+        .map(|message| Toast::urgent("harbor", message));
     let failed = News::Ended(Outcome::Failed, "error max budget usd".to_owned());
     let finished = News::Ended(
         Outcome::Completed,
@@ -280,10 +333,140 @@ pub fn canned() -> Vec<Toast> {
         from_news(900, "harbor", "harbor EP-4", &asked),
         Some(in_vs_code),
         Some(chain),
+        urgent,
     ]
     .into_iter()
     .flatten()
     .collect()
+}
+
+/// The urgent messages a look finds.
+struct Look {
+    /// The open messages flagged urgent, by project, but the owner's own (D-13: the flag notifies
+    /// the owner, who needs no word of a message they wrote).
+    found: Vec<(String, Message)>,
+    /// The projects, lowercase, whose inbox did not read this time (none, or a read that failed):
+    /// what the last look saw there stands, so a passing read error toasts nothing again.
+    unread: BTreeSet<String>,
+}
+
+fn urgent_messages(portfolio: &Portfolio) -> Look {
+    let mut look = Look {
+        found: Vec::new(),
+        unread: BTreeSet::new(),
+    };
+    for row in &portfolio.projects {
+        let Some(inbox) = &row.snapshot.inbox else {
+            look.unread.insert(row.name().to_lowercase());
+            continue;
+        };
+        for message in inbox.open().filter(|message| message.urgent) {
+            if message.sender.as_deref().is_some_and(is_owner) {
+                continue;
+            }
+            look.found.push((row.name().to_owned(), message.clone()));
+        }
+    }
+    look
+}
+
+/// The urgent messages that have arrived since the last look, as toasts (EP-20a); `seen` holds
+/// those of the last look, the first look taken as seen, as the badges' first reading is. A
+/// message ticked or gone is forgotten, unless its inbox did not read this time.
+fn urgent_arrivals(seen: &mut Option<BTreeSet<(String, String)>>, look: Look) -> Vec<Toast> {
+    let Look {
+        found: current,
+        unread,
+    } = look;
+    let mut keys: BTreeSet<(String, String)> = current
+        .iter()
+        .map(|(project, message)| (project.to_lowercase(), message.id.clone()))
+        .collect();
+    if let Some(before) = seen.as_ref() {
+        keys.extend(
+            before
+                .iter()
+                .filter(|(project, _)| unread.contains(project))
+                .cloned(),
+        );
+    }
+    let Some(before) = seen.replace(keys) else {
+        return Vec::new();
+    };
+    current
+        .iter()
+        .filter(|(project, message)| {
+            !before.contains(&(project.to_lowercase(), message.id.clone()))
+        })
+        .map(|(project, message)| Toast::urgent(project, message))
+        .collect()
+}
+
+/// A push waiting for the pusher's thread: the server, the message, and what its log line names.
+struct Pending {
+    ntfy: Ntfy,
+    push: Push,
+    project: Option<String>,
+    what: &'static str,
+}
+
+/// The pushes to ntfy, sent one at a time on a thread of their own so that a slow or absent server
+/// never holds the window (EP-20a); each push is logged, and the latest outcome kept for the
+/// status bar.
+struct Pusher {
+    tx: mpsc::Sender<Pending>,
+    last: Arc<Mutex<Option<String>>>,
+}
+
+impl Pusher {
+    /// The thread, started; `None` when Windows would not start one.
+    fn start(ledger: Option<PathBuf>) -> Option<Self> {
+        let (tx, rx) = mpsc::channel::<Pending>();
+        let last = Arc::new(Mutex::new(None));
+        let said = Arc::clone(&last);
+        let thread = std::thread::Builder::new().name("ntfy pushes".to_owned());
+        let started = thread.spawn(move || {
+            for pending in rx {
+                let outcome = pending.ntfy.publish(&pending.push);
+                let (fate, why) = match &outcome {
+                    Ok(_) => (Fate::Pushed, String::new()),
+                    Err(why) => (Fate::PushFailed, why.clone()),
+                };
+                let line = notify::line(&fate, pending.what, &pending.push.title, &why);
+                let logged = match &ledger {
+                    Some(path) => Ledger::open(path)
+                        .and_then(|ledger| {
+                            ledger.add_event(
+                                Utc::now(),
+                                notify::EVENT_KIND,
+                                pending.project.as_deref(),
+                                &line,
+                            )
+                        })
+                        .map(|_| ())
+                        .map_err(|e| e.to_string()),
+                    None => Ok(()),
+                };
+                let at = Local::now().format("%H:%M");
+                let mut words = match outcome {
+                    Ok(_) => format!("the last push went at {at}"),
+                    Err(why) => format!("the last push failed at {at}: {why}"),
+                };
+                if let Err(e) = logged {
+                    words.push_str(&format!(" (the ledger did not log it: {e})"));
+                }
+                *said.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = Some(words);
+            }
+        });
+        started.ok().map(|_| Self { tx, last })
+    }
+
+    fn last(&self) -> Option<String> {
+        self.last
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone()
+    }
 }
 
 /// A session elsewhere as the notifications last saw it.
@@ -603,9 +786,12 @@ impl Attention {
                     Kind::Remote => ("remote to look at", "remotes to look at"),
                     Kind::Backup => ("backup to look at", "backups to look at"),
                     Kind::Inbox => ("inbox message", "inbox messages"),
-                    Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage | Kind::Chain => {
-                        ("moment", "moments")
-                    }
+                    Kind::Waiting
+                    | Kind::Finished
+                    | Kind::Failed
+                    | Kind::Usage
+                    | Kind::Chain
+                    | Kind::Urgent => ("moment", "moments"),
                 };
                 format!("{n} {}", if n == 1 { one } else { many })
             })
@@ -629,6 +815,12 @@ pub struct Toasts {
     pub problem: Option<String>,
     /// How many toasts the popup has shown since the window started.
     pub shown: usize,
+    /// The urgent messages of the last look, by project and id; none before the first (EP-20a).
+    urgent: Option<BTreeSet<(String, String)>>,
+    /// When the urgent messages were last looked at.
+    urgent_at: Option<Instant>,
+    /// The pushes' thread, started at the first push (EP-20a).
+    pusher: Option<Pusher>,
 }
 
 impl Default for Toasts {
@@ -643,6 +835,9 @@ impl Default for Toasts {
             popup: Popup::default(),
             problem: None,
             shown: 0,
+            urgent: None,
+            urgent_at: None,
+            pusher: None,
         }
     }
 }
@@ -685,13 +880,35 @@ impl Toasts {
         }
     }
 
+    /// The urgent messages that arrived in the projects' inboxes since the last look, as toasts
+    /// (EP-20a), looked at once a second at most; the first look, at the window's first reading of
+    /// the files, is taken as seen.
+    pub fn urgent(&mut self, portfolio: &Portfolio) -> Vec<Toast> {
+        let due = self.urgent_at.is_none_or(|at| at.elapsed() >= MARKS_EVERY);
+        if !self.on || !due {
+            return Vec::new();
+        }
+        self.urgent_at = Some(Instant::now());
+        urgent_arrivals(&mut self.urgent, urgent_messages(portfolio))
+    }
+
+    /// Whether the urgent messages have had their first look, which the mailman's first round
+    /// waits for, so that a letter it delivers is news to the look (EP-20a's review); always so
+    /// while the toasts are off.
+    pub fn urgent_looked(&self) -> bool {
+        !self.on || self.urgent.is_some()
+    }
+
     /// Shows this pass's toasts in the popup, or holds them back (`quiet`, `in_front`), each
-    /// logged. Returns those held back because the window is in front, for its status bar to say.
+    /// logged; each one shown is pushed to `ntfy` as well (EP-20a, the owner's choice), when the
+    /// registry names a server. Returns those held back because the window is in front, for its
+    /// status bar to say.
     pub fn deliver(
         &mut self,
         toasts: Vec<Toast>,
         quiet: Option<QuietHours>,
         in_front: bool,
+        ntfy: Option<&Result<Ntfy, String>>,
         ctx: &egui::Context,
     ) -> Vec<Toast> {
         if !self.on {
@@ -707,6 +924,7 @@ impl Toasts {
             );
             match fate {
                 None => {
+                    self.push(&toast, ntfy);
                     self.shown += 1;
                     self.popup.push(toast);
                     ctx.request_repaint();
@@ -716,6 +934,39 @@ impl Toasts {
             }
         }
         in_view
+    }
+
+    /// Hands a toast the popup shows to the pushes' thread, or logs why it cannot go.
+    fn push(&mut self, toast: &Toast, ntfy: Option<&Result<Ntfy, String>>) {
+        let (Some(ntfy), Some(push)) = (ntfy, toast.push()) else {
+            return;
+        };
+        let ntfy = match ntfy {
+            Ok(ntfy) => ntfy.clone(),
+            Err(why) => {
+                let line = notify::line(&Fate::PushFailed, toast.what, &toast.title, why);
+                self.log(toast.project.as_deref(), &line);
+                return;
+            }
+        };
+        if self.pusher.is_none() {
+            self.pusher = Pusher::start(self.ledger.clone());
+        }
+        let Some(pusher) = &self.pusher else {
+            self.problem = Some("the thread that pushes to ntfy did not start".to_owned());
+            return;
+        };
+        let pending = Pending {
+            ntfy,
+            push,
+            project: toast.project.clone(),
+            what: toast.what,
+        };
+        if pusher.tx.send(pending).is_err() {
+            // Its thread has ended: the next push starts another.
+            self.pusher = None;
+            self.problem = Some("the thread that pushed to ntfy ended; a push was lost".to_owned());
+        }
     }
 
     /// The toasts the owner asked the popup to show since the last frame, each logged.
@@ -742,7 +993,7 @@ impl Toasts {
     }
 
     /// The notifications in words, for the status bar's hover.
-    pub fn line(&self, quiet: Option<QuietHours>) -> String {
+    pub fn line(&self, quiet: Option<QuietHours>, ntfy: Option<&Result<Ntfy, String>>) -> String {
         if !self.on {
             return "Notifications: off (a screenshot run, or not started)".to_owned();
         }
@@ -753,11 +1004,19 @@ impl Toasts {
             Some(hours) => format!("quiet hours {hours}"),
             None => "no quiet hours".to_owned(),
         };
+        let channels = match ntfy {
+            Some(Ok(ntfy)) => format!("the popup and ntfy at {}", ntfy.server()),
+            Some(Err(_)) => "the popup (ntfy's settings do not read)".to_owned(),
+            None => "the popup".to_owned(),
+        };
         let mut line = format!(
-            "Notifications: the popup, {hours}; {} shown, {} in the popup",
+            "Notifications: {channels}, {hours}; {} shown, {} in the popup",
             self.shown,
             self.popup.len()
         );
+        if let Some(last) = self.pusher.as_ref().and_then(Pusher::last) {
+            line.push_str(&format!("; ntfy: {last}"));
+        }
         if let Some(problem) = &self.problem {
             line.push_str(&format!("; {problem}"));
         }
@@ -1060,6 +1319,106 @@ mod tests {
             mark(Kind::Unadopted, None, "notes").words(),
             "a new folder notes"
         );
+    }
+
+    fn message(line: &str) -> Message {
+        crw_core::inbox::parse(line).0.remove(0)
+    }
+
+    #[test]
+    fn an_urgent_message_toasts_once_when_it_arrives() {
+        let first = message(
+            "- [ ] IN-4 (from quarry EP-3, 2026-11-10) The export renamed a column. [urgent]\n",
+        );
+        let later =
+            message("- [ ] IN-6 (from quarry EP-4, 2026-11-11) A second change. [Urgent]\n");
+        let at = |messages: &[&Message]| -> Vec<(String, Message)> {
+            messages
+                .iter()
+                .map(|m| ("harbor".to_owned(), (*m).clone()))
+                .collect()
+        };
+        let look = |messages: &[&Message]| Look {
+            found: at(messages),
+            unread: BTreeSet::new(),
+        };
+        let mut seen = None;
+        // The first look is taken as seen, and a second look at the same is nothing new.
+        assert!(urgent_arrivals(&mut seen, look(&[&first])).is_empty());
+        assert!(urgent_arrivals(&mut seen, look(&[&first])).is_empty());
+        // An inbox that did not read keeps what the last look saw there: nothing new after it.
+        let unread = Look {
+            found: Vec::new(),
+            unread: ["harbor".to_owned()].into(),
+        };
+        assert!(urgent_arrivals(&mut seen, unread).is_empty());
+        assert!(urgent_arrivals(&mut seen, look(&[&first])).is_empty());
+        let toasts = urgent_arrivals(&mut seen, look(&[&first, &later]));
+        assert_eq!(toasts.len(), 1);
+        let toast = &toasts[0];
+        assert_eq!(toast.title, "harbor: IN-6 is urgent");
+        assert_eq!(toast.text, "From quarry EP-4: A second change.");
+        assert_eq!(toast.target, Target::Project("harbor".to_owned()));
+        assert_eq!((toast.kind, toast.what), (Some(Kind::Urgent), "urgent"));
+        assert!(toast.is_warning());
+        assert!(urgent_arrivals(&mut seen, look(&[&later])).is_empty());
+        // Ticked or gone, then back: it arrives again.
+        urgent_arrivals(&mut seen, look(&[]));
+        assert_eq!(urgent_arrivals(&mut seen, look(&[&later])).len(), 1);
+    }
+
+    #[test]
+    fn the_urgent_messages_are_the_open_flagged_ones_not_the_owners() {
+        let scratch = crate::portfolio::tests::Scratch::new("toasts-urgent");
+        let mut portfolio =
+            crate::portfolio::read_files(&crate::portfolio::tests::fake_store(&scratch));
+        let look = urgent_messages(&portfolio);
+        let ids: Vec<(&str, &str)> = look
+            .found
+            .iter()
+            .map(|(project, m)| (project.as_str(), m.id.as_str()))
+            .collect();
+        assert_eq!(ids, [("lantern", "IN-1")]);
+        // The owner's own urgent message is left out.
+        let row = portfolio
+            .projects
+            .iter_mut()
+            .find(|row| row.name() == "lantern")
+            .unwrap();
+        let inbox = row.snapshot.inbox.as_mut().unwrap();
+        inbox.messages[0].sender = Some("the owner".to_owned());
+        assert!(urgent_messages(&portfolio).found.is_empty());
+    }
+
+    #[test]
+    fn what_the_popup_shows_is_what_a_push_says() {
+        let asked = from_news(1, "harbor", "harbor EP-4", &News::Asked("Q?".into())).unwrap();
+        let push = asked.push().unwrap();
+        assert_eq!(
+            (push.title.as_str(), push.text.as_str(), push.priority),
+            (
+                "harbor EP-4 waits for you",
+                "Q?",
+                notify::ntfy::Priority::High
+            )
+        );
+        let done = from_news(
+            1,
+            "harbor",
+            "harbor EP-4",
+            &News::Ended(Outcome::Completed, "EP-4 is done.".into()),
+        )
+        .unwrap();
+        assert_eq!(
+            done.push().unwrap().priority,
+            notify::ntfy::Priority::Default
+        );
+        assert_eq!(
+            Toast::test().push().unwrap().priority,
+            notify::ntfy::Priority::Default
+        );
+        // The tool's own word about the tray is no moment: it is not pushed.
+        assert_eq!(Toast::tray(0).push(), None);
     }
 
     #[test]

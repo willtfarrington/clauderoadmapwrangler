@@ -307,8 +307,8 @@ fn headers(token: &Secret) -> Secret {
     Secret(text)
 }
 
-/// The tool's own name in its requests.
-fn agent() -> String {
+/// The tool's own name in its requests (the meter's, ntfy's).
+pub(crate) fn agent() -> String {
     format!("clauderoadmapwrangler/{}", env!("CARGO_PKG_VERSION"))
 }
 

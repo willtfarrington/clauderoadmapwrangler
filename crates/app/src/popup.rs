@@ -244,7 +244,8 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
         ui.horizontal(|ui| {
             let colour = match item.toast.kind {
                 Some(Kind::Waiting) => style::amber(ui),
-                Some(Kind::Failed) => style::red(ui),
+                // An urgent message in the red of its chip in the Detail pane (EP-20a).
+                Some(Kind::Failed | Kind::Urgent) => style::red(ui),
                 Some(Kind::Finished) => style::green(ui),
                 // The autopilot's violet, as a chained tab's line (EP-19, EP-19a).
                 Some(Kind::Chain) => style::reference(ui),
@@ -273,6 +274,7 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                     Target::ChainLog => {
                         "Show the window on the Sessions pane's All tab, where the chain log is"
                     }
+                    Target::Project(_) => "Show the window on the project's Detail pane",
                     Target::Window => "Show the window",
                 };
                 if ui

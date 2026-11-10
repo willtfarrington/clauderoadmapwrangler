@@ -1,8 +1,9 @@
-//! The meter's one HTTP request (EP-17): a GET through WinHTTP, Windows' own HTTP stack, so that
-//! TLS, the certificate store and the proxy settings are the system's and no client crate joins
-//! the lock (the owner's choice). The header block, which carries the token, is a [`Secret`]: it
-//! is copied once into the wide string WinHTTP takes, which is overwritten as soon as the request
-//! is sent. A loopback host (the tests' listener) is reached without a proxy and over plain HTTP.
+//! The tool's HTTP requests through WinHTTP, Windows' own HTTP stack, so that TLS, the certificate
+//! store and the proxy settings are the system's and no client crate joins the lock (the owner's
+//! choice at EP-17): the meter's GET, whose header block carries the token as a [`Secret`], and
+//! the ntfy publisher's POST (EP-20a, `notify::ntfy`). The header block is copied once into the
+//! wide string WinHTTP takes, which is overwritten as soon as the request is sent. A loopback host
+//! (the tests' listener) is reached without a proxy and over plain HTTP.
 
 use std::time::Duration;
 
@@ -67,10 +68,24 @@ impl Url {
 
 /// GETs `url` with `headers` (`Name: value` lines, each ended by CRLF) as `agent`, each step
 /// within `timeout`. The error is in words, never with a header's text.
-#[cfg(windows)]
 pub fn get(
     url: &Url,
     headers: &Secret,
+    agent: &str,
+    timeout: Duration,
+) -> Result<Response, String> {
+    send("GET", url, headers.expose(), &[], agent, timeout)
+}
+
+/// Sends `method` to `url` with `headers` (`Name: value` lines, each ended by CRLF; the wide copy
+/// WinHTTP takes is overwritten once sent) and `body`, as `agent`, each step within `timeout`.
+/// The error is in words, never with a header's text.
+#[cfg(windows)]
+pub fn send(
+    method: &str,
+    url: &Url,
+    headers: &str,
+    body: &[u8],
     agent: &str,
     timeout: Duration,
 ) -> Result<Response, String> {
@@ -115,7 +130,7 @@ pub fn get(
     let request = Handle(unsafe {
         WinHttpOpenRequest(
             connection.0,
-            &HSTRING::from("GET"),
+            &HSTRING::from(method),
             &HSTRING::from(url.path.as_str()),
             PCWSTR::null(),
             PCWSTR::null(),
@@ -124,8 +139,18 @@ pub fn get(
         )
     });
     request.check("open the request")?;
-    let mut wide: Vec<u16> = headers.expose().encode_utf16().collect();
-    let sent = unsafe { WinHttpSendRequest(request.0, Some(&wide), None, 0, 0, 0) };
+    let length = u32::try_from(body.len()).map_err(|_| "the body is too long".to_owned())?;
+    let mut wide: Vec<u16> = headers.encode_utf16().collect();
+    let sent = unsafe {
+        WinHttpSendRequest(
+            request.0,
+            (!wide.is_empty()).then_some(wide.as_slice()),
+            (!body.is_empty()).then(|| body.as_ptr().cast()),
+            length,
+            length,
+            0,
+        )
+    };
     super::wipe_wide(&mut wide);
     sent.map_err(|e| failed("send the request", &e))?;
     unsafe { WinHttpReceiveResponse(request.0, std::ptr::null_mut()) }
@@ -174,13 +199,15 @@ pub fn get(
 }
 
 #[cfg(not(windows))]
-pub fn get(
+pub fn send(
+    _method: &str,
     _url: &Url,
-    _headers: &Secret,
+    _headers: &str,
+    _body: &[u8],
     _agent: &str,
     _timeout: Duration,
 ) -> Result<Response, String> {
-    Err("the meter's request is made through Windows' WinHTTP".to_owned())
+    Err("the tool's requests are made through Windows' WinHTTP".to_owned())
 }
 
 /// A WinHTTP handle, closed when dropped.

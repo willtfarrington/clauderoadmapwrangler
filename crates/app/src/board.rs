@@ -759,15 +759,24 @@ impl Board {
         let now = chrono::Utc::now();
         moments.extend(crossings.iter().map(|crossing| Toast::usage(crossing, now)));
         moments.extend(chain);
-        if !moments.is_empty() {
-            let quiet = self.quiet_hours();
-            for toast in self.toasts.deliver(moments, quiet, in_front, ctx) {
-                self.mention(&toast);
-            }
-        }
         if !self.loader.busy() && self.toasts.marks_due() {
             let marks = toasts::marks(&self.portfolio, chrono::Utc::now());
             self.toasts.mark(marks, in_front);
+        }
+        // A message flagged urgent that arrived since the last look (EP-20a). The inboxes come
+        // from the files read alone, so the look does not wait for the git and GitHub passes, and
+        // the mailman's first round waits for its first look (EP-20a's review).
+        if !self.loader.reading_files && !self.portfolio.projects.is_empty() {
+            moments.extend(self.toasts.urgent(&self.portfolio));
+        }
+        if !moments.is_empty() {
+            let (quiet, ntfy) = self.notify_settings();
+            for toast in self
+                .toasts
+                .deliver(moments, quiet, in_front, ntfy.as_ref(), ctx)
+            {
+                self.mention(&toast);
+            }
         }
         self.update_tray(ctx);
     }
@@ -784,6 +793,23 @@ impl Board {
             .load()
             .ok()
             .and_then(|loaded| loaded.registry.settings.quiet_hours)
+    }
+
+    /// The registry's quiet hours and its ntfy publisher (EP-20a), read in one go when a toast is
+    /// due, so that `crw setting` counts at once.
+    fn notify_settings(
+        &self,
+    ) -> (
+        Option<QuietHours>,
+        Option<Result<crw_core::notify::ntfy::Ntfy, String>>,
+    ) {
+        match self.store().load() {
+            Ok(loaded) => {
+                let settings = &loaded.registry.settings;
+                (settings.quiet_hours, settings.ntfy())
+            }
+            Err(_) => (None, None),
+        }
     }
 
     /// The tray as the window stands (D-21): what waits, what is new, the pinned projects'
@@ -868,7 +894,8 @@ impl Board {
             self.told_tray = true;
             let toast = Toast::tray(self.sessions.stoppable().len());
             let ctx = self.ctx.clone();
-            self.toasts.deliver(vec![toast], quiet, false, &ctx);
+            // The tool's own word stays in the popup: it is no moment for the phone.
+            self.toasts.deliver(vec![toast], quiet, false, None, &ctx);
         }
     }
 
@@ -929,11 +956,22 @@ impl Board {
             return;
         }
         let ctx = self.ctx.clone();
-        self.toasts.deliver(vec![Toast::test()], None, false, &ctx);
-        self.notify(
+        // Pushed to ntfy too when the registry names a server (EP-20a): the owner's check of it.
+        let (_, ntfy) = self.notify_settings();
+        self.toasts
+            .deliver(vec![Toast::test()], None, false, ntfy.as_ref(), &ctx);
+        let phone = match &ntfy {
+            Some(Ok(ntfy)) => format!(
+                " It goes to ntfy at {} too; the status bar's hover says how the push went.",
+                ntfy.server()
+            ),
+            Some(Err(why)) => format!(" ntfy's settings do not read: {why}."),
+            None => String::new(),
+        };
+        self.notify(format!(
             "A test notification is in the popup at the screen's lower right: its Show brings \
-             the window forward.",
-        );
+             the window forward.{phone}"
+        ));
     }
 
     /// A test notification in ten seconds (EP-15d): time to close the window to the tray, so that
@@ -972,6 +1010,11 @@ impl Board {
                     self.show();
                     self.sessions.tab = None;
                     self.bring = Some(Pane::Sessions);
+                }
+                Target::Project(name) => {
+                    self.show();
+                    self.view.selected = Some(Selection::Project(name));
+                    self.bring = Some(Pane::Detail);
                 }
                 Target::Window => self.show(),
             }
@@ -1874,7 +1917,8 @@ impl Board {
             None if self.toasts.is_on() => "no tray icon: closing the window quits".to_owned(),
             None => "no tray icon".to_owned(),
         };
-        format!("{}; {tray}", self.toasts.line(self.quiet_hours()))
+        let (quiet, ntfy) = self.notify_settings();
+        format!("{}; {tray}", self.toasts.line(quiet, ntfy.as_ref()))
     }
 
     /// Errors stay until the next notice; a notice fades. With nothing to report, the keys.

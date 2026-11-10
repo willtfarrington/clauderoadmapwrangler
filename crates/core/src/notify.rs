@@ -1,17 +1,22 @@
 //! Notifications (D-21; EP-15): which moments reach the owner, and how. A moment that needs the
 //! owner or ends a session's work is a toast at once, in the window's own popup: a session waits
 //! for an answer, has finished, has failed, and the account's weekly or Fable usage reaches 80 %
-//! or 95 % (EP-17, once per mark and limit window), and a chain's state changes (EP-19a: a brief
-//! chained, the chain held or ended). A moment that only wants a look is a badge on the tray icon: a new unadopted folder, an orphan or a mismatched
-//! remote, a stale backup, an inbox arrival. Quiet hours, kept in the registry, hold the toasts
-//! back; the badge still counts. Each toast, toast held back, badge arrival and Show is a line of
-//! the ledger's `event` table of kind [`EVENT_KIND`], worded by [`line`]. The window shows them
-//! (`app::toasts`, `app::popup`, `app::tray`); this module keeps the rules, and EP-20 adds ntfy.
+//! or 95 % (EP-17, once per mark and limit window), a chain's state changes (EP-19a: a brief
+//! chained, the chain held or ended), and a message flagged urgent arrives in an inbox (EP-20a).
+//! A moment that only wants a look is a badge on the tray icon: a new unadopted folder, an orphan
+//! or a mismatched remote, a stale backup, an inbox arrival. Quiet hours, kept in the registry,
+//! hold the toasts back; the badge still counts. Each toast the popup shows also goes to the
+//! owner's phone through [`ntfy`] when the registry names its host and topic (EP-20a). Each toast,
+//! toast held back, push, badge arrival and Show is a line of the ledger's `event` table of kind
+//! [`EVENT_KIND`], worded by [`line`]. The window shows them (`app::toasts`, `app::popup`,
+//! `app::tray`); this module keeps the rules.
 
 use std::fmt;
 
 use chrono::{NaiveTime, Timelike};
 use serde::Deserialize;
+
+pub mod ntfy;
 
 /// The ledger's `event` kind of the notifications' log.
 pub const EVENT_KIND: &str = "notification";
@@ -38,6 +43,8 @@ pub enum Kind {
     Inbox,
     /// A chain's state changed (D-22; EP-19a): a brief chained, the chain held, or ended.
     Chain,
+    /// A message flagged `[urgent]` arrived open in an inbox, not the owner's own (D-13; EP-20a).
+    Urgent,
 }
 
 /// How a kind reaches the owner.
@@ -50,12 +57,13 @@ pub enum Channel {
 }
 
 impl Kind {
-    pub const ALL: [Kind; 9] = [
+    pub const ALL: [Kind; 10] = [
         Kind::Waiting,
         Kind::Finished,
         Kind::Failed,
         Kind::Usage,
         Kind::Chain,
+        Kind::Urgent,
         Kind::Unadopted,
         Kind::Remote,
         Kind::Backup,
@@ -65,10 +73,28 @@ impl Kind {
     /// The rule table (D-21).
     pub fn channel(self) -> Channel {
         match self {
-            Kind::Waiting | Kind::Finished | Kind::Failed | Kind::Usage | Kind::Chain => {
-                Channel::Toast
-            }
+            Kind::Waiting
+            | Kind::Finished
+            | Kind::Failed
+            | Kind::Usage
+            | Kind::Chain
+            | Kind::Urgent => Channel::Toast,
             Kind::Unadopted | Kind::Remote | Kind::Backup | Kind::Inbox => Channel::Badge,
+        }
+    }
+
+    /// How hard a push of it asks for the owner's phone (D-21; EP-20a, the owner's choice): an
+    /// urgent message at once, a wait, a failure or a usage mark high, the rest as ntfy's default.
+    pub fn priority(self) -> ntfy::Priority {
+        match self {
+            Kind::Urgent => ntfy::Priority::Urgent,
+            Kind::Waiting | Kind::Failed | Kind::Usage => ntfy::Priority::High,
+            Kind::Finished
+            | Kind::Chain
+            | Kind::Unadopted
+            | Kind::Remote
+            | Kind::Backup
+            | Kind::Inbox => ntfy::Priority::Default,
         }
     }
 
@@ -79,6 +105,7 @@ impl Kind {
             Kind::Failed => "failed",
             Kind::Usage => "usage",
             Kind::Chain => "chain",
+            Kind::Urgent => "urgent",
             Kind::Unadopted => "unadopted",
             Kind::Remote => "remote",
             Kind::Backup => "backup",
@@ -162,6 +189,10 @@ pub enum Fate {
     Clicked,
     /// A badge event that arrived: the tray icon's mark.
     Badge,
+    /// Pushed to the owner's phone through ntfy (EP-20a).
+    Pushed,
+    /// A push ntfy did not take; the reason is the line's text.
+    PushFailed,
 }
 
 impl Fate {
@@ -173,6 +204,8 @@ impl Fate {
             Fate::Repeat => "repeat",
             Fate::Clicked => "opened",
             Fate::Badge => "badge",
+            Fate::Pushed => "ntfy",
+            Fate::PushFailed => "ntfy failed",
         }
     }
 }
@@ -209,13 +242,32 @@ mod tests {
                 Kind::Finished,
                 Kind::Failed,
                 Kind::Usage,
-                Kind::Chain
+                Kind::Chain,
+                Kind::Urgent
             ]
         );
         assert_eq!(Kind::Chain.as_str(), "chain");
+        assert_eq!(Kind::Urgent.as_str(), "urgent");
         for kind in [Kind::Unadopted, Kind::Remote, Kind::Backup, Kind::Inbox] {
             assert_eq!(kind.channel(), Channel::Badge, "{kind:?}");
         }
+        // A push's priority (EP-20a, the owner's choice).
+        assert_eq!(Kind::Urgent.priority(), ntfy::Priority::Urgent);
+        for kind in [Kind::Waiting, Kind::Failed, Kind::Usage] {
+            assert_eq!(kind.priority(), ntfy::Priority::High, "{kind:?}");
+        }
+        for kind in [Kind::Finished, Kind::Chain] {
+            assert_eq!(kind.priority(), ntfy::Priority::Default, "{kind:?}");
+        }
+        assert_eq!(
+            line(
+                &Fate::PushFailed,
+                "waiting",
+                "harbor EP-4 waits for you",
+                "HTTP 403"
+            ),
+            "ntfy failed · waiting · harbor EP-4 waits for you · HTTP 403"
+        );
     }
 
     #[test]

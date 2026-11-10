@@ -102,6 +102,11 @@ pub(crate) mod tests {
     /// Accepts one request on `listener`, answers it with `status` and an empty body, and returns
     /// what it was sent.
     pub(crate) fn answer_once(listener: &TcpListener, status: u16) -> String {
+        answer_once_with(listener, status, "")
+    }
+
+    /// The same, answering with `body` (ntfy's tests, EP-20a).
+    pub(crate) fn answer_once_with(listener: &TcpListener, status: u16, body: &str) -> String {
         let (mut stream, _) = listener.accept().unwrap();
         stream
             .set_read_timeout(Some(Duration::from_secs(5)))
@@ -128,7 +133,8 @@ pub(crate) mod tests {
         }
         write!(
             stream,
-            "HTTP/1.1 {status} Whatever\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+            "HTTP/1.1 {status} Whatever\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+            body.len()
         )
         .unwrap();
         String::from_utf8(request).unwrap()

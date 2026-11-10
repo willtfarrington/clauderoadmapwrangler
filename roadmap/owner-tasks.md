@@ -244,3 +244,20 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   not update this marketplace by itself unless you turn its auto-update on under `/plugin`). The
   session checked the plugin with `claude plugin validate` only (rules 5 and 13). Notes go to
   `roadmap/inbox.md`
+- [ ] OT-24 (EP-20a, 2026-11-10) The first real push to your phone through ntfy, when you want the
+  window's notifications there (it sends them to your ntfy server). Once the window runs EP-20a's
+  build (File > Install and restart, or the next gate's moment), run in a terminal in this folder
+  `target\release\crw.exe setting ntfy_host <your server>` (its name or address on the tailnet,
+  with `:port` if it needs one, and `http://` in front if it has no HTTPS), then
+  `target\release\crw.exe setting ntfy_topic <topic>` (letters, digits, `-` and `_`): the second
+  should print `note: a window that runs pushes each notification its popup shows to <server> …`.
+  Subscribe to the topic in the ntfy app on your phone. In the window, File > Send a test
+  notification: the popup shows it, the status bar adds `It goes to ntfy at <server> too`, and
+  within seconds your phone shows "Roadmap Wrangler" with "A test notification: Show brings the
+  window forward."; the status bar's hover then says `ntfy: the last push went at <time>`.
+  `target\release\crw.exe notifications` should list `ntfy · test · Roadmap Wrangler`; a `ntfy
+  failed · test · Roadmap Wrangler · <why>` line says what to fix.
+  From then on each notification the popup shows reaches the phone too, held back in the quiet
+  hours and while the window is in front with the focus; `none` for either setting turns it off.
+  The session pushed only to a listener on this machine (rules 5 and 13). Notes go to
+  `roadmap/inbox.md`

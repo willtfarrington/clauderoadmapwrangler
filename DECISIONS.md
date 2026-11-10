@@ -880,6 +880,37 @@ pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; e
 > notifications` prints. *Alternatives.* Ends only, or ends and holds, the chained start left to
 > the status bar; the chain's moments as the project's `finished` and `failed`.
 
+> **Addendum (2026-11-10, EP-20a).** ntfy, the urgent flag and the finished popup's text are built;
+> split at pickup (the owner's choice), the compose dialog went to EP-20c.
+>
+> - **ntfy carries what the popup shows** (the owner's choice): each toast the popup shows, held
+>   back exactly as the popup is (the quiet hours; nothing while the window is in front with the
+>   focus), is also POSTed to `<ntfy_host>/<ntfy_topic>` with its title and a priority: `urgent`
+>   for an urgent message, `high` for a wait, a failure or a usage mark, `default` for the rest;
+>   the tool's word about the tray is not pushed, File > Send a test notification is. Host and topic
+>   are registry settings (`crw setting`), the publisher off while either is missing; the host is
+>   `https://` unless written `http://`, the topic ntfy's form. The request is WinHTTP's, the
+>   meter's route (D-14's EP-17 addendum), on a thread of the window's own, one push at a time;
+>   a push counts only when the server answers as ntfy does (a JSON object), since WinHTTP follows
+>   a redirect as a GET; each push is a `notification` row, `ntfy` or `ntfy failed` with the
+>   reason, never the topic. No access token: the tailnet is the boundary.
+> - **An urgent message is a toast** (`notify::Kind::Urgent`, D-13's flag): a message ending
+>   `[urgent]` that arrives open in a registered project's inbox makes one toast, its Show opening
+>   the project's Detail pane; the window's first look, after its first files read and before its
+>   mailman's first round, is taken as seen, and the owner's own messages make none. The Detail
+>   pane leaves an open message's trailing `[urgent]` to its chip.
+> - **A finished run's popup says its result's gist**: the first sentence of the result's first
+>   prose paragraph (list items, headings, rules, a bold label alone, lines of links, tables,
+>   fenced code and an intro to a list skipped; markdown dropped; a first sentence of three words
+>   or fewer takes the next), not its last line. The owner chose the first paragraph over
+>   the last, chosen at EP-19b's field check, on the ledger's ten real results: the first
+>   paragraph's first sentence was the run's own summary in all ten. The Sessions pane's ledger
+>   card and an ended tab say the same.
+>
+> *Alternatives.* ntfy for waits, failures and urgent messages only, or for urgent messages only;
+> ntfy's JSON form posted to the server's root; an access token setting; the result's last
+> paragraph, or its first paragraph whole; an urgent toast for the owner's own messages.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:

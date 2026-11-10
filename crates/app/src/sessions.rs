@@ -401,15 +401,15 @@ impl Live {
     }
 }
 
-/// A run's end in one line, for its toast (EP-15): the result's last line when it completed, the
-/// request a deferred run left open, or why it failed.
+/// A run's end in one line, for its toast (EP-15): the result's gist when it completed (EP-20a),
+/// the request a deferred run left open, or why it failed.
 fn ended_line(ended: &Ended, open: Option<&Open>) -> String {
     match ended.outcome {
         Outcome::Completed => ended
             .result
             .as_ref()
             .and_then(|finish| finish.text.as_deref())
-            .and_then(last_line)
+            .and_then(result_line)
             .unwrap_or_default(),
         Outcome::Deferred => open
             .map(|open| open.request.summary.clone())
@@ -437,19 +437,32 @@ fn ended_line(ended: &Ended, open: Option<&Open>) -> String {
     }
 }
 
-/// The last line of `text` that holds anything, cut to [`LINE`] characters.
+/// The last line of `text` that holds anything, cut to [`LINE`] characters: what a run says as it
+/// works.
 fn last_line(text: &str) -> Option<String> {
     let line = text
         .lines()
         .rev()
         .map(str::trim)
         .find(|line| !line.is_empty())?;
-    Some(if line.chars().count() > LINE {
+    Some(cut_line(line))
+}
+
+/// What a run's result says it did, cut to [`LINE`] characters: its gist, the first sentence of
+/// its first prose paragraph without markdown (EP-20a, the owner's choice; the last line before,
+/// often a list item or a link).
+fn result_line(text: &str) -> Option<String> {
+    crate::markup::gist(text).map(|gist| cut_line(&gist))
+}
+
+/// `line` cut to [`LINE`] characters with an ellipsis.
+fn cut_line(line: &str) -> String {
+    if line.chars().count() > LINE {
         let cut: String = line.chars().take(LINE - 1).collect();
         format!("{cut}…")
     } else {
         line.to_owned()
-    })
+    }
 }
 
 /// The CLI's answers before a launch, asked off the UI thread (D-15).
@@ -2062,7 +2075,7 @@ fn ledger_line(
         if !figures.is_empty() {
             ui.label(RichText::new(figures.join(" · ")).weak());
         }
-        if let Some(line) = row.result.as_deref().and_then(last_line) {
+        if let Some(line) = row.result.as_deref().and_then(result_line) {
             ui.add(egui::Label::new(RichText::new(line).weak()).truncate());
         }
     });
@@ -2080,7 +2093,7 @@ fn ending(ended: &Ended) -> String {
         parts.push(format!("{} turns", result.turns));
         parts.push(format!("{} s", result.duration_ms / 1000));
         parts.push(format!("an estimated ${:.3}", result.cost_usd));
-        if let Some(text) = result.text.as_deref().and_then(last_line) {
+        if let Some(text) = result.text.as_deref().and_then(result_line) {
             parts.push(text);
         }
     }
@@ -2499,17 +2512,21 @@ pub(crate) mod tests {
             Outcome::Completed,
             Some(finish(
                 "success",
-                Some("Done.\n\nThe brief is ready for review."),
+                Some(
+                    "EP-3 is done and committed as `0a1b2c3`. Nothing is pushed.\n\n\
+                     **Checks.** All green.\n\n- **Push:** one commit waits for you.",
+                ),
                 Vec::new(),
             )),
         ));
+        // The result's gist, not its last line (EP-20a).
         assert_eq!(
             done.news,
             [
                 News::Asked("Which shelf?".to_owned()),
                 News::Ended(
                     Outcome::Completed,
-                    "The brief is ready for review.".to_owned()
+                    "EP-3 is done and committed as 0a1b2c3.".to_owned()
                 ),
             ]
         );

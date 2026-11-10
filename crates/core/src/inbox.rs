@@ -162,6 +162,19 @@ fn sender_of(from: &str) -> String {
     from[..end].trim().to_owned()
 }
 
+/// A message's text without the `[urgent]` it ends with, which the Detail pane's chip and the
+/// urgent message's popup say instead (EP-16's note, placed at EP-20a); an `[urgent]` inside the
+/// text stays as written.
+pub fn without_urgent(text: &str) -> &str {
+    const TAIL: &str = "[urgent]";
+    let trimmed = text.trim_end();
+    trimmed
+        .len()
+        .checked_sub(TAIL.len())
+        .filter(|&at| trimmed.is_char_boundary(at) && trimmed[at..].eq_ignore_ascii_case(TAIL))
+        .map_or(text, |at| trimmed[..at].trim_end())
+}
+
 /// Reads a project's `inbox.md`; `None` when it has none.
 pub fn read(folder: &Path) -> io::Result<Option<Inbox>> {
     let path = path(folder);
@@ -365,6 +378,24 @@ Read right after the roadmap. One message per line: `- [ ] IN-n (from <project> 
         assert_eq!(from_of("from beta, 2026-10-02"), Some("beta".to_owned()));
         assert_eq!(from_of("2026-10-02"), None);
         assert_eq!(from_of("urgent"), Some("urgent".to_owned()));
+    }
+
+    #[test]
+    fn the_chip_says_urgent_so_the_text_leaves_its_tail_out() {
+        assert_eq!(
+            without_urgent("The export gains a column. [Urgent]  "),
+            "The export gains a column."
+        );
+        assert_eq!(without_urgent("Read it first [urgent]"), "Read it first");
+        // Inside the text, or not there, or a tail that would cut a character: as written.
+        for text in [
+            "An [urgent] fix waits.",
+            "No flag.",
+            "ünïcode [urgen]",
+            "é1234567",
+        ] {
+            assert_eq!(without_urgent(text), text, "{text}");
+        }
     }
 
     #[test]
