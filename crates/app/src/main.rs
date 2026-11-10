@@ -20,6 +20,7 @@ mod detail;
 mod launch;
 mod layout;
 mod list;
+mod mail;
 mod markup;
 mod meter;
 mod popup;

@@ -349,6 +349,8 @@ pub struct Board {
     /// The restart into the installed build (EP-37); set by `main`, inert in a screenshot run
     /// or a test.
     pub restart: crate::restart::Restart,
+    /// The mailman's rounds and what they made of each block (D-13; EP-20).
+    pub mail: crate::mail::Mail,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -412,6 +414,7 @@ impl Board {
             quit_asked: false,
             revert: None,
             restart: crate::restart::Restart::default(),
+            mail: crate::mail::Mail::default(),
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -575,6 +578,8 @@ impl Board {
             .receive(registered, self.ledger.as_deref(), focused);
         if std::mem::take(&mut self.watch.recorded) {
             self.sessions.history.stale = true;
+            // A session started or ended: its brief may hand mail on, or its receiver be free.
+            self.mail.due = true;
         }
         // The usage meter's polls and its second series, the status lines (D-23; EP-17); a
         // visual or headless session's end the hooks report brings the next poll forward.
@@ -592,6 +597,8 @@ impl Board {
         }
         // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
         self.autopilot_pass();
+        // The mailman delivers what the briefs hand on (D-13; EP-20).
+        self.mail_pass();
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()

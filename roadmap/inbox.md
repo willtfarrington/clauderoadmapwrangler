@@ -4,7 +4,8 @@ Read right after the roadmap at the start of a session (rule 1). Triage rule (D-
 message, roll it into this session if it fits the brief and is at most S-sized; otherwise add it to the
 brief notes of a named later EP or propose a new row in the right phase, confirming the choice with the
 owner through `AskUserQuestion`; or decline with a reason. Write the disposition on the message's line
-and tick its box. Until EP-20 delivers messages, the owner carries them here by hand.
+and tick its box. From EP-20 the tool delivers the other projects' `Handed on (to …)` blocks here
+(D-13); the owner may still write a message by hand.
 
 - [x] IN-1 (from the owner, workspace split, 2026-10-31) The owner replaced the one multi-root VS Code
   workspace over the data root with **one single-folder `<name>.code-workspace` per project, beside the

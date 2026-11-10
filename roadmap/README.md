@@ -700,10 +700,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-36 | [Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive](EP-36-screenshot-runs-over-a-copy.md) (D-29, D-3) | S | EP-6 | core | ☑ `c463f75` |
 | EP-37 | [The installed exe and the window's restart: the release exes installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` by `crw install` and the script, the shortcuts there, `crw signals install` writing the installed `crw.exe`, File > Install and restart, the tray's item and `crw install`'s request over the loopback, refused while anything would be lost](EP-37-installed-exe-and-restart.md) (D-29, D-5) | M | EP-19a, EP-19b | core | ☑ `a8078a5` |
 | EP-37a | [The handover and the chained restart: held chains and chain plans carried across the window's restart in a handover file, a pending install taken at the gate's moment before the chained start, the gate's own-project condition dropped, the opener's words for this project's runs, this project chained under `auto`](EP-37a-handover-and-chained-restart.md) (D-22, D-5, D-29) | M | EP-37 | core | ☑ `55907f7` |
-| EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
+| EP-20 | [The mailman: a committed brief's `Handed on (to …)` blocks delivered into the receiver's inbox while no session works there, the first reading counted as delivered, the delivery log and `crw mail`, each block's state in the Detail pane, a revert redoing a delivery, the gate leaving `roadmap/inbox.md` out](EP-20-the-mailman.md) (D-13) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22 | core | ☐ |
+| EP-20a | Compose and urgent: the compose dialog (target, text, urgent) writing `from the owner`, the urgent flag's popup and the ntfy publisher (`notify::ntfy`, host and topic in the registry), the `[urgent]` chip text, the finished popup's gist line (D-13, D-21) | M | EP-20 | core | ☐ |
+| EP-20b | The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event (D-20) | S | EP-20 | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-20a, EP-20b | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -729,6 +731,10 @@ which EP-37 needs. *(2026-11-10, EP-37 split at pickup, the owner's choice.)* EP
 handover file, the restart at the gate's moment, the gate's own-project condition, the opener's
 words and this project's chaining, right after EP-37 and before EP-20, whose briefs it lets run
 as chained headless runs of this project; EP-37 keeps the install and the restart.
+*(2026-11-10, EP-20 split at pickup, the owner's choice.)* EP-20 keeps the mailman; EP-20a (M)
+takes the compose dialog, the urgent flag, ntfy and the popup's gist, and EP-20b (S) the prompt
+hook. Both follow EP-22 and precede EP-23, so that the chain plan the owner set at EP-20's
+headless start (EP-21, EP-22) runs as set; neither EP-21 nor EP-22 depends on them.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -1124,6 +1130,8 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   from a list of sources, instead of what the run did. The ntfy message here reuses that line, so
   this brief makes it the result's gist: the last paragraph's first sentence, with list items and
   links skipped and markdown dropped (the finished toast's text, `toasts`, and its test).
+  *(Split at pickup, 2026-11-10, the owner's choice: the compose dialog, the urgent flag, ntfy,
+  the `[urgent]` chip text and the gist are EP-20a; the prompt hook is EP-20b.)*
 - **EP-21.** `core::adopt`: for a project being formalised or adopted into the house style, write (after
   a preview and the owner's yes) a `CLAUDE.md` rule block between markers `<!-- roadmap-wrangler:begin -->`
   / `<!-- roadmap-wrangler:end -->` (read-first order, owner-tasks, inbox and triage rules, the completion
@@ -1160,6 +1168,51 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   `/install-plugin` path (`vscode://anthropic.claude-code/install-plugin?plugin=<name>&marketplace=<url>`,
   2.1.318's handler, read at EP-16), which opens its plugins dialog in the chat for the owner to
   confirm: one way to bring the plugin into the owner's VS Code sessions.
+- **EP-20a.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4): the
+  owner's side of the mail, from EP-20's note. (1) **The compose dialog** in the tool (target,
+  text, urgent) writing the same line with `from the owner`; its preview through `markup::note`
+  with `Look { sentences: true, .. }` (EP-15a's note). (2) **The urgent flag**: `urgent` → the
+  popup and ntfy; an `urgent` message in the popup is one more rule of `crw_core::notify`'s table
+  (EP-15's note). (3) **`core::notify::ntfy`**: POST to `https://<ntfy host>/<topic>` over the
+  tailnet with title and priority (host and topic in the registry; disabled when empty), under
+  the same quiet hours; the meter's WinHTTP route (EP-17) is the transport at hand. (4) **The
+  `[urgent]` chip text** (EP-16's note): an open message's trailing `[urgent]` stays in its text
+  in the Detail pane while its chip says it; the pane drops it from the text, as it drops an
+  owner item's `[before EP-m]` gate. (5) **The finished popup's gist** (EP-19b's field check, the
+  owner's choice): a finished run's popup showed the last line of the run's result, a raw
+  markdown link from a list of sources, instead of what the run did; the ntfy message reuses that
+  line, so it becomes the result's gist: the last paragraph's first sentence, with list items and
+  links skipped and markdown dropped (the finished toast's text, `toasts`, and its test).
+  **From EP-20:** `inbox::mailman::append(folder, meta, text, backups, today)` writes a message
+  with the next free id after a dated copy, creating the file with `mailman::HEADER`, so the
+  dialog writes `from the owner, <date>` as the meta; the mailman holds a delivery while a session
+  works or waits in the receiver (`Board::busy_projects`), which the dialog may follow or say; a
+  write the revert should redo is a `tick` row of the receiver (`revert::Tick::delivery`).
+  **From EP-20's review (the owner's choice: here, fixed where they fit this M):** five rare
+  limitations of the mailman, none losing a message silently. (a) At a project's first reading
+  the past is told from the new by the brief file's git status, so a block in an old brief whose
+  file is uncommitted at that moment goes out once committed; `git show HEAD:<brief>` would tell
+  them apart block by block. (b) A reworded block in a committed brief is a new letter and is sent
+  again (the key hashes the words, D-13 addendum); keying by brief, receiver and place, with
+  "changed since delivery" shown, would not. (c) The gate's exception for `roadmap/inbox.md`
+  (`autopilot::gate`) is unconditional, so a run that left its own triage uncommitted still
+  chains; it could hold only when the ledger shows a delivery into the project since the run
+  started. (d) A delivery redone after a revert may take another id (`redo_ticks` drops the id
+  `mailman::redeliver` returns), so a later tick of the old id in the same redo names the old
+  one. (e) A brief that fails to read at a project's first reading is not counted.
+- **EP-20b.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4), from
+  EP-20's note. **From EP-12 (the owner's answer at its close):** IN-2's `UserPromptSubmit` hook:
+  it recognises `@<project>` in a prompt and adds that project's `CLAUDE.md` rules and next-EP
+  row to the session (registry lookups, as the mailman's). `crw hook` is the relay to extend
+  (exec form; `--inbox` already prints a start's open messages as written,
+  `inbox::open_as_written`, in place of the owner's stopgap hook), and `signals::install` the
+  installer to add the event to (the user settings' entries are known by the program they run).
+  **From EP-13 (the owner's answer at its close):** the prompt hook is this brief's to install,
+  on the owner's yes after a dated copy; the state model already reads a `UserPromptSubmit` hook
+  as busy and as work (D-20 addendum). Since the D-10 addendum of 2026-11-08 the install into the
+  user settings is an owner task, written at the brief's close. **From EP-20:** a project is
+  found as the mailman finds a receiver, `Registry::project(name)` on the name whole or its first
+  word (`inbox::outgoing`'s resolve).
 - **EP-23.** Retro, addenda, P4 rows confirmed with pickup notes, `v2-notes.md` grown; the first week of
   autopilot runs reviewed (how many chains, how many gate refusals and why). **From EP-16:** time
   the briefs as EP-8 and EP-16 did: each session's transcript under this project's slug, found by
@@ -1225,6 +1278,12 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   restart` lines and, when a restart was refused, `the restart into the installed build waits`
   lines, which the first week's review counts. After a gate's restart the ended runs' tabs are
   gone, their ledger rows staying; the walk weighs whether the owner misses them.
+  **From EP-20 (split at pickup, the owner's choice):** EP-20a (M) and EP-20b (S) joined P3 after
+  EP-22, so the totals are 50 briefs, 13 S · 31 M · 6 L ≈ 49.5 session-hours, 15 still open once
+  EP-20 is checked. EP-20 was the first headless run of this project under its autopilot. The
+  walk takes EP-20's residual-risk paragraph with the first real delivery (OT-21): the window's
+  first round counting every block already written, then a new block delivered once its brief is
+  committed, its receiver's row showing the message; `crw mail` prints the log.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

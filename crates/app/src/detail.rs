@@ -11,6 +11,7 @@
 use chrono::{Local, Utc};
 use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
+use crw_core::inbox::mailman::State;
 use crw_core::roadmap::snapshot::{InProgress, Snapshot};
 use crw_core::roadmap::table::Done;
 use crw_core::tasks::{self, Form, Gate, OwnerItem};
@@ -869,23 +870,33 @@ fn handed_on(ui: &mut egui::Ui, row: &ProjectRow) {
         &format!("Handed on to other projects: {}", row.outgoing.len()),
     );
     for block in &row.outgoing {
+        let mark = row
+            .mail
+            .iter()
+            .find(|mark| mark.path == block.path && mark.line == block.line);
         ui.horizontal_wrapped(|ui| {
             ui.label(style::icon(icons::ICON_OUTBOX, None));
             ui.label(RichText::new(format!("{} → {}", block.brief, block.to)).strong());
-            match &block.recipient {
-                Recipient::Project(name) => {
-                    ui.label(
-                        RichText::new(format!("{name} is registered; delivery arrives at EP-20"))
-                            .weak(),
-                    );
+            // What the mailman made of it (EP-20).
+            let (words, colour) = match (&block.recipient, mark.map(|mark| &mark.state)) {
+                (Recipient::Unknown, _) | (_, Some(State::Unknown)) => {
+                    (State::Unknown.words(), Some(style::amber(ui)))
                 }
-                Recipient::Unknown => {
-                    ui.label(
-                        RichText::new("not registered: shown, not delivered")
-                            .color(style::amber(ui)),
-                    );
+                (_, Some(state @ State::Delivered { .. })) => {
+                    (state.words(), Some(style::green(ui)))
                 }
-            }
+                (_, Some(state @ State::Waits(_))) => (state.words(), Some(style::amber(ui))),
+                (_, Some(state @ State::Counted)) => (state.words(), None),
+                (Recipient::Project(name), None) => (
+                    format!("to {name}: the mailman reads it at its next round"),
+                    None,
+                ),
+            };
+            let text = RichText::new(words);
+            ui.label(match colour {
+                Some(colour) => text.color(colour),
+                None => text.weak(),
+            });
         });
         // The block's text after its label, which the line above says (EP-15a).
         markup::note(

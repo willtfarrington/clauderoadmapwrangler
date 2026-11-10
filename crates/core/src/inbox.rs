@@ -3,7 +3,9 @@
 //! the receiving session triages and the owner may tick in the tool, the disposition written on
 //! the message's line; and the other side of the mail, the `> **Handed on (to <project>).**`
 //! blocks a session leaves in its brief for another project, with the target resolved against the
-//! registry. Delivering them is EP-20's.
+//! registry. The [`mailman`] delivers them (EP-20).
+
+pub mod mailman;
 
 use std::fs;
 use std::io;
@@ -24,6 +26,22 @@ pub const PREFIX: &str = "IN";
 /// `<folder>\roadmap\inbox.md`.
 pub fn path(folder: &Path) -> PathBuf {
     folder.join("roadmap").join(FILE)
+}
+
+/// The inbox as git's status names it, which the autopilot's clean-tree condition leaves out: a
+/// message the mailman delivers between two chained runs is the next brief's to triage (EP-20).
+pub const TREE_PATH: &str = "roadmap/inbox.md";
+
+/// One writer of an inbox at a time in the process: the window's tick on its own thread and the
+/// mailman's delivery on a worker each read the file, change it and write it back (EP-20's
+/// review).
+static WRITING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// Holds the inbox writers' lock while a write reads and replaces a file.
+pub(crate) fn writing() -> std::sync::MutexGuard<'static, ()> {
+    WRITING
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// A line of `inbox.md`.
@@ -176,6 +194,7 @@ pub fn tick(
         return Err(checklist::Error::NoDisposition(id.to_owned()));
     }
     let written = format!("**Disposition ({today}):** {words}");
+    let _writing = writing();
     checklist::tick(
         &path(folder),
         PREFIX,

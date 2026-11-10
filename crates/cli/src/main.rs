@@ -164,6 +164,9 @@ commands:
                                  first, then reset to the start, remove the session's new files and
                                  put the start's files back. Never pushes; refused while a session
                                  works there or when the remote has one of its commits
+  mail [--all]                   print the mailman's log, the newest first: the last 20, or every
+                                 row with --all: each project's first reading, the blocks counted
+                                 then, each delivery with the message's id (EP-20); reads only
   notifications [--all]          print the window's notifications, the newest first: the last 20,
                                  or every one with --all: each one and what became of it (in the
                                  popup, held back by the quiet hours or the window in front, a
@@ -268,6 +271,7 @@ fn main() -> ExitCode {
         ["sessions", rest @ ..] => sessions(rest),
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
+        ["mail", rest @ ..] => mail(rest),
         ["usage"] => usage(),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
@@ -1970,14 +1974,33 @@ const NOTIFICATIONS_SHOWN: usize = 20;
 /// Prints the window's notifications from the ledger (D-21; EP-15), the newest first, read
 /// without migrating or writing it: each one and what became of it, each Show, each badge.
 fn notifications(args: &[&str]) -> ExitCode {
+    events(
+        "notifications",
+        notify::EVENT_KIND,
+        "the window logs each notification and what became of it, each Show and each badge",
+        args,
+    )
+}
+
+/// Prints the mailman's log from the ledger (D-13; EP-20), the newest first, read without
+/// migrating or writing it: each project's first reading, the blocks counted then, each delivery.
+fn mail(args: &[&str]) -> ExitCode {
+    events(
+        "mail",
+        crw_core::inbox::mailman::EVENT_KIND,
+        "the window's mailman logs each project's first reading and each message it delivers",
+        args,
+    )
+}
+
+/// Prints the ledger's `event` rows of `kind` as `crw <command>`, the latest
+/// [`NOTIFICATIONS_SHOWN`] or every one with `--all`.
+fn events(command: &str, kind: &str, none_yet: &str, args: &[&str]) -> ExitCode {
     let all = match args {
         [] => false,
         ["--all"] => true,
         _ => {
-            return usage_error(&format!(
-                "notifications takes --all, not {}",
-                args.join(" ")
-            ));
+            return usage_error(&format!("{command} takes --all, not {}", args.join(" ")));
         }
     };
     let Some(path) = paths::ledger_file() else {
@@ -1991,9 +2014,7 @@ fn notifications(args: &[&str]) -> ExitCode {
         return ExitCode::SUCCESS;
     }
     let limit = (!all).then_some(NOTIFICATIONS_SHOWN);
-    let rows = match Ledger::open_read_only(&path)
-        .and_then(|ledger| ledger.events(notify::EVENT_KIND, limit))
-    {
+    let rows = match Ledger::open_read_only(&path).and_then(|ledger| ledger.events(kind, limit)) {
         Ok(rows) => rows,
         Err(e) => return failed(format!("{}: {e}", path.display())),
     };
@@ -2003,14 +2024,12 @@ fn notifications(args: &[&str]) -> ExitCode {
         (n, false) => format!("the latest {n}, the newest first"),
     };
     println!(
-        "crw {} notifications: {which} ({})",
+        "crw {} {command}: {which} ({})",
         env!("CARGO_PKG_VERSION"),
         path.display()
     );
     if rows.is_empty() {
-        println!(
-            "  the window logs each notification and what became of it, each Show and each badge"
-        );
+        println!("  {none_yet}");
     }
     let width = rows
         .iter()

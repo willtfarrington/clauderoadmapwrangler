@@ -393,9 +393,19 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     for (which, figure) in [("weekly", &facts.weekly), ("Fable", &facts.fable)] {
         no.extend(weigh(which, figure.as_ref(), facts.pause_percent, now));
     }
+    // The inbox is left out (EP-20): a message delivered between two runs waits for the next
+    // brief's triage (D-13) and ends no chain.
     match &facts.tree {
-        Ok(changes) if changes.is_empty() => {}
-        Ok(changes) => no.push(Refusal::Dirty(changes.clone())),
+        Ok(changes) => {
+            let left: Vec<String> = changes
+                .iter()
+                .filter(|path| !path.eq_ignore_ascii_case(crate::inbox::TREE_PATH))
+                .cloned()
+                .collect();
+            if !left.is_empty() {
+                no.push(Refusal::Dirty(left));
+            }
+        }
         Err(why) => no.push(Refusal::GitUnknown(why.clone())),
     }
     if facts.chained_today >= facts.daily {
@@ -1020,6 +1030,10 @@ mod tests {
     #[test]
     fn the_gate_passes_when_every_condition_holds_and_names_each_that_fails() {
         assert_eq!(gate(&passing(), now()), Vec::new());
+        // A message delivered between two runs leaves the tree clean enough (EP-20).
+        let mut delivered = passing();
+        delivered.tree = Ok(vec!["roadmap/inbox.md".to_owned()]);
+        assert_eq!(gate(&delivered, now()), Vec::new());
         let next = |id: &str, title: &str, size: Option<Size>| {
             Ok(Next {
                 id: ep(id),
@@ -1077,7 +1091,13 @@ mod tests {
                 },
             ),
             (
-                Box::new(|f: &mut Facts| f.tree = Ok(vec!["src/main.rs".to_owned()])),
+                // The inbox a delivery changed is left out (EP-20); the rest refuses.
+                Box::new(|f: &mut Facts| {
+                    f.tree = Ok(vec![
+                        "roadmap/inbox.md".to_owned(),
+                        "src/main.rs".to_owned(),
+                    ])
+                }),
                 Refusal::Dirty(vec!["src/main.rs".to_owned()]),
             ),
             (

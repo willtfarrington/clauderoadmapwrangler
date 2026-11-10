@@ -86,6 +86,7 @@ target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its
 target\release\crw.exe tasks <folder>   # what waits on the owner: tasks, inbox, handed-on blocks
 target\release\crw.exe tick <folder> OT-n         # tick an owner task
 target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
+target\release\crw.exe mail [--all]               # the mailman's log: first readings, deliveries
 target\release\crw.exe status [--offline]         # every project's badges; asks git, gh, the origins
 target\release\crw.exe setting <key> <value>      # set a registry setting, such as backup_settings
 target\release\crw.exe prompt <folder> [--visual|--headless]
@@ -250,6 +251,13 @@ project's next brief, or quits. Closing the window leaves it in the tray with it
 going on, and Quit asks first when it would stop them. Each notification and what became of it,
 each Show and each badge is a line in the ledger, which `crw notifications` prints.
 
+The window is also the mailman between projects (D-13). A brief's `> **Handed on (to <project>).**`
+block to a registered project is appended to that project's `roadmap/inbox.md` as a new `IN-n` line
+once the brief is committed, while no session works or waits there; the status bar says so, the
+receiving row shows the message, and the Detail pane says what became of each block. Each delivery
+is a line in the ledger, which `crw mail` prints, and a revert of a session in the receiving project
+puts the message back.
+
 The usage meter (EP-17) polls the undocumented `GET https://api.anthropic.com/api/oauth/usage`,
 treated as breakable, every 5 minutes, soon after a session the tool launched ends, and with a
 backoff from 1 to 30 minutes while it fails. Each poll reads the OAuth token from Claude Code's
@@ -316,7 +324,9 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
   `Handed on` blocks of the latest completed brief) are read and shown, never rewritten.
 - **Inbox.** `roadmap/inbox.md`, one line per message from another project:
   `- [ ] IN-n (from <project> EP-k, date) text`, optionally `[urgent]`. A sending session writes
-  `> **Handed on (to <project>).** …` after its completion note and the tool delivers it; the receiving
+  `> **Handed on (to <project>).** …` after its completion note and the tool delivers it once the brief
+  is committed and no session works in the receiving project (its first reading of a project counts
+  the blocks already there as delivered); the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
   The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line.
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in

@@ -241,7 +241,7 @@ pub(crate) fn tick(
 }
 
 /// `<backups>\<project folder>` for a file at `<project folder>\roadmap\<name>`.
-fn copies_dir(path: &Path, backups: &Path) -> PathBuf {
+pub(crate) fn copies_dir(path: &Path, backups: &Path) -> PathBuf {
     let project = path
         .parent()
         .and_then(Path::parent)

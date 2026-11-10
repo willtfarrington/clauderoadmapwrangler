@@ -21,7 +21,7 @@ const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5];
 const RESULT_CAP: usize = 8000;
 
 /// The most of an event's detail its row keeps, in characters.
-const DETAIL_CAP: usize = 1000;
+pub const DETAIL_CAP: usize = 1000;
 
 const V1: &str = "
 CREATE TABLE schema_version (version INTEGER NOT NULL);

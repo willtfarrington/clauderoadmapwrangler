@@ -206,3 +206,15 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   log says `the restart into the installed build waits: …` and the chain goes on in the old
   window. The session exercised this only with stand-ins for the process start (rules 5 and
   13). Notes go to `roadmap/inbox.md`
+- [ ] OT-21 (EP-20, 2026-11-10) The first real delivery between projects: the window now writes
+  into another project's `roadmap/inbox.md` by itself. Once the window runs EP-20's build (after
+  its restart), `target\release\crw.exe mail` should print a `first reading` line for each
+  registered project within a minute of the first poll of live sessions, with a `counted` line
+  for each `Handed on (to …)` block already written, and no `delivered` line: nothing written so
+  far is sent, so a block you have not carried yet still needs your hands. Then, the next time a session of any project ends with a `> **Handed on (to
+  <project>).**` block to a registered project, once its brief is committed and no session works
+  in the receiving project, the window's status bar says "Delivered IN-n to <project>, from
+  <sender> EP-k", the receiving project's `roadmap/inbox.md` ends with that line (a copy of the
+  file as it was is in `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\`), its row shows
+  the open message, and the sender's Detail pane says "delivered to <project> as IN-n". The
+  session exercised this only on scratch folders (rules 5 and 13). Notes go to `roadmap/inbox.md`

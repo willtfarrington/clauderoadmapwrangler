@@ -26,6 +26,7 @@ use crw_core::badges::online::{self, Reading};
 use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
 use crw_core::git;
+use crw_core::inbox::mailman::Mark;
 use crw_core::inbox::{self, Outgoing};
 use crw_core::ledger::Ledger;
 use crw_core::process;
@@ -154,6 +155,8 @@ pub struct ProjectRow {
     pub snapshot: Snapshot,
     pub facts: Facts,
     pub outgoing: Vec<Outgoing>,
+    /// What the mailman made of each block (EP-20), set into the row at each pass.
+    pub mail: Vec<Mark>,
     /// The git pass's reading; `None` until it reaches the project, and for a folder that is
     /// not a repository.
     pub git: Option<Git>,
@@ -333,6 +336,7 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         snapshot,
         facts,
         outgoing,
+        mail: Vec::new(),
         git: None,
         badges,
     }

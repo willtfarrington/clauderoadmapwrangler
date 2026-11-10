@@ -113,6 +113,8 @@ use crw_core::badges::backup::{Archive, Backup};
 use crw_core::badges::health;
 use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visibility};
 use crw_core::badges::stack::Kind;
+use crw_core::inbox::Recipient;
+use crw_core::inbox::mailman::{Mark, State as MailState};
 use crw_core::ledger::{RowUsage, SessionRow};
 use crw_core::registry::{DEFAULT_PRIORITY, Defaults, State, Store};
 use crw_core::revert::{
@@ -1014,6 +1016,7 @@ pub fn canned_plan(
         id: "OT-2".to_owned(),
         checked: true,
         disposition: None,
+        delivery: false,
     }];
     plan.session_id = Some(id);
     plan.ep = Some(ep);
@@ -1381,6 +1384,33 @@ pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
         value: Ok(account),
         at,
     });
+    // The mailman's states, canned, since a screenshot run delivers nothing (EP-20): delivered,
+    // waiting and counted in turn over each project's blocks to a registered project.
+    for row in &mut portfolio.projects {
+        let sender = row.name().to_owned();
+        row.mail = row
+            .outgoing
+            .iter()
+            .filter_map(|block| match &block.recipient {
+                Recipient::Project(receiver) => Some((block, receiver)),
+                Recipient::Unknown => None,
+            })
+            .enumerate()
+            .map(|(n, (block, receiver))| Mark {
+                sender: sender.clone(),
+                path: block.path.clone(),
+                line: block.line,
+                state: match n % 3 {
+                    0 => MailState::Delivered {
+                        receiver: receiver.clone(),
+                        id: "IN-3".to_owned(),
+                    },
+                    1 => MailState::Waits("a session works there".to_owned()),
+                    _ => MailState::Counted,
+                },
+            })
+            .collect();
+    }
 }
 
 /// Called once per frame: whether the projects are still being read.

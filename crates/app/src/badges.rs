@@ -755,6 +755,7 @@ mod tests {
             snapshot: Snapshot::default(),
             facts: Facts::default(),
             outgoing: Vec::new(),
+            mail: Vec::new(),
             git: None,
             badges,
         }

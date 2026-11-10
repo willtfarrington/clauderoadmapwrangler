@@ -345,6 +345,49 @@ urgent messages into running headless sessions.
 > not know, whole or by its first word, is shown and not delivered. *Alternatives.* The disposition on a
 > continuation line of its own; delivering `(to the owner)` blocks into `owner-tasks.md`.
 
+> **Addendum (2026-11-10, EP-20).** The mailman is built (`crw_core::inbox::mailman`, the window's
+> `app::mail`). Split at pickup (the owner's choice): the compose dialog, the urgent flag, ntfy and
+> the finished popup's gist are EP-20a's, and the `@<project>` prompt hook is EP-20b's.
+>
+> - **A letter** is a `Handed on (to <project>)` block of a registered target, its words without
+>   the label, up to a later paragraph of its quote that opens with a bold label of its own. Its
+>   key is its brief's id and a hash of its receiver and its words, so a letter goes out once, and
+>   a block whose words change is a new letter.
+> - **The delivery** appends `- [ ] IN-n (from <sender> EP-k, <date>) <text>` to the receiver's
+>   `roadmap/inbox.md`, the next free id, wrapped at 100 columns. The file as it was is first
+>   copied into the backups folder, and a missing file is created with a header in the house
+>   form. A message already there from the same sender and brief with the same words, carried by
+>   hand or delivered before, counts as delivered. The write runs in the process's turn, as a
+>   session's start does, so a starting session holds the message in its copy or starts before
+>   it; one lock serialises the process's inbox writes (the window's tick, the delivery).
+> - **When.** A letter goes out once its brief is committed (git reports no change to the brief),
+>   so that a draft of a completion note is never sent, and only while no session works or waits
+>   in the receiver (the window's runs, the hooks, the poll; an idle tab does not count), so that
+>   a running session is never disturbed. Otherwise it waits for the next round. The window runs a
+>   round once the poll of live sessions has answered and the files are read, then after each of
+>   its runs ends, when a session starts or ends, and every five minutes; only the window that
+>   holds the loopback port, where the hooks arrive, runs them (a second window would miss a
+>   session at work and could send a letter twice), and a screenshot run never does.
+> - **The first reading counts as delivered.** The owner carried every message by hand until now,
+>   so the mailman's first reading of a project, the first round or the first after its adoption,
+>   counts the blocks of its committed briefs as delivered and sends none. A brief a session is
+>   still writing then is no past: its blocks go out once it is committed. Mail to a project read
+>   for the first time (adopted later, or its folder back) is its past too.
+> - **The log** is the ledger's `event` rows of kind `mail`, under the sender: the first reading,
+>   each block counted then, each delivery with the message's id; `crw mail` prints it. No schema
+>   change. The Detail pane says each block's state.
+> - **A revert keeps it** (EP-15b's rule for the tool's own writes). Each delivery is also a `tick`
+>   row of the receiver, `delivered IN-n · (<meta>) <text>`, which a revert of a session there
+>   redoes after the restore, unless the message is there. A row cut at the ledger's cap of 1,000
+>   characters holds no whole message and is named instead.
+> - **The gate leaves `roadmap/inbox.md` out of its clean-tree condition** (D-22), so a message
+>   delivered between two chained runs ends no chain: the next brief triages it first.
+>
+> *Alternatives.* Delivering at once whatever the receiver does; delivering a completion note
+> found in the working tree; sending the history at the first round; keeping a delivered message's
+> key by its place in the brief; the mailman waiting between a chain's runs instead of the gate's
+> exception; a table of deliveries of its own (a schema 6).
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,

@@ -32,20 +32,39 @@ pub const TICK_KIND: &str = "tick";
 /// How many commits back the derived target is looked for.
 const DERIVED_DEPTH: &str = "500";
 
-/// A tick the tool wrote into a project: an owner task ticked or cleared, or an inbox message
-/// ticked with its disposition.
+/// A tick the tool wrote into a project: an owner task ticked or cleared, an inbox message
+/// ticked with its disposition, or (from EP-20) a message the mailman delivered, its words then
+/// the message as written after its id.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Tick {
     pub at: DateTime<Utc>,
     pub id: String,
     pub checked: bool,
     pub disposition: Option<String>,
+    /// A delivery (EP-20): `disposition` holds `(<meta>) <text>`.
+    pub delivery: bool,
 }
 
 impl Tick {
-    /// Its words in the event row: `ticked OT-3`, `cleared OT-3`, `ticked IN-2 · <disposition>`.
+    /// The delivery of message `id`, `words` being `(<meta>) <text>` (EP-20).
+    pub fn delivery(at: DateTime<Utc>, id: &str, words: &str) -> Self {
+        Self {
+            at,
+            id: id.to_owned(),
+            checked: true,
+            disposition: Some(words.to_owned()),
+            delivery: true,
+        }
+    }
+
+    /// Its words in the event row: `ticked OT-3`, `cleared OT-3`, `ticked IN-2 · <disposition>`,
+    /// `delivered IN-4 · (<meta>) <text>`.
     pub fn detail(&self) -> String {
-        let verb = if self.checked { "ticked" } else { "cleared" };
+        let verb = match (self.delivery, self.checked) {
+            (true, _) => "delivered",
+            (false, true) => "ticked",
+            (false, false) => "cleared",
+        };
         match &self.disposition {
             Some(words) => format!("{verb} {} · {words}", self.id),
             None => format!("{verb} {}", self.id),
@@ -55,9 +74,10 @@ impl Tick {
     /// The tick an event row's words record.
     pub fn parse(at: DateTime<Utc>, detail: &str) -> Option<Self> {
         let (verb, rest) = detail.split_once(' ')?;
-        let checked = match verb {
-            "ticked" => true,
-            "cleared" => false,
+        let (checked, delivery) = match verb {
+            "ticked" => (true, false),
+            "cleared" => (false, false),
+            "delivered" => (true, true),
             _ => return None,
         };
         let (id, disposition) = match rest.split_once(" · ") {
@@ -69,6 +89,7 @@ impl Tick {
             id: id.trim().to_owned(),
             checked,
             disposition,
+            delivery,
         })
     }
 }
@@ -87,6 +108,7 @@ pub fn log_tick(
         id: id.to_owned(),
         checked,
         disposition: disposition.map(str::to_owned),
+        delivery: false,
     };
     Ledger::open(path)
         .and_then(|ledger| ledger.add_event(tick.at, TICK_KIND, Some(project), &tick.detail()))
@@ -1151,6 +1173,23 @@ fn write_back(from: &Path, to: &Path) -> Result<(), String> {
 fn redo_ticks(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
     let folder = plan.folder.as_path();
     for tick in &plan.ticks {
+        if tick.delivery {
+            // A message the mailman delivered (EP-20): appended again unless it is there. A row
+            // the ledger cut at its cap holds no whole message, so it is named instead.
+            let words = tick.disposition.as_deref().unwrap_or_default();
+            if tick.detail().chars().count() >= crate::ledger::DETAIL_CAP {
+                done.not_redone.push(format!(
+                    "{} (too long for the log: deliver it again by hand)",
+                    tick.id
+                ));
+                continue;
+            }
+            match crate::inbox::mailman::redeliver(folder, words, backups, today) {
+                Ok(_) => done.redone.push(tick.detail()),
+                Err(why) => done.not_redone.push(format!("{} ({why})", tick.id)),
+            }
+            continue;
+        }
         let result = match (tick.id.split('-').next(), tick.checked) {
             (Some("OT"), true) => tasks::tick(folder, &tick.id, backups, today),
             (Some("OT"), false) => tasks::untick(folder, &tick.id, backups, today),
@@ -1366,9 +1405,16 @@ mod tests {
                 id: id.to_owned(),
                 checked,
                 disposition: words.map(str::to_owned),
+                delivery: false,
             };
             assert_eq!(Tick::parse(at, &tick.detail()), Some(tick));
         }
+        let delivered = Tick::delivery(at, "IN-4", "(from beta EP-6, 2026-11-10) A note · two");
+        assert_eq!(
+            delivered.detail(),
+            "delivered IN-4 · (from beta EP-6, 2026-11-10) A note · two"
+        );
+        assert_eq!(Tick::parse(at, &delivered.detail()), Some(delivered));
         assert_eq!(Tick::parse(at, "toast · waiting"), None);
     }
 
@@ -1409,6 +1455,7 @@ mod tests {
             id: "OT-1".to_owned(),
             checked: true,
             disposition: None,
+            delivery: false,
         };
 
         let mut cx = context(&repo, &backups);
@@ -1521,6 +1568,40 @@ mod tests {
                 change: Change::Changed,
                 action: Action::Undo,
             }]
+        );
+    }
+
+    /// A message the mailman delivered during the session is the tool's write: the revert removes
+    /// the file the session's span created, then delivers the message again (EP-20).
+    #[test]
+    fn a_delivery_during_the_session_is_redone() {
+        let repo = Repo::new("revert-delivery");
+        repo.write("src/lib.rs", "fn main() {}\n");
+        repo.commit("first");
+        let backups = repo.backups();
+        let start = repo.capture(&start::copies_dir(&backups, &repo.0, "s-1"));
+        repo.write("src/lib.rs", "fn main() { session(); }\n");
+        repo.commit("Session work");
+        let words = "(from beta EP-6, 2026-11-10) The export gains a column.";
+        crate::inbox::mailman::redeliver(&repo.0, words, &backups, "2026-11-10").unwrap();
+        let mut cx = context(&repo, &backups);
+        cx.ticks = vec![Tick::delivery(Utc::now(), "IN-1", words)];
+        let plan = plan(
+            &chosen(row(1, Some("s-1"), "alpha", start.at), Some(start)),
+            &cx,
+        );
+        assert!(!plan.is_refused(), "{:?}", plan.refusals);
+        let preview = plan.lines().join("\n");
+        assert!(preview.contains("delivered IN-1"), "{preview}");
+        let ledger = repo.scratch().join("ledger.sqlite");
+        let done = revert(&plan, Some(&ledger), &backups, "2026-11-10").unwrap();
+        assert!(done.problems.is_empty(), "{:?}", done.problems);
+        assert_eq!(repo.read("src/lib.rs").as_deref(), Some("fn main() {}\n"));
+        assert_eq!(done.redone, [format!("delivered IN-1 · {words}")]);
+        let inbox = repo.read("roadmap/inbox.md").unwrap();
+        assert!(
+            inbox.ends_with("- [ ] IN-1 (from beta EP-6, 2026-11-10) The export gains a column.\n"),
+            "{inbox}"
         );
     }
 
@@ -1750,6 +1831,7 @@ mod tests {
             id: "OT-1".to_owned(),
             checked: true,
             disposition: None,
+            delivery: false,
         }];
         assert!(!plan(&session(), &ticked).is_as_seen(&seen));
         repo.write("notes.md", "written after the preview\n");
