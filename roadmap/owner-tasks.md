@@ -191,7 +191,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   session checked the dialog, the section and the popup only on the fake portfolio and started
   no real session (rules 5 and 13). Notes go to `roadmap/inbox.md` (the gate `before EP-19b`
   taken off on 2026-11-08 under the D-10 addendum of that date: EP-19b does not build on it)
-- [ ] OT-20 (EP-37a, 2026-11-10) The first real chained restart, when you next want this
+- [x] OT-20 (EP-37a, 2026-11-10) The first real chained restart, when you next want this
   project's briefs to chain. In Roadmap Wrangler, tick clauderoadmapwrangler's Autopilot box in
   the list (or A on its row). The window offers permission mode auto, since its headless runs
   would otherwise wait at each shell command: accept it. With the box ticked, every session of
@@ -218,3 +218,16 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   file as it was is in `%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project>\`), its row shows
   the open message, and the sender's Detail pane says "delivered to <project> as IN-n". The
   session exercised this only on scratch folders (rules 5 and 13). Notes go to `roadmap/inbox.md`
+- [ ] OT-22 (EP-21, 2026-11-10) The first real formalise, when you next want a project brought
+  into the house style (it writes into that project). In a terminal in this folder, run
+  `target\release\crw.exe formalise <project>`: it changes nothing and lists the four files, each
+  `created`, `the rule block added at the end, the file's n lines kept`, `replaced between the
+  markers` or `kept`, then shows the block and each new file's text. If they read as you want, run
+  it again with `--yes`, with no session working in that project: it prints `wrote …` for each
+  file and where the copy of `CLAUDE.md` went (`%LOCALAPPDATA%\clauderoadmapwrangler\backups\<project
+  folder>\`). The project's `CLAUDE.md` should end with the block between the two
+  `roadmap-wrangler` markers, every line above it as it was; a third run should say `Nothing to
+  write`; and the window's row (after F5) should show no new problem. For a project whose tables
+  are the five-column or work-packet form, `--migration` prints the prompt to hand to a session
+  there. The session wrote only into scratch folders (rules 4 and 13). Notes go to
+  `roadmap/inbox.md`

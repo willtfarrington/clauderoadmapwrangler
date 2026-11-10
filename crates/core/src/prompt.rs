@@ -211,8 +211,18 @@ pub fn claude_md(folder: &Path) -> Option<String> {
 
 /// The read-first rule of a project's `CLAUDE.md`, as written: the list item or paragraph that
 /// opens with **Read first**, without its list marker, or the body of a section headed read
-/// order, load order or read first. `None` when it has neither.
+/// order, load order or read first. `None` when it has neither. The text outside the formalise
+/// step's block is read first, so that a project's own rule in any of these forms stands over
+/// the block's (EP-21).
 pub fn read_first(claude_md: &str) -> Option<String> {
+    match crate::formalise::without_block(claude_md) {
+        Some(outside) => read_first_in(&outside).or_else(|| read_first_in(claude_md)),
+        None => read_first_in(claude_md),
+    }
+}
+
+/// [`read_first`] over the whole of `claude_md`.
+fn read_first_in(claude_md: &str) -> Option<String> {
     let lines = markdown::lines(claude_md);
     let blocks = markdown::blocks(&lines);
     for block in &blocks {

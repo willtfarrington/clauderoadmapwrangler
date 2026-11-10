@@ -227,6 +227,20 @@ house style only with a regex fallback.
 > list's Session cell did already (the owner's finding after OT-6). *Alternatives.* Any open tab a
 > reason at once, as EP-12 had it.
 
+> **Addendum (2026-11-10, EP-21).** The migration's prompt is generated
+> (`formalise::migration_prompt`, `crw formalise <project> --migration`) for a roadmap whose first
+> phase table is the five-column or the work-packet form, and launches nothing: the owner hands it
+> to a headless session in that project, from the launch dialog once EP-21a builds Migrate…, or
+> from the chat (EP-24). The
+> session reads the project and runs `crw roadmap` first, puts its plan to the owner, converts the
+> tables to the house header (ids, order, brief, size and depends-on cells kept; a Core column;
+> `[x] hash` → `☑` and the hash backticked; `[~]` → `☐`, named in the record), moves each done
+> packet's handoff status into a completion note of its brief (the handoff sections and files
+> kept), keeps every file and the old briefs' wording, checks with `crw roadmap` that the next EP
+> and the counts are unchanged, records the migration in the project's own decision log, and
+> stops before committing. *Alternatives.* The tool rewriting the tables itself (D-11 forbids
+> it); a prompt that also writes the formalise step's files.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -308,6 +322,36 @@ with ticks in the registry.
 > plan is canned, and its Revert reverts nothing. *Alternatives.* The plan reverted as it was
 > previewed; only the refusals checked again at the click; `claude agents --json` asked again by
 > the window at the click.
+
+> **Addendum (2026-11-10, EP-21).** The adoption files are written by the formalise step
+> (`crw_core::formalise`, `crw formalise <project|folder> [--yes]`), split at pickup (the owner's
+> choice): the window's Formalise… dialog and Migrate… launch are EP-21a's.
+>
+> - **The files.** The rule block in the project's `CLAUDE.md` (the root's, else
+>   `.claude\CLAUDE.md`, where the opener reads them; a new root file with a title when there is
+>   none), between the lines `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->`;
+>   `roadmap/owner-tasks.md` and `roadmap/inbox.md`, each with a header whose example line stays in
+>   backticks (the inbox's is the mailman's, now citing `clauderoadmapwrangler D-13` as the owner's
+>   hand-carried inboxes do); `roadmap/_TEMPLATE.md`, the brief template.
+> - **The block** says the house's rules in short (the owner's choice, though the owner's
+>   user-level rules carry the method too, so that a project formalised elsewhere has them): read
+>   first, inbox triage, the brief from the template with its front matter, the completion note
+>   with model, effort and duration and the `Handed on` blocks after it, the owner-task line, the
+>   house table. A project's own rules outside it win; its `Read first` item is the one the opener
+>   quotes when the project has none of its own.
+> - **The preview and the write.** The plan reads the files by path only and asks git nothing:
+>   each file is created, takes the block at its end (after a blank line, every byte kept, its
+>   line endings followed), has the block replaced between the markers, or is kept; a file that is
+>   there is never replaced, and markers that cannot be read (an end without a begin, two blocks),
+>   a linked `CLAUDE.md` or a folder that is not there refuse it; markers inside a code fence are
+>   text. The write reads every file again and refuses when one changed since the preview,
+>   copies `CLAUDE.md` into the backups folder (`<project folder>\CLAUDE.<date>.md`) before changing
+>   it, creates an inbox under the process's inbox lock, and is refused while a session works or
+>   waits in the project; it is logged as an `event` row of kind `formalise`. A registered project's
+>   state stays the owner's (D-6).
+>
+> *Alternatives.* The tool's forms only in the block, with a pointer to the owner's house-style
+> rules; the window's dialog in the same brief; a write that also replaces an older header.
 
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20

@@ -16,7 +16,9 @@
 //! wait in `autopilot`, from EP-19b; a project's standing model and effort through `set`, kept in
 //! its rule for every brief, from EP-19c; `install`, the release build copied into the install
 //! folder and the window asked to restart into it, with `signals` and `doctor` naming the
-//! installed copy, from EP-37; `inbox send` arrives with its brief.
+//! installed copy, from EP-37; `mail`, the mailman's log read without a write, from EP-20;
+//! `formalise`, a project's house-style files previewed and written and the migration prompt of
+//! an older roadmap, from EP-21; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -49,7 +51,9 @@ use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
-use crw_core::{files, git, notify, paths, process, prompt, proposal, rules, usage, workspace};
+use crw_core::{
+    files, formalise, git, notify, paths, process, prompt, proposal, rules, usage, workspace,
+};
 
 const USAGE: &str = "\
 usage: crw <command>
@@ -107,6 +111,18 @@ commands:
                                  all_rows_checked, pickup_gate or no_commit_since
   undismiss <project> [<proposal>]
                                  bring dismissed proposals back
+  formalise <project|folder> [--yes]
+                                 preview the house-style files a project is given: the rule
+                                 block in its CLAUDE.md between the roadmap-wrangler markers,
+                                 roadmap/owner-tasks.md and roadmap/inbox.md with their headers,
+                                 the brief template roadmap/_TEMPLATE.md; each one created, its
+                                 block added or replaced, or kept; with --yes, write them: a file
+                                 there is never replaced, and CLAUDE.md changes only between the
+                                 markers, after a copy to the backups folder; refused while a
+                                 session works or waits there
+  formalise <project|folder> --migration
+                                 print the prompt of a session that migrates a five-column or
+                                 work-packet roadmap to the house style; launches nothing
   roadmap <project|folder>       print a project's snapshot: the README at HEAD and in the working
                                  tree, the next EP with its brief notes and its brief, the briefs
                                  and the decision log found, whether a session is in progress
@@ -217,6 +233,7 @@ fn main() -> ExitCode {
         ["dismiss", project, which] => dismiss(project, Some(which)),
         ["undismiss", project] => undismiss(project, None),
         ["undismiss", project, which] => undismiss(project, Some(which)),
+        ["formalise", rest @ ..] => formalise_project(rest),
         ["roadmap", target] => roadmap(target),
         ["tasks", target] => waiting(target),
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
@@ -2966,6 +2983,167 @@ fn registered_name(store: &Store, folder: &Path) -> Option<String> {
         .iter()
         .find(|project| paths::same(&project.folder(&root), folder))
         .map(|project| project.name.clone())
+}
+
+/// `crw formalise` (D-10 … D-13; EP-21): previews the house-style files a project is given, or
+/// writes them with `--yes` once no session works or waits there (as `crw revert` asks), logging
+/// the write in the ledger; with `--migration`, prints the prompt of the session that migrates an
+/// older roadmap to the house style (D-9).
+fn formalise_project(args: &[&str]) -> ExitCode {
+    let flag = |name: &str| args.contains(&name);
+    let (yes, migration) = (flag("--yes"), flag("--migration"));
+    if let Some(other) = args
+        .iter()
+        .find(|arg| arg.starts_with("--") && !matches!(**arg, "--yes" | "--migration"))
+    {
+        return usage_error(&format!(
+            "formalise takes --yes or --migration, not {other}"
+        ));
+    }
+    if yes && migration {
+        return usage_error("formalise takes --yes or --migration, not both");
+    }
+    let words: Vec<&str> = args
+        .iter()
+        .copied()
+        .filter(|arg| !arg.starts_with("--"))
+        .collect();
+    let [target] = words.as_slice() else {
+        return usage_error("formalise takes one project or folder");
+    };
+    println!("crw {} formalise", env!("CARGO_PKG_VERSION"));
+    let folder = match project_folder(target) {
+        Ok(folder) => std::path::absolute(&folder).unwrap_or(folder),
+        Err(e) => return failed(e),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let registry = match store.load() {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let root = registry.data_root();
+    let registered = registry
+        .projects
+        .iter()
+        .find(|project| paths::same(&project.folder(&root), &folder));
+    let name = registered.map_or_else(|| folder_name(&folder), |project| project.name.clone());
+    // How the commands printed below name the project: a folder that is not registered by its
+    // path, which works from any folder (EP-21's review).
+    let target = match registered {
+        Some(_) => name.clone(),
+        None => format!("\"{}\"", folder.display()),
+    };
+    let plan = formalise::plan(&folder, &name);
+    let today = files::today();
+    if migration {
+        let Some(profile) = plan.migrates() else {
+            return failed(format!(
+                "{name}: no migration to prompt for: {}",
+                match &plan.readme {
+                    formalise::Readme::Missing => "it has no roadmap/README.md".to_owned(),
+                    formalise::Readme::Unreadable(why) => format!("its roadmap README: {why}"),
+                    formalise::Readme::Read(None) => {
+                        "its roadmap README has no phase table the parser reads".to_owned()
+                    }
+                    formalise::Readme::Read(Some(_)) => "its tables are the house's".to_owned(),
+                }
+            ));
+        };
+        let crw = installed_cli()
+            .or_else(|| std::env::current_exe().ok())
+            .unwrap_or_else(|| PathBuf::from(install::CLI_EXE));
+        let text = formalise::migration_prompt(&name, &folder, profile, &crw, &today)
+            .expect("an older form has a migration prompt");
+        println!(
+            "The prompt of a headless session in {name} that migrates its tables to the house \
+             style ({} characters; launches nothing):\n",
+            text.chars().count()
+        );
+        println!("{text}");
+        return ExitCode::SUCCESS;
+    }
+    for line in plan.lines(&target) {
+        println!("{line}");
+    }
+    if plan.is_refused() {
+        println!("Nothing changed.");
+        return ExitCode::FAILURE;
+    }
+    if registered.is_some_and(|project| project.state == State::Unformalised) {
+        println!(
+            "  its state stays unformalised: `crw set {name} state active` once its roadmap is \
+             written"
+        );
+    }
+    if plan.writes() == 0 {
+        println!("Nothing to write: the project has every file.");
+        return ExitCode::SUCCESS;
+    }
+    for step in &plan.steps {
+        if let Some(text) = step.shown() {
+            let what = match step.change {
+                formalise::Change::Create => "the new file",
+                _ => "the block",
+            };
+            println!("\n{} ({}), {what}:\n", step.name, step.file.words());
+            for line in text.lines() {
+                println!("    {line}");
+            }
+        }
+    }
+    if !yes {
+        println!("\nNothing changed. `crw formalise {target} --yes` writes.");
+        return ExitCode::SUCCESS;
+    }
+    let (working, _) = live_sessions(&registry, &folder);
+    if !working.is_empty() {
+        println!(
+            "\nrefused while a session works or waits there: {}. Nothing changed.",
+            working.join("; ")
+        );
+        return ExitCode::FAILURE;
+    }
+    let applied = match formalise::apply(&plan, &store.backups, &today) {
+        Ok(applied) => applied,
+        Err(e) => return failed(e),
+    };
+    println!();
+    for written in &applied.written {
+        let copy = written
+            .copy
+            .as_ref()
+            .map(|copy| format!("; the file as it was is kept as {}", copy.display()))
+            .unwrap_or_default();
+        println!("wrote {}{copy}", written.path.display());
+    }
+    if let Some(path) = paths::ledger_file().filter(|path| path.exists())
+        && !applied.written.is_empty()
+    {
+        let logged = Ledger::open(&path)
+            .map_err(|e| e.to_string())
+            .and_then(|ledger| {
+                ledger
+                    .add_event(
+                        Utc::now(),
+                        formalise::EVENT_KIND,
+                        Some(&name),
+                        &applied.detail(),
+                    )
+                    .map_err(|e| e.to_string())
+            });
+        if let Err(why) = logged {
+            eprintln!("crw: the ledger did not take the write's line: {why}");
+        }
+    }
+    match &applied.failed {
+        Some(why) => failed(format!(
+            "stopped: {why}; `crw formalise {target}` again finishes the job"
+        )),
+        None => ExitCode::SUCCESS,
+    }
 }
 
 /// What the downshift weighs for `crw prompt` (D-23; EP-18): the endpoint's last reading, which

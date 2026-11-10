@@ -31,14 +31,17 @@ pub const EVENT_KIND: &str = "mail";
 /// The column a delivered message wraps at.
 const WIDTH: usize = 100;
 
-/// The header of an `inbox.md` the mailman creates, in the house form (D-13).
+/// The header of an `inbox.md` the mailman or the formalise step creates, in the house form
+/// (D-13), citing the decision as the owner's hand-carried inboxes do, since a bare number would
+/// name the receiver's own (EP-21).
 pub const HEADER: &str = "# Inbox — messages from other projects
 
-Read right after the roadmap at the start of a session. Triage rule (D-13): for each open
-message, roll it into this session if it fits the brief and is at most S-sized; otherwise add it to
-the brief notes of a named later EP or propose a new row in the right phase, confirming the choice
-with the owner; or decline with a reason. Write the disposition on the message's line and tick its
-box. One message per line, `- [ ] IN-n (from <project> EP-k, date) text`, delivered by the tool.
+Read right after the roadmap at the start of a session. Triage rule (clauderoadmapwrangler D-13):
+for each open message, roll it into this session if it fits the brief and is at most S-sized;
+otherwise add it to the brief notes of a named later EP or propose a new row in the right phase,
+confirming the choice with the owner; or decline with a reason. Write the disposition on the
+message's line and tick its box. One message per line,
+`- [ ] IN-n (from <project> EP-k, date) text`, delivered by the tool.
 ";
 
 /// A `Handed on (to <project>)` block of a registered target.

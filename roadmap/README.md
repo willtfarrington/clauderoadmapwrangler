@@ -701,11 +701,12 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-37 | [The installed exe and the window's restart: the release exes installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` by `crw install` and the script, the shortcuts there, `crw signals install` writing the installed `crw.exe`, File > Install and restart, the tray's item and `crw install`'s request over the loopback, refused while anything would be lost](EP-37-installed-exe-and-restart.md) (D-29, D-5) | M | EP-19a, EP-19b | core | ☑ `a8078a5` |
 | EP-37a | [The handover and the chained restart: held chains and chain plans carried across the window's restart in a handover file, a pending install taken at the gate's moment before the chained start, the gate's own-project condition dropped, the opener's words for this project's runs, this project chained under `auto`](EP-37a-handover-and-chained-restart.md) (D-22, D-5, D-29) | M | EP-37 | core | ☑ `55907f7` |
 | EP-20 | [The mailman: a committed brief's `Handed on (to …)` blocks delivered into the receiver's inbox while no session works there, the first reading counted as delivered, the delivery log and `crw mail`, each block's state in the Detail pane, a revert redoing a delivery, the gate leaving `roadmap/inbox.md` out](EP-20-the-mailman.md) (D-13) | M | EP-5, EP-13 | core | ☑ `2d36090` |
-| EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
+| EP-21 | [Formalise files: `crw_core::formalise` plans and writes a project's house-style files (the `CLAUDE.md` rule block between the roadmap-wrangler markers, `roadmap/owner-tasks.md` and `roadmap/inbox.md` with their headers, `roadmap/_TEMPLATE.md`), never replacing a file or touching the text outside the markers; `crw formalise` with its preview and `--yes`; the migration prompt for five-column and work-packet roadmaps (`--migration`)](EP-21-formalise-files.md) (D-10, D-11, D-12, D-13, D-9) | M | EP-5, EP-10 | core | ☐ |
 | EP-22 | Roadmap-wrangler plugin: skills plan, replan, formalise, status and the house-style reference; loaded with `--plugin-dir`; install notes (D-27) | M | EP-21 | core | ☐ |
 | EP-20a | Compose and urgent: the compose dialog (target, text, urgent) writing `from the owner`, the urgent flag's popup and the ntfy publisher (`notify::ntfy`, host and topic in the registry), the `[urgent]` chip text, the finished popup's gist line (D-13, D-21) | M | EP-20 | core | ☐ |
 | EP-20b | The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event (D-20) | S | EP-20 | core | ☐ |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-20a, EP-20b | core | ☐ |
+| EP-21a | Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane, and Migrate… opening the launch dialog in Headless with the migration prompt (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-20a, EP-20b, EP-21a | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -735,6 +736,10 @@ as chained headless runs of this project; EP-37 keeps the install and the restar
 takes the compose dialog, the urgent flag, ntfy and the popup's gist, and EP-20b (S) the prompt
 hook. Both follow EP-22 and precede EP-23, so that the chain plan the owner set at EP-20's
 headless start (EP-21, EP-22) runs as set; neither EP-21 nor EP-22 depends on them.
+*(2026-11-10, EP-21 split at pickup, the owner's choice.)* EP-21 keeps the formalise engine,
+`crw formalise` and the migration prompt; EP-21a (M) takes the window's Formalise… dialog and
+Migrate… launch, after EP-20b and before EP-23, so that the chain plan's EP-22 follows EP-21 as
+set: EP-22's formalise skill needs the engine, not the window.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -1151,6 +1156,8 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   inbox files already write it. **From EP-33:** Adopt (`discovery::adopt`) already writes the
   folder's own workspace file and the aggregate's entry before it registers the folder, so the
   formalise step writes the house-style files only and its preview can show Adopt's as done.
+  *(Split at pickup, 2026-11-10, the owner's choice: the window's Formalise… dialog and Migrate…
+  launch are EP-21a.)*
 - **EP-22.** `plugins/roadmap-wrangler/` with `.claude-plugin/plugin.json`, `skills/plan/SKILL.md` (the
   interview method as practised in this project's EP-0: research pass, domain map, rounds of four with the
   recommended option first, the planning file written to the repo first and filled per round, close-out
@@ -1167,7 +1174,14 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   `--plugin-dir` serves the headless runs and the chat. The extension's link also has an
   `/install-plugin` path (`vscode://anthropic.claude-code/install-plugin?plugin=<name>&marketplace=<url>`,
   2.1.318's handler, read at EP-16), which opens its plugins dialog in the chat for the owner to
-  confirm: one way to bring the plugin into the owner's VS Code sessions.
+  confirm: one way to bring the plugin into the owner's VS Code sessions. **From EP-21:** the
+  formalise skill writes the house-style files through `crw formalise <project>` (its preview,
+  then `--yes` on the owner's word), never by hand, so the texts stay the engine's
+  (`crw_core::formalise`: the rule block between `BEGIN` and `END`, `OWNER_TASKS_HEADER`,
+  `mailman::HEADER`, `TEMPLATE`); the reference can quote them from there. `crw formalise
+  <project> --migration` prints the migration prompt of a five-column or work-packet roadmap,
+  which the skill hands to a session in that project. A project with no roadmap README is the plan
+  skill's: the formalise preview says so.
 - **EP-20a.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4): the
   owner's side of the mail, from EP-20's note. (1) **The compose dialog** in the tool (target,
   text, urgent) writing the same line with `from the owner`; its preview through `markup::note`
@@ -1213,6 +1227,31 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   user settings is an owner task, written at the brief's close. **From EP-20:** a project is
   found as the mailman finds a receiver, `Registry::project(name)` on the name whole or its first
   word (`inbox::outgoing`'s resolve).
+- **EP-21a.** Added on 2026-11-10 when EP-21 was split at pickup (the owner's choice, D-4): the
+  window's side of the formalise step, from EP-21's note. (1) **Formalise…** on a project's row
+  menu and in its Detail pane (for an unformalised project, or one missing a house-style file):
+  a dialog with the plan's preview (each file and its change, the block, the new files' text, the
+  roadmap's form), Write and Cancel; refused while a session works or waits in the project, as the
+  window's Revert is (EP-15c: the busy sessions, the poll answered); the plan read again at Write
+  and written only when it is the one previewed, else the new one shown; the files read again
+  after, the status bar naming the copy of `CLAUDE.md`. (2) **Migrate…** for a five-column or
+  work-packet roadmap: the launch dialog in Headless with the migration prompt in its editor in
+  place of the opener (the prompt not regenerated from the opener's parts; the ledger row's EP
+  left empty or marked as the migration, the chain plan absent); the owner sends it. A screenshot
+  run cans both (`formalise=<project>`). **From EP-21:** `formalise::plan(folder, name)` is the
+  preview and `formalise::apply(&plan, backups, today)` the write, which already reads every file
+  again and returns `Error::Changed` when one changed since the plan; `Step::shown` is what to
+  show of each file, `Plan::lines` the summary, `Plan::migrates` the older form, and
+  `formalise::migration_prompt(name, folder, profile, crw, date)` the prompt; the write is logged
+  as an `event` row of kind `formalise` (`Applied::detail`), which the Detail pane may show;
+  `inbox::writing` serialises the inbox's creation with the mailman's deliveries in the process.
+  The window runs from the installed copy, so the prompt's `crw` is
+  `%LOCALAPPDATA%\clauderoadmapwrangler\bin\crw.exe` (`install::bin_dir`). **From EP-21's review
+  (the owner's choice: here):** a formalise is allowed while a tab sits idle in the project, and a
+  revert of a session that started before it takes the new files and the block back without
+  redoing them (`crw formalise` again restores them); the dialog's write could be logged as a row
+  the revert redoes, as a delivery is (`revert::Tick::delivery`, `redo_ticks`), or refused while
+  any tab is open there.
 - **EP-23.** Retro, addenda, P4 rows confirmed with pickup notes, `v2-notes.md` grown; the first week of
   autopilot runs reviewed (how many chains, how many gate refusals and why). **From EP-16:** time
   the briefs as EP-8 and EP-16 did: each session's transcript under this project's slug, found by
@@ -1284,6 +1323,12 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   walk takes EP-20's residual-risk paragraph with the first real delivery (OT-21): the window's
   first round counting every block already written, then a new block delivered once its brief is
   committed, its receiver's row showing the message; `crw mail` prints the log.
+  **From EP-21 (split at pickup, the owner's choice):** EP-21a (M) joined P3 after EP-20b, so the
+  totals are 51 briefs, 13 S · 32 M · 6 L ≈ 50.5 session-hours, 15 still open once EP-21 is
+  checked. EP-21 was the first brief a chain carried across the window's restart (EP-37a's route,
+  OT-20). The walk takes EP-21's residual-risk paragraph with the first real formalise (OT-22):
+  the preview on a project the owner wants formalised, then the write, the files read again and
+  the row's Waiting count unchanged.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

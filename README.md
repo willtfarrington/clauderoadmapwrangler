@@ -329,6 +329,15 @@ format profiles, read-only. `crw roadmap <folder>` prints what the parser reads 
   the blocks already there as delivered); the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
   The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line.
+- **Formalising a project.** `crw formalise <project|folder>` previews the house-style files a
+  project is given and `--yes` writes them: a rule block in its `CLAUDE.md` between
+  `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->` (the house's rules in short;
+  the text outside the markers is never touched, and the file is copied to the tool's backups
+  folder first), `roadmap/owner-tasks.md` and `roadmap/inbox.md` with their headers, and the brief
+  template `roadmap/_TEMPLATE.md`; a file that is there is never replaced, and the write is
+  refused while a session works in the project. For a roadmap in one of the two older shapes,
+  `crw formalise <project> --migration` prints the prompt of a session that converts its tables to
+  the house form, keeping every id, hash and file.
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in
   `roadmap/v2-notes.md`.
 - **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.
