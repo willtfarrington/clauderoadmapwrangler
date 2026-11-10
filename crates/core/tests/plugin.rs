@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use crw_core::formalise;
 use crw_core::inbox::mailman;
+use crw_core::plugin;
 
 /// The skills the plugin ships (D-27).
 const SKILLS: [&str; 4] = ["formalise", "plan", "replan", "status"];
@@ -139,6 +140,55 @@ fn every_file_a_skill_names_in_the_plugin_is_there() {
             named += 1;
         }
         assert!(named > 0, "{name} does not point at the reference");
+    }
+}
+
+/// Every file under `plugins/roadmap-wrangler/`, by its path under the folder with `/`.
+fn files_of(folder: &Path) -> Vec<(String, PathBuf)> {
+    let mut found = Vec::new();
+    let mut pending = vec![folder.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in fs::read_dir(&dir).unwrap().flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                pending.push(path);
+            } else {
+                let name = path
+                    .strip_prefix(folder)
+                    .unwrap()
+                    .components()
+                    .map(|c| c.as_os_str().to_string_lossy().into_owned())
+                    .collect::<Vec<_>>()
+                    .join("/");
+                found.push((name, path));
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+/// The build carries the plugin's folder whole (EP-22a): the table names every file there and
+/// nothing else, each byte for byte, so a run's copy is the folder as committed.
+#[test]
+fn the_build_carries_every_file_of_the_plugin() {
+    let files = files_of(&plugin());
+    let carried: Vec<&str> = plugin::FILES.iter().map(|(name, _)| *name).collect();
+    let on_disk: Vec<&str> = files.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(
+        carried, on_disk,
+        "crw_core::plugin::FILES must list the folder's files, in sorted order"
+    );
+    for ((name, text), (_, path)) in plugin::FILES.iter().zip(&files) {
+        assert_eq!(
+            fs::read(path).unwrap(),
+            text.as_bytes(),
+            "{name} is carried as another text"
+        );
+    }
+    assert!(carried.contains(&".claude-plugin/plugin.json"));
+    for skill in SKILLS {
+        assert!(carried.contains(&format!("skills/{skill}/SKILL.md").as_str()));
     }
 }
 

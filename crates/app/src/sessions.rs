@@ -809,11 +809,25 @@ impl Sessions {
         let ctx = ctx.clone();
         let program = preflight.program.clone();
         let version = version_of(&preflight);
-        let started = launch.clone();
+        let mut started = launch.clone();
         let spawned = thread::Builder::new()
             .name("session start".to_owned())
             .spawn(move || {
-                let _ = sender.send(Session::start(&preflight, started));
+                // The build's copy of the plugin, written before every start, resumes included,
+                // so the run gets the plugin of the build that starts it (D-27; EP-22a); a copy
+                // that cannot be written is said under the run, which starts without it.
+                let unwritten = match crw_core::plugin::prepare() {
+                    Ok(dir) => {
+                        started.plugin_dir = Some(dir);
+                        None
+                    }
+                    Err(why) => Some(format!("{why}; the run goes without the plugin")),
+                };
+                let result = Session::start(&preflight, started).map(|mut session| {
+                    session.dropped.extend(unwritten);
+                    session
+                });
+                let _ = sender.send(result);
                 ctx.request_repaint();
             });
         if spawned.is_ok() {

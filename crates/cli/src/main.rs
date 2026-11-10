@@ -52,7 +52,8 @@ use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{
-    files, formalise, git, notify, paths, process, prompt, proposal, rules, usage, workspace,
+    files, formalise, git, notify, paths, plugin, process, prompt, proposal, rules, usage,
+    workspace,
 };
 
 const USAGE: &str = "\
@@ -395,7 +396,12 @@ fn doctor() -> ExitCode {
         } else {
             "no ultracode"
         };
-        println!("  headless   ready: {efforts}; {ultracode}; {budget}");
+        let plugin_flag = if flags.has(plugin::FLAG) {
+            plugin::FLAG.to_owned()
+        } else {
+            format!("no {}", plugin::FLAG)
+        };
+        println!("  headless   ready: {efforts}; {ultracode}; {budget}; {plugin_flag}");
     }
     if meets {
         ExitCode::SUCCESS
@@ -2833,6 +2839,14 @@ fn install_build(flags: &[&str]) -> ExitCode {
     for line in report.lines() {
         println!("  - {line}");
     }
+    // The build's copy of the plugin, so that the installed build and the copy agree from here
+    // on (D-27; EP-22a); the window writes it again before each headless start.
+    if let Some(dir) = plugin::dir() {
+        match plugin::write(&dir) {
+            Ok(written) => println!("  - plugin {}: {}", dir.display(), written.words()),
+            Err(e) => println!("  - plugin: {e}"),
+        }
+    }
     if !restart {
         println!("The window was not asked to restart (--no-restart).");
         return ExitCode::SUCCESS;
@@ -2886,6 +2900,15 @@ fn print_exes() {
             ),
         },
         None => println!("  installed  ? no local folder"),
+    }
+    // The build's copy of the plugin a headless run loads (D-27; EP-22a).
+    match plugin::dir() {
+        Some(dir) => println!(
+            "  plugin     {}: {}",
+            dir.display(),
+            plugin::Status::of(&dir).words()
+        ),
+        None => println!("  plugin     ? no local folder"),
     }
     let Some(status) =
         signal_entries::settings_file().and_then(|path| signal_entries::status(&path).ok())

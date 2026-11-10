@@ -6,7 +6,8 @@
 //! `Edit` deny rule each in `--settings` (D-16, D-18 addenda), and the push guard of a project
 //! whose autopilot is on adds [`PUSH_DENY_RULE`] to the same rules (D-22; EP-19b); on the defer
 //! route the same settings carry the `PreToolUse` hook that ends the run at a question, and a
-//! deferred call's resume the one-shot hook that answers it (D-19; EP-14).
+//! deferred call's resume the one-shot hook that answers it (D-19; EP-14). The build's copy of
+//! the roadmap-wrangler plugin loads with `--plugin-dir` when the help lists it (D-27; EP-22a).
 
 use std::ffi::{OsStr, OsString};
 use std::path::{Component, Path, PathBuf, Prefix};
@@ -15,7 +16,7 @@ use std::time::Duration;
 use super::cli::{Flags, PROMPT_TOOL, REQUIRED};
 use super::defer;
 use super::protocol::{Deferred, Response};
-use crate::paths;
+use crate::{paths, plugin};
 
 /// How long a graceful stop waits for the session to exit before its job is killed.
 pub const STOP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -93,6 +94,9 @@ pub struct Launch {
     /// The backups folder, when the run records the project's start for a revert (EP-15b): the
     /// project's `revert` switch is on. A resume records none and keeps its first run's.
     pub starts: Option<PathBuf>,
+    /// The folder of the build's copy of the roadmap-wrangler plugin, loaded for the session
+    /// with `--plugin-dir` when the CLI lists it (D-27; EP-22a); none for a run without it.
+    pub plugin_dir: Option<PathBuf>,
 }
 
 /// How a headless run's questions and permission requests reach the owner (D-19; EP-14); the
@@ -129,7 +133,7 @@ pub struct Answered {
 impl Launch {
     /// A run of `prompt` in `folder` with `model`: `acceptEdits` (D-18), no neighbour, no push
     /// guard, a stop that waits 30 seconds, nothing recorded, a new session whose questions take
-    /// the control protocol with no time limit.
+    /// the control protocol with no time limit, no plugin.
     pub fn new(project: &str, folder: &Path, model: &str, prompt: &str) -> Self {
         Self {
             project: project.to_owned(),
@@ -152,6 +156,7 @@ impl Launch {
             answer: None,
             answered_after: None,
             starts: None,
+            plugin_dir: None,
         }
     }
 
@@ -352,6 +357,28 @@ pub(crate) fn command_line(
         push(&[os("--settings"), os(&settings)]);
     }
 
+    // The build's copy of the plugin, for this session (D-27; EP-22a): a claude without the flag
+    // runs without it, as does one whose copy is not there, both said.
+    if let Some(dir) = &launch.plugin_dir {
+        if !flags.has(plugin::FLAG) {
+            dropped.push(format!(
+                "{} {}: this claude does not list it, so the run goes without the {} plugin",
+                plugin::FLAG,
+                dir.display(),
+                plugin::NAME
+            ));
+        } else if !dir.is_dir() {
+            dropped.push(format!(
+                "{} {}: no such folder, so the run goes without the {} plugin",
+                plugin::FLAG,
+                dir.display(),
+                plugin::NAME
+            ));
+        } else {
+            push(&[os(plugin::FLAG), dir.as_os_str()]);
+        }
+    }
+
     if let Some(budget) = launch.max_budget_usd {
         if flags.has("--max-budget-usd") {
             push(&[os("--max-budget-usd"), os(&budget.to_string())]);
@@ -481,6 +508,7 @@ mod tests {
   --permission-prompts <target>  Who answers permission prompts with
                                  --print: \"host\" (the SDK host or
                                  --permission-prompt-tool) or \"none\"
+  --plugin-dir <path>  Load a plugin from a directory for this session only
   -p, --print  Print
   --replay-user-messages  Echo
   -r, --resume [value]  Resume a conversation by session ID or name
@@ -842,6 +870,53 @@ mod tests {
         no_settings.neighbours = vec![beta];
         let without = Flags::parse(&HELP.replace("--settings", "--other"));
         assert!(refused(&no_settings, &without).contains("--settings"));
+    }
+
+    /// The plugin's copy (EP-22a): passed when the help lists the flag and the folder is there,
+    /// dropped and said otherwise, carried by a resume, absent for a launch without it.
+    #[test]
+    fn the_plugins_copy_loads_with_its_flag() {
+        let scratch = Scratch::new("launch-plugin");
+        let project = scratch.0.join("alpha");
+        let copy = scratch.0.join("plugin").join(plugin::NAME);
+        for folder in [&project, &copy] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        let flags = Flags::parse(HELP);
+        let mut launch = Launch::new("alpha", &project, "opus", "Run EP-3.");
+        launch.plugin_dir = Some(copy.clone());
+        let line = command_line(&launch, &flags, "id", []).unwrap();
+        assert_eq!(
+            value_after(&strings(&line), plugin::FLAG),
+            [copy.display().to_string()]
+        );
+        assert!(line.dropped.is_empty(), "{:?}", line.dropped);
+
+        // A resume keeps it.
+        launch.resume = Some("0e1d".to_owned());
+        let line = command_line(&launch, &flags, "0e1d", []).unwrap();
+        assert_eq!(value_after(&strings(&line), plugin::FLAG).len(), 1);
+
+        // A claude without the flag runs without the plugin, and says so.
+        let without = Flags::parse(&HELP.replace("--plugin-dir", "--other-dir"));
+        let line = command_line(&launch, &without, "0e1d", []).unwrap();
+        assert!(value_after(&strings(&line), plugin::FLAG).is_empty());
+        assert_eq!(line.dropped.len(), 1, "{:?}", line.dropped);
+        assert!(line.dropped[0].contains("does not list it"));
+        assert!(line.dropped[0].contains(plugin::NAME));
+
+        // A copy that is not there is dropped and said too.
+        launch.plugin_dir = Some(scratch.0.join("gone"));
+        let line = command_line(&launch, &flags, "0e1d", []).unwrap();
+        assert!(value_after(&strings(&line), plugin::FLAG).is_empty());
+        assert_eq!(line.dropped.len(), 1, "{:?}", line.dropped);
+        assert!(line.dropped[0].contains("no such folder"));
+
+        // None asked: none passed, nothing said.
+        launch.plugin_dir = None;
+        let line = command_line(&launch, &flags, "0e1d", []).unwrap();
+        assert!(value_after(&strings(&line), plugin::FLAG).is_empty());
+        assert!(line.dropped.is_empty());
     }
 
     #[test]

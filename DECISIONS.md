@@ -1553,6 +1553,23 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > *Alternatives.* The plugin and `--plugin-dir` in one brief; a `version` bumped by hand at each
 > change; the local folder as the install route; skill files written into `~/.claude/skills`.
 
+> **Addendum (2026-11-10, EP-22a).** The tool's own headless runs load the plugin. The build
+> carries the plugin's files (`crw_core::plugin::FILES`, one table by `include_str!`, which a
+> structural test holds to `plugins/roadmap-wrangler/` file for file) and writes them as its copy
+> under the local folder, `%LOCALAPPDATA%\clauderoadmapwrangler\plugin\roadmap-wrangler\` (under
+> `CRW_HOME` in a trial), before every headless start of the window, resumes and answers included,
+> and at `crw install`: a file that differs is rewritten, one the build no longer has removed, so
+> a run gets the plugin of the build that starts it, whatever the working tree holds. The launch
+> passes `--plugin-dir <folder>` when `claude --help` lists it (2.1.316 does), else drops the wish
+> and says so under the run (D-15), as it does for a copy that could not be written. The launch
+> dialog's Plugin field names the copy; `crw doctor` prints its folder, whether it matches the
+> build, and whether the CLI lists the flag. A visual launch cannot pass the flag: those sessions
+> have the plugin the owner installed (EP-22). *Alternatives.* Pointing `--plugin-dir` at the
+> repository's folder (a run would then get whatever the working tree holds, half-edited skills
+> included, and a run of another project would depend on this repository's checkout); the copy
+> written only at install (a build run from `target\release` without an install would start runs
+> with an older copy); a `.zip` passed to the flag (one more format to keep, for no gain).
+
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and
 8443 belong to another project), tailnet only, never Funnel; the tool checks `tailscale serve status` and

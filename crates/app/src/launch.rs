@@ -818,6 +818,47 @@ impl Dialog {
         });
 
         let reason = if visual {
+            "headless only: a visual session has the plugin you installed into Claude Code, if any"
+        } else {
+            "the build's copy, written before the start and loaded with --plugin-dir (D-27)"
+        };
+        field(ui, "Plugin", reason, |ui| {
+            ui.vertical(|ui| {
+                match crw_core::plugin::dir() {
+                    Some(dir) if !visual => {
+                        ui.label(RichText::new(crw_core::plugin::NAME).small())
+                            .on_hover_text(dir.display().to_string());
+                    }
+                    Some(_) => {
+                        ui.label(RichText::new("the session's own").weak());
+                    }
+                    None => {
+                        ui.label(
+                            RichText::new(format!(
+                                "no local folder: the run goes without {}",
+                                crw_core::plugin::NAME
+                            ))
+                            .small()
+                            .color(style::amber(ui)),
+                        );
+                    }
+                }
+                if !visual
+                    && flags_of(preflight).is_some_and(|flags| !flags.has(crw_core::plugin::FLAG))
+                {
+                    ui.label(
+                        RichText::new(format!(
+                            "this claude lists no {}: the run goes without it",
+                            crw_core::plugin::FLAG
+                        ))
+                        .small()
+                        .color(style::amber(ui)),
+                    );
+                }
+            });
+        });
+
+        let reason = if visual {
             "headless only: a visual session asks in VS Code, which the tool never answers"
         } else {
             "the route and the project's time limit (D-19)"
@@ -1520,6 +1561,7 @@ pub fn canned_preflight() -> Preflight {
   --output-format <format>  Output format
   --permission-mode <mode>  Mode (choices: \"acceptEdits\", \"auto\", \"bypassPermissions\", \"manual\", \"dontAsk\", \"plan\")
   --permission-prompts <target>  Who answers
+  --plugin-dir <path>  Load a plugin from a directory for this session only
   -p, --print  Print
   --replay-user-messages  Echo
   --session-id <uuid>  Session id

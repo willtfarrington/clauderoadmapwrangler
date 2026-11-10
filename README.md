@@ -75,10 +75,12 @@ cargo build --release                   # target\release\clauderoadmapwrangler.e
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, installs (crw install), then a desktop shortcut
                                         # and a Start-menu entry that open the installed window
 target\release\crw.exe install          # copy the build into %LOCALAPPDATA%\clauderoadmapwrangler\bin
-                                        # and ask the window to restart into it
+                                        # (and the plugin's copy beside it) and ask the window to
+                                        # restart into it
 target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension,
                                         # where the installed copy is, which crw.exe the hooks run,
-                                        # and whether claude would start a headless session
+                                        # whether the plugin's copy matches the build, and whether
+                                        # claude would start a headless session
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 target\release\crw.exe dismiss <project>          # leave its proposals out until their facts change
 target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,
@@ -388,9 +390,12 @@ roadmap-wrangler@clauderoadmapwrangler`. The plugin then loads in place from the
 each session start, unfinished edits included. One name holds one marketplace, so to switch
 routes, `claude plugin marketplace remove clauderoadmapwrangler` first, which uninstalls the
 plugin too. To try it in one session without installing it, start `claude --plugin-dir
-plugins\roadmap-wrangler` in the clone. The tool's own headless runs are to load it that way
-(EP-22a); a visual launch cannot pass the flag, so a VS Code session has the plugin once it is
-installed.
+plugins\roadmap-wrangler` in the clone. The tool's own headless runs load it that way: the build
+carries the plugin's files and writes its copy under
+`%LOCALAPPDATA%\clauderoadmapwrangler\plugin\roadmap-wrangler\` before each start (and at `crw
+install`), then passes `--plugin-dir` with that folder, which replaces an installed plugin of the
+same name for that session; the launch dialog's Plugin field and `crw doctor` say so. A visual
+launch cannot pass the flag, so a VS Code session has the plugin once it is installed.
 
 ## Notes
 
