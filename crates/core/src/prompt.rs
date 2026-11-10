@@ -13,6 +13,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::paths;
 use crate::registry::{LaunchMode, Project, Registry};
 use crate::roadmap::EpId;
 use crate::roadmap::markdown::{self, Block};
@@ -88,11 +89,17 @@ pub struct Parts {
     pub rules: String,
     /// Whether the rules tell the session to commit: the project's autopilot is on (D-22).
     pub commits: bool,
+    /// Whether the project is the tool's own (EP-37a): its folder is the repository this build
+    /// was compiled in, so the opener says how its release build and install go.
+    pub own: bool,
+    /// The opener's paragraph on the tool's own build, worded for the launch's mode; empty for
+    /// any other project.
+    pub build: String,
 }
 
 impl Parts {
     /// The placeholders a template may name, `{opener}` aside.
-    pub const NAMES: [&'static str; 21] = [
+    pub const NAMES: [&'static str; 22] = [
         "project",
         "folder",
         "date",
@@ -113,6 +120,7 @@ impl Parts {
         "inbox",
         "triage",
         "rules",
+        "build",
         "opener",
     ];
 
@@ -138,17 +146,50 @@ impl Parts {
             "inbox" => &self.inbox,
             "triage" => &self.triage,
             "rules" => &self.rules,
+            "build" => &self.build,
             _ => return None,
         })
     }
 
-    /// Sets what the session runs with, as the dialog changes it.
+    /// Sets what the session runs with, as the dialog changes it; the paragraph on the tool's own
+    /// build follows the mode.
     pub fn choose(&mut self, chosen: &Chosen<'_>) {
         self.model = chosen.model.trim().to_owned();
         self.effort = effort_words(chosen.effort, chosen.ultracode);
         self.date = chosen.date.to_owned();
         self.visual = chosen.visual;
+        self.build = build_words(self.own, self.visual);
     }
+}
+
+/// Whether `folder` is the repository this build was compiled in: the tool's own project (EP-37a,
+/// in place of the gate's own-project condition, which is gone).
+pub fn is_tool(folder: &Path) -> bool {
+    paths::same(&paths::repository(), folder)
+}
+
+/// The opener's paragraph on the tool's own build (EP-37a): the release build runs with the
+/// window up, and the session's last step is the install, whose restart of the window waits for
+/// a headless run's end (the gate's moment) or for nothing to stand in the way of a visual one's.
+fn build_words(own: bool, visual: bool) -> String {
+    if !own {
+        return String::new();
+    }
+    let restart = if visual {
+        "which asks the window to restart into the new build: the window refuses while one of its \
+         own headless runs works, a dialog is open or a session's start awaits its first prompt, \
+         and File > Install and restart (or the tray's) takes it later"
+    } else {
+        "whose request to restart the window is refused while this run works: when a chain goes \
+         on or is held after the run, the window restarts into the new build at the autopilot \
+         gate's moment, and otherwise File > Install and restart (or the tray's) takes it"
+    };
+    format!(
+        "This is the tool's own project: the release build runs with the window up, since the \
+         window runs from its installed copy in `%LOCALAPPDATA%\\clauderoadmapwrangler\\bin` \
+         (CLAUDE.md rule 6). The session's last step is the install, `pwsh -File \
+         scripts\\install-shortcut.ps1`, {restart}."
+    )
 }
 
 /// A prompt and what its template named that the tool does not fill.
@@ -289,6 +330,7 @@ pub fn parts(
             .note(row.id)
             .map(|note| note.text.trim().to_owned())
             .unwrap_or_else(|| format!("(The roadmap has no brief notes for {}.)", row.id)),
+        own: is_tool(&snapshot.folder),
         ..Parts::default()
     };
     parts.choose(chosen);
@@ -543,6 +585,9 @@ pub fn opener(parts: &Parts) -> String {
     ));
     if !parts.triage.is_empty() {
         out.push(parts.triage.clone());
+    }
+    if !parts.build.is_empty() {
+        out.push(parts.build.clone());
     }
     out.push("Rules for this session:".to_owned());
     out.push(parts.rules.clone());
@@ -1055,5 +1100,47 @@ Intro.
         let other = opener(&headless);
         assert_eq!(text.lines().count(), other.lines().count());
         assert!(text.ends_with("5. Stop before committing: the commit is the owner's call."));
+    }
+
+    /// The tool's own project (EP-37a): its opener says that the build runs with the window up
+    /// and that the install is the last step, its restart worded for the mode; another project's
+    /// says nothing of it.
+    #[test]
+    fn the_tools_own_opener_says_how_its_build_and_install_go() {
+        assert!(!is_tool(Path::new(r"C:\Data\harbor")));
+        let mut snapshot = house();
+        let other = parts("house", &snapshot, None, &CHOSEN, false).unwrap();
+        assert!(!other.own && other.build.is_empty());
+        assert!(!opener(&other).contains("the tool's own project"));
+        // The same roadmap read from the repository this build was compiled in.
+        snapshot.folder = paths::repository();
+        let mut own = parts("clauderoadmapwrangler", &snapshot, None, &CHOSEN, true).unwrap();
+        assert!(own.own);
+        let text = opener(&own);
+        let paragraph = "This is the tool's own project: the release build runs with the window \
+                         up, since the window runs from its installed copy in \
+                         `%LOCALAPPDATA%\\clauderoadmapwrangler\\bin` (CLAUDE.md rule 6). The \
+                         session's last step is the install, `pwsh -File \
+                         scripts\\install-shortcut.ps1`, whose request to restart the window is \
+                         refused while this run works";
+        assert!(text.contains(paragraph), "{text}");
+        // Before the rules, which still end with the commit.
+        assert!(text.find(paragraph) < text.find("Rules for this session:"));
+        // Visual: the window restarts once nothing stands in the way.
+        own.choose(&Chosen {
+            visual: true,
+            ..CHOSEN
+        });
+        let text = opener(&own);
+        assert!(
+            text.contains(
+                "which asks the window to restart into the new build: the window refuses"
+            ),
+            "{text}"
+        );
+        assert!(!text.contains("whose request to restart the window is refused"));
+        // A template names it as {build}.
+        let (rendered, unknown) = render("{ep}\n{build}", &own);
+        assert!(unknown.is_empty() && rendered.contains("File > Install and restart"));
     }
 }

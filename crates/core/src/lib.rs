@@ -18,6 +18,7 @@ pub mod discovery;
 pub mod doctor;
 pub mod files;
 pub mod git;
+pub mod handover;
 pub mod inbox;
 pub mod install;
 pub mod ledger;

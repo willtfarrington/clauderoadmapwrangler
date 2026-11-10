@@ -8,19 +8,27 @@
 //! quits, unless the new process has ended already. A restart is refused, with every reason, while
 //! something would be lost: a headless run of the window's that works, waits or is being stopped
 //! (D-13), a session or a visual launch on its way, a revert, a gate being read or a chained
-//! start, a held chain or a chain plan (which the handover of EP-37a will carry), a session's
-//! start not yet in the ledger, a disposition being typed, an open dialog. A refused request is
-//! not remembered: the status bar's chip stays, and File > Install and restart, or the tray's,
-//! takes it once nothing stands in the way. A request that installed into another folder than the
-//! window's (a trial's `CRW_HOME\bin`) is refused, and one whose caller stopped waiting is
-//! dropped. Every 30 seconds, and every second while the File menu is open, the window looks
-//! whether a newer build is built or installed, which the status bar then says. A screenshot run
-//! restarts nothing.
+//! start, a session's start not yet in the ledger, a disposition being typed, an open dialog. A
+//! refused request is not remembered: the status bar's chip stays, and File > Install and restart,
+//! or the tray's, takes it once nothing stands in the way. A request that installed into another
+//! folder than the window's (a trial's `CRW_HOME\bin`) is refused, and one whose caller stopped
+//! waiting is dropped. Every 30 seconds, and every second while the File menu is open, the window
+//! looks whether a newer build is built or installed, which the status bar then says. A screenshot
+//! run restarts nothing.
+//!
+//! **The handover** (EP-37a, `crw_core::handover`): the held chains and the chain plans cross the
+//! restart in a file the window writes before it starts the installed window, which takes it at its
+//! start; a carried chain's gate is read there once the first poll of live sessions has answered.
+//! **The gate's moment**: a gate that passes or holds while a newer build is installed restarts
+//! the window, a passing chain held for the restart, so that a chain of the tool's own briefs goes
+//! on in each brief's build; a restart refused then lets the chain go on in this window. A chain's
+//! end restarts nothing (the owner's choice), and the gate's moment installs nothing.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
+use crw_core::handover::{self, Handover, Taken};
 use crw_core::install::{self, Running, Stamp};
 use crw_core::paths;
 use crw_core::signals::RestartAnswer;
@@ -50,6 +58,20 @@ pub enum Standing {
     Installed,
 }
 
+/// Who asked for a restart (EP-37a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Asked {
+    /// The owner, from the File menu or the tray, or `crw install`: a settled build is installed
+    /// first, and the new window opens shown.
+    Owner,
+    /// The autopilot's gate between two runs: only an installed build is taken, and a window
+    /// hidden in the tray stays hidden.
+    Gate,
+}
+
+/// Starts the installed window for a restart: the real start, or a test's stand-in.
+type Spawn = fn(&Path, &Path) -> Result<Option<Child>, String>;
+
 /// What came of a restart asked for, each in words.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Outcome {
@@ -77,6 +99,14 @@ pub struct Restart {
     pub closing_at: Option<Instant>,
     /// The installed window started for the restart, until this one closes.
     started: Option<Child>,
+    /// The local folder, where the handover goes (EP-37a); none in a test or a screenshot run
+    /// unless set.
+    pub local: Option<PathBuf>,
+    /// A test's stand-in for the installed window's start; none starts it.
+    pub spawn: Option<Spawn>,
+    /// The installed copy whose window ended at once: the gate's moment leaves it alone until the
+    /// owner's own restart or a newer install.
+    failed: Option<Stamp>,
 }
 
 impl Restart {
@@ -98,6 +128,22 @@ impl Restart {
         }
         self.looked = Some(Instant::now());
         self.standing = self.standing_now();
+    }
+
+    /// Whether the installed copy is one to restart into at the gate's moment (EP-37a), looked at
+    /// now: another build than the window runs, so that a gate never restarts the window into
+    /// its own build (the move out of `target\release` stays the owner's), and not one whose
+    /// window ended at once before.
+    pub fn pending_install(&self) -> bool {
+        let (Some(running), Some(bin)) = (&self.running, &self.bin) else {
+            return false;
+        };
+        let exe = bin.join(install::WINDOW_EXE);
+        let stamp = Stamp::of(&exe);
+        install::restart_due(running, &exe)
+            && stamp.is_some()
+            && stamp != running.stamp
+            && (self.failed.is_none() || self.failed != stamp)
     }
 
     fn standing_now(&self) -> Standing {
@@ -200,23 +246,12 @@ impl Board {
         if self.autopilot.is_busy() {
             no.push("the autopilot reads a gate or starts a chained brief".to_owned());
         }
-        for held in &self.autopilot.held {
-            no.push(format!(
-                "{}'s chain is held, and a held chain does not outlive the window yet",
-                held.project
-            ));
-        }
-        for plan in self.autopilot.plans.values() {
-            no.push(format!(
-                "{}'s chain plan is kept, and a plan does not outlive the window yet",
-                plan.project
-            ));
-        }
+        // A held chain and a chain plan cross the restart in the handover (EP-37a).
         let starts = self.watch.unrecorded_starts();
         if !starts.is_empty() {
             no.push(format!(
-                "a session's start waits for its first prompt to enter the ledger, and a restart \
-                 would lose it, the revert going back to the last recorded brief: {}",
+                "a session open with no prompt yet would lose its ledger row and its start to a \
+                 restart: {}",
                 starts.join(", ")
             ));
         }
@@ -252,12 +287,72 @@ impl Board {
     /// Installs a settled build of the window's repository newer than the installed copy, then
     /// starts the installed window in place of this one, which closes a moment later (EP-37).
     pub fn install_and_restart(&mut self) -> Outcome {
+        self.restart_window(Asked::Owner)
+    }
+
+    /// The gate's moment (EP-37a): with a newer build installed and nothing else in the way, the
+    /// window restarts into it, the held chains and the plans carried; else why not, in words.
+    pub fn restart_at_gate(&mut self) -> Result<(), String> {
+        if self.fixtures || !self.restart.pending_install() {
+            return Err("no newer build is installed".to_owned());
+        }
+        match self.restart_window(Asked::Gate) {
+            Outcome::Restarting(words) => {
+                self.notify(capitalized(&words));
+                Ok(())
+            }
+            Outcome::Newest(words) | Outcome::Refused(words) => {
+                Err(words.trim_start_matches("not restarted: ").to_owned())
+            }
+        }
+    }
+
+    /// What stands in the way of a restart the gate asks for, beyond what refuses the owner's
+    /// (EP-37a's review): an ended run whose tab offers Commit, which the owner has not taken and
+    /// a restart nobody asked for would drop.
+    fn gate_refusals(&self) -> Vec<String> {
+        let offers: Vec<String> = self
+            .sessions
+            .live
+            .iter()
+            .filter(|live| live.offers_commit())
+            .map(|live| live.title())
+            .collect();
+        if offers.is_empty() {
+            Vec::new()
+        } else {
+            vec![format!(
+                "an ended run's tab offers Commit: {}",
+                offers.join(", ")
+            )]
+        }
+    }
+
+    /// What the window carries across a restart asked by `asked` (EP-37a): its held chains, its
+    /// plans, and whether the new window opens hidden.
+    pub fn handover(&self, asked: Asked) -> Handover {
+        Handover::new(
+            std::process::id(),
+            chrono::Utc::now().to_rfc3339(),
+            self.autopilot.held.clone(),
+            self.autopilot.plans.values().cloned().collect(),
+            asked == Asked::Gate && self.hidden,
+        )
+    }
+
+    /// The restart, asked by the owner (a settled build installed first) or at the gate's moment
+    /// (the installed copy only): the handover written, then the installed window started in place
+    /// of this one, which closes a moment later.
+    fn restart_window(&mut self, asked: Asked) -> Outcome {
         if self.restart.closing_at.is_some() {
             return Outcome::Restarting("the window is restarting already".to_owned());
         }
         // Whatever comes of it, the next pass looks at the files again.
         self.restart.looked = None;
-        let refusals = self.restart_refusals();
+        let mut refusals = self.restart_refusals();
+        if asked == Asked::Gate {
+            refusals.extend(self.gate_refusals());
+        }
         if !refusals.is_empty() {
             return Outcome::Refused(format!("not restarted: {}", refusals.join("; ")));
         }
@@ -268,7 +363,9 @@ impl Board {
             );
         };
         let mut installed = String::new();
-        if install::build_ready(&self.restart.build, &bin, SystemTime::now()) {
+        if asked == Asked::Owner
+            && install::build_ready(&self.restart.build, &bin, SystemTime::now())
+        {
             match install::install(&self.restart.build, &bin, &stamp_now()) {
                 Ok(report) if !report.copied.is_empty() => {
                     installed = format!("installed {}; ", report.copied.join(" and "));
@@ -283,9 +380,40 @@ impl Board {
                 "{installed}not restarted: the window runs the newest build already"
             ));
         }
-        match start_installed(&exe, &bin) {
-            Ok(child) => self.restart.started = Some(child),
-            Err(e) => return Outcome::Refused(format!("{installed}not restarted: {e}")),
+        // The handover first, which the new window takes at its start (EP-37a).
+        let handover = self.handover(asked);
+        let carried = !handover.held.is_empty() || !handover.plans.is_empty() || handover.hidden;
+        let local = match (&self.restart.local, carried) {
+            (_, false) => None,
+            (Some(dir), true) => Some(dir.clone()),
+            (None, true) => {
+                return Outcome::Refused(format!(
+                    "{installed}not restarted: the window knows no local folder for the handover \
+                     of {}",
+                    handover.words()
+                ));
+            }
+        };
+        if let Some(dir) = &local
+            && let Err(e) = handover::write(dir, &handover)
+        {
+            return Outcome::Refused(format!("{installed}not restarted: {e}"));
+        }
+        let spawn = self
+            .restart
+            .spawn
+            .unwrap_or(|exe, folder| start_installed(exe, folder).map(Some));
+        match spawn(&exe, &bin) {
+            Ok(child) => self.restart.started = child,
+            Err(e) => {
+                if let Some(dir) = &local {
+                    handover::discard(dir);
+                }
+                return Outcome::Refused(format!("{installed}not restarted: {e}"));
+            }
+        }
+        if asked == Asked::Owner {
+            self.restart.failed = None;
         }
         self.restart.closing_at = Some(Instant::now() + ANSWER_GRACE);
         self.ctx().request_repaint_after(ANSWER_GRACE);
@@ -372,12 +500,72 @@ impl Board {
                 ctx.request_repaint_after(at - now);
             } else if let Some(code) = self.restart.ended_at_once() {
                 self.restart.closing_at = None;
+                // The new window never took the handover: this one keeps what it holds, its held
+                // chains read again at once, and the gate's moment leaves that build alone.
+                if let Some(dir) = &self.restart.local {
+                    handover::discard(dir);
+                }
+                self.restart.failed = self
+                    .restart
+                    .bin
+                    .as_ref()
+                    .and_then(|bin| Stamp::of(&bin.join(install::WINDOW_EXE)));
+                self.autopilot.recheck = true;
                 self.warn(format!(
                     "Not restarted: the installed window ended at once ({code}), so this window \
                      stays"
                 ));
             } else {
                 self.close_for_restart();
+            }
+        }
+    }
+}
+
+impl Board {
+    /// Takes the handover at the window's start (EP-37a), from the local folder `dir`, and says
+    /// so in the start's notice (`when` names the build a restarted window runs): a restarted
+    /// window's held chains go on, their gates read once the first poll of live sessions and the
+    /// first files read have answered, its plans are kept, and it hides in the tray when the
+    /// restart was the gate's from a hidden window. A file no restart took is dropped, and the
+    /// notice and the chain log say what was lost.
+    pub fn take_handover(&mut self, dir: Option<&Path>, restarted: Option<u32>, when: &str) {
+        let taken = dir.map_or(Taken::Nothing, |dir| handover::take(dir, restarted));
+        let restart = restarted.map(|_| format!("Restarted into the installed build{when}"));
+        match taken {
+            Taken::Nothing => {
+                if let Some(restart) = restart {
+                    self.notify(restart);
+                }
+            }
+            Taken::Ours(found) => {
+                let carried =
+                    (!found.held.is_empty() || !found.plans.is_empty()).then(|| found.words());
+                if !found.held.is_empty() {
+                    self.autopilot.carried = Some(Instant::now());
+                    self.autopilot.held.extend(found.held);
+                }
+                for plan in found.plans {
+                    self.autopilot.keep_plan(plan);
+                }
+                if found.hidden {
+                    self.hide_at_start();
+                }
+                if let Some(restart) = restart {
+                    self.notify(match carried {
+                        Some(words) => format!("{restart}, carrying {words}"),
+                        None => restart,
+                    });
+                }
+            }
+            Taken::Left(words) => {
+                let lost =
+                    format!("a handover no restart took was dropped, its chains lost: {words}");
+                self.log_chain(None, &lost);
+                self.warn(match restart {
+                    Some(restart) => format!("{restart}, but {lost}"),
+                    None => capitalized(&lost),
+                });
             }
         }
     }
@@ -393,7 +581,7 @@ fn capitalized(words: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::board::{Places, View};
     use crate::portfolio::tests::{Scratch, fake_store};
@@ -422,30 +610,147 @@ mod tests {
             panic!("a board with no installed copy restarts nothing");
         };
         assert!(error.contains("no installed copy"), "{error}");
-        // A screenshot run, a held chain and a plan each refuse, every reason said.
-        board.fixtures = true;
+        // A held chain no longer refuses: the handover carries it (EP-37a).
         board.autopilot.held.push(crate::autopilot::Held {
             project: "harbor".to_owned(),
             after: None,
             words: "held".to_owned(),
         });
+        assert!(board.restart_refusals().is_empty());
+        // A screenshot run and a dialog each refuse, every reason said.
+        board.fixtures = true;
         board.offer = Some(crate::autopilot::Offer {
             project: "harbor".to_owned(),
             mode: "acceptEdits".to_owned(),
         });
         let refusals = board.restart_refusals();
-        assert_eq!(refusals.len(), 3, "{refusals:?}");
-        assert!(refusals[0].starts_with("harbor's chain is held"));
-        assert_eq!(refusals[1], "the offer of auto is open");
-        assert_eq!(refusals[2], "a screenshot run restarts nothing");
+        assert_eq!(refusals.len(), 2, "{refusals:?}");
+        assert_eq!(refusals[0], "the offer of auto is open");
+        assert_eq!(refusals[1], "a screenshot run restarts nothing");
         let Outcome::Refused(error) = board.install_and_restart() else {
             panic!("a refused restart");
         };
         assert!(
-            error.starts_with("not restarted: harbor's chain is held"),
+            error.starts_with("not restarted: the offer of auto is open"),
             "{error}"
         );
         assert!(board.restart.closing_at.is_none());
+    }
+
+    /// A window with an installed copy to restart into, in `scratch`: a build newer than the one
+    /// it runs, the start a stand-in, the handover's folder `local`.
+    pub(crate) fn installed(board: &mut Board, scratch: &Scratch) {
+        let (build, bin) = (scratch.0.join("release"), scratch.0.join("bin"));
+        std::fs::create_dir_all(&build).unwrap();
+        let settled = SystemTime::now() - install::BUILD_SETTLE - Duration::from_secs(1);
+        for name in install::EXES {
+            let path = build.join(name);
+            std::fs::write(&path, name).unwrap();
+            std::fs::File::options()
+                .write(true)
+                .open(&path)
+                .unwrap()
+                .set_modified(settled)
+                .unwrap();
+        }
+        install::install(&build, &bin, "20261110-080000").unwrap();
+        // The window runs an older build of its own.
+        let old = scratch.0.join("old").join(install::WINDOW_EXE);
+        std::fs::create_dir_all(old.parent().unwrap()).unwrap();
+        std::fs::write(&old, "older").unwrap();
+        std::fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(settled - Duration::from_secs(3600))
+            .unwrap();
+        let running = Running {
+            stamp: Stamp::of(&old),
+            exe: old,
+        };
+        board.restart = Restart::new(Some(running), Some(bin), build);
+        board.restart.local = Some(scratch.0.join("local"));
+        board.restart.spawn = Some(|_, _| Ok(None));
+    }
+
+    /// The gate's moment restarts only into another build than the window runs (EP-37a's review):
+    /// the same build installed where the window does not run from is the owner's move, and a
+    /// copy whose window ended at once is left alone.
+    #[test]
+    fn a_gate_never_restarts_into_the_build_it_runs() {
+        let scratch = Scratch::new("restart-pending");
+        let mut board = board(&scratch);
+        installed(&mut board, &scratch);
+        assert!(board.restart.pending_install());
+        let exe = board
+            .restart
+            .bin
+            .as_ref()
+            .unwrap()
+            .join(install::WINDOW_EXE);
+        // The window runs the build that is installed, from `target\release`.
+        let build = board.restart.build.join(install::WINDOW_EXE);
+        board.restart.running = Some(Running {
+            stamp: Stamp::of(&build),
+            exe: build,
+        });
+        assert!(install::restart_due(
+            board.restart.running.as_ref().unwrap(),
+            &exe
+        ));
+        assert!(!board.restart.pending_install());
+        // A newer copy whose window ended at once.
+        installed(&mut board, &scratch);
+        board.restart.failed = Stamp::of(&exe);
+        assert!(!board.restart.pending_install());
+    }
+
+    /// The handover is written before the installed window starts and removed when the start
+    /// fails; a window with chains to carry and no local folder does not restart (EP-37a).
+    #[test]
+    fn the_handover_is_written_at_a_restart_and_removed_when_the_start_fails() {
+        let scratch = Scratch::new("restart-handover");
+        let mut board = board(&scratch);
+        installed(&mut board, &scratch);
+        board.autopilot.held.push(crate::autopilot::Held {
+            project: "harbor".to_owned(),
+            after: Some("EP-3".parse().unwrap()),
+            words: "held after EP-3 until the pause lifts".to_owned(),
+        });
+        let file = handover::path(&scratch.0.join("local"));
+        // The start fails: no file is left, and the window keeps its chain.
+        board.restart.spawn = Some(|_, _| Err("the installed window did not start".to_owned()));
+        let Outcome::Refused(error) = board.install_and_restart() else {
+            panic!("a start that failed");
+        };
+        assert!(
+            error.ends_with("the installed window did not start"),
+            "{error}"
+        );
+        assert!(!file.exists() && board.autopilot.held.len() == 1);
+        // No local folder for what must be carried: refused before anything starts.
+        board.restart.local = None;
+        let Outcome::Refused(error) = board.install_and_restart() else {
+            panic!("no folder for the handover");
+        };
+        assert!(error.contains("no local folder for the handover of 1 held chain (harbor)"));
+        // The start goes: the file holds the chain, and the window closes in a moment.
+        board.restart.local = Some(scratch.0.join("local"));
+        board.restart.spawn = Some(|_, _| Ok(None));
+        let Outcome::Restarting(words) = board.install_and_restart() else {
+            panic!("a restart");
+        };
+        assert!(words.contains("restarting into the build of"), "{words}");
+        assert!(board.restart.closing_at.is_some());
+        let Taken::Ours(found) = handover::take(&scratch.0.join("local"), Some(std::process::id()))
+        else {
+            panic!("the handover is the window's");
+        };
+        assert_eq!(found.held, board.autopilot.held);
+        // The owner's restart opens the new window shown, the gate's keeps a hidden one hidden.
+        assert!(!found.hidden);
+        board.hidden = true;
+        assert!(board.handover(Asked::Gate).hidden && !board.handover(Asked::Owner).hidden);
     }
 
     /// What lives only in the window's memory refuses a restart too: a session's start not yet in
@@ -466,12 +771,77 @@ mod tests {
         let refusals = board.restart_refusals();
         assert_eq!(refusals.len(), 2, "{refusals:?}");
         assert!(
-            refusals[0].starts_with("a session's start waits for its first prompt")
+            refusals[0].starts_with("a session open with no prompt yet would lose its ledger row")
                 && refusals[0].ends_with(": a session"),
             "{}",
             refusals[0]
         );
         assert_eq!(refusals[1], "a disposition is being typed: harbor IN-2");
+    }
+
+    /// A session open with no prompt yet refuses a restart in any registered project, its
+    /// revert's switch on or off: only the window that saw it open gives it its ledger row (the
+    /// review of EP-37a). One that worked, a headless one and one outside the registry do not.
+    #[test]
+    fn a_session_open_with_no_prompt_refuses_whatever_its_revert() {
+        use crw_core::sessions::{Mode, Seen, Status};
+        let scratch = Scratch::new("restart-opened");
+        let mut board = board(&scratch);
+        let started = chrono::Utc::now();
+        let seen = |id: &str, project: Option<&str>, mode: Mode, worked: bool| {
+            let mut seen = Seen::canned(id, project, mode, Status::Idle, None, started);
+            seen.worked = worked;
+            seen
+        };
+        for one in [
+            seen("w1", Some("meadow"), Mode::Manual, true),
+            seen("h1", Some("meadow"), Mode::Headless, false),
+            seen("x1", None, Mode::Manual, false),
+        ] {
+            board.watch.model.insert(one);
+        }
+        assert!(board.restart_refusals().is_empty());
+        board
+            .watch
+            .model
+            .insert(seen("n1", Some("quarry"), Mode::Manual, false));
+        assert_eq!(
+            board.restart_refusals(),
+            [
+                "a session open with no prompt yet would lose its ledger row and its start to a \
+              restart: quarry"
+            ]
+        );
+    }
+
+    /// A restart nobody asked for also waits for an ended run's Commit (the review of EP-37a);
+    /// the owner's own does not.
+    #[test]
+    fn a_gate_restart_waits_for_an_offered_commit() {
+        let scratch = Scratch::new("restart-commit");
+        let mut board = board(&scratch);
+        installed(&mut board, &scratch);
+        assert!(board.gate_refusals().is_empty());
+        // A run of the window's completed under the rule that stops before committing.
+        let mut done = crate::sessions::tests::live();
+        done.take(crate::sessions::tests::exit(
+            crw_core::session::Outcome::Completed,
+            None,
+        ));
+        board.sessions.live.push(done);
+        assert!(
+            board.restart_refusals().is_empty(),
+            "the owner's restart goes"
+        );
+        assert_eq!(
+            board.gate_refusals(),
+            ["an ended run's tab offers Commit: alpha EP-3"]
+        );
+        assert_eq!(
+            board.restart_at_gate(),
+            Err("an ended run's tab offers Commit: alpha EP-3".to_owned())
+        );
+        assert!(board.restart.closing_at.is_none());
     }
 
     /// A request whose caller stopped waiting is dropped unanswered, and one that installed into

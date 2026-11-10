@@ -865,6 +865,13 @@ impl Board {
         }
     }
 
+    /// Hides the window in the tray at its start, without the toast that says where it went: a
+    /// restart at the gate's moment from a window hidden there (EP-37a).
+    pub(crate) fn hide_at_start(&mut self) {
+        self.told_tray = true;
+        self.hide();
+    }
+
     /// Quits at once when no headless run would stop; else shows the window with the question
     /// (D-16's EP-10 addendum).
     fn ask_quit(&mut self) {

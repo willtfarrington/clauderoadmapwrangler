@@ -191,3 +191,18 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   session checked the dialog, the section and the popup only on the fake portfolio and started
   no real session (rules 5 and 13). Notes go to `roadmap/inbox.md` (the gate `before EP-19b`
   taken off on 2026-11-08 under the D-10 addendum of that date: EP-19b does not build on it)
+- [ ] OT-20 (EP-37a, 2026-11-10) The first real chained restart, when you next want this
+  project's briefs to chain. In Roadmap Wrangler, tick clauderoadmapwrangler's Autopilot box in
+  the list (or A on its row). The window offers permission mode auto, since its headless runs
+  would otherwise wait at each shell command: accept it. With the box ticked, every session of
+  this project, a visual one too, commits in the house pattern by itself and never pushes. Then
+  press Start on its row, choose Headless, set the chain plan's rows as you want them, and press
+  Start headless. When the brief's run ends with its install, the window should restart by
+  itself: the chain log (the Sessions pane's Autopilot section, or `target\release\crw.exe
+  autopilot`) says `held after EP-n for the window's restart into the installed build`; the
+  window closes and comes back (hidden if it was in the tray), its notice reading "Restarted
+  into the installed build of …, carrying 1 held chain …"; and within a minute or two the next
+  brief starts in the new window (`chained EP-m after EP-n`). If the restart was refused, the
+  log says `the restart into the installed build waits: …` and the chain goes on in the old
+  window. The session exercised this only with stand-ins for the process start (rules 5 and
+  13). Notes go to `roadmap/inbox.md`

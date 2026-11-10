@@ -60,7 +60,8 @@
    `pwsh -File scripts\install-shortcut.ps1` rebuilds, installs the exes there (`crw install`, which
    asks the window to restart into them: refused while something would be lost, such as a headless
    run of its own that works or waits, and then taken later from File > Install and restart or the
-   tray's) and refreshes the desktop shortcut and the Start-menu entry; run it last. `target\release\crw.exe
+   tray's, or, after a headless run, at the autopilot gate's moment, EP-37a) and refreshes the desktop
+   shortcut and the Start-menu entry; run it last. `target\release\crw.exe
    doctor` prints the tool versions, the installed copy and which `crw.exe` the hooks run.
 7. **Owner decisions go through `AskUserQuestion`** before an EP is marked done: commits, scope changes,
    anything written into the owner's user settings (hooks, status line) or into another project, anything
@@ -88,11 +89,12 @@
     clauderoadmapwrangler) in a new Claude Code tab of this window. Until EP-37, Start headless suits
     only a brief that builds no release: quitting the window for rule 6's release build ends a headless
     run. From EP-37 a headless run builds and installs with the window up; the window refuses the
-    install's restart while the run works, and File > Install and restart (or the tray's) takes it
-    afterwards, until EP-37a takes it at the gate's moment. From EP-37a (split from EP-37 at pickup) this
-    project chains like any other (D-22 addendum, 2026-11-08), its runs under
-    `permission_mode = "auto"` set through EP-19b's control, each brief's last step the install that
-    restarts the window. At its
+    install's restart while the run works, and since EP-37a takes it at the autopilot gate's moment
+    after the run (the held chains and chain plans carried in a handover file, a chain going on in the
+    new build), or File > Install and restart (or the tray's) takes it. Since EP-37a this project
+    chains like any other (D-22 addendum, 2026-11-08) once the owner sets its
+    `permission_mode = "auto"` through EP-19b's control; each brief's last step is the install, which
+    the opener of this project's runs says. At its
     start a session checks that its prompt is that opener and finds its row in `target\release\crw.exe
     sessions clauderoadmapwrangler` (mode, EP, session id); a session started by hand says why in its
     brief's session-start paragraph.

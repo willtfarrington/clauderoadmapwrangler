@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, NaiveDate, TimeDelta, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::ledger::{self, EventRow, Ledger};
 use crate::prompt::{self, Draft};
@@ -23,7 +24,7 @@ use crate::roadmap::{EpId, Size, snapshot};
 use crate::rules::{Picked, Resolution};
 use crate::session::{Launch, Outcome};
 use crate::usage::{self, Figure, Figures};
-use crate::{git, paths, rules};
+use crate::{git, rules};
 
 /// The ledger's `event.kind` of the chain log.
 pub const EVENT_KIND: &str = "autopilot";
@@ -176,13 +177,21 @@ pub struct Facts {
     pub daily_total: u32,
     /// The other sessions open in the project, in words.
     pub others: Vec<String>,
-    /// The project is the repository the running window was built from (the owner's choice at
-    /// EP-19; by the build's repository from EP-37, since the window runs from its installed
-    /// copy).
-    pub own: bool,
     /// The permission mode under which its runs would wait at each shell command, when they
     /// would.
     pub waits: Option<String>,
+}
+
+/// A chain held by the pause alone (D-22), or for the window's restart at the gate's moment
+/// (EP-37a), read again once the pause may have lifted or in the restarted window. The handover
+/// carries it across the restart.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Held {
+    pub project: String,
+    /// The brief whose run completed.
+    pub after: Option<EpId>,
+    /// The log's words for the hold.
+    pub words: String,
 }
 
 /// A condition of the gate that fails, which the log names.
@@ -231,7 +240,6 @@ pub enum Refusal {
         cap: u32,
     },
     Busy(Vec<String>),
-    OwnProject,
     Waits(String),
 }
 
@@ -324,9 +332,6 @@ impl Refusal {
                     others.join("; ")
                 )
             }
-            Refusal::OwnProject => "it is the tool's own project: the window's restart into \
-                                    each brief's build would end its chain"
-                .to_owned(),
             Refusal::Waits(mode) => format!(
                 "its runs would wait for you at each shell command: permission mode {mode} and \
                  no allow rule (keep auto with the pin beside the launch dialog's Permissions, \
@@ -407,9 +412,6 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     }
     if !facts.others.is_empty() {
         no.push(Refusal::Busy(facts.others.clone()));
-    }
-    if facts.own {
-        no.push(Refusal::OwnProject);
     }
     if let Some(mode) = &facts.waits {
         no.push(Refusal::Waits(mode.clone()));
@@ -502,34 +504,17 @@ pub fn would_wait(mode: &str, files: &[PathBuf]) -> Option<String> {
     (allowed == 0).then(|| mode.to_owned())
 }
 
-/// Whether `folder` is `repository`, the one the running window was built from: the tool's own
-/// project, which is not chained (the owner's choice at EP-19). Until EP-37 the test was the
-/// window's exe inside the folder; the window now runs from its installed copy, outside it.
-pub fn is_own(repository: &Path, folder: &Path) -> bool {
-    paths::same(repository, folder)
-}
-
 /// The gate's conditions that stand between runs (D-22; EP-19b), for the window's Autopilot
-/// section, its offer of `auto` and `crw autopilot`, in the gate's order: [`Refusal::Waits`] when
-/// the project's runs would wait for the owner at each shell command (its permission mode, over
-/// the project's settings files and the user's), then [`Refusal::OwnProject`] when `folder` is
-/// `repository`, the one the running window was built from. `home` is the user's profile folder;
-/// both are none in a screenshot run.
-pub fn standing(
-    project: &Project,
-    folder: &Path,
-    home: Option<&Path>,
-    repository: Option<&Path>,
-) -> Vec<Refusal> {
-    let mut no = Vec::new();
+/// section, its offer of `auto` and `crw autopilot`: [`Refusal::Waits`] when the project's runs
+/// would wait for the owner at each shell command (its permission mode, over the project's
+/// settings files and the user's). `home` is the user's profile folder, none in a screenshot run.
+/// The tool's own project stood here too until EP-37a, which chains it like any other.
+pub fn standing(project: &Project, folder: &Path, home: Option<&Path>) -> Vec<Refusal> {
     let mode = rules::permission_mode(project).value;
-    if let Some(mode) = would_wait(&mode, &settings_files(folder, home)) {
-        no.push(Refusal::Waits(mode));
-    }
-    if repository.is_some_and(|repository| is_own(repository, folder)) {
-        no.push(Refusal::OwnProject);
-    }
-    no
+    would_wait(&mode, &settings_files(folder, home))
+        .map(Refusal::Waits)
+        .into_iter()
+        .collect()
 }
 
 /// The chained starts the log records on `day` (local time): the project's and every project's.
@@ -565,6 +550,16 @@ pub fn chained_words(next: EpId, after: Option<EpId>, chosen: &str, cap: &Cap) -
 }
 
 /// A refused chain, as the log says it: held until the pause lifts, or ended.
+/// A chain held at the gate's moment for the window's restart into the installed build (EP-37a),
+/// as the log says it: the next brief starts in the new window, its gate read again there.
+pub fn restart_words(after: Option<EpId>, next: EpId) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    format!(
+        "held{after} for the window's restart into the installed build: {next} starts in the new \
+         window"
+    )
+}
+
 pub fn refused_words(after: Option<EpId>, refusals: &[Refusal]) -> String {
     let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
     let why: Vec<String> = refusals.iter().map(Refusal::words).collect();
@@ -592,7 +587,7 @@ pub fn not_started_words(next: &str, after: Option<EpId>, why: &str) -> String {
 
 /// One brief a chain may run after the launched one (EP-19a): its row, the rule table's
 /// resolution over it as the pickers' default, and what the owner made of it.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Planned {
     pub ep: EpId,
     pub title: String,
@@ -633,7 +628,7 @@ impl Planned {
 }
 
 /// Where a plan stops of its own: a row the gate would refuse whatever the owner does, and why.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Stop {
     pub ep: EpId,
     pub why: String,
@@ -653,9 +648,9 @@ pub enum Answer {
 }
 
 /// The plan of a chain (EP-19a, the owner's choice: kept in the window from Start headless
-/// until the chain ends): the briefs it may run after `after`, in table order, up to the
-/// project's `daily`.
-#[derive(Debug, Clone, PartialEq)]
+/// until the chain ends, and carried across the window's restart by the handover, EP-37a): the
+/// briefs it may run after `after`, in table order, up to the project's `daily`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Plan {
     pub project: String,
     /// The brief the owner starts, which the chain follows.
@@ -827,8 +822,6 @@ pub struct Ask<'a> {
     /// The CLI's effort levels in order, for the rule table's steps.
     pub levels: &'a [String],
     pub now: DateTime<Utc>,
-    /// The repository the running window was built from (`paths::repository`).
-    pub repository: Option<&'a Path>,
     /// The user's profile folder, for its settings file.
     pub home: Option<&'a Path>,
     pub ledger: Option<&'a Path>,
@@ -918,9 +911,6 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         chained_total,
         daily_total: settings.autopilot_daily_total(),
         others: ask.others.clone(),
-        own: ask
-            .repository
-            .is_some_and(|repository| is_own(repository, ask.folder)),
         waits: would_wait(&mode, &settings_files(ask.folder, ask.home)),
     };
     Reading {
@@ -1023,7 +1013,6 @@ mod tests {
             chained_total: 3,
             daily_total: 4,
             others: Vec::new(),
-            own: false,
             waits: None,
         }
     }
@@ -1107,7 +1096,6 @@ mod tests {
                 Box::new(|f: &mut Facts| f.others = vec!["a visual session".to_owned()]),
                 Refusal::Busy(vec!["a visual session".to_owned()]),
             ),
-            (Box::new(|f: &mut Facts| f.own = true), Refusal::OwnProject),
             (
                 Box::new(|f: &mut Facts| f.waits = Some("acceptEdits".to_owned())),
                 Refusal::Waits("acceptEdits".to_owned()),
@@ -1122,8 +1110,11 @@ mod tests {
         // Several at once are all named, in order.
         let mut facts = passing();
         facts.enabled = false;
-        facts.own = true;
-        assert_eq!(gate(&facts, now()), vec![Refusal::Off, Refusal::OwnProject]);
+        facts.waits = Some("plan".to_owned());
+        assert_eq!(
+            gate(&facts, now()),
+            vec![Refusal::Off, Refusal::Waits("plan".to_owned())]
+        );
         // An S brief passes under M, and an L one under an L limit.
         let mut facts = passing();
         facts.next = next("EP-5", "Small", Some(Size::S));
@@ -1240,22 +1231,10 @@ mod tests {
         assert_eq!(allow_rules("{}"), 0);
     }
 
-    /// The tool's own project is the repository the window was built from, wherever its exe runs
-    /// (EP-37: from the installed copy).
-    #[test]
-    fn the_tools_own_project_is_the_repository_the_window_was_built_from() {
-        let folder = Path::new(r"C:\Data\Wrangler");
-        assert!(is_own(Path::new(r"c:\data\wrangler"), folder));
-        assert!(is_own(Path::new("C:/Data/Wrangler/"), folder));
-        assert!(!is_own(Path::new(r"C:\Data\Wrangler2"), folder));
-        assert!(!is_own(Path::new(r"C:\Data"), folder));
-        assert!(!is_own(Path::new(r"C:\Data\Wrangler\crates"), folder));
-    }
-
     /// The conditions that stand between runs (EP-19b): a waiting mode with no allow rule, then
-    /// an allow rule, then `auto`; the tool's own project.
+    /// an allow rule, then `auto`. The tool's own project is no longer one (EP-37a).
     #[test]
-    fn the_standing_conditions_are_a_waiting_mode_and_the_tools_own_project() {
+    fn the_standing_condition_is_a_waiting_mode() {
         let scratch = Scratch::new("autopilot-standing");
         let folder = scratch.0.join("alpha");
         let home = scratch.0.join("home");
@@ -1263,7 +1242,7 @@ mod tests {
         let mut project = Project::new("alpha", Path::new("alpha"), crate::registry::State::Active);
         // No settings file anywhere: the tool's default waits.
         assert_eq!(
-            standing(&project, &folder, Some(&home), None),
+            standing(&project, &folder, Some(&home)),
             vec![Refusal::Waits("acceptEdits".to_owned())]
         );
         // An allow rule in the project's settings lets its commands through.
@@ -1274,35 +1253,15 @@ mod tests {
             r#"{"permissions": {"allow": ["Bash(cargo test:*)"]}}"#,
         )
         .unwrap();
-        assert_eq!(standing(&project, &folder, Some(&home), None), Vec::new());
+        assert_eq!(standing(&project, &folder, Some(&home)), Vec::new());
         fs::remove_file(&settings).unwrap();
         // Under auto nothing waits; under plan, with no rule, it does.
         project.launch.permission_mode = Some("auto".to_owned());
-        assert_eq!(standing(&project, &folder, Some(&home), None), Vec::new());
+        assert_eq!(standing(&project, &folder, Some(&home)), Vec::new());
         project.launch.permission_mode = Some("plan".to_owned());
         assert_eq!(
-            standing(&project, &folder, None, None),
+            standing(&project, &folder, None),
             vec![Refusal::Waits("plan".to_owned())]
-        );
-        // The window built from the folder: the tool's own project, after the waiting.
-        assert_eq!(
-            standing(&project, &folder, None, Some(&folder)),
-            vec![Refusal::Waits("plan".to_owned()), Refusal::OwnProject]
-        );
-        project.launch.permission_mode = None;
-        fs::write(
-            &settings,
-            r#"{"permissions": {"allow": ["Bash(git status)"]}}"#,
-        )
-        .unwrap();
-        assert_eq!(
-            standing(&project, &folder, None, Some(&folder)),
-            vec![Refusal::OwnProject]
-        );
-        let elsewhere = scratch.0.join("beta");
-        assert_eq!(
-            standing(&project, &folder, None, Some(&elsewhere)),
-            Vec::new()
         );
     }
 

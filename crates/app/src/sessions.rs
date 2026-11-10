@@ -244,7 +244,8 @@ impl Live {
         self.take(Event::Exited(ended));
     }
 
-    fn take(&mut self, event: Event) {
+    /// Takes in one of the runner's events.
+    pub(crate) fn take(&mut self, event: Event) {
         self.transcript.take(&event);
         match event {
             Event::Init(init) => self.init = Some(init),
@@ -2073,13 +2074,14 @@ fn ending(ended: &Ended) -> String {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use crw_core::session::{Finish, ToolUse};
 
     use super::*;
     use crate::transcript::Entry;
 
-    fn live() -> Live {
+    /// A run of the window's, alpha EP-3, working.
+    pub(crate) fn live() -> Live {
         Live {
             key: 1,
             project: "alpha".to_owned(),
@@ -2400,7 +2402,8 @@ mod tests {
         }
     }
 
-    fn exit(outcome: Outcome, result: Option<Finish>) -> Event {
+    /// The runner's word that a run ended with `outcome`.
+    pub(crate) fn exit(outcome: Outcome, result: Option<Finish>) -> Event {
         Event::Exited(Ended {
             outcome,
             exit_code: Some(0),

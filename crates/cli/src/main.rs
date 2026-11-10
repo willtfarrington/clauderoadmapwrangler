@@ -1760,7 +1760,7 @@ fn autopilot_state() -> ExitCode {
         let autopilot = &project.autopilot;
         let mode = rules::permission_mode(project).value;
         let folder = project.folder(&data_root);
-        let waits = crw_core::autopilot::standing(project, &folder, home.as_deref(), None)
+        let waits = crw_core::autopilot::standing(project, &folder, home.as_deref())
             .iter()
             .any(|refusal| matches!(refusal, crw_core::autopilot::Refusal::Waits(_)));
         let waits = if waits {

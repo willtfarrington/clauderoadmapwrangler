@@ -17,7 +17,7 @@
 use std::fmt;
 
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::badges::short_age;
 use crate::registry::{LaunchMode, Project, Registry};
@@ -248,7 +248,7 @@ pub fn built_in() -> Vec<Rule> {
 }
 
 /// Where a launch's value came from.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Source {
     /// The tool's own default (D-18, D-22).
     Default,
@@ -326,7 +326,7 @@ impl Usage {
 }
 
 /// How the downshift judged a brief it weighs: an S brief whose model so far is a Fable model.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Downshift {
     /// Whether it proposed [`DOWNSHIFT_MODEL`].
     pub applied: bool,
@@ -340,7 +340,7 @@ pub fn is_fable(model: &str) -> bool {
 }
 
 /// A value and why it was chosen.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Choice<T> {
     pub value: T,
     pub source: Source,
@@ -368,7 +368,7 @@ impl<T> Choice<T> {
 
 /// A model, effort and ultracode as the owner set them (EP-19a): the chain plan's choice for a
 /// brief, which the chain takes in place of the rules'.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Picked {
     pub model: String,
     /// `None` leaves the effort to the CLI.
@@ -387,8 +387,9 @@ impl Picked {
     }
 }
 
-/// A brief's launch values, each with its reason.
-#[derive(Debug, Clone, PartialEq)]
+/// A brief's launch values, each with its reason; a chain plan's rows carry one across the
+/// window's restart in the handover (EP-37a).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Resolution {
     /// Visual or headless (D-16).
     pub mode: Choice<LaunchMode>,

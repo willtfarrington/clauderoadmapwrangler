@@ -77,15 +77,14 @@ pub struct Offer {
     pub mode: String,
 }
 
-/// A chain held by the pause alone (D-22), read again once the pause may have lifted.
-#[derive(Debug, Clone, PartialEq)]
-pub struct Held {
-    pub project: String,
-    /// The brief whose run completed.
-    pub after: Option<EpId>,
-    /// The log's words for the hold.
-    pub words: String,
-}
+/// A held chain: by the pause alone (D-22), or for the restart at the gate's moment (EP-37a). It
+/// lives in core beside the plan, since the handover carries both.
+pub use crw_core::autopilot::Held;
+
+/// How long the held chains a restart carried wait for the first poll of live sessions before
+/// their gates are read anyway (EP-37a): four of the poll's turns while the window is not in
+/// front.
+const CARRIED_WAIT: Duration = Duration::from_secs(120);
 
 /// A chained start: waiting for the start slot, then on its way.
 struct Queued {
@@ -126,7 +125,11 @@ pub struct Pilot {
     pub held: Vec<Held>,
     held_read: Option<Instant>,
     /// Read the held chains again at the next pass: the owner resumed.
-    recheck: bool,
+    pub recheck: bool,
+    /// When a restart's handover brought held chains (EP-37a): their gates wait for the first
+    /// poll of live sessions, so that a session open in the project counts, or for
+    /// [`CARRIED_WAIT`].
+    pub carried: Option<Instant>,
     queued: Option<Queued>,
     /// The chain's start on its way: the next start's result is the chain's.
     starting: Option<Queued>,
@@ -160,6 +163,7 @@ impl Default for Pilot {
             held: Vec::new(),
             held_read: None,
             recheck: false,
+            carried: None,
             queued: None,
             starting: None,
             log: Vec::new(),
@@ -224,6 +228,11 @@ impl Board {
     /// The autopilot's share of each pass, the window shown or hidden: the caps, the gate after
     /// each run that ended, the gates read, the held chains, the chained start, and the log.
     pub fn autopilot_pass(&mut self) {
+        // A restart is decided and the window closes in a moment (EP-37a's review): no gate is
+        // read again, so the chain just held for it is weighed once, in the new window.
+        if self.restart.closing_at.is_some() {
+            return;
+        }
         for (key, words) in self.sessions.check_caps(Instant::now()) {
             let project = self
                 .sessions
@@ -292,6 +301,10 @@ impl Board {
                 "the chain ends{}: the project's folder is missing",
                 after.map_or(String::new(), |ep| format!(" after {ep}"))
             );
+            // Ended, a held chain goes with its plan (EP-37a's review).
+            self.autopilot
+                .held
+                .retain(|held| !held.project.eq_ignore_ascii_case(&entry.name));
             self.chain_moment(&entry.name, &words, true, true);
             return;
         };
@@ -312,7 +325,6 @@ impl Board {
         if self.autopilot.is_starting_in(&entry.name) {
             others.push("a chained start is on its way".to_owned());
         }
-        let repository = crw_core::paths::repository();
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
         let ledger = self.ledger().map(PathBuf::from);
         let data_root = registry.data_root();
@@ -332,7 +344,6 @@ impl Board {
                         figures: &figures,
                         levels: &levels,
                         now,
-                        repository: Some(&repository),
                         home: home.as_deref(),
                         ledger: ledger.as_deref(),
                         others,
@@ -416,7 +427,11 @@ impl Board {
                 if !unchanged {
                     self.chain_moment(&project, &words, true, false);
                 }
+                // Between runs: a pending install is taken now, the held chain carried (EP-37a).
+                let _ = self.restart_at_gate();
             } else {
+                // A chain's end restarts nothing (the owner's choice at EP-37a's pickup): its
+                // popup stays, and the chip says a newer build waits.
                 if let Some(at) = was_held {
                     self.autopilot.held.remove(at);
                 }
@@ -450,6 +465,30 @@ impl Board {
             Some(Answer::Rules) | None => (None, "the rules' choice"),
             Some(Answer::NotListed) => (None, "not in your plan, the rules' choice"),
         };
+        // The gate's moment (EP-37a): with a newer build installed, the chain is held for the
+        // window's restart, and the new window's gate starts the brief; a refused restart lets the
+        // chain go on here, the chip saying that the build waits.
+        if self.restart.pending_install() {
+            let words = autopilot::restart_words(after, draft.ep);
+            self.autopilot.held.push(Held {
+                project: project.clone(),
+                after,
+                words: words.clone(),
+            });
+            match self.restart_at_gate() {
+                Ok(()) => {
+                    self.log_chain(Some(&project), &words);
+                    return;
+                }
+                Err(why) => {
+                    self.autopilot.held.pop();
+                    self.log_chain(
+                        Some(&project),
+                        &format!("the restart into the installed build waits: {why}"),
+                    );
+                }
+            }
+        }
         // Headless whatever the project's launch mode, the owner's choice in place of the
         // rules' when they made one.
         draft.for_chain(picked.as_ref(), entry.launch.template.as_deref());
@@ -493,6 +532,19 @@ impl Board {
     fn read_held(&mut self) {
         if self.autopilot.held.is_empty() || self.fixtures {
             return;
+        }
+        // The held chains a restart carried wait for the first poll of live sessions (EP-37a), so
+        // that a session open in their project counts, and for the first files read, which
+        // gives the gate their projects' folders; then they are read at once.
+        if let Some(at) = self.autopilot.carried {
+            let model = &self.watch.model;
+            let polled = model.polled.is_some() || model.poll_problem.is_some();
+            let read = !self.loader.reading_files && !self.portfolio.projects.is_empty();
+            if !(polled && read) && at.elapsed() < CARRIED_WAIT {
+                return;
+            }
+            self.autopilot.carried = None;
+            self.autopilot.held_read = None;
         }
         let due = std::mem::take(&mut self.autopilot.recheck)
             || self
@@ -653,7 +705,7 @@ impl Board {
     }
 
     /// Keeps a line of the chain log in the ledger; a screenshot run keeps it in the window.
-    fn log_chain(&mut self, project: Option<&str>, words: &str) {
+    pub(crate) fn log_chain(&mut self, project: Option<&str>, words: &str) {
         if self.fixtures || self.autopilot.canned {
             self.autopilot.log.insert(
                 0,
@@ -796,7 +848,7 @@ impl Board {
         let project = loaded.registry.project(name)?;
         let folder = project.folder(&loaded.registry.data_root());
         let home = self.user_home();
-        autopilot::standing(project, &folder, home.as_deref(), None)
+        autopilot::standing(project, &folder, home.as_deref())
             .into_iter()
             .find_map(|refusal| match refusal {
                 Refusal::Waits(mode) => Some(mode),
@@ -813,13 +865,11 @@ impl Board {
         std::env::var_os("USERPROFILE").map(PathBuf::from)
     }
 
-    /// The gate's verdict on the conditions that stand between runs for each project whose
-    /// autopilot is on (EP-19b): runs that would wait, the tool's own project (the repository the
-    /// window was built from, EP-37). A screenshot run reads no user settings and is no
-    /// project's build.
+    /// The gate's verdict on the condition that stands between runs for each project whose
+    /// autopilot is on (EP-19b): runs that would wait. The tool's own project stood there too
+    /// until EP-37a. A screenshot run reads no user settings.
     fn standing_of(&self, registry: &Registry) -> BTreeMap<String, Vec<Refusal>> {
         let home = self.user_home();
-        let repository = (!self.fixtures).then(crw_core::paths::repository);
         let root = registry.data_root();
         registry
             .projects
@@ -827,8 +877,7 @@ impl Board {
             .filter(|project| project.autopilot.enabled)
             .map(|project| {
                 let folder = project.folder(&root);
-                let refusals =
-                    autopilot::standing(project, &folder, home.as_deref(), repository.as_deref());
+                let refusals = autopilot::standing(project, &folder, home.as_deref());
                 (project.name.to_lowercase(), refusals)
             })
             .collect()
@@ -1532,6 +1581,196 @@ mod tests {
             .project("harbor")
             .cloned()
             .unwrap()
+    }
+
+    /// A gate read for harbor after EP-3 with `refusals`, its next brief drafted as the worker
+    /// drafts it.
+    fn gate_read(board: &Board, refusals: Vec<Refusal>) -> Gated {
+        let registry = board.store().load().unwrap().registry;
+        let entry = registry.project("harbor").cloned().unwrap();
+        let data_root = registry.data_root();
+        let folder = entry.folder(&data_root);
+        let snapshot = crw_core::roadmap::snapshot::read_tree(&folder);
+        let usage = rules::Usage::unread(Utc::now());
+        let draft = crw_core::prompt::draft(
+            &registry,
+            &entry,
+            &snapshot,
+            None,
+            &[],
+            &usage,
+            "2026-11-10",
+        )
+        .ok();
+        Gated {
+            project: "harbor".to_owned(),
+            after: "EP-3".parse().ok(),
+            refusals,
+            draft,
+            entry,
+            folder,
+            data_root,
+            program: PathBuf::from("claude.exe"),
+        }
+    }
+
+    /// A board between two chained runs with a newer build installed (EP-37a): not a screenshot
+    /// run, its chain log kept in the window.
+    fn between_runs(scratch: &Scratch) -> Board {
+        let mut board = board(scratch);
+        board.fixtures = false;
+        board.autopilot.canned = true;
+        crate::restart::tests::installed(&mut board, scratch);
+        board
+    }
+
+    /// The gate's moment (EP-37a): a passing gate with a newer build installed holds the chain for
+    /// the restart and restarts, the handover carrying the chain; a refused restart lets the chain
+    /// go on in this window as before.
+    #[test]
+    fn a_pending_install_is_taken_at_the_gates_moment() {
+        let scratch = Scratch::new("autopilot-gate-restart");
+        let mut board = between_runs(&scratch);
+        assert!(board.restart.pending_install());
+        let gated = gate_read(&board, Vec::new());
+        let next = gated.draft.as_ref().unwrap().ep;
+        board.gated(gated);
+        assert!(board.autopilot.queued.is_none(), "the new window starts it");
+        assert!(board.restart.closing_at.is_some(), "the window restarts");
+        let words = format!(
+            "held after EP-3 for the window's restart into the installed build: {next} starts in \
+             the new window"
+        );
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some(words.as_str())
+        );
+        let local = scratch.0.join("local");
+        let crw_core::handover::Taken::Ours(found) =
+            crw_core::handover::take(&local, Some(std::process::id()))
+        else {
+            panic!("the handover carries the chain");
+        };
+        assert_eq!(found.held.len(), 1);
+        assert_eq!(found.held[0].words, words);
+
+        // Something else in the way: the chain goes on here, the log saying why the build waits.
+        let refused = Scratch::new("autopilot-gate-refused");
+        let mut board = between_runs(&refused);
+        board.offer = Some(Offer {
+            project: "meadow".to_owned(),
+            mode: "acceptEdits".to_owned(),
+        });
+        board.gated(gate_read(&board, Vec::new()));
+        assert!(board.restart.closing_at.is_none());
+        assert!(board.autopilot.held.is_empty());
+        assert_eq!(board.autopilot.queued.as_ref().map(|q| q.next), Some(next));
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some("the restart into the installed build waits: the offer of auto is open")
+        );
+    }
+
+    /// A chain that ends restarts nothing (the owner's choice at EP-37a's pickup); one the pause
+    /// holds is carried across the restart.
+    #[test]
+    fn a_chains_end_restarts_nothing_and_a_held_one_is_carried() {
+        let scratch = Scratch::new("autopilot-gate-end");
+        let mut board = between_runs(&scratch);
+        let next: EpId = "EP-4".parse().unwrap();
+        board.gated(gate_read(&board, vec![Refusal::Replan(next)]));
+        assert!(board.restart.closing_at.is_none());
+        assert!(!crw_core::handover::path(&scratch.0.join("local")).exists());
+        assert!(board.autopilot.held.is_empty());
+        // Held by the pause: the window restarts, the held chain in the handover.
+        board.gated(gate_read(&board, vec![Refusal::Paused]));
+        assert!(board.restart.closing_at.is_some());
+        let crw_core::handover::Taken::Ours(found) =
+            crw_core::handover::take(&scratch.0.join("local"), Some(std::process::id()))
+        else {
+            panic!("the held chain is carried");
+        };
+        assert!(
+            found.held[0]
+                .words
+                .starts_with("held after EP-3 until the pause lifts")
+        );
+    }
+
+    /// The restarted window's carried chains (EP-37a): taken from the handover, their gates wait
+    /// for the first poll of live sessions, then are read at once. The project is one the
+    /// registry no longer lists, so the read lets the chain go without a gate, whose reading
+    /// would ask the CLI (rule 5).
+    #[test]
+    fn a_carried_chain_waits_for_the_first_poll() {
+        let scratch = Scratch::new("autopilot-carried");
+        let mut board = board(&scratch);
+        board.fixtures = false;
+        board.autopilot.canned = true;
+        let local = scratch.0.join("local");
+        let held = Held {
+            project: "nowhere".to_owned(),
+            after: "EP-3".parse().ok(),
+            words: "held after EP-3 for the window's restart".to_owned(),
+        };
+        let written = crw_core::handover::Handover::new(
+            4242,
+            Utc::now().to_rfc3339(),
+            vec![held.clone()],
+            Vec::new(),
+            false,
+        );
+        crw_core::handover::write(&local, &written).unwrap();
+        board.take_handover(Some(&local), Some(4242), " of 2026-11-10 16:40");
+        assert_eq!(
+            board.notice_text(),
+            Some(
+                "Restarted into the installed build of 2026-11-10 16:40, carrying 1 held chain (nowhere)"
+            )
+        );
+        assert_eq!(board.autopilot.held, vec![held]);
+        assert!(board.autopilot.carried.is_some());
+        // No poll yet: the gate is not read.
+        board.read_held();
+        assert!(board.autopilot.held_read.is_none() && board.autopilot.carried.is_some());
+        // The poll answered, the files not yet read (the review of EP-37a): still waiting.
+        board.watch.model.polled = Some(Utc::now());
+        board.loader.reading_files = true;
+        board.read_held();
+        assert!(board.autopilot.held_read.is_none() && board.autopilot.carried.is_some());
+        assert_eq!(board.autopilot.held.len(), 1);
+        // The first files read landed: read at once.
+        board.portfolio = crate::portfolio::read_files(board.store());
+        board.loader.reading_files = false;
+        board.read_held();
+        assert!(board.autopilot.carried.is_none() && board.autopilot.held_read.is_some());
+        assert!(
+            board.autopilot.held.is_empty(),
+            "a project no longer listed lets go"
+        );
+        // A file no restart took (another version) is dropped, the notice and the log saying what
+        // was lost, even in a restarted window.
+        let mut other = written.clone();
+        other.version = crw_core::handover::VERSION + 1;
+        crw_core::handover::write(&local, &other).unwrap();
+        board.take_handover(Some(&local), Some(7), "");
+        let lost =
+            "a handover no restart took was dropped, its chains lost: a handover of version 2";
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|text| text
+                    .starts_with(&format!("Restarted into the installed build, but {lost}"))),
+            "{:?}",
+            board.notice_text()
+        );
+        assert!(
+            board.autopilot.log[0]
+                .detail
+                .as_deref()
+                .is_some_and(|line| line.starts_with(lost))
+        );
+        assert!(!crw_core::handover::path(&local).exists());
     }
 
     #[test]

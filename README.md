@@ -116,7 +116,10 @@ installed exe renamed to a dated previous copy first (Windows lets a running exe
 replaced), and asks the window to restart into it. The window does so at once, starting the installed
 window and closing, unless something would be lost, such as a headless run of its own that works or
 waits; a refused request is not remembered, and File > Install and restart, or the tray's item, does it
-later. The status bar says when a newer build waits. The registry lists the folders of one data root (by default the folder
+later. Between two runs of a chain the autopilot takes a newer installed build itself, at the gate's
+moment: the held chains and the chain plans cross the restart in a handover file, and the next
+brief starts in the new window once its first poll of live sessions has answered. A chain that ends
+leaves the window as it is. The status bar says when a newer build waits. The registry lists the folders of one data root (by default the folder
 that holds this repository); `crw adopt` registers a folder, writes its own single-folder
 `<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
 file; `crw ignore` hides one, `crw set` changes a project's state, priority, pin or time limit for
@@ -197,8 +200,8 @@ whose autopilot is on: its permission mode, what the gate would refuse it for be
 that would wait, sessions open there) and its limits as pickers, the largest brief, the runs a day
 and a budget a run (`crw set <project> max_size|daily|max_budget_usd` takes any figure). `crw
 autopilot` prints the log; each change of a chain's state, a brief chained, a hold or an end, is
-a notification of its own, whose Show opens that tab. The tool's own project is never chained: its
-briefs end with a release build that needs the window quit.
+a notification of its own, whose Show opens that tab. The tool's own project chains like any other:
+its briefs end with the install, and the window restarts into each brief's build before the next.
 
 The Decisions pane answers what a headless session asks while it waits: a permission request with
 Allow or Deny (its tool, its call, why it asks and its input shown; a reason optional), a question

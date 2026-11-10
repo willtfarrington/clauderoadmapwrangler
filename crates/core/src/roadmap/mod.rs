@@ -59,8 +59,24 @@ impl FromStr for EpId {
     }
 }
 
+/// An id is kept by its text, `EP-4a`, as the handover writes it (EP-37a).
+impl serde::Serialize for EpId {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.collect_str(self)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for EpId {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let text = String::deserialize(deserializer)?;
+        text.parse().map_err(serde::de::Error::custom)
+    }
+}
+
 /// A brief's size (D-4): S ≈ 30 min, M ≈ 1 h, L ≈ 2 h of one session.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
 pub enum Size {
     S,
     M,

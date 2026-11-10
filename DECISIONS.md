@@ -981,6 +981,38 @@ committing and recording hashes; one model and effort per project; usage thresho
 > rule, or with a warning in the notice; key by key in the project's table alone; the window
 > writing `[project.launch]` model and effort (EP-19b's recommended option).
 
+> **Addendum (2026-11-10, EP-37a).** The gate's moment and the tool's own project.
+>
+> - **The own-project condition is gone.** `Refusal::OwnProject`, `Facts::own` and `is_own` are
+>   removed, and the Autopilot section's line for it with them. The tool's own project chains like
+>   any other once its runs would not wait (`permission_mode = "auto"`, set by the owner through
+>   EP-19b's control).
+> - **The gate's moment.** A gate that passes while a newer build is installed
+>   (`Standing::Installed`, looked at again then) holds the chain "for the window's restart into
+>   the installed build" and restarts the window. The build must be another than the window runs,
+>   so a gate never restarts the window into its own build; the move out of `target\release`
+>   stays the owner's. The handover (D-29 addendum of this date) carries the held chain and the
+>   plans, and the new window's gate starts the next brief, in the new build. A gate that holds
+>   (the pause) takes the restart too, the held chain carried. Once the restart is decided, the
+>   old window reads no gate again.
+> - **What it leaves alone.**
+>   - The gate's moment installs nothing: only a build `crw install` installed is taken, never a
+>     build found in `target\release`.
+>   - A restart refused then (another headless run works, a dialog is open) lets the chain go on in
+>     the old window. The log says why the build waits.
+>   - A chain that ends restarts nothing, the owner's choice at pickup: its popup stays in front of
+>     the owner, and the chip says that a newer build waits.
+> - **The opener** of the tool's own project's runs says that the release build runs with the
+>   window up and that the session's last step is the install (`pwsh -File
+>   scripts\install-shortcut.ps1`). A headless run is told that its install's restart is refused
+>   while it works: the window restarts at the gate's moment when a chain goes on or is held after
+>   it, and otherwise File > Install and restart takes it. A visual one is told that the window
+>   restarts once nothing stands in the way. Templates name it `{build}`.
+>
+> *Alternatives.* A chain's end restarting the window too, the handover carrying the end's words
+> for the new window's popup, or the popup lost; the gate's moment installing a settled build
+> found in `target\release`; holding a chain until the restart can go.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1535,6 +1567,53 @@ an opt-in live smoke test; documented AV exclusions.
 > window started at the old one's exit, where a failed start would leave no window; the held
 > chains and plans carried now (more than an M, so split); the restarted window opening hidden
 > when the old one was.
+
+> **Addendum (2026-11-10, EP-37a).** The handover.
+>
+> - **The file.** Before it starts the installed window, the window writes `handover.json` in the
+>   local folder (`crw_core::handover`; `CRW_HOME` in a trial) through a temporary name. It holds
+>   a version, the writer's process id, the time, the held chains, the chain plans (each row with
+>   its resolution) and whether the new window opens hidden. Nothing is written when there is
+>   nothing to carry. A window with something to carry and no local folder does not restart. A
+>   start that fails removes the file, and so does a new window that ends at once; the old window
+>   keeps what it holds, its held chains are read again, and the gate's moment leaves that build
+>   alone until the owner's own restart or a newer install.
+> - **The take.** The window started with `--restarted <pid>` takes its old window's file at its
+>   start: it reads and deletes it. The held chains go on, each gate read once the first poll of
+>   live sessions has answered (or failed), so that a session open in the project counts, and the
+>   first files read has landed, which gives the gate the project's folder; or after two minutes.
+>   The plans are kept, and the start's notice says what was carried. A file of another version,
+>   one that does not read, or one whose writer no longer runs is dropped at any start. The
+>   notice and the chain log say what it held: an old chain never comes back. Another restart's
+>   file whose old window still runs is left for its own new window, since a window started by
+>   hand meanwhile (no single instance until EP-28) would otherwise take it. A delete that
+>   security software refuses is tried again for a moment.
+> - **The window's visibility.** A restart at the gate's moment from a window hidden in the tray
+>   opens the new one hidden; the owner's own restart opens it shown, as before.
+> - **The form.** Serde forms were added for the plan, its rows and stop, `Resolution` and its
+>   parts, `Size` and `EpId` (by its text). The old build writes and the new one reads, so a brief
+>   that changes these types keeps the old form readable or raises the version.
+> - **What refuses a restart now.**
+>   - A held chain and a kept plan no longer do.
+>   - A session open with no prompt yet now refuses in every registered project, whatever its
+>     revert switch. Only the window that saw it open gives it its ledger row at its first prompt,
+>     and the review found that a restart left such a session in a project with revert off
+>     without one.
+>   - A disposition being typed and the dialogs still refuse.
+>   - A restart at the gate's moment also waits while an ended run's tab offers Commit, which a
+>     restart nobody asked for would drop.
+>
+>   The popup's notices and the other ended runs' tabs are not carried; their ledger rows remain.
+> - **A session's mode after a restart.** A window learns a session's mode from the ledger at the
+>   session's start hook. A session it first meets through the poll or a later hook now takes the
+>   mode of its latest ledger row, looked up once, when that row is open and not a headless run's,
+>   as the start hook's rule has it. Before, any window started while a visual session was open
+>   called that session manual (EP-37a's field check).
+>
+> *Alternatives.* The handover kept in the registry (the 2026-11-08 addendum's rejected
+> alternative); a plan carried without its resolution, made again in the new window; any start
+> taking a recent file left by a dead window; the new window started hidden through the viewport
+> builder rather than hidden at its start.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

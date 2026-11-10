@@ -353,7 +353,7 @@ pub struct Launch {
 }
 
 /// How a session is started (D-16).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum LaunchMode {
     Visual,

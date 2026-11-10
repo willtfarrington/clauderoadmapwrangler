@@ -68,6 +68,8 @@ pub struct Watch {
     worked: HashSet<String>,
     lapsed_at: Option<Instant>,
     starts: Starts,
+    /// The sessions whose mode was looked up in the ledger (EP-37a), each once.
+    moded: HashSet<String>,
 }
 
 /// The starts of the sessions the hooks see begin (EP-15b): read on a worker thread, one git child
@@ -195,6 +197,7 @@ impl Watch {
                     Err(why) => self.model.poll_failed(why),
                 }
             }
+            self.learn_modes(ledger);
         }
         // A busy session works, whether a hook or the poll said so.
         for seen in self.model.all() {
@@ -375,6 +378,38 @@ impl Watch {
         }
     }
 
+    /// Gives each session the window first met through the poll or a hook other than its start
+    /// the mode of its latest ledger row (EP-37a): a window started while the session was open, a
+    /// restart's among them, would otherwise call a visual session manual. Each session is looked
+    /// up once; one with no row stays manual, and a ledger that does not open is tried again at
+    /// the next news.
+    fn learn_modes(&mut self, ledger: Option<&Path>) {
+        let Some(path) = ledger else {
+            return;
+        };
+        let unknown: Vec<String> = self
+            .model
+            .all()
+            .iter()
+            .filter(|seen| seen.mode == Mode::Manual && !self.moded.contains(&seen.session_id))
+            .map(|seen| seen.session_id.clone())
+            .collect();
+        if unknown.is_empty() {
+            return;
+        }
+        let Ok(opened) = Ledger::open(path) else {
+            return;
+        };
+        for id in unknown {
+            if let Ok(mode) = sessions::recorded_mode(&opened, &id) {
+                if let Some(mode) = mode.filter(|mode| *mode != Mode::Manual) {
+                    self.model.set_mode(&id, mode);
+                }
+                self.moded.insert(id);
+            }
+        }
+    }
+
     /// Closes the visual launches no session took up within their window, once a minute and at
     /// the window's first frame (EP-13).
     fn lapse(&mut self, ledger: Option<&Path>) {
@@ -408,9 +443,11 @@ impl Watch {
     /// The projects of the sessions whose start is being read or waits for their row (EP-15b), a
     /// session the poll does not place named "a session": the window keeps those starts in memory
     /// only, so a restart would lose them, and their reverts would go back to the last recorded
-    /// brief (EP-37).
+    /// brief (EP-37). With them, every interactive session of a registered project open with no
+    /// prompt yet, its revert's switch on or off (EP-37a's review): only the window that saw it
+    /// open gives it its ledger row at its first prompt, so a restart would leave it without one.
     pub fn unrecorded_starts(&self) -> Vec<String> {
-        let mut projects: Vec<String> = self
+        let reading = self
             .starts
             .asked
             .iter()
@@ -420,8 +457,14 @@ impl Watch {
                     .get(id)
                     .and_then(|seen| seen.project.clone())
                     .unwrap_or_else(|| "a session".to_owned())
-            })
-            .collect();
+            });
+        let opened = self
+            .model
+            .all()
+            .into_iter()
+            .filter(|seen| seen.is_new() && seen.mode != Mode::Headless && !seen.status.is_over())
+            .filter_map(|seen| seen.project.clone());
+        let mut projects: Vec<String> = reading.chain(opened).collect();
         projects.sort();
         projects.dedup();
         projects
@@ -553,6 +596,59 @@ mod tests {
             entrypoint: Some("claude-vscode".to_owned()),
             ..Hook::default()
         }
+    }
+
+    /// A session the window first meets through a later hook takes its ledger row's mode
+    /// (EP-37a): after a restart a visual session is not called manual; one with no row stays
+    /// manual, and each is looked up once.
+    #[test]
+    fn a_session_met_after_its_start_takes_its_rows_mode() {
+        let scratch = Scratch::new("watch-modes");
+        let path = scratch.0.join("ledger.sqlite");
+        let ledger = Ledger::open(&path).unwrap();
+        // A visual launch its session claimed, and a headless run whose id a session resumed by
+        // hand goes on under: only the first gives its mode.
+        for (id, mode) in [("v1", "visual"), ("h1", "headless")] {
+            ledger
+                .start_session(&crw_core::ledger::NewSession {
+                    session_id: Some(id),
+                    project: "alpha",
+                    ep: Some("EP-4"),
+                    mode,
+                    model: None,
+                    effort: None,
+                    ultracode: false,
+                    started_at: Utc::now() - chrono::TimeDelta::minutes(30),
+                })
+                .unwrap();
+        }
+        drop(ledger);
+        let folder = PathBuf::from(r"C:\Data\alpha");
+        let projects = vec![Registered {
+            name: "alpha".to_owned(),
+            folder: folder.clone(),
+            revert: false,
+        }];
+        let mut watch = Watch::default();
+        // The restarted window hears the sessions' turns end, never their starts.
+        for id in ["v1", "h1", "m1"] {
+            watch.take_hook(
+                &hook("Stop", id, &folder),
+                &projects,
+                Some(&path),
+                Utc::now(),
+            );
+        }
+        watch.learn_modes(Some(&path));
+        let mode = |watch: &Watch, id: &str| watch.model.get(id).map(|seen| seen.mode);
+        assert_eq!(mode(&watch, "v1"), Some(Mode::Visual));
+        assert_eq!(mode(&watch, "h1"), Some(Mode::Manual));
+        assert_eq!(mode(&watch, "m1"), Some(Mode::Manual));
+        assert!(
+            ["v1", "h1", "m1"]
+                .iter()
+                .all(|id| watch.moded.contains(*id))
+        );
     }
 
     /// The sessions that worked since the meter's last reading (EP-18a): a turn's end, a wait

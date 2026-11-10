@@ -107,17 +107,16 @@ fn main() -> eframe::Result {
             if let Some(home) = paths::home() {
                 board.home_note = Some(format!("{}={}", paths::HOME_VAR, home.display()));
             }
-            // The build this window runs, the installed copy and the repository's build (EP-37).
+            // The build this window runs, the installed copy and the repository's build (EP-37),
+            // and the local folder that the handover goes to (EP-37a).
             let running = Running::now();
-            if restarted.is_some() {
-                let when = running
-                    .as_ref()
-                    .and_then(|running| running.stamp)
-                    .map_or_else(String::new, |stamp: Stamp| format!(" of {}", stamp.when()));
-                board.notify(format!("Restarted into the installed build{when}"));
-            }
+            let when = running
+                .as_ref()
+                .and_then(|running| running.stamp)
+                .map_or_else(String::new, |stamp: Stamp| format!(" of {}", stamp.when()));
             board.restart =
                 restart::Restart::new(running, install::bin_dir(), install::build_dir());
+            board.restart.local = paths::local_dir();
             let backups = board.store().backups.clone();
             board.watch.start(port, program, backups, &cc.egui_ctx);
             // The usage meter (D-23; EP-17): the cached reading first, then the endpoint's polls
@@ -136,6 +135,10 @@ fn main() -> eframe::Result {
                     "The tray icon did not start ({why}): closing the window quits it."
                 )),
             }
+            // The handover (EP-37a), once the tray is there to hide in: a restarted window's held
+            // chains and plans, said in the start's notice with the build; a file no restart took
+            // is dropped, and what it held said.
+            board.take_handover(paths::local_dir().as_deref(), restarted, &when);
             Ok(Box::new(dashboard))
         }),
     )

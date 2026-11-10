@@ -62,6 +62,18 @@ impl Mode {
     }
 }
 
+/// The mode of a session's latest ledger row (EP-37a), for a session the window first met through
+/// the poll or a hook other than its start: a window started while the session was open, a
+/// restart's among them, learns here that it is visual rather than calling it manual. As
+/// [`record`] does, only an open row that is not a headless run's counts: a session resumed by
+/// hand after a headless run, or after its row ended, is the owner's own.
+pub fn recorded_mode(ledger: &Ledger, session_id: &str) -> Result<Option<Mode>, ledger::Error> {
+    Ok(ledger
+        .latest_of(session_id)?
+        .filter(|latest| latest.open && latest.mode != Mode::Headless.as_str())
+        .and_then(|latest| Mode::parse(&latest.mode)))
+}
+
 /// What a session does now.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Status {

@@ -85,7 +85,8 @@ marked *(EP-35)*.
   its transcript lies under the subfolder's slug, which the project's window may not look in.
 - *(EP-19)* A held chain kept across a restart of the window: EP-19's lives in the window, and
   the log says where it stood (D-22 addendum). *(2026-11-08: planned as EP-37, the handover file
-  of the window's own restart.)*
+  of the window's own restart. 2026-11-10: built by EP-37a for the window's own restart into a
+  newer build; a held chain still goes with a quit or a crash.)*
 - *(EP-19)* A chain after a visual session: the gate follows the window's headless runs only, a
   visual tab's end coming hours after its last turn (D-22).
 - *(EP-19)* `crw autopilot gate <project>`: the gate read now from the command line, as if the
@@ -95,12 +96,14 @@ marked *(EP-35)*.
 - *(EP-19)* This project chained, its release build and install script left to an owner task
   after the chain, or built where the running window does not hold it (EP-28's install script);
   the owner chose never to chain it at pickup (D-22 addendum). *(2026-11-08: planned as EP-37, the
-  exe installed outside `target`; the owner's choice reversed, D-22 addendum of that date.)*
+  exe installed outside `target`; the owner's choice reversed, D-22 addendum of that date.
+  2026-11-10: built by EP-37 and EP-37a; it chains once the owner sets its mode to `auto`.)*
 - *(EP-19a)* A chain plan kept in the registry or across a restart of the window: EP-19a's
   lives in the window, as a held chain does, and goes with it (the owner's choice, D-22
   addendum); with it, `crw autopilot` printing the plan, or a plan set from the command line.
   *(2026-11-08: the plan across the window's own restart planned as EP-37 with the held chain; the
-  registry form and the command line stay parked.)*
+  registry form and the command line stay parked. 2026-11-10: the plan across the window's own
+  restart built by EP-37a.)*
 - *(EP-19a)* A "back to the rules" button on a plan row, dropping the owner's choice; today a
   touched row keeps its pickers as left until the dialog is opened again.
 - *(EP-19a)* A plan listing beyond the project's `daily`, greyed where the day's cap would stop
