@@ -43,10 +43,12 @@
 5. **Tests never run the real `claude` CLI and never spend usage (D-29).** The session runner is tested
    against the stub executable replaying recorded stream-json; parser tests use the synthetic fixtures;
    UI checks use the `screenshot` feature (`CRW_SCREENSHOT=<file.png>` saves the app's own frame with fake
-   projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen. From EP-36 a
-   screenshot run also reads a copy of the real portfolio's roadmap files made in the session's scratchpad
-   (`CRW_SCREENSHOT_ROOT=<folder>`, the same guards), so a layout is checked on real content; the copy and
-   the pictures never enter git, and the brief names what was checked, never the projects (rule 3).
+   projects and exits; `CRW_SCREENSHOT_SETUP` for injected keys). Never capture the screen. A screenshot
+   run also reads a copy of the real portfolio's roadmap files (EP-36): `scripts\copy-roadmap.ps1
+   -Project <folder> -Into <scratchpad folder>` copies what a row reads of one non-data project, one call
+   at a time, and `CRW_SCREENSHOT_ROOT=<folder>` (or the setup flag `root=<folder>`) points a run at the
+   copy under the same guards, so a layout is checked on real content. The copy and the pictures never
+   enter git, and the brief names what was checked, never the projects (rule 3).
 6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
    --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
    (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M or L brief a

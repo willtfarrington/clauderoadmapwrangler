@@ -697,7 +697,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-19a | [Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default, a Chain box per brief; a notification of its own at each change of a chain's state](EP-19a-chain-plan.md) (D-22, D-21) | S | EP-19 | core | ☑ `b7e8ba2` |
 | EP-19b | [Launch settings in the window: the autopilot box's offer of `auto` for a project whose runs would wait, a Keep menu beside the launch dialog's Permissions picker writing `[project.launch] permission_mode`, each autopilot project's permission mode, the gate's verdict and its limits in the Autopilot section, idle sessions no longer refusing a chain, a `git push` deny rule for the autopilot's runs, `crw set` twins](EP-19b-launch-settings.md) (D-18, D-22) | M | EP-19a | core | ☑ `e1ff1a2` |
 | EP-19c | [Standing model and effort: the Keep menu beside the launch dialog's Model and Effort pickers, "keep for this project" as a `[[project.rule]]` matching every brief and "keep for phase Pn" as one matching the phase, rules combined key by key, the chain plan's rows resolved again after a keep, `crw set` model and effort](EP-19c-standing-model-and-effort.md) (D-22) | S → M (re-scoped at pickup) | EP-19b | core | ☑ `946a97c` |
-| EP-36 | Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive (D-29, D-3) | S | EP-6 | core | ☐ |
+| EP-36 | [Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive](EP-36-screenshot-runs-over-a-copy.md) (D-29, D-3) | S | EP-6 | core | ☐ |
 | EP-37 | The installed exe and the window's restart: the release exe installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` with the shortcut, the hooks and the status line pointing there, Install and restart in the window and `crw install`, held chains and chain plans carried through a handover file, the gate's own-project condition dropped, this project chained under `auto` (D-22, D-29, D-5) | M | EP-19a, EP-19b | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
 | EP-21 | Adoption and formalise files: CLAUDE.md rule block, `owner-tasks.md`, `inbox.md`, the brief template with front matter, the migration prompt for packet-style projects (D-10, D-12, D-13) | M | EP-5, EP-10 | core | ☐ |
@@ -1166,6 +1166,21 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   checked; the planning session of 2026-11-08 (no brief, as `d8c166a`'s) is timed with the rest from
   its transcript. The retro weighs the new cadence: the owner tasks written since EP-19b against the
   walk's findings, and whether what the fake portfolio hides now surfaces a phase later (risk 16).
+  **From EP-36 (the owner's choice: parked here for the walk):** the first screenshot runs over a
+  copy of the real roadmaps found three things the fake portfolio hides. The walk decides each
+  with the real window beside it: a row, an addendum or a v2 note.
+  - **The list's badge columns.** At the window's default widths (1440 or 1600 points), the long
+    real project names leave no room for any badge column: only Done and Session stay. At 2300
+    points every column shows. The question is the columns' order of leaving and the Brief
+    column's share.
+  - **Risks as owner items.** The Waiting column counts each roadmap's numbered risks as open
+    owner items, as D-10's older forms say: about 78 waiting items across the portfolio, 16 of
+    them this project's risks list. The question is whether a house-style project with an
+    `owner-tasks.md` still counts its risks.
+  - **The opener's quote.** The launch dialog quotes a `CLAUDE.md` read-first rule with that
+    file's hard line breaks, so its wider editor shows lines broken mid-sentence, and the opener a
+    session receives carries them too. The question is whether to join the quoted paragraph's
+    lines.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1377,6 +1392,12 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   P5 walk, compiled from the residual-risk paragraphs of P5's briefs and taken by the owner live
   (D-10 addendum); the row is M for it. From EP-36 the pictures' neutral root is named by the
   screenshot run's own flag, so the substituted drive and the junction are no longer needed.
+  **From EP-36:** copy `crates\app\fixtures\portfolio` to `C:\Users\Public\Projects`, a path that
+  names nothing of the machine, run with a fresh `CRW_HOME` and `root=C:\Users\Public\Projects`,
+  and remove the copy afterwards; the Detail pane then shows `C:\Users\Public\Projects\harbor`.
+  A registry's data root must be a full path, so a relative root cannot give a neutral path, and
+  Claude Code refuses to remove a folder directly under the drive root (`C:\Projects`). The two
+  pictures' setups: `light,select=harbor,size=2300x1000` and `dark,select=meadow,expand=meadow,legend`.
 
 ## Risks / open items
 

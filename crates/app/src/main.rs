@@ -136,16 +136,14 @@ fn options(
     }
 }
 
-/// The screenshot feature's run (rule 5): the fake portfolio, the window at a fixed size.
+/// The screenshot feature's run (rule 5): the fake portfolio or a copy (EP-36), the window at a
+/// fixed size.
 #[cfg(feature = "screenshot")]
 fn screenshot_run(run: &screenshot::Run) -> eframe::Result {
     let store = match run.store() {
         Ok(store) => store,
         Err(e) => {
-            eprintln!(
-                "screenshot: cannot write the registry into {}: {e}",
-                run.home.display()
-            );
+            eprintln!("screenshot: cannot start in {}: {e}", run.home.display());
             std::process::exit(1);
         }
     };
@@ -154,8 +152,8 @@ fn screenshot_run(run: &screenshot::Run) -> eframe::Result {
         APP_ID,
         options,
         Box::new(move |cc| {
-            // The run's own ledger, and no network: the fake projects' readings come from
-            // `screenshot::readings`.
+            // The run's own ledger, and no network: the projects' git, GitHub and backup
+            // readings come from `screenshot::readings`.
             let places = Places {
                 store,
                 ledger: Some(run.home.join("ledger.sqlite")),

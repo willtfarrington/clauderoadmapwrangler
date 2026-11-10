@@ -1468,6 +1468,29 @@ an opt-in live smoke test; documented AV exclusions.
 > drives the real CLI. *Alternatives.* The owner's look after each brief (the practice to EP-19a); an
 > opt-in live smoke test (rejected at planning); a review pass for every brief.
 
+> **Addendum (2026-11-09, EP-36).** Part 2 is built. A screenshot run reads the data root named by
+> `CRW_SCREENSHOT_ROOT=<folder>` or the setup flag `root=<folder>` in place of the tracked fixtures.
+> The flag wins, and a relative root is resolved against the run's working folder, since a
+> registry's data root is a full path (D-8). Every guard of the EP-6 addendum holds, because
+> `Board::fixtures` is set for every run: nothing is written into the root, no session starts,
+> nothing opens, and the run binds no port, polls no live session and asks no network. A root that
+> holds every folder of the fake portfolio reads with the fake registry. Any other root reads with
+> a registry written from its folders, each active with a roadmap and unformalised without, at
+> priority 3 with no pin. A home keeps the root its registry was first written for and refuses a
+> run that names another. The copies are no repositories, so a copied portfolio's projects take the
+> fakes' canned readings by their place in the list, under their own names. `scripts\copy-roadmap.ps1`
+> copies what a row reads of one project: the roadmap folder's own files, the decision log, the ADRs
+> and handoffs, `CLAUDE.md`, the license, and the stack's manifests, with lock files written empty.
+> The README's pictures name a neutral root: a copy of the fixtures in a folder whose path names
+> nothing of the machine, `C:\Users\Public\Projects`, which any user may create and a session may
+> remove (Claude Code refuses to remove a folder directly under the drive root, such as
+> `C:\Projects`). It replaces EP-8's `subst` drive and junction.
+> *Alternatives.* A relative root kept as written, which would have shown `portfolio\harbor` but is
+> refused by the registry's full-path rule; a run over the real data root, which would read the
+> data repositories and run git in real repositories; one registry from the root's folders for
+> every root, which would cost the fake portfolio's copies their unadopted folder and missing
+> project; bare readings for a copy's projects, which would leave their badge columns empty.
+
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored
 `private/portfolio-2026-10-31.md`. The interview ran 18 rounds and 72 questions on 2026-10-31; every

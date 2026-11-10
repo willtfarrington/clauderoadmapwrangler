@@ -559,7 +559,7 @@ impl Board {
 
     /// Opens the preview of undoing `project`'s session `session`, or its latest (EP-15c), read on
     /// a worker thread; a screenshot run's plan is canned, since its projects are the tracked
-    /// fixtures.
+    /// fixtures or a copy.
     pub fn open_revert(&mut self, project: &str, session: Option<String>) {
         if self.revert.is_some() {
             return;
@@ -587,7 +587,7 @@ impl Board {
     /// the revert run if it is the one shown; a screenshot run reverts nothing.
     pub fn confirm_revert(&mut self) {
         if self.fixtures {
-            self.warn("A screenshot run reverts nothing: its projects are tracked fixtures.");
+            self.warn("A screenshot run reverts nothing: its projects are fixtures or a copy.");
             return;
         }
         let Some(plan) = self.revert.as_ref().and_then(Dialog::confirmable) else {

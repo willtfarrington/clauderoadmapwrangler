@@ -302,7 +302,8 @@ pub struct Board {
     pub portfolio: Portfolio,
     pub view: View,
     pub theme: ThemePreference,
-    /// Ticks are refused: the projects are a screenshot run's tracked fixtures.
+    /// Ticks and every other write into a project are refused: the projects are a screenshot
+    /// run's, the tracked fixtures or a copy (EP-36).
     pub fixtures: bool,
     /// What the window runs on when it is not the owner's registry: `CRW_HOME`, or a
     /// screenshot run.
@@ -1105,7 +1106,8 @@ impl Board {
                 );
             }
             Action::Adopt(name) => {
-                // A screenshot run's data root is the tracked fixtures: no file beside them.
+                // A screenshot run's data root is the tracked fixtures or a copy: no file beside
+                // them.
                 let own_files = if self.fixtures {
                     OwnFiles::Skip
                 } else {
@@ -1239,8 +1241,8 @@ impl Board {
     fn folder_for_write(&mut self, project: &str) -> Option<PathBuf> {
         if self.fixtures {
             self.warn(format!(
-                "A screenshot run writes nothing into its fake projects: {project} is a tracked \
-                 fixture."
+                "A screenshot run writes nothing into its projects: {project} is a fixture or a \
+                 copy."
             ));
             return None;
         }
@@ -1431,7 +1433,7 @@ impl Board {
     /// window may take seconds to start; a screenshot run opens nothing (rule 5).
     fn start_visual(&mut self) {
         if self.fixtures {
-            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            self.warn("A screenshot run opens nothing: its projects are fixtures or a copy.");
             return;
         }
         if self.visual.is_opening() || self.sessions.is_starting() {
@@ -1458,7 +1460,7 @@ impl Board {
     /// nothing (rule 5).
     fn start_headless(&mut self) {
         if self.fixtures {
-            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
             return;
         }
         if self.sessions.is_starting() {
@@ -1568,7 +1570,7 @@ impl Board {
     /// EP-14), off the UI thread as a start is; a screenshot run starts nothing.
     fn answer_deferred(&mut self, key: u64, response: Response) {
         if self.fixtures {
-            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
             return;
         }
         if self.sessions.is_starting() {
@@ -1619,7 +1621,7 @@ impl Board {
     /// off the UI thread; a screenshot run opens nothing.
     fn focus(&mut self, name: &str) {
         if self.fixtures {
-            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            self.warn("A screenshot run opens nothing: its projects are fixtures or a copy.");
             return;
         }
         let Some(folder) = self
@@ -1649,7 +1651,7 @@ impl Board {
     /// earns its row at its first work. A screenshot run opens nothing.
     fn resume_in_code(&mut self, name: &str, session: &str, ep: Option<String>) {
         if self.fixtures {
-            self.warn("A screenshot run opens nothing: its projects are tracked fixtures.");
+            self.warn("A screenshot run opens nothing: its projects are fixtures or a copy.");
             return;
         }
         if self.visual.is_opening() {
@@ -1692,7 +1694,7 @@ impl Board {
     /// addendum, EP-13), off the UI thread as a start is; a screenshot run starts nothing.
     fn resume_session(&mut self, key: u64) {
         if self.fixtures {
-            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
             return;
         }
         let Some((message, program)) = self.sessions.resumable(key) else {

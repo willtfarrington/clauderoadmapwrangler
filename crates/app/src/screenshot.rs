@@ -6,8 +6,24 @@
 //! picture: the registry (written there from `fixtures/registry.toml` on the first run, so a
 //! second run starts from what the first one changed), eframe's state and the backups. The fake
 //! projects are the tracked folders of `fixtures/portfolio`, which a run never writes into: ticks
-//! are refused with a notice. `CRW_SCREENSHOT_SETUP` (comma-separated) arranges the view:
+//! are refused with a notice.
 //!
+//! `CRW_SCREENSHOT_ROOT=<folder>`, or the setup flag `root=<folder>`, which wins, names another
+//! data root (EP-36). Its use is a scratch copy of the real roadmap files, made with
+//! `scripts\copy-roadmap.ps1` one project at a time, so that a session checks a layout on real
+//! content. A root that holds every folder of the fake portfolio (a copy of it, or another path
+//! to it) reads with the fake registry. Any other root reads with one written from its folders,
+//! each active with a roadmap and unformalised without ([`registry_for`]). The guards are the
+//! same, and the run writes nothing into the root. A relative root is resolved against the run's
+//! working folder, since a registry's data root is a full path. The README's pictures name a
+//! neutral root, a copy of the fixtures in a folder whose path names nothing of the machine
+//! (`C:\Users\Public\Projects`, removed after the run), in place of EP-8's `subst` drive and
+//! junction. A home keeps the root its registry was first written for, and a run that names
+//! another is refused.
+//!
+//! `CRW_SCREENSHOT_SETUP` (comma-separated) arranges the view:
+//!
+//! - `root=<folder>` (the data root, as above);
 //! - `light` / `dark` (the theme); `compact` / `comfortable` (the density); `legend` (the key
 //!   to the row's marks open under the list);
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
@@ -71,7 +87,8 @@
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
 //! readings come from [`FAKES`], set against the run's own clock ([`readings`]); their stack chips
-//! and licenses are read from the fixtures' own files. A run never starts the GitHub pass. The
+//! and licenses are read from the fixtures' own files. The projects of a copied portfolio take the
+//! fakes by their place in the list, under their own names. A run never starts the GitHub pass. The
 //! launch dialog reads the synthetic model catalog in `fixtures/model-catalog`, a canned
 //! preflight and a canned VS Code with no window open, never the real CLI, VS Code or its lock
 //! files, and a run starts no session and opens nothing. In the fixture registry harbor launches
@@ -79,6 +96,8 @@
 //! Code settings (EP-12); its usage meter is off, or canned with `usage`, and never reads the
 //! credentials or asks the endpoint (EP-17).
 
+use std::collections::BTreeSet;
+use std::ffi::OsString;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -93,8 +112,7 @@ use crw_core::badges::health;
 use crw_core::badges::hosting::{self, Check, Class, Listed, Repo, Verdict, Visibility};
 use crw_core::badges::stack::Kind;
 use crw_core::ledger::{RowUsage, SessionRow};
-use crw_core::paths;
-use crw_core::registry::{Defaults, Store};
+use crw_core::registry::{DEFAULT_PRIORITY, Defaults, State, Store};
 use crw_core::revert::{
     Action as FileAction, Change, Commit, Done, Fate, FileState, Plan, Start, StartFile, Target,
     Tick,
@@ -104,6 +122,7 @@ use crw_core::session::{
 };
 use crw_core::sessions::{Mode, Seen, Status};
 use crw_core::signals::{self, StatusLine};
+use crw_core::{discovery, paths};
 use eframe::egui;
 
 use crate::board::{Action, Board, Dashboard};
@@ -115,6 +134,8 @@ use crate::style::Density;
 
 pub const PICTURE_VAR: &str = "CRW_SCREENSHOT";
 pub const SETUP_VAR: &str = "CRW_SCREENSHOT_SETUP";
+/// The data root a run reads in place of the fake portfolio (EP-36); the setup flag `root=` wins.
+pub const ROOT_VAR: &str = "CRW_SCREENSHOT_ROOT";
 
 /// The window of a screenshot run, unless `size=` says otherwise.
 const SIZE: [f32; 2] = [1600.0, 1000.0];
@@ -130,10 +151,13 @@ static FRAMES: AtomicU32 = AtomicU32::new(0);
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 static BUSY: AtomicBool = AtomicBool::new(true);
 
-/// A screenshot run: its home folder and its setup; [`tick`] reads the picture's path.
+/// A screenshot run: its home folder, its setup and the data root it reads; [`tick`] reads the
+/// picture's path.
 pub struct Run {
     pub home: PathBuf,
     pub flags: Vec<String>,
+    /// The root named by `root=` or [`ROOT_VAR`] (EP-36); the fake portfolio when `None`.
+    pub root: Option<PathBuf>,
 }
 
 impl Run {
@@ -147,26 +171,55 @@ impl Run {
                 .join("crw-screenshot")
         });
         let flags = flags(&std::env::var(SETUP_VAR).unwrap_or_default());
-        Some(Run { home, flags })
+        let root = root_of(&flags, std::env::var_os(ROOT_VAR));
+        Some(Run { home, flags, root })
     }
 
-    /// The fake portfolio's registry in the home folder, written from the template when the
-    /// home has none yet.
+    /// The data root the run reads: the one named, a relative one resolved against the run's
+    /// working folder (a registry's data root is a full path), else the tracked fake portfolio.
+    pub fn root(&self) -> PathBuf {
+        match &self.root {
+            Some(root) => std::path::absolute(root).unwrap_or_else(|_| root.clone()),
+            None => portfolio_root(),
+        }
+    }
+
+    /// The run's registry in the home folder, written for its root ([`registry_for`]) when the
+    /// home has none yet. Refused when the root is not a folder, and when the home's registry
+    /// reads another root, which would show a portfolio the run did not name.
     pub fn store(&self) -> io::Result<Store> {
-        let root = portfolio_root();
+        let root = self.root();
+        if !root.is_dir() {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                format!("the data root {} is not a folder", root.display()),
+            ));
+        }
         let path = self.home.join("registry.toml");
         if !path.exists() {
+            let text = registry_for(&root)?;
             fs::create_dir_all(&self.home)?;
-            fs::write(&path, registry_text(&root))?;
+            fs::write(&path, text)?;
         }
-        Ok(Store::new(
+        let store = Store::new(
             path,
             self.home.join("backups"),
             Defaults {
                 repository: root.join("harbor"),
-                data_root: root,
+                data_root: root.clone(),
             },
-        ))
+        );
+        if let Ok(loaded) = store.load() {
+            let read = loaded.registry.data_root();
+            if !paths::same(&read, &root) {
+                return Err(io::Error::other(format!(
+                    "its registry reads the data root {}, not {}: start from a fresh home",
+                    read.display(),
+                    root.display()
+                )));
+            }
+        }
+        Ok(store)
     }
 
     /// eframe's state file of the run, in its home.
@@ -373,7 +426,7 @@ impl Run {
                     }
                     None => eprintln!("screenshot: no hosting class called {value}"),
                 },
-                "keys" | "size" => {} // read by `inject_keys` and `main`
+                "keys" | "size" | "root" => {} // read by `inject_keys`, `main` and `from_env`
                 _ => eprintln!("screenshot: unknown setup flag {flag}"),
             }
         }
@@ -1009,16 +1062,78 @@ pub fn portfolio_root() -> PathBuf {
         .join("portfolio")
 }
 
+/// The root a run names (EP-36): the setup flag `root=`, else the variable; an empty one names
+/// none.
+fn root_of(flags: &[String], var: Option<OsString>) -> Option<PathBuf> {
+    flags
+        .iter()
+        .find_map(|flag| flag.strip_prefix("root="))
+        .map(OsString::from)
+        .or(var)
+        .filter(|root| !root.is_empty())
+        .map(PathBuf::from)
+}
+
+/// The registry a run over `root` starts from (EP-36): the fake portfolio's, the root written in,
+/// when the root holds every folder of the fake portfolio; else one project per folder of the
+/// root, in the fake registry's shape. A folder is active with a house-style roadmap and
+/// unformalised without, as Adopt would start it with the copy counted as a repository.
+fn registry_for(root: &Path) -> io::Result<String> {
+    if holds_the_fakes(root) {
+        return Ok(registry_text(root));
+    }
+    let mut text = format!(
+        "# The registry of a screenshot run over a copied portfolio (CLAUDE.md rule 5, EP-36): one\n\
+         # project per folder of the data root, active with a roadmap and unformalised without.\n\
+         format = 1\n\
+         ignore = []\n\
+         \n\
+         [settings]\n\
+         data_root = {}\n",
+        quoted(&root.display().to_string())
+    );
+    for folder in discovery::folders(root)? {
+        let state = if folder.roadmap {
+            State::Active
+        } else {
+            State::Unformalised
+        };
+        let name = quoted(&folder.name);
+        text.push_str(&format!(
+            "\n[[project]]\nname = {name}\npath = {name}\nstate = \"{state}\"\n\
+             priority = {DEFAULT_PRIORITY}\npinned = false\n"
+        ));
+    }
+    Ok(text)
+}
+
+/// Whether `root` holds every folder of the fake portfolio: the tracked folder, a copy of it, or
+/// another path to either.
+fn holds_the_fakes(root: &Path) -> bool {
+    let names = |dir: &Path| -> Option<BTreeSet<String>> {
+        let folders = discovery::folders(dir).ok()?;
+        Some(
+            folders
+                .into_iter()
+                .map(|folder| folder.name.to_lowercase())
+                .collect(),
+        )
+    };
+    match (names(&portfolio_root()), names(root)) {
+        (Some(fakes), Some(here)) => !fakes.is_empty() && fakes.is_subset(&here),
+        _ => false,
+    }
+}
+
 /// The template with the data root written in as a TOML string.
 fn registry_text(root: &Path) -> String {
-    let quoted = format!(
-        "\"{}\"",
-        root.display()
-            .to_string()
-            .replace('\\', "\\\\")
-            .replace('"', "\\\"")
-    );
-    include_str!("../fixtures/registry.toml").replace("@DATA_ROOT@", &quoted)
+    include_str!("../fixtures/registry.toml")
+        .replace("@DATA_ROOT@", &quoted(&root.display().to_string()))
+}
+
+/// A TOML basic string.
+fn quoted(text: &str) -> String {
+    format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
 /// The fake account's owner.
@@ -1142,17 +1257,41 @@ static FAKES: [Fake; 8] = [
 ];
 
 /// Puts the fake readings into the portfolio, as if the git pass, the backup job and a GitHub
-/// pass 40 minutes ago had read them.
+/// pass 40 minutes ago had read them. Each project takes the fake of its name. In a copied
+/// portfolio (EP-36), where no project is named as a fake, each project with a folder takes the
+/// fake at its place in the list, under its own name, so that the badge columns hold what a real
+/// window's would.
 pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
     let hours = TimeDelta::hours;
-    let account: Vec<Listed> = FAKES
+    let by_name = |name: &str| FAKES.iter().find(|fake| fake.name == name);
+    let copied = !portfolio
+        .projects
         .iter()
-        .filter_map(|fake| {
+        .any(|row| by_name(row.name()).is_some());
+    let mut place = 0;
+    let fakes: Vec<Option<&Fake>> = portfolio
+        .projects
+        .iter()
+        .map(|row| {
+            if !copied {
+                return by_name(row.name());
+            }
+            row.folder.as_ref()?;
+            place += 1;
+            Some(&FAKES[(place - 1) % FAKES.len()])
+        })
+        .collect();
+    let account: Vec<Listed> = portfolio
+        .projects
+        .iter()
+        .zip(&fakes)
+        .filter_map(|(row, fake)| {
+            let fake = (*fake)?;
             let (visibility, archived) = fake.listed?;
             Some(Listed {
                 repo: Repo {
                     owner: OWNER.to_owned(),
-                    name: fake.name.to_owned(),
+                    name: row.name().to_owned(),
                 },
                 visibility,
                 archived,
@@ -1162,11 +1301,12 @@ pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
         })
         .collect();
     let at = now - TimeDelta::minutes(40);
-    for row in &mut portfolio.projects {
-        let Some(fake) = FAKES.iter().find(|fake| fake.name == row.name()) else {
+    for (row, fake) in portfolio.projects.iter_mut().zip(fakes) {
+        let Some(fake) = fake else {
             continue;
         };
-        let oid = format!("{:0<40}", format!("f00d{}", fake.name.len()));
+        let name = row.name().to_owned();
+        let oid = format!("{:0<40}", format!("f00d{}", name.len()));
         let last = now - hours(fake.commit_hours);
         let badges = &mut row.badges;
         if fake.git {
@@ -1182,9 +1322,9 @@ pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
         }
         badges.remote = fake
             .origin
-            .map(|_| format!("https://github.com/{OWNER}/{}.git", fake.name));
+            .map(|_| format!("https://github.com/{OWNER}/{name}.git"));
         badges.hosting = hosting::classify(
-            &[fake.name],
+            &[name.as_str()],
             badges.remote.as_deref(),
             Some(account.as_slice()),
         );
@@ -1212,14 +1352,13 @@ pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
             }
         });
         badges.backup = Some(Backup {
-            unit: Some(format!("WORK\\{}", fake.name)),
+            unit: Some(format!("WORK\\{name}")),
             archive: fake.backup_hours.map(|h| Archive {
                 name: format!(
-                    "{} {}.zip",
+                    "{} {name}.zip",
                     (now - hours(h))
                         .with_timezone(&chrono::Local)
                         .format("%Y-%m-%d %H%M%S"),
-                    fake.name
                 ),
                 at: Some(now - hours(h)),
             }),
@@ -1355,6 +1494,7 @@ mod tests {
         let run = Run {
             home: PathBuf::from("home"),
             flags: flags("size=1200x800,expand=harbor"),
+            root: None,
         };
         assert_eq!(run.size(), [1200.0, 800.0]);
         assert_eq!(run.value("expand"), Some("harbor"));
@@ -1404,5 +1544,259 @@ mod tests {
         let text = registry_text(Path::new(r"C:\Some folder\fixtures\portfolio"));
         assert!(text.contains(r#"data_root = "C:\\Some folder\\fixtures\\portfolio""#));
         assert!(!text.contains("@DATA_ROOT@"));
+    }
+
+    use crate::portfolio::read_files;
+    use crate::portfolio::tests::Scratch;
+
+    /// A copy of `from` at `to`, folder by folder.
+    fn copy_tree(from: &Path, to: &Path) {
+        fs::create_dir_all(to).unwrap();
+        for entry in fs::read_dir(from).unwrap().flatten() {
+            let target = to.join(entry.file_name());
+            if entry.file_type().unwrap().is_dir() {
+                copy_tree(&entry.path(), &target);
+            } else {
+                fs::copy(entry.path(), target).unwrap();
+            }
+        }
+    }
+
+    /// A run over `root` with its home in `home`, the root named through the setup flag.
+    fn run_over(home: &Path, root: &Path) -> Run {
+        let flags = flags(&format!("light,root={}", root.display()));
+        let root = root_of(&flags, None);
+        Run {
+            home: home.to_owned(),
+            flags,
+            root,
+        }
+    }
+
+    /// What a run shows of each project, the data root's place aside (a brief's path names
+    /// it): the registry's entry, the files' readings and the canned ones; then the folders left
+    /// out.
+    fn shown(portfolio: &Portfolio) -> Vec<String> {
+        let root = portfolio.data_root.display().to_string();
+        let escaped = root.replace('\\', "\\\\");
+        let mut lines: Vec<String> = portfolio
+            .projects
+            .iter()
+            .map(|row| {
+                let (project, badges) = (&row.project, &row.badges);
+                let line = format!(
+                    "{} {} {} {} {:?} | {:?} {:?} {} {:?} {:?} {:?} {:?} {:?} | {:?} {:?} {:?} {:?} \
+                     {:?} {:?} {:?} {:?} {:?}",
+                    project.name,
+                    project.state,
+                    project.priority,
+                    project.pinned,
+                    project.launch,
+                    row.folder.as_ref().map(|folder| (folder.git, folder.roadmap)),
+                    row.next(),
+                    row.open_items(),
+                    row.open_messages(),
+                    row.in_progress(),
+                    row.snapshot.decisions.log,
+                    row.facts,
+                    row.outgoing,
+                    badges.stack,
+                    badges.license,
+                    badges.workflows,
+                    badges.remote,
+                    badges.hosting,
+                    badges.activity,
+                    badges.head,
+                    badges.run,
+                    badges.backup,
+                );
+                line.replace(&escaped, "<root>").replace(&root, "<root>")
+            })
+            .collect();
+        lines.extend(
+            portfolio
+                .unadopted
+                .iter()
+                .map(|folder| format!("unadopted {}", folder.name)),
+        );
+        lines
+    }
+
+    #[test]
+    fn names_the_root_by_the_flag_before_the_variable() {
+        let var = Some(OsString::from(r"C:\From the variable"));
+        assert_eq!(
+            root_of(&flags(r"dark,root=C:\From the flag"), var.clone()),
+            Some(PathBuf::from(r"C:\From the flag"))
+        );
+        assert_eq!(
+            root_of(&flags("dark"), var),
+            Some(PathBuf::from(r"C:\From the variable"))
+        );
+        assert_eq!(root_of(&flags("dark"), Some(OsString::new())), None);
+        assert_eq!(root_of(&flags("root="), None), None);
+        assert_eq!(root_of(&[], None), None);
+    }
+
+    #[test]
+    fn the_fixtures_copied_elsewhere_read_as_the_tracked_ones() {
+        let scratch = Scratch::new("screenshot-copied-fixtures");
+        let copy = scratch.0.join("Projects");
+        copy_tree(&portfolio_root(), &copy);
+        let tracked = Run {
+            home: scratch.0.join("tracked-home"),
+            flags: Vec::new(),
+            root: None,
+        };
+        let copied = run_over(&scratch.0.join("copy-home"), &copy);
+        assert_eq!(copied.root(), copy);
+
+        let now = Utc::now();
+        let read = |run: &Run| {
+            let store = run.store().unwrap();
+            let mut portfolio = read_files(&store);
+            assert_eq!(portfolio.problem, None);
+            readings(&mut portfolio, now);
+            portfolio
+        };
+        let (tracked, copied) = (read(&tracked), read(&copied));
+        assert_eq!(copied.data_root, copy);
+        assert_eq!(shown(&copied), shown(&tracked));
+        assert!(
+            shown(&tracked)
+                .iter()
+                .any(|line| line.starts_with("harbor active 1 true"))
+        );
+        assert!(shown(&tracked).contains(&"unadopted sketchbook".to_owned()));
+        let harbor = copied.project("harbor").unwrap();
+        assert_eq!(harbor.path, copy.join("harbor"));
+        assert!(harbor.next().is_some());
+        let names = |portfolio: &Portfolio| -> Vec<String> {
+            let account = portfolio.account.as_ref().unwrap().value.as_ref().unwrap();
+            account
+                .iter()
+                .map(|listed| listed.repo.name.clone())
+                .collect()
+        };
+        assert_eq!(names(&copied), names(&tracked));
+        assert_eq!(
+            names(&tracked),
+            [
+                "harbor", "lantern", "meadow", "compass", "orchard", "beacon"
+            ]
+        );
+    }
+
+    #[test]
+    fn another_root_reads_its_own_folders_with_the_fakes_by_place() {
+        let scratch = Scratch::new("screenshot-other-root");
+        let root = scratch.0.join("copy");
+        let alpha = root.join("alpha").join("roadmap");
+        fs::create_dir_all(&alpha).unwrap();
+        fs::write(
+            alpha.join("README.md"),
+            "# alpha — Roadmap\n\n## Phase P1 — Start\n\n\
+             | # | Brief | Size | Depends on | Core | Done |\n|---|---|---|---|---|---|\n\
+             | EP-1 | First brief | S | — | core | ☐ |\n",
+        )
+        .unwrap();
+        fs::create_dir_all(root.join("beta")).unwrap();
+        fs::create_dir_all(root.join("gamma")).unwrap();
+        fs::create_dir_all(root.join(".hidden")).unwrap();
+        let run = run_over(&scratch.0.join("home"), &root);
+        let store = run.store().unwrap();
+        let registry = store.load().unwrap().registry;
+        let entries: Vec<(&str, State, u8, bool)> = registry
+            .projects
+            .iter()
+            .map(|p| (p.name.as_str(), p.state, p.priority, p.pinned))
+            .collect();
+        assert_eq!(
+            entries,
+            [
+                ("alpha", State::Active, DEFAULT_PRIORITY, false),
+                ("beta", State::Unformalised, DEFAULT_PRIORITY, false),
+                ("gamma", State::Unformalised, DEFAULT_PRIORITY, false),
+            ]
+        );
+        assert!(registry.ignore.is_empty());
+        assert!(paths::same(&registry.data_root(), &root));
+
+        // A project whose folder has gone takes no fake, and the next one takes its place.
+        fs::remove_dir_all(root.join("beta")).unwrap();
+        let mut portfolio = read_files(&store);
+        assert_eq!(portfolio.problem, None);
+        readings(&mut portfolio, Utc::now());
+        let alpha = portfolio.project("alpha").unwrap();
+        assert_eq!(
+            alpha.next().map(|row| row.id.to_string()),
+            Some("EP-1".to_owned())
+        );
+        assert_eq!(
+            alpha.badges.remote.as_deref(),
+            Some("https://github.com/example/alpha.git")
+        );
+        assert_eq!(alpha.badges.hosting.class(), Class::Public);
+        assert!(alpha.badges.activity.is_some());
+        let beta = portfolio.project("beta").unwrap();
+        assert!(beta.folder.is_none());
+        assert_eq!(beta.badges.remote, None);
+        assert!(beta.badges.backup.is_none());
+        let gamma = portfolio.project("gamma").unwrap();
+        assert_eq!(gamma.badges.hosting.class(), Class::Private);
+        assert_eq!(
+            gamma.badges.backup.as_ref().and_then(|b| b.unit.as_deref()),
+            Some(r"WORK\gamma")
+        );
+        let account = portfolio.account.as_ref().unwrap().value.as_ref().unwrap();
+        let names: Vec<&str> = account.iter().map(|l| l.repo.name.as_str()).collect();
+        assert_eq!(names, ["alpha", "gamma"]);
+    }
+
+    #[test]
+    fn a_relative_root_is_resolved_against_the_working_folder() {
+        // Tests run in the crate's folder, which holds `fixtures`.
+        let scratch = Scratch::new("screenshot-relative-root");
+        let run = run_over(
+            &scratch.0.join("home"),
+            &Path::new("fixtures").join("portfolio"),
+        );
+        let root = run.root();
+        assert!(root.is_absolute());
+        assert!(paths::same(&root, &portfolio_root()));
+        let store = run.store().unwrap();
+        let portfolio = read_files(&store);
+        assert_eq!(portfolio.problem, None);
+        let harbor = portfolio.project("harbor").unwrap();
+        assert_eq!(harbor.path, root.join("harbor"));
+        assert!(
+            harbor.project.pinned,
+            "the fake registry, as the root holds the fakes"
+        );
+    }
+
+    #[test]
+    fn refuses_a_root_that_is_no_folder_and_a_home_written_for_another() {
+        let scratch = Scratch::new("screenshot-refusals");
+        let missing = run_over(&scratch.0.join("home-a"), &scratch.0.join("missing"));
+        let refused = missing.store().err().unwrap();
+        assert!(refused.to_string().contains("is not a folder"), "{refused}");
+        assert!(!scratch.0.join("home-a").exists());
+
+        let copy = scratch.0.join("copy");
+        fs::create_dir_all(copy.join("alpha")).unwrap();
+        let home = scratch.0.join("home-b");
+        run_over(&home, &copy).store().unwrap();
+        run_over(&home, &copy).store().unwrap();
+        let fakes = Run {
+            home: home.clone(),
+            flags: Vec::new(),
+            root: None,
+        };
+        let refused = fakes.store().err().unwrap();
+        assert!(
+            refused.to_string().contains("start from a fresh home"),
+            "{refused}"
+        );
     }
 }

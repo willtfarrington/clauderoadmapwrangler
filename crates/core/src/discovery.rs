@@ -228,7 +228,8 @@ impl OwnFile {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OwnFiles {
     Write,
-    /// A screenshot run's: its data root is the tracked fixtures, which it never writes into.
+    /// A screenshot run's: its data root is the tracked fixtures or a copy, which it never
+    /// writes into.
     Skip,
 }
 

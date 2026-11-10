@@ -58,12 +58,12 @@ project's VS Code window from the Sessions pane, and each resumed run gets a led
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
-![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, status, owner tasks and inbox](docs/dashboard-light.png)
+![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, progress and status](docs/dashboard-light.png)
 
 ![The dashboard in the dark theme: a row expanded to its phases, the legend of every mark open under the list, and the Detail pane of the selected project](docs/dashboard-dark.png)
 
 *Both pictures show the fake portfolio tracked in `crates/app/fixtures/portfolio`, taken by the app of
-its own window (`--features screenshot`, below).*
+its own window (`--features screenshot`, below) from a copy at a neutral path.*
 
 ## Building
 
@@ -257,6 +257,10 @@ Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
 (`crates/app/fixtures/portfolio`), saves a picture of its own window and exits;
 `CRW_SCREENSHOT_SETUP` arranges the view (see `crates/app/src/screenshot.rs`).
+`CRW_SCREENSHOT_ROOT=<folder>` points such a run at another data root under the same guards: a
+scratch copy of real roadmap files that `scripts\copy-roadmap.ps1` makes one project at a time, read
+with a registry written from its folders, so that a layout can be checked on real content without
+the pictures leaving the machine.
 
 The workspace has three crates: `crates/core` (the model and engines, no UI types), `crates/app` (the
 desktop window, `clauderoadmapwrangler.exe`, with its loopback server) and `crates/cli` (`crw.exe`, the

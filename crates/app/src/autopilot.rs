@@ -1036,7 +1036,7 @@ impl Board {
     /// the UI thread as a start is; a screenshot run starts nothing.
     pub fn commit_session(&mut self, key: u64) {
         if self.fixtures {
-            self.warn("A screenshot run starts no session: its projects are tracked fixtures.");
+            self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
             return;
         }
         if self.sessions.is_starting() {
