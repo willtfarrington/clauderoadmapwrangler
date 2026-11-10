@@ -13,7 +13,10 @@
 //! this one, each with the same pickers, the rules' resolution the default and a Chain box; the
 //! window keeps it at Start headless for the chain to follow. Beside the Permissions picker a
 //! **Keep** menu (D-18; EP-19b, the owner's choice) writes the mode shown into the project's
-//! `[project.launch]` at once, or takes the project's own mode out.
+//! `[project.launch]` at once, or takes the project's own mode out. Beside the Model and Effort
+//! pickers the same pin (D-22; EP-19c) keeps the value shown in the project's rule for every
+//! brief or for the brief's phase, or takes it back to the rules; the dialog's brief and its
+//! chain plan are then resolved again from the registry.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -21,9 +24,9 @@ use std::time::{Duration, Instant};
 use crw_core::autopilot::{Plan, Planned};
 use crw_core::catalog::Catalog;
 use crw_core::prompt::{self, Chosen, Draft, Parts};
-use crw_core::registry::LaunchMode;
+use crw_core::registry::{LaunchMode, Project};
 use crw_core::roadmap::{EpId, Size};
-use crw_core::rules::{self, Choice, Picked, Resolution, Source};
+use crw_core::rules::{self, Choice, Kept, Key, Picked, Resolution, Scope, Source};
 use crw_core::session::{self, Preflight, Route};
 use crw_core::visual::{self, Readiness};
 use eframe::egui::{self, RichText};
@@ -95,6 +98,17 @@ pub struct Dialog {
     /// The project's own permission mode, its `[project.launch] permission_mode`, when it has
     /// one (EP-19b): what the Keep menu beside Permissions can take back.
     pub kept_mode: Option<String>,
+    /// The brief's phase id, when its heading has one (EP-19c): what Keep for phase Pn keeps
+    /// for.
+    pub phase: Option<String>,
+    /// The CLI's effort levels in order, which a rule's step moves along (none for the built-in
+    /// ones): the brief is resolved again with them after a keep (EP-19c).
+    pub levels: Vec<String>,
+    /// What the project keeps for the model, for every brief and for this brief's phase
+    /// (EP-19c): what the Keep menu beside Model can take back.
+    pub kept_model: Kept,
+    /// The same for the effort, beside Effort.
+    pub kept_effort: Kept,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -112,6 +126,9 @@ pub struct Opening {
     pub route: (Route, Option<String>),
     pub plan: Option<Plan>,
     pub kept_mode: Option<String>,
+    pub kept_model: Kept,
+    pub kept_effort: Kept,
+    pub levels: Vec<String>,
 }
 
 impl Dialog {
@@ -120,6 +137,7 @@ impl Dialog {
             ep,
             title,
             size,
+            phase,
             resolution,
             parts,
             prompt,
@@ -149,6 +167,75 @@ impl Dialog {
             route: opening.route,
             plan: opening.plan,
             kept_mode: opening.kept_mode,
+            phase,
+            levels: opening.levels,
+            kept_model: opening.kept_model,
+            kept_effort: opening.kept_effort,
+        }
+    }
+
+    /// The project's rules as the registry says them after a Keep beside the Model or the
+    /// Effort picker (EP-19c): the project as written (`project`), what it keeps then read for
+    /// both pickers, and the brief resolved again from it (`fresh`). For `key`, after Back to the
+    /// rules (`asked` none) the picker takes the rules' value; after a keep it takes the new
+    /// resolution when its value is the one kept, so that the reason names the project's rule,
+    /// and keeps the value shown when something stands over the kept one for this brief. Every
+    /// other value the rules gave takes its new reason too, since a keep may number the project's
+    /// rules afresh (EP-19c's review); the owner's own choices stay. The plan made again (`plan`)
+    /// keeps the rows the owner touched, and the prompt follows unless the owner has edited it.
+    pub fn kept_rule(
+        &mut self,
+        key: Key,
+        asked: Option<&str>,
+        project: &Project,
+        fresh: Resolution,
+        plan: Option<Plan>,
+    ) {
+        let phase = self.phase.as_deref();
+        self.kept_model = Kept::of(project, phase, Key::Model);
+        self.kept_effort = Kept::of(project, phase, Key::Effort);
+        let rules_gave = |source: &Source| *source != Source::Owner;
+        let take_model = match key {
+            Key::Model => asked.is_none_or(|value| fresh.model.value == value),
+            Key::Effort => rules_gave(&self.resolution.model.source),
+        };
+        let take_effort = match key {
+            Key::Effort => asked.is_none_or(|value| fresh.effort.value.as_deref() == Some(value)),
+            Key::Model => rules_gave(&self.resolution.effort.source),
+        };
+        if take_model {
+            self.resolution.model = fresh.model;
+        }
+        if take_effort {
+            self.resolution.effort = fresh.effort;
+        }
+        // The CLI's own limits are applied again at the next frame (`fit`).
+        if rules_gave(&self.resolution.ultracode.source) {
+            self.resolution.ultracode = fresh.ultracode;
+        }
+        self.resolution.downshift = fresh.downshift;
+        self.resolution.notes = fresh.notes;
+        if let Some(mut plan) = plan {
+            if let Some(before) = &self.plan {
+                plan.keep_choices(before);
+            }
+            self.plan = Some(plan);
+        }
+        self.chose();
+    }
+
+    /// The action a Keep menu beside the Model or the Effort picker asked for (EP-19c), the value
+    /// kept being the one shown when the menu was open (`current`).
+    fn rule_action(&self, keep: RuleKeep, key: Key, current: Option<String>) -> Action {
+        let (scope, value) = match keep {
+            RuleKeep::Keep(scope) => (scope, current),
+            RuleKeep::Back(scope) => (scope, None),
+        };
+        Action::KeepRule {
+            project: self.project.clone(),
+            scope,
+            key,
+            value,
         }
     }
 
@@ -590,38 +677,58 @@ impl Dialog {
 
         let reason = self.model_reason();
         field(ui, "Model", &reason, |ui| {
+            let current = self.resolution.model.value.clone();
             let mut picked = None;
+            let mut keep = None;
             ui.add_enabled_ui(!visual, |ui| {
-                picked = model_picker(
+                picked = model_picker(ui, "launch-model", &self.catalog, &current, combo - KEEP);
+                // The Keep menu (EP-19c): the model shown, kept for the project's briefs or for
+                // this phase's, or taken back to the rules.
+                keep = rule_keep_menu(
                     ui,
-                    "launch-model",
-                    &self.catalog,
-                    &self.resolution.model.value,
-                    combo,
+                    "keep-model",
+                    Some(&current),
+                    &self.kept_model,
+                    self.phase.as_deref(),
                 );
             });
             if let Some(model) = picked {
                 self.resolution.model = owners(model);
                 changed = true;
             }
+            if let Some(keep) = keep {
+                actions.push(self.rule_action(keep, Key::Model, Some(current)));
+            }
         });
 
         let efforts = self.efforts(preflight);
         let reason = picker_reason(visual, self.resolution.effort.reason());
         field(ui, "Effort", &reason, |ui| {
+            let current = self.resolution.effort.value.clone();
             let mut picked = None;
+            let mut keep = None;
             ui.add_enabled_ui(!visual, |ui| {
                 picked = effort_picker(
                     ui,
                     "launch-effort",
                     &efforts,
-                    self.resolution.effort.value.as_deref(),
-                    combo,
+                    current.as_deref(),
+                    combo - KEEP,
+                );
+                keep = rule_keep_menu(
+                    ui,
+                    "keep-effort",
+                    current.as_deref(),
+                    &self.kept_effort,
+                    self.phase.as_deref(),
                 );
             });
             if let Some(effort) = picked {
                 self.resolution.effort = owners(effort);
                 changed = true;
+            }
+            if let Some(keep) = keep {
+                actions.push(self.rule_action(keep, Key::Effort, current));
             }
         });
 
@@ -1043,6 +1150,122 @@ fn keep_menu(ui: &mut egui::Ui, current: &str, own: Option<&str>, default: &str)
     asked
 }
 
+/// What a Keep menu beside the Model or the Effort picker asked for (EP-19c).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RuleKeep {
+    /// The value shown, kept in the project's rule for the scope.
+    Keep(Scope),
+    /// The key taken out of the scope's rule: back to the rules.
+    Back(Scope),
+}
+
+/// The Keep menu beside the Model or the Effort picker (D-22; EP-19c, the owner's choice), the
+/// pin of [`keep_menu`]: **Keep for this project** writes the value shown (`current`) into the
+/// project's rule for every brief; **Keep for phase Pn**, when the brief's phase has an id,
+/// writes it into the rule of that phase alone; and **Back to the rules**, for each of the two
+/// that keeps a value (`kept`), takes it out. The pin is lit in the reference colour while the
+/// project keeps one for this brief. An item that would change nothing is greyed out with its
+/// reason, and the CLI's own effort (`current` none) is no value a rule can keep.
+fn rule_keep_menu(
+    ui: &mut egui::Ui,
+    salt: &str,
+    current: Option<&str>,
+    kept: &Kept,
+    phase: Option<&str>,
+) -> Option<RuleKeep> {
+    let lit = kept.any().then(|| style::reference(ui));
+    let hover = match (&kept.phase, phase, &kept.project) {
+        (Some(value), Some(phase), _) => {
+            format!("Phase {phase} keeps {value}: its briefs and chains take it")
+        }
+        (_, _, Some(value)) => format!("The project keeps {value}: its briefs and chains take it"),
+        _ => "Keep the choice for the project's briefs, or for this phase's".to_owned(),
+    };
+    let shown = current.unwrap_or("the CLI's default");
+    let mut asked = None;
+    ui.push_id(salt, |ui| {
+        ui.menu_button(style::icon(icons::ICON_PUSH_PIN, lit), |ui| {
+            let item = |ui: &mut egui::Ui, on: bool, text: String, hover: &str, why: &str| {
+                let clicked = ui
+                    .add_enabled(on, egui::Button::new(text))
+                    .on_hover_text(hover)
+                    .on_disabled_hover_text(why)
+                    .clicked();
+                if clicked {
+                    ui.close();
+                }
+                clicked
+            };
+            let why = |kept: &Option<String>, already: &'static str| match current {
+                None => "the CLI's own effort is no value a rule can keep",
+                Some(_) if kept.as_deref() == current => already,
+                Some(_) => "",
+            };
+            let project_why = why(&kept.project, "the project keeps it already");
+            if item(
+                ui,
+                project_why.is_empty(),
+                format!("Keep {shown} for this project"),
+                "Written into the project's rule for every brief in the registry, which comes \
+                 after the rule table, so an S brief takes it too",
+                project_why,
+            ) {
+                asked = Some(RuleKeep::Keep(Scope::Project));
+            }
+            if let Some(phase) = phase {
+                let phase_why = why(&kept.phase, "the phase keeps it already");
+                if item(
+                    ui,
+                    phase_why.is_empty(),
+                    format!("Keep {shown} for phase {phase}"),
+                    "Written into the project's rule for this phase alone, which comes before its \
+                     rule for every brief",
+                    phase_why,
+                ) {
+                    asked = Some(RuleKeep::Keep(Scope::Phase(phase.to_owned())));
+                }
+            }
+            ui.separator();
+            if let Some(value) = &kept.project
+                && item(
+                    ui,
+                    true,
+                    format!("Back to the rules for this project (drops {value})"),
+                    "The value is taken out of the project's rule for every brief, and the rule \
+                     with it once it keeps nothing",
+                    "",
+                )
+            {
+                asked = Some(RuleKeep::Back(Scope::Project));
+            }
+            if let (Some(value), Some(phase)) = (&kept.phase, phase)
+                && item(
+                    ui,
+                    true,
+                    format!("Back to the rules for phase {phase} (drops {value})"),
+                    "The value is taken out of the project's rule for this phase, and the rule \
+                     with it once it keeps nothing",
+                    "",
+                )
+            {
+                asked = Some(RuleKeep::Back(Scope::Phase(phase.to_owned())));
+            }
+            if !kept.any() {
+                item(
+                    ui,
+                    false,
+                    "Back to the rules".to_owned(),
+                    "",
+                    "the project keeps no value of its own here",
+                );
+            }
+        })
+        .response
+        .on_hover_text(hover);
+    });
+    asked
+}
+
 /// A choice the owner made here.
 fn owners<T>(value: T) -> Choice<T> {
     Choice {
@@ -1323,7 +1546,7 @@ mod tests {
 
     use crw_core::registry::{Project, Registry, State};
     use crw_core::roadmap::snapshot;
-    use crw_core::rules::{Rule, Set};
+    use crw_core::rules::{Match, Rule, Set, Words};
 
     use super::*;
 
@@ -1362,6 +1585,9 @@ mod tests {
             "2026-11-02",
         )
         .unwrap();
+        let phase = draft.phase.as_deref();
+        let kept_model = Kept::of(&registry.projects[0], phase, Key::Model);
+        let kept_effort = Kept::of(&registry.projects[0], phase, Key::Effort);
         Dialog::new(
             draft,
             Opening {
@@ -1383,6 +1609,9 @@ mod tests {
                 route: (Route::Protocol, None),
                 plan: None,
                 kept_mode: registry.projects[0].launch.permission_mode.clone(),
+                kept_model,
+                kept_effort,
+                levels: Vec::new(),
             },
         )
     }
@@ -1505,7 +1734,10 @@ mod tests {
         };
         let pin = icons::ICON_PUSH_PIN.codepoint;
         let (output, _) = click(&mut dialog, egui::Pos2::new(-10.0, -10.0));
-        let at = testing::text_at(&output, pin).expect("the pin beside Permissions");
+        // Model's, Effort's and the last, beside Permissions (EP-19c).
+        let pins = testing::texts_at(&output, pin);
+        assert_eq!(pins.len(), 3, "a pin beside Model, Effort and Permissions");
+        let at = pins[2];
         let (output, _) = click(&mut dialog, at);
         let item = testing::text_at(&output, "Keep auto for this project").expect("the menu");
         let (_, asked) = click(&mut dialog, item);
@@ -1538,6 +1770,230 @@ mod tests {
             asked.contains(&Action::KeepPermissionMode("harbor".to_owned(), None)),
             "{asked:?}"
         );
+    }
+
+    /// A rule the window keeps (EP-19c): for every brief, or for phase `phase` alone.
+    fn kept(phase: Option<&str>, set: Set) -> Rule {
+        let scope = phase.map_or(Scope::Project, |phase| Scope::Phase(phase.to_owned()));
+        Rule {
+            name: Some(scope.name()),
+            when: Match {
+                phase: Words(phase.map(str::to_owned).into_iter().collect()),
+                ..Match::default()
+            },
+            set,
+        }
+    }
+
+    fn effort(level: &str) -> Set {
+        Set {
+            effort: Some(level.to_owned()),
+            ..Set::default()
+        }
+    }
+
+    /// The dialog's brief resolved again over `registry`, as the board does after a keep.
+    fn fresh(dialog: &Dialog, registry: &Registry) -> Resolution {
+        let brief = rules::Brief {
+            size: dialog.size,
+            phase: dialog.phase.as_deref(),
+            title: &dialog.title,
+        };
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        rules::resolve(registry, &registry.projects[0], &brief, &[], &usage)
+    }
+
+    #[test]
+    fn the_keep_menus_beside_model_and_effort_keep_for_the_project_or_the_phase() {
+        use crate::testing::{self, Screen};
+
+        let mut dialog = dialog(registry(Vec::new()));
+        dialog.set_mode(LaunchMode::Headless);
+        // Harbor's next brief, EP-4, is in phase P1.
+        assert_eq!(dialog.phase.as_deref(), Some("P1"));
+        let preflight = canned_preflight();
+        let mut screen = Screen::new();
+        let mut click = |dialog: &mut Dialog, at| {
+            let mut asked = Vec::new();
+            for events in [
+                testing::moved(at),
+                testing::button(at, egui::PointerButton::Primary, true),
+                testing::button(at, egui::PointerButton::Primary, false),
+            ] {
+                screen.pass(events, |ui| {
+                    asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+                });
+            }
+            let output = screen.pass(Vec::new(), |ui| {
+                asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+            });
+            (output, asked)
+        };
+        let keep = |scope: Scope, key: Key, value: Option<&str>| Action::KeepRule {
+            project: "harbor".to_owned(),
+            scope,
+            key,
+            value: value.map(str::to_owned),
+        };
+        let pin = icons::ICON_PUSH_PIN.codepoint;
+        let (output, _) = click(&mut dialog, egui::Pos2::new(-10.0, -10.0));
+        let pins = testing::texts_at(&output, pin);
+        assert_eq!(pins.len(), 3);
+
+        // Model's menu: the model shown, for the project or for the phase; nothing to take back.
+        dialog.resolution.model = owners("claude-opus-5-5".to_owned());
+        let (output, _) = click(&mut dialog, pins[0]);
+        assert!(testing::text_at(&output, "Keep claude-opus-5-5 for phase P1").is_some());
+        assert!(testing::text_at(&output, "Back to the rules").is_some());
+        let item = testing::text_at(&output, "Keep claude-opus-5-5 for this project")
+            .expect("Model's menu");
+        let (_, asked) = click(&mut dialog, item);
+        let wanted = keep(Scope::Project, Key::Model, Some("claude-opus-5-5"));
+        assert!(asked.contains(&wanted), "{asked:?}");
+
+        // The board's answer: the registry keeps it for every brief, and the dialog follows.
+        let opus = registry(vec![kept(
+            None,
+            Set {
+                model: Some("claude-opus-5-5".to_owned()),
+                ..Set::default()
+            },
+        )]);
+        let resolved = fresh(&dialog, &opus);
+        let asked = Some("claude-opus-5-5");
+        dialog.kept_rule(Key::Model, asked, &opus.projects[0], resolved, None);
+        assert_eq!(
+            dialog.resolution.model.reason(),
+            "the project's rule 1: kept for this project"
+        );
+        assert_eq!(dialog.kept_model.project.as_deref(), asked);
+        assert!(
+            dialog
+                .prompt
+                .contains("with claude-opus-5-5 at xhigh effort")
+        );
+        let (output, _) = click(&mut dialog, pins[0]);
+        assert!(
+            testing::text_at(&output, "Back to the rules").is_none(),
+            "the way back names what it drops"
+        );
+        let item = testing::text_at(
+            &output,
+            "Back to the rules for this project (drops claude-opus-5-5)",
+        )
+        .expect("the way back");
+        let (_, asked) = click(&mut dialog, item);
+        assert!(
+            asked.contains(&keep(Scope::Project, Key::Model, None)),
+            "{asked:?}"
+        );
+
+        // Effort's menu keeps the level shown for the phase alone.
+        let (output, _) = click(&mut dialog, pins[1]);
+        let item = testing::text_at(&output, "Keep xhigh for phase P1").expect("Effort's menu");
+        let (_, asked) = click(&mut dialog, item);
+        let wanted = keep(Scope::Phase("P1".to_owned()), Key::Effort, Some("xhigh"));
+        assert!(asked.contains(&wanted), "{asked:?}");
+
+        // The board's answer puts the phase's rule first: the model's reason follows the new
+        // numbers too (EP-19c's review), and the kept model is still read for its pin.
+        let renumbered = registry(vec![
+            kept(Some("P1"), effort("xhigh")),
+            kept(
+                None,
+                Set {
+                    model: Some("claude-opus-5-5".to_owned()),
+                    ..Set::default()
+                },
+            ),
+        ]);
+        let resolved = fresh(&dialog, &renumbered);
+        let project = &renumbered.projects[0];
+        dialog.kept_rule(Key::Effort, Some("xhigh"), project, resolved, None);
+        assert_eq!(
+            dialog.resolution.effort.reason(),
+            "the project's rule 1: kept for phase P1"
+        );
+        assert_eq!(
+            dialog.resolution.model.reason(),
+            "the project's rule 2: kept for this project"
+        );
+        assert_eq!(
+            dialog.kept_model.project.as_deref(),
+            Some("claude-opus-5-5")
+        );
+        assert_eq!(dialog.kept_effort.phase.as_deref(), Some("xhigh"));
+    }
+
+    #[test]
+    fn a_kept_value_that_an_earlier_rule_stands_over_leaves_the_choice_shown() {
+        let mut dialog = dialog(registry(Vec::new()));
+        dialog.set_mode(LaunchMode::Headless);
+        dialog.resolution.effort = owners(Some("max".to_owned()));
+        // Phase P1 keeps high, and max is kept for every brief after it.
+        let both = registry(vec![
+            kept(Some("P1"), effort("high")),
+            kept(None, effort("max")),
+        ]);
+        let project = &both.projects[0];
+        let resolved = fresh(&dialog, &both);
+        assert_eq!(
+            rules::stands_over(project, &Scope::Project, Key::Effort, &resolved).as_deref(),
+            Some("the project's rule 1: kept for phase P1")
+        );
+        dialog.kept_rule(Key::Effort, Some("max"), project, resolved, None);
+        assert_eq!(dialog.resolution.effort.value.as_deref(), Some("max"));
+        assert_eq!(dialog.resolution.effort.source, Source::Owner);
+        assert_eq!(
+            dialog.kept_effort,
+            Kept {
+                project: Some("max".to_owned()),
+                phase: Some("high".to_owned()),
+            }
+        );
+
+        // Back to the rules for the phase: the picker takes the rules' value, the project's max.
+        let after = registry(vec![kept(None, effort("max"))]);
+        let resolved = fresh(&dialog, &after);
+        dialog.kept_rule(Key::Effort, None, &after.projects[0], resolved, None);
+        assert_eq!(
+            dialog.resolution.effort.reason(),
+            "the project's rule 1: kept for this project"
+        );
+        assert_eq!(dialog.kept_effort.phase, None);
+    }
+
+    #[test]
+    fn a_keep_resolves_the_plans_rows_left_alone_and_keeps_the_owners() {
+        let mut dialog = dialog_with_plan();
+        let mut with_max = registry(vec![kept(None, effort("max"))]);
+        with_max.projects[0].autopilot.enabled = true;
+        let snapshot = snapshot::read_tree(&dialog.folder);
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        let project = &with_max.projects[0];
+        let plan =
+            || crw_core::autopilot::plan(&with_max, project, &snapshot, EpId::new(4), &[], &usage);
+        // EP-5, left alone, shows the kept effort.
+        let resolved = fresh(&dialog, &with_max);
+        dialog.kept_rule(Key::Effort, Some("max"), project, resolved, Some(plan()));
+        let row = &dialog.plan.as_ref().unwrap().briefs[0];
+        assert_eq!(row.shown().effort.as_deref(), Some("max"));
+        assert!(row.picked.is_none());
+
+        // A row the owner touched keeps their choice, and one they unticked stays unticked.
+        let planned = &mut dialog.plan.as_mut().unwrap().briefs[0];
+        planned.picked = Some(Picked {
+            model: "fable".to_owned(),
+            effort: Some("low".to_owned()),
+            ultracode: false,
+        });
+        planned.chain = false;
+        let resolved = fresh(&dialog, &with_max);
+        dialog.kept_rule(Key::Effort, Some("max"), project, resolved, Some(plan()));
+        let row = &dialog.plan.as_ref().unwrap().briefs[0];
+        assert_eq!(row.shown().effort.as_deref(), Some("low"));
+        assert!(!row.chain);
+        assert_eq!(row.resolution.effort.value.as_deref(), Some("max"));
     }
 
     #[test]

@@ -64,6 +64,9 @@
 //!   `auto`, since a fixture's runs would wait: the run reads no user settings);
 //!   `keep=<project>:<mode>` (the permission mode kept for the project, as the launch dialog's
 //!   Keep menu writes it, before `launch=` opens the dialog);
+//!   `keeprule=<project>:<model|effort>[@<phase>]=<value>` (from EP-19c: a model or an effort
+//!   kept as the Keep menu beside Model or Effort writes it, for every brief or for one phase,
+//!   into the run's registry, before `launch=` opens the dialog);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -307,6 +310,13 @@ impl Run {
                     )),
                     None => eprintln!("screenshot: keep takes <project>:<mode>, not {value}"),
                 },
+                "keeprule" => match keeprule_action(value) {
+                    Some(action) => board.actions.push(action),
+                    None => eprintln!(
+                        "screenshot: keeprule takes <project>:<model|effort>[@<phase>]=<value>, \
+                         not {value}"
+                    ),
+                },
                 "revert" => {
                     let (project, form) = value.split_once(':').unwrap_or((value, ""));
                     let rows = &board.sessions.history.rows;
@@ -525,6 +535,31 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         });
         board.sessions.live.push(done);
     }
+}
+
+/// What `keeprule=<project>:<model|effort>[@<phase>]=<value>` asks for (EP-19c): a model or an
+/// effort kept for every brief of the project, or for one phase alone, as the launch dialog's
+/// Keep menu keeps it; `None` for any other form.
+fn keeprule_action(value: &str) -> Option<Action> {
+    use crw_core::rules::{Key, Scope};
+
+    let (project, rest) = value.split_once(':')?;
+    let (key, kept) = rest.split_once('=')?;
+    let (key, scope) = match key.split_once('@') {
+        Some((key, phase)) => (key, Scope::Phase(phase.to_owned())),
+        None => (key, Scope::Project),
+    };
+    let key = match key {
+        "model" => Key::Model,
+        "effort" => Key::Effort,
+        _ => return None,
+    };
+    Some(Action::KeepRule {
+        project: project.to_owned(),
+        scope,
+        key,
+        value: Some(kept.to_owned()),
+    })
 }
 
 fn canned_sessions(board: &mut Board) {
@@ -1335,6 +1370,33 @@ mod tests {
         assert_eq!(chord("ctrl+F").map(|(_, key)| key), Some(egui::Key::F));
         assert_eq!(chord("Enter").map(|(_, key)| key), Some(egui::Key::Enter));
         assert_eq!(chord("nonsense"), None);
+    }
+
+    #[test]
+    fn keeprule_reads_the_project_the_key_the_phase_and_the_value() {
+        use crw_core::rules::{Key, Scope};
+
+        assert_eq!(
+            keeprule_action("harbor:model=claude-opus-5-5"),
+            Some(Action::KeepRule {
+                project: "harbor".to_owned(),
+                scope: Scope::Project,
+                key: Key::Model,
+                value: Some("claude-opus-5-5".to_owned()),
+            })
+        );
+        assert_eq!(
+            keeprule_action("harbor:effort@P1=high"),
+            Some(Action::KeepRule {
+                project: "harbor".to_owned(),
+                scope: Scope::Phase("P1".to_owned()),
+                key: Key::Effort,
+                value: Some("high".to_owned()),
+            })
+        );
+        for wrong in ["harbor", "harbor:model", "harbor:ultracode=yes"] {
+            assert_eq!(keeprule_action(wrong), None, "{wrong}");
+        }
     }
 
     #[test]

@@ -136,7 +136,12 @@ generated prompt in an editor, a Visual | Headless switch, and the model (from
 the catalog Claude Code caches), the effort, ultracode and the permission mode, each with the reason
 the rule table gave it. A project's `[project.launch]` in the registry sets its defaults (`mode`
 among them) and a prompt `template`; `[[rule]]` tables, global or per project, match a brief by
-size, phase or title words and set its model, effort or an effort step. Last comes the Fable
+size, phase or title words and set its model, effort or an effort step. Every rule that matches
+applies, an earlier one over a later one for each value it sets, and a project's rules come after
+the global ones. The pins beside the dialog's Model and Effort pickers keep the value shown for
+every brief of the project, or for the brief's phase, as a rule the tool writes and names, or take
+it back to the rules; `crw set <project> model|effort <value|default>` keeps one for every brief,
+and a chain plan's rows the owner left alone follow at once. Last comes the Fable
 downshift: while the meter's Fable-scoped figure is above `fable_downshift_percent` (60 % by
 default), an S brief that would run on Fable is proposed Opus 5.5 at the same effort, and the
 dialog says how it judged the figure. Open in VS Code, for

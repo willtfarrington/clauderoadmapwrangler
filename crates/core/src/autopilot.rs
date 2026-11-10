@@ -702,6 +702,18 @@ impl Plan {
         });
         format!("after {}: {briefs}{stop}", self.after)
     }
+
+    /// A plan made again after a keep (EP-19c) takes each row's Chain box and the owner's choice
+    /// from `before`, by EP id; a row left alone keeps its new resolution, and so does a row
+    /// `before` did not list.
+    pub fn keep_choices(&mut self, before: &Plan) {
+        for planned in &mut self.briefs {
+            if let Some(old) = before.briefs.iter().find(|old| old.ep == planned.ep) {
+                planned.chain = old.chain;
+                planned.picked = old.picked.clone();
+            }
+        }
+    }
 }
 
 /// The plan of a chain after `after` (EP-19a): the next unchecked rows in table order, up to the
@@ -1541,6 +1553,79 @@ mod tests {
             "after EP-1: EP-2 claude-opus-5-5 at max (the rules' choice), EP-4 fable at high \
              (the rules' choice)"
         );
+    }
+
+    /// A plan made again after a keep (EP-19c): the owner's Chain boxes and choices carry over by
+    /// EP id; a row they left alone shows the new resolution.
+    #[test]
+    fn a_plan_made_again_keeps_the_owners_choices_and_shows_the_new_resolution() {
+        let registry = |rule: &str| -> Registry {
+            toml::from_str(&format!(
+                "format = 1\n\n[[project]]\nname = \"alpha\"\npath = \"alpha\"\n\
+                 state = \"active\"\nautopilot = {{ enabled = true, daily = 3 }}\n{rule}"
+            ))
+            .unwrap()
+        };
+        let snapshot = snapshot::Snapshot {
+            tree: Some(crate::roadmap::table::parse(
+                "## Phase P1 — Build\n\n| # | Brief | Size | Depends on | Core | Done |\n\
+                 |---|---|---|---|---|---|\n\
+                 | EP-1 | One | S | — | core | ☐ |\n\
+                 | EP-2 | Two | M | EP-1 | core | ☐ |\n\
+                 | EP-3 | Three | M | EP-2 | core | ☐ |\n\
+                 | EP-4 | Four | M | EP-3 | core | ☐ |\n",
+            )),
+            ..snapshot::Snapshot::default()
+        };
+        let mut before = plan_of(&registry(""), &snapshot);
+        let picked = Picked {
+            model: "claude-opus-5-5".to_owned(),
+            effort: Some("max".to_owned()),
+            ultracode: true,
+        };
+        before.briefs[0].picked = Some(picked.clone());
+        before.briefs[1].chain = false;
+        // The project now keeps low for every brief.
+        let kept = registry(
+            "\n[[project.rule]]\nname = \"kept for this project\"\nset = { effort = \"low\" }\n",
+        );
+        let mut again = plan_of(&kept, &snapshot);
+        assert!(again.briefs.iter().all(|planned| planned.chain));
+        again.keep_choices(&before);
+        let rows: Vec<(EpId, bool, Option<Picked>)> = again
+            .briefs
+            .iter()
+            .map(|planned| (planned.ep, planned.chain, planned.picked.clone()))
+            .collect();
+        assert_eq!(
+            rows,
+            vec![
+                (ep("EP-2"), true, Some(picked)),
+                (ep("EP-3"), false, None),
+                (ep("EP-4"), true, None),
+            ]
+        );
+        // Every row has the new resolution; the one left alone shows it.
+        assert!(
+            again
+                .briefs
+                .iter()
+                .all(|planned| planned.resolution.effort.value.as_deref() == Some("low"))
+        );
+        assert_eq!(again.briefs[2].shown().effort.as_deref(), Some("low"));
+        assert_eq!(
+            again.words(),
+            "after EP-1: EP-2 claude-opus-5-5 at ultracode (your choice), EP-3 left out, EP-4 \
+             fable at low (the rules' choice)"
+        );
+        // A plan before that lists none of the rows leaves the new one as it is.
+        let fresh = plan_of(&kept, &snapshot);
+        let mut unchanged = fresh.clone();
+        unchanged.keep_choices(&Plan {
+            briefs: Vec::new(),
+            ..before
+        });
+        assert_eq!(unchanged, fresh);
     }
 
     fn plan_of(registry: &Registry, snapshot: &snapshot::Snapshot) -> Plan {

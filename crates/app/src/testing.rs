@@ -67,6 +67,21 @@ pub fn text_at(output: &egui::FullOutput, text: &str) -> Option<Pos2> {
         })
 }
 
+/// The middles of every text `output` paints that reads `text` exactly, in the order painted: the
+/// pins beside the launch dialog's Model, Effort and Permissions pickers (EP-19c).
+pub fn texts_at(output: &egui::FullOutput, text: &str) -> Vec<Pos2> {
+    output
+        .shapes
+        .iter()
+        .filter_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text() == text => {
+                Some(shape.pos + shape.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
 /// Whether `output` paints a rectangle over `rect` filled with `fill`.
 pub fn fills(output: &egui::FullOutput, rect: Rect, fill: egui::Color32) -> bool {
     output.shapes.iter().any(|clipped| match &clipped.shape {

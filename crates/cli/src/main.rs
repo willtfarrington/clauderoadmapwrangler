@@ -13,7 +13,8 @@
 //! without a write, and the `usage_endpoint` setting from EP-17; `autopilot`, its state and its
 //! chain log, a project's switch and the owner's Pause, with its three settings, from EP-19; the
 //! permission mode and the autopilot's limits through `set`, and whether a project's runs would
-//! wait in `autopilot`, from EP-19b; `inbox send` arrives with its brief.
+//! wait in `autopilot`, from EP-19b; a project's standing model and effort through `set`, kept in
+//! its rule for every brief, from EP-19c; `inbox send` arrives with its brief.
 
 use std::collections::HashMap;
 use std::fs;
@@ -81,6 +82,13 @@ commands:
   set <project> max_budget_usd <dollars|none>
                                  --max-budget-usd for each headless run there while its autopilot
                                  is on, in dollars of the CLI's own estimate; none by default
+  set <project> model <id|default>
+                                 the model each brief there starts with, kept in the project's
+                                 rule for every brief (the launch dialog's Keep for this
+                                 project), over the rule table; default takes it out
+  set <project> effort <level|default>
+                                 the effort each brief there starts with: low, medium, high,
+                                 xhigh or max, kept in the same rule; default takes it out
   dismiss <project> [<proposal>] leave a proposed state out until the fact it rests on changes;
                                  every open proposal of the project, or the one named:
                                  all_rows_checked, pickup_gate or no_commit_since
@@ -631,13 +639,26 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
             Ok(mode) => store.change(&today, |c| c.set_permission_mode(project, mode)),
             Err(why) => return usage_error(&why),
         },
+        "model" => match model_word(value) {
+            Ok(model) => store.change(&today, |c| {
+                c.keep(project, &rules::Scope::Project, rules::Key::Model, model)
+            }),
+            Err(why) => return usage_error(&why),
+        },
+        "effort" => match effort_word(value) {
+            Ok(effort) => store.change(&today, |c| {
+                c.keep(project, &rules::Scope::Project, rules::Key::Effort, effort)
+            }),
+            Err(why) => return usage_error(&why),
+        },
         _ => match limit_of(field, value) {
             Some(Ok(limit)) => store.change(&today, |c| c.set_autopilot_limit(project, &limit)),
             Some(Err(why)) => return usage_error(&why),
             None => {
                 return usage_error(&format!(
                     "set changes state, priority, pinned, answer_timeout, revert, \
-                     permission_mode, max_size, daily or max_budget_usd, not {field:?}"
+                     permission_mode, max_size, daily, max_budget_usd, model or effort, not \
+                     {field:?}"
                 ));
             }
         },
@@ -670,6 +691,42 @@ fn permission_mode_word(value: &str) -> Result<Option<&'static str>, String> {
             format!(
                 "permission_mode takes {} or default, not {value:?}",
                 rules::PERMISSION_MODES.join(", ")
+            )
+        })
+}
+
+/// The model `crw set` keeps in the project's rule for every brief (D-22; EP-19c): one word, as
+/// written, trimmed (an alias such as `fable` or an id); `None` for `default`, in any case, which
+/// takes the kept model out.
+fn model_word(value: &str) -> Result<Option<&str>, String> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    if value.is_empty() || value.contains(char::is_whitespace) {
+        return Err(format!(
+            "model takes one word, a model's alias or id, or default, not {value:?}"
+        ));
+    }
+    Ok(Some(value))
+}
+
+/// The effort `crw set` keeps in the project's rule for every brief (D-22; EP-19c): one of the
+/// built-in levels, in any case, in its lowercase spelling; `None` for `default`, which takes the
+/// kept effort out.
+fn effort_word(value: &str) -> Result<Option<&'static str>, String> {
+    let value = value.trim();
+    if value.eq_ignore_ascii_case("default") {
+        return Ok(None);
+    }
+    rules::EFFORTS
+        .into_iter()
+        .find(|level| level.eq_ignore_ascii_case(value))
+        .map(Some)
+        .ok_or_else(|| {
+            format!(
+                "effort takes {} or default, not {value:?}",
+                rules::EFFORTS.join(", ")
             )
         })
 }
@@ -2903,6 +2960,40 @@ mod tests {
                 "{wrong:?}: {error}"
             );
         }
+    }
+
+    /// `crw set`'s model and effort (EP-19c): a model is one word as written, an effort one of
+    /// the built-in levels in its spelling; `default` takes either out; anything else is refused
+    /// with what the field takes.
+    #[test]
+    fn set_reads_a_model_and_an_effort() {
+        assert_eq!(model_word(" claude-opus-5-5 "), Ok(Some("claude-opus-5-5")));
+        assert_eq!(model_word("fable"), Ok(Some("fable")));
+        assert_eq!(model_word("Claude-Fable-5-1"), Ok(Some("Claude-Fable-5-1")));
+        assert_eq!(model_word("DEFAULT"), Ok(None));
+        for wrong in ["claude opus", "", "  ", "opus\tfable"] {
+            let error = model_word(wrong).unwrap_err();
+            assert!(
+                error.starts_with("model takes one word")
+                    && error.ends_with(&format!("{:?}", wrong.trim())),
+                "{wrong:?}: {error}"
+            );
+        }
+        assert_eq!(effort_word("max"), Ok(Some("max")));
+        assert_eq!(effort_word(" XHigh "), Ok(Some("xhigh")));
+        assert_eq!(effort_word("Low"), Ok(Some("low")));
+        assert_eq!(effort_word("default"), Ok(None));
+        for wrong in ["ultra", "", "very high", "-1"] {
+            let error = effort_word(wrong).unwrap_err();
+            assert!(
+                error.starts_with("effort takes low, medium, high, xhigh, max or default")
+                    && error.ends_with(&format!("{:?}", wrong.trim())),
+                "{wrong:?}: {error}"
+            );
+        }
+        // Neither is one of the autopilot's limits.
+        assert_eq!(limit_of("model", "fable"), None);
+        assert_eq!(limit_of("effort", "max"), None);
     }
 
     /// `crw set`'s limits (EP-19b): each in its words, back to its default (a value that is the

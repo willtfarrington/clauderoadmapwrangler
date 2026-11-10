@@ -638,6 +638,9 @@ pub struct Draft {
     pub ep: EpId,
     pub title: String,
     pub size: Option<Size>,
+    /// The id of the phase heading over the brief's row, when it has one (EP-19c): what the
+    /// rules match by phase, and what the launch dialog's Keep for phase Pn keeps for.
+    pub phase: Option<String>,
     pub resolution: Resolution,
     pub parts: Parts,
     pub prompt: Prompt,
@@ -706,6 +709,7 @@ pub fn draft(
         ep: row.id,
         title: row.brief.title.clone(),
         size: row.size,
+        phase: phase.map(str::to_owned),
         resolution,
         parts,
         prompt,
@@ -916,6 +920,8 @@ Intro.
         )
         .unwrap();
         assert_eq!(draft.ep, EpId::new(3));
+        // EP-3 sits under the fixture's `## Phase P1 — Build` heading (EP-19c).
+        assert_eq!(draft.phase.as_deref(), Some("P1"));
         assert_eq!(draft.resolution.model.value, "fable");
         // The tool's launch mode, as no `[project.launch] mode` is written.
         assert_eq!(

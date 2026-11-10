@@ -19,7 +19,7 @@ use toml_edit::{Array, ArrayOfTables, DocumentMut, InlineTable, Item, Table, Val
 use crate::notify::QuietHours;
 use crate::proposal::{Dismissed, Kind, Reason};
 use crate::roadmap::Size;
-use crate::rules::Rule;
+use crate::rules::{self, Rule};
 use crate::session::Route;
 use crate::{files, paths, signals, workspace};
 
@@ -149,8 +149,9 @@ pub struct Registry {
     pub ignore: Vec<String>,
     #[serde(default)]
     pub settings: Settings,
-    /// The global rule table (D-22), `[[rule]]`: the first that matches a brief applies; while
-    /// it is empty, the built-in table stands in (`rules::built_in`).
+    /// The global rule table (D-22), `[[rule]]`: every rule that matches a brief applies, the
+    /// earliest that sets a key winning (EP-19c); while it is empty, the built-in table stands in
+    /// (`rules::built_in`).
     #[serde(default, rename = "rule")]
     pub rules: Vec<Rule>,
     #[serde(default, rename = "project")]
@@ -312,7 +313,9 @@ pub struct Project {
     /// folders of the data root, or full paths.
     #[serde(default)]
     pub neighbours: Vec<PathBuf>,
-    /// The project's own rules, `[[project.rule]]`, applied over the global table (D-22).
+    /// The project's own rules, `[[project.rule]]`, applied over the global table key by key
+    /// (D-22; EP-19c); the window keeps a model or an effort in the one for every brief or in the
+    /// one for a phase ([`Changes::keep`]).
     #[serde(default, rename = "rule")]
     pub rules: Vec<Rule>,
     /// The proposals the owner dismissed, each with the fact it rested on (D-6 addendum).
@@ -1082,6 +1085,108 @@ impl Changes<'_> {
         )
     }
 
+    /// Keeps a model or an effort in the project's rule for `scope`, or takes it out with `None`,
+    /// Back to the rules (D-22; EP-19c): the window's Keep menus and `crw set` write through it.
+    /// The scope's rule is the first of the project's rules that the scope owns
+    /// ([`rules::kept_rule`]), found by its match in the registry as this change has left it so
+    /// far. The value goes into its `set` as the launch defaults' writer puts one into `launch`
+    /// (the tool's inline form laid out afresh, a table the owner wrote kept with its comments),
+    /// an effort in place of an `effort_step` there, since a rule sets one or the other; the rule
+    /// keeps its name, its comments and its other keys, and goes once its `set` is left empty,
+    /// and the `rule` key with the last one. Where the scope has no rule, a value writes one,
+    /// named [`rules::Scope::name`]: a new every-brief rule after every other rule of the
+    /// project, a new phase rule just before the first every-brief rule (or last when there is
+    /// none), so that it wins for its phase's briefs. A value is one word, and so is a phase id;
+    /// the project's rules must be written as `[[project.rule]]` tables. Nothing is written on an
+    /// error.
+    pub fn keep(
+        &mut self,
+        name: &str,
+        scope: &rules::Scope,
+        key: rules::Key,
+        value: Option<&str>,
+    ) -> Result<(), Error> {
+        let value = match value.map(str::trim) {
+            Some(value) if value.is_empty() || value.contains(char::is_whitespace) => {
+                return Err(Error::Invalid(format!(
+                    "{name}: a rule's {} is one word, not {value:?}",
+                    key.as_str()
+                )));
+            }
+            value => value,
+        };
+        if let rules::Scope::Phase(id) = scope {
+            let word = id.trim();
+            if word.is_empty() || word.contains(char::is_whitespace) {
+                return Err(Error::Invalid(format!(
+                    "{name}: a rule's phase is one word, not {id:?}"
+                )));
+            }
+        }
+        match self.project_table(name)?.get("rule") {
+            None | Some(Item::ArrayOfTables(_)) => {}
+            Some(_) => return Err(rules_as_tables(name)),
+        }
+        // The rules by their match, as this change has left them so far: the registry before the
+        // change would miss a rule an earlier step of the same change wrote or took out, and give
+        // the wrong place in the `[[project.rule]]` tables, whose order the typed rules keep.
+        let now: Registry = toml::from_str(&self.document.to_string()).map_err(|e| {
+            Error::Invalid(format!("the registry as changed so far does not read: {e}"))
+        })?;
+        let project = now
+            .project(name)
+            .ok_or_else(|| Error::UnknownProject(name.to_owned()))?;
+        let found = rules::kept_rule(project, scope).map(|(index, _)| index);
+        let every = rules::kept_rule(project, &rules::Scope::Project).map(|(index, _)| index);
+        let table = self.project_table(name)?;
+        let value = value.map(Value::from);
+        if let Some(index) = found {
+            let array = table
+                .get_mut("rule")
+                .and_then(Item::as_array_of_tables_mut)
+                .ok_or_else(|| rules_as_tables(name))?;
+            let rule = array.get_mut(index).ok_or_else(|| rules_as_tables(name))?;
+            write_kept(rule, name, key, value)?;
+            if sets_nothing(rule) {
+                array.remove(index);
+                if array.is_empty() {
+                    table.remove("rule");
+                }
+            }
+            return Ok(());
+        }
+        // Back to the rules where the scope keeps nothing changes nothing.
+        let Some(value) = value else {
+            return Ok(());
+        };
+        let mut rule = Table::new();
+        rule.decor_mut().set_prefix("\n");
+        rule.insert("name", toml_edit::value(scope.name()));
+        if let rules::Scope::Phase(id) = scope {
+            let mut when = InlineTable::new();
+            when.insert("phase", Value::from(id.trim()));
+            when.fmt();
+            rule.insert("match", Item::Value(Value::InlineTable(when)));
+        }
+        set_in_table(&mut rule, name, "set", key.as_str(), Some(value))?;
+        let array = table
+            .entry("rule")
+            .or_insert(Item::ArrayOfTables(ArrayOfTables::new()))
+            .as_array_of_tables_mut()
+            .ok_or_else(|| rules_as_tables(name))?;
+        match (scope, every) {
+            // A table made here has no place in the file, and is shown after the table shown
+            // before it; given the place of the rule it precedes, it is shown just before that
+            // rule whatever the owner wrote between the two.
+            (rules::Scope::Phase(_), Some(every)) if every < array.len() => {
+                rule.set_position(array.get(every).and_then(Table::position));
+                array.insert(every, rule);
+            }
+            _ => array.push(rule),
+        }
+        Ok(())
+    }
+
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
     /// `quiet_hours` set to `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to
     /// `off` and the percents and the day's total set to `default` (the defaults, which the
@@ -1308,6 +1413,67 @@ impl Changes<'_> {
 
 fn written_as_tables() -> Error {
     Error::Invalid("the tool changes projects written as [[project]] tables only".to_owned())
+}
+
+fn rules_as_tables(name: &str) -> Error {
+    Error::Invalid(format!(
+        "{name}: the tool changes rules written as [[project.rule]] tables only"
+    ))
+}
+
+/// Writes a kept value into a rule's `set`, or takes it out with `None`, through [`set_in_table`]
+/// (EP-19c). An effort takes the place of an `effort_step` there, since a rule sets one or the
+/// other: in a `set` table the owner wrote, on the step's line, its comments kept.
+fn write_kept(
+    rule: &mut Table,
+    name: &str,
+    key: rules::Key,
+    value: Option<Value>,
+) -> Result<(), Error> {
+    match (key, value) {
+        (rules::Key::Effort, Some(level)) => {
+            if let Some(Item::Table(set)) = rule.get_mut("set")
+                && set.contains_key("effort_step")
+            {
+                replace_keeping_decor(set, "effort_step", "effort", level);
+                return Ok(());
+            }
+            set_in_table(rule, name, "set", "effort", Some(level))?;
+            set_in_table(rule, name, "set", "effort_step", None)
+        }
+        (key, value) => set_in_table(rule, name, "set", key.as_str(), value),
+    }
+}
+
+/// Puts `new` in `table` in place of `old`, with `old`'s comments and spacing: the lines above
+/// its key and the end of its line, and its place among the keys (EP-19c's review: an insert
+/// alone would put it last).
+fn replace_keeping_decor(table: &mut Table, old: &str, new: &str, mut value: Value) {
+    let order: Vec<String> = table
+        .iter()
+        .map(|(key, _)| if key == old { new } else { key }.to_owned())
+        .collect();
+    let above = table.key(old).map(|key| key.leaf_decor().clone());
+    if let Some(line) = table.get(old).and_then(Item::as_value) {
+        *value.decor_mut() = line.decor().clone();
+    }
+    table.remove(old);
+    table.insert(new, Item::Value(value));
+    if let (Some(above), Some(mut key)) = (above, table.key_mut(new)) {
+        *key.leaf_decor_mut() = above;
+    }
+    let place = |key: &toml_edit::Key| order.iter().position(|k| k == key.get());
+    table.sort_values_by(|a, _, b, _| place(a).cmp(&place(b)));
+}
+
+/// Whether a rule's `set` is gone or empty: the rule then sets nothing, which the reader refuses.
+fn sets_nothing(rule: &Table) -> bool {
+    match rule.get("set") {
+        None => true,
+        Some(Item::Value(Value::InlineTable(set))) => set.is_empty(),
+        Some(Item::Table(set)) => set.is_empty(),
+        Some(_) => false,
+    }
 }
 
 fn not_a_table(name: &str) -> Error {
@@ -2633,5 +2799,471 @@ state = "paused"
         let copy = store.backups.join("registry.2026-10-31.toml");
         assert_eq!(fs::read_to_string(copy).unwrap(), HAND_WRITTEN);
         assert_eq!(store.load().unwrap().registry, registry);
+    }
+
+    /// alpha's `[project.launch]`, after which a rule the tool writes for alpha lands.
+    const LAUNCH: &str = "[project.launch]\nmodel = \"fable\"\n";
+
+    /// A scratch store holding `text`.
+    fn holding(scratch: &Scratch, text: &str) -> Store {
+        let store = store(scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, text).unwrap();
+        store
+    }
+
+    /// A kept effort takes the place of an owner's step among the keys of the `set` table they
+    /// wrote, not the last place (EP-19c's review), with the step's comment.
+    #[test]
+    fn a_kept_effort_takes_the_steps_place_among_the_owners_keys() {
+        use crate::rules::{Key, Scope};
+        let scratch = Scratch::new("registry-keep-place");
+        let tabled = "\n[[project.rule]]\nname = \"mine\"\n\n[project.rule.set]\n\
+                      effort_step = 1  # for now\nmodel = \"fable\"\n";
+        let owned = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{tabled}"));
+        let store = holding(&scratch, &owned);
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Effort, Some("max"))
+            })
+            .unwrap();
+        assert_eq!(
+            fs::read_to_string(&store.path).unwrap(),
+            owned.replace("effort_step = 1  # for now", "effort = \"max\"  # for now")
+        );
+        let rule = &registry.project("alpha").unwrap().rules[0];
+        assert_eq!(rule.name.as_deref(), Some("mine"));
+        assert_eq!(rule.set.effort.as_deref(), Some("max"));
+        assert_eq!(rule.set.model.as_deref(), Some("fable"));
+    }
+
+    /// The rules the window keeps (D-22; EP-19c): a value where the project has no rule writes
+    /// the tool's every-brief rule after the project's own tables and before the next project; a
+    /// phase rule goes just before it; Back to the rules takes the key out, and the rule with its
+    /// last key.
+    #[test]
+    fn a_kept_value_writes_its_rule_where_the_scope_has_none() {
+        use crate::rules::{Kept, Key, Scope};
+        let scratch = Scratch::new("registry-keep");
+        let store = holding(&scratch, HAND_WRITTEN);
+        let p3 = Scope::Phase("P3".to_owned());
+        let every = "\n[[project.rule]]\nname = \"kept for this project\"\n\
+                     set = { model = \"claude-opus-5-5\" }\n";
+        let phase = "\n[[project.rule]]\nname = \"kept for phase P3\"\n\
+                     match = { phase = \"P3\" }\nset = { effort = \"max\" }\n";
+        let read = || fs::read_to_string(&store.path).unwrap();
+
+        // No rules: the rule for every brief, after alpha's [project.launch], before beta.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep(
+                    "ALPHA",
+                    &Scope::Project,
+                    Key::Model,
+                    Some(" claude-opus-5-5 "),
+                )
+            })
+            .unwrap();
+        let with_every = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{every}"));
+        assert_eq!(read(), with_every);
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(
+            rules::kept_rule(alpha, &Scope::Project).map(|(index, _)| index),
+            Some(0)
+        );
+        assert_eq!(
+            Kept::of(alpha, Some("P3"), Key::Model),
+            Kept {
+                project: Some("claude-opus-5-5".to_owned()),
+                phase: None
+            }
+        );
+
+        // A phase rule goes just before it, and both hold for a brief in the phase.
+        let (registry, ()) = store
+            .change(TODAY, |c| c.keep("alpha", &p3, Key::Effort, Some("max")))
+            .unwrap();
+        let with_both = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{phase}{every}"));
+        assert_eq!(read(), with_both);
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(
+            rules::kept_rule(alpha, &p3).map(|(index, _)| index),
+            Some(0)
+        );
+        assert_eq!(
+            Kept::of(alpha, Some("P3"), Key::Effort),
+            Kept {
+                project: None,
+                phase: Some("max".to_owned())
+            }
+        );
+        let brief = rules::Brief {
+            size: Some(Size::M),
+            phase: Some("P3"),
+            title: "x",
+        };
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        let resolved = rules::resolve(&registry, alpha, &brief, &[], &usage);
+        assert_eq!(
+            resolved.model.reason(),
+            "the project's rule 2: kept for this project"
+        );
+        assert_eq!(
+            resolved.effort.reason(),
+            "the project's rule 1: kept for phase P3"
+        );
+
+        // A key again replaces its value in place, and another key joins it.
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Model, Some("fable"))?;
+                c.keep("alpha", &Scope::Project, Key::Effort, Some("high"))
+            })
+            .unwrap();
+        let joined = with_both.replace(
+            "set = { model = \"claude-opus-5-5\" }",
+            "set = { model = \"fable\", effort = \"high\" }",
+        );
+        assert_eq!(read(), joined);
+
+        // Back to the rules on a key the rule lacks, or where the scope has no rule, changes
+        // nothing.
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &p3, Key::Model, None)?;
+                c.keep("beta", &Scope::Project, Key::Effort, None)?;
+                c.keep("alpha", &Scope::Phase("P2".to_owned()), Key::Effort, None)
+            })
+            .unwrap();
+        assert_eq!(read(), joined);
+
+        // A key taken out leaves the rule while it sets another; its last key takes it out, and
+        // the last rule the `rule` key.
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Effort, None)
+            })
+            .unwrap();
+        assert_eq!(read(), with_both.replace("claude-opus-5-5", "fable"));
+        store
+            .change(TODAY, |c| c.keep("alpha", &p3, Key::Effort, None))
+            .unwrap();
+        assert_eq!(read(), with_every.replace("claude-opus-5-5", "fable"));
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Model, None)
+            })
+            .unwrap();
+        assert_eq!(read(), HAND_WRITTEN);
+        assert!(registry.project("alpha").unwrap().rules.is_empty());
+
+        // Two rules in one change, at the end of the file: the phase rule still goes first.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("beta", &Scope::Project, Key::Model, Some("claude-opus-5-5"))?;
+                c.keep(
+                    "beta",
+                    &Scope::Phase("P1".to_owned()),
+                    Key::Effort,
+                    Some("low"),
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            format!(
+                "{HAND_WRITTEN}\n[[project.rule]]\nname = \"kept for phase P1\"\n\
+                 match = {{ phase = \"P1\" }}\nset = {{ effort = \"low\" }}\n{every}"
+            )
+        );
+        let beta = registry.project("beta").unwrap();
+        assert_eq!(
+            Kept::of(beta, Some("P1"), Key::Effort).phase.as_deref(),
+            Some("low")
+        );
+        assert_eq!(
+            Kept::of(beta, Some("P1"), Key::Model).project.as_deref(),
+            Some("claude-opus-5-5")
+        );
+        assert!(registry.project("alpha").unwrap().rules.is_empty());
+    }
+
+    /// The owner's own rules in a scope's form (EP-19c): found by their match, whatever their
+    /// name; their names, comments and other keys kept; an effort in place of a step; a rule that
+    /// keeps ultracode stays when its kept keys go.
+    #[test]
+    fn a_kept_value_goes_into_the_owners_rule_of_its_scope() {
+        use crate::rules::{Kept, Key, Scope};
+        let scratch = Scratch::new("registry-keep-owned");
+        let small = "\n# Small ones on Opus.\n[[project.rule]]\nname = \"small\"\n\
+                     match = { size = \"S\" }\nset = { model = \"claude-opus-5-5\" }\n";
+        let lower = "\n# Lower everywhere, my own.\n[[project.rule]]\nname = \"one lower\"\n\
+                     set = { effort_step = -1 }  # until P3\n";
+        let owned = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{small}{lower}"));
+        let store = holding(&scratch, &owned);
+        let read = || fs::read_to_string(&store.path).unwrap();
+
+        // The rule with no condition is the scope's: its step gives way to the effort kept.
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Effort, Some("high"))
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            owned.replace(
+                "set = { effort_step = -1 }  # until P3",
+                "set = { effort = \"high\" }  # until P3"
+            )
+        );
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(
+            rules::kept_rule(alpha, &Scope::Project).map(|(index, rule)| (index, rule.label())),
+            Some((1, "one lower".to_owned()))
+        );
+        assert_eq!(
+            Kept::of(alpha, None, Key::Effort).project.as_deref(),
+            Some("high")
+        );
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        let brief = rules::Brief {
+            size: Some(Size::S),
+            phase: Some("P2"),
+            title: "x",
+        };
+        let resolved = rules::resolve(&registry, alpha, &brief, &[], &usage);
+        assert_eq!(
+            (resolved.model.reason(), resolved.effort.reason()),
+            (
+                "the project's rule 1: small".to_owned(),
+                "the project's rule 2: one lower".to_owned()
+            )
+        );
+        // Back to the rules: the rule set nothing else, so it goes, with its comment.
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Effort, None)
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{small}"))
+        );
+
+        // A rule that keeps ultracode for every brief takes the model and stays without it.
+        let always = "\n[[project.rule]]\nname = \"always ultracode\"  # my own\n\
+                      set = { ultracode = true }\n";
+        let owned = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{always}"));
+        fs::write(&store.path, &owned).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Model, Some("fable"))
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            owned.replace(
+                "set = { ultracode = true }",
+                "set = { ultracode = true, model = \"fable\" }"
+            )
+        );
+        let rule = &registry.project("alpha").unwrap().rules[0];
+        assert_eq!(
+            (rule.set.ultracode, rule.set.model.as_deref()),
+            (Some(true), Some("fable"))
+        );
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &Scope::Project, Key::Model, None)
+            })
+            .unwrap();
+        assert_eq!(read(), owned);
+
+        // A phase rule the owner wrote with a `[project.rule.set]` table: found by its phase in
+        // any case; a model replaced on its line, an effort on the step's, the comments kept.
+        let tabled = "\n[[project.rule]]\nname = \"phase three\"\nmatch = { phase = \"p3\" }\n\n\
+                      [project.rule.set]\n# chosen by hand\nmodel = \"claude-opus-5-5\"\n\
+                      effort_step = 1  # for now\n";
+        let owned = HAND_WRITTEN.replace(LAUNCH, &format!("{LAUNCH}{tabled}"));
+        fs::write(&store.path, &owned).unwrap();
+        let p3 = Scope::Phase("P3".to_owned());
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &p3, Key::Effort, Some("max"))?;
+                c.keep("alpha", &p3, Key::Model, Some("claude-fable-5-1"))
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            owned
+                .replace(
+                    "model = \"claude-opus-5-5\"",
+                    "model = \"claude-fable-5-1\""
+                )
+                .replace("effort_step = 1  # for now", "effort = \"max\"  # for now")
+        );
+        let alpha = registry.project("alpha").unwrap();
+        assert_eq!(
+            Kept::of(alpha, Some("P3"), Key::Model),
+            Kept {
+                project: None,
+                phase: Some("claude-fable-5-1".to_owned())
+            }
+        );
+        assert_eq!(alpha.rules[0].set.effort_step, None);
+        // Both taken out: the table goes, then the rule, and the file reads as it did before it.
+        store
+            .change(TODAY, |c| {
+                c.keep("alpha", &p3, Key::Model, None)?;
+                c.keep("alpha", &p3, Key::Effort, None)
+            })
+            .unwrap();
+        assert_eq!(read(), HAND_WRITTEN);
+    }
+
+    /// Where a new rule lands among the owner's tables (EP-19c): a rule for every brief after
+    /// the project's last rule, even one written before `[project.launch]`; a phase rule just
+    /// before the rule for every brief, whatever lies between that one and the rule before it.
+    #[test]
+    fn a_new_rule_lands_after_the_rules_or_just_before_the_rule_for_every_brief() {
+        use crate::rules::{Key, Scope};
+        let scratch = Scratch::new("registry-keep-order");
+        let large = "[[project.rule]]\nname = \"large ones\"\nmatch = { size = \"L\" }\n\
+                     set = { ultracode = true }\n\n";
+        let first = HAND_WRITTEN.replace(LAUNCH, &format!("{large}{LAUNCH}"));
+        let store = holding(&scratch, &first);
+        let read = || fs::read_to_string(&store.path).unwrap();
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep(
+                    "alpha",
+                    &Scope::Project,
+                    Key::Model,
+                    Some("claude-opus-5-5"),
+                )
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            HAND_WRITTEN.replace(
+                LAUNCH,
+                &format!(
+                    "{large}[[project.rule]]\nname = \"kept for this project\"\n\
+                     set = {{ model = \"claude-opus-5-5\" }}\n\n{LAUNCH}"
+                )
+            )
+        );
+        assert_eq!(
+            rules::kept_rule(registry.project("alpha").unwrap(), &Scope::Project)
+                .map(|(index, _)| index),
+            Some(1)
+        );
+
+        // The owner's rule for every brief written after [project.launch]: the phase rule goes
+        // just before it, after the launch table rather than after the first rule.
+        let mine = "\n[[project.rule]]\nname = \"mine\"\nset = { model = \"claude-opus-5-5\" }\n";
+        let second = HAND_WRITTEN.replace(LAUNCH, &format!("{large}{LAUNCH}{mine}"));
+        fs::write(&store.path, &second).unwrap();
+        let p2 = Scope::Phase("P2".to_owned());
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.keep("alpha", &p2, Key::Effort, Some("low"))?;
+                c.keep("alpha", &Scope::Project, Key::Effort, Some("high"))
+            })
+            .unwrap();
+        assert_eq!(
+            read(),
+            HAND_WRITTEN.replace(
+                LAUNCH,
+                &format!(
+                    "{large}{LAUNCH}\n[[project.rule]]\nname = \"kept for phase P2\"\n\
+                     match = {{ phase = \"P2\" }}\nset = {{ effort = \"low\" }}\n\n\
+                     [[project.rule]]\nname = \"mine\"\n\
+                     set = {{ model = \"claude-opus-5-5\", effort = \"high\" }}\n"
+                )
+            )
+        );
+        let alpha = registry.project("alpha").unwrap();
+        let labels: Vec<String> = alpha.rules.iter().map(rules::Rule::label).collect();
+        assert_eq!(labels, ["large ones", "kept for phase P2", "mine"]);
+        assert_eq!(
+            rules::kept_rule(alpha, &p2).map(|(index, _)| index),
+            Some(1)
+        );
+    }
+
+    /// A keep refused (EP-19c): a value or a phase id that is not one word, a project not
+    /// registered, rules not written as tables; nothing is written.
+    #[test]
+    fn a_keep_is_refused_with_nothing_written() {
+        use crate::rules::{Key, Scope};
+        let scratch = Scratch::new("registry-keep-refused");
+        let store = holding(&scratch, HAND_WRITTEN);
+        for (scope, key, value, words) in [
+            (
+                Scope::Project,
+                Key::Model,
+                "claude opus",
+                "alpha: a rule's model is one word, not \"claude opus\"",
+            ),
+            (
+                Scope::Project,
+                Key::Effort,
+                " ",
+                "alpha: a rule's effort is one word",
+            ),
+            (
+                Scope::Project,
+                Key::Model,
+                "",
+                "alpha: a rule's model is one word",
+            ),
+            (
+                Scope::Phase("P 3".to_owned()),
+                Key::Effort,
+                "max",
+                "alpha: a rule's phase is one word, not \"P 3\"",
+            ),
+            (
+                Scope::Phase(" ".to_owned()),
+                Key::Effort,
+                "max",
+                "alpha: a rule's phase is one word",
+            ),
+        ] {
+            let error = store
+                .change(TODAY, |c| c.keep("alpha", &scope, key, Some(value)))
+                .unwrap_err();
+            assert!(
+                matches!(&error, Error::Invalid(why) if why.starts_with(words)),
+                "{value:?}: {error}"
+            );
+        }
+        assert!(matches!(
+            store.change(TODAY, |c| c.keep("delta", &Scope::Project, Key::Model, Some("fable"))),
+            Err(Error::UnknownProject(name)) if name == "delta"
+        ));
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), HAND_WRITTEN);
+        assert!(!store.backups.exists());
+
+        // Rules written as an inline array: refused, even where nothing would change.
+        let inline = HAND_WRITTEN.replace(
+            "priority = 2\n",
+            "priority = 2\nrule = [{ set = { ultracode = true } }]\n",
+        );
+        fs::write(&store.path, &inline).unwrap();
+        assert_eq!(store.load().unwrap().registry.projects[0].rules.len(), 1);
+        for value in [Some("fable"), None] {
+            let error = store
+                .change(TODAY, |c| {
+                    c.keep("alpha", &Scope::Project, Key::Model, value)
+                })
+                .unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "alpha: the tool changes rules written as [[project.rule]] tables only"
+            );
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), inline);
     }
 }

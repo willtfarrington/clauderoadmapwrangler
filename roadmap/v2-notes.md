@@ -105,6 +105,11 @@ marked *(EP-35)*.
   touched row keeps its pickers as left until the dialog is opened again.
 - *(EP-19a)* A plan listing beyond the project's `daily`, greyed where the day's cap would stop
   the chain, and a count of runs beside the boxes (the owner chose a box per brief at pickup).
+- *(EP-19c)* A Keep menu beside the chain plan rows' pickers. Today the main pickers' keep reaches
+  the rows that the owner left alone, by resolving them again.
+- *(EP-19c)* Ultracode kept as a standing choice; `crw set` for a phase's rule; a keep made in
+  Visual, whose pickers are greyed out (the owner's choice at EP-19b, since the tab's panel
+  chooses there).
 
 ## 2 Analytics
 

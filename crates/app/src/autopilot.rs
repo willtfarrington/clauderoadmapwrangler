@@ -900,6 +900,78 @@ impl Board {
         true
     }
 
+    /// Keeps a model or an effort for a project from the launch dialog (D-22; EP-19c): written
+    /// into its rule for every brief or for one phase, or taken out with `None` (back to the
+    /// rules). The open dialog's brief is resolved again from the registry, its chain plan made
+    /// again with the owner's rows kept, and the notice names what stands over a kept value for
+    /// that brief: an earlier rule, or the Fable downshift.
+    pub fn keep_rule(
+        &mut self,
+        name: &str,
+        scope: &rules::Scope,
+        key: rules::Key,
+        value: Option<&str>,
+    ) -> bool {
+        let changed = self
+            .store()
+            .change(&files::today(), |c| c.keep(name, scope, key, value));
+        let registry = match changed {
+            Ok((registry, ())) => registry,
+            Err(e) => {
+                self.fail(e.to_string());
+                return true;
+            }
+        };
+        let Some(project) = registry.project(name) else {
+            return true;
+        };
+        let what = key.as_str();
+        let mut words = match value {
+            Some(value) => format!("{name}: {what} {value} kept for {}.", scope.words()),
+            None => format!("{name}: {what} back to the rules for {}.", scope.words()),
+        };
+        if let Some(dialog) = self
+            .launch
+            .as_mut()
+            .filter(|dialog| dialog.project.eq_ignore_ascii_case(name))
+        {
+            let now = Utc::now();
+            let usage = rules::Usage::of(&self.meter.gauge.figures(now), now);
+            let brief = rules::Brief {
+                size: dialog.size,
+                phase: dialog.phase.as_deref(),
+                title: &dialog.title,
+            };
+            let fresh = rules::resolve(&registry, project, &brief, &dialog.levels, &usage);
+            if let Some(value) = value
+                && let Some(over) = rules::stands_over(project, scope, key, &fresh)
+            {
+                words = format!(
+                    "{name}: {what} {value} kept for {}, but for {} {over} stands over it.",
+                    scope.words(),
+                    dialog.ep
+                );
+            }
+            let plan = dialog
+                .plan
+                .as_ref()
+                .and_then(|_| self.portfolio.project(name))
+                .map(|row| {
+                    autopilot::plan(
+                        &registry,
+                        project,
+                        &row.snapshot,
+                        dialog.ep,
+                        &dialog.levels,
+                        &usage,
+                    )
+                });
+            dialog.kept_rule(key, value, project, fresh, plan);
+        }
+        self.notify(words);
+        true
+    }
+
     /// Sets one of a project's autopilot limits from the Autopilot section (D-22; EP-19b).
     pub fn set_autopilot_limit(&mut self, name: &str, limit: &Limit) -> bool {
         let changed = self
@@ -1527,6 +1599,50 @@ mod tests {
         assert_eq!(harbor(&board).autopilot.daily(), 4);
         assert!(board.set_autopilot_limit("harbor", &Limit::Daily(None)));
         assert_eq!(harbor(&board).autopilot.daily, None);
+    }
+
+    #[test]
+    fn a_kept_model_or_effort_is_written_and_taken_back() {
+        use rules::{Kept, Key, Scope};
+
+        let scratch = Scratch::new("autopilot-keep-rule");
+        let mut board = board(&scratch);
+        let p1 = Scope::Phase("P1".to_owned());
+        assert!(board.keep_rule(
+            "harbor",
+            &Scope::Project,
+            Key::Model,
+            Some("claude-opus-5-5")
+        ));
+        assert_eq!(
+            board.notice_text(),
+            Some("harbor: model claude-opus-5-5 kept for this project.")
+        );
+        assert!(board.keep_rule("harbor", &p1, Key::Effort, Some("high")));
+        let entry = harbor(&board);
+        // The phase's rule comes before the one for every brief.
+        assert_eq!(rules::kept_rule(&entry, &p1).map(|(n, _)| n), Some(0));
+        assert_eq!(
+            Kept::of(&entry, Some("P1"), Key::Model).project.as_deref(),
+            Some("claude-opus-5-5")
+        );
+        assert_eq!(
+            Kept::of(&entry, Some("P1"), Key::Effort).phase.as_deref(),
+            Some("high")
+        );
+        // Back to the rules takes each out, and the rules with them.
+        assert!(board.keep_rule("harbor", &Scope::Project, Key::Model, None));
+        assert_eq!(
+            board.notice_text(),
+            Some("harbor: model back to the rules for this project.")
+        );
+        assert!(board.keep_rule("harbor", &p1, Key::Effort, None));
+        let entry = harbor(&board);
+        assert!(entry.rules.is_empty());
+        assert_eq!(entry.launch.mode, Some(LaunchMode::Headless));
+        // A value of two words is refused, and nothing is written.
+        assert!(board.keep_rule("harbor", &Scope::Project, Key::Model, Some("opus five")));
+        assert!(harbor(&board).rules.is_empty());
     }
 
     #[test]

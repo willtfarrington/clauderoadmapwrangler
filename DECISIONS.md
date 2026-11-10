@@ -947,6 +947,40 @@ committing and recording hashes; one model and effort per project; usage thresho
 > *Alternatives.* Idle sessions refusing as before, with the section naming them; the question
 > parked for the P3 re-plan; the limits in the Detail pane; figures typed into the section.
 
+> **Addendum (2026-11-09, EP-19c).** A standing model and effort, kept from the launch dialog.
+>
+> - **Rules combine key by key** (the owner's choice at pickup). Every rule that matches a brief
+>   applies. Within the global table (or the built-in one standing in for it), and then within
+>   the project's, the earliest matching rule that sets a value wins. An `effort_step` steps from
+>   what the later rules and the layers below give. Before, each table applied only its first
+>   matching rule (the EP-10 addendum). A phase rule placed before a rule for every brief would
+>   then have hidden the latter from that phase's briefs. The owner's registry held no rule, so no
+>   launch changed.
+> - **The Keep menus.** A pin beside the dialog's Model and Effort pickers, in the form of
+>   EP-19b's pin, opens:
+>   - Keep for this project, which writes a `[[project.rule]]` with no condition, named "kept for
+>     this project", after every other project rule, so that a kept effort holds for an S brief
+>     too;
+>   - Keep for phase Pn, when the brief's phase has an id, which writes one with
+>     `match = { phase = "Pn" }`, named "kept for phase Pn", before the rule for every brief;
+>   - Back to the rules, for each of the two that keeps a value.
+>
+>   Each item writes at once. Each picker writes its own key of the rule's `set`, an effort
+>   replacing an `effort_step`. Back takes the key out, and the rule with it once its `set` is
+>   empty. The tool finds its rules by their match, so a rule the owner wrote in that form is the
+>   one it writes into. `crw set <project> model <id|default>` and `effort <level|default>` write
+>   the rule for every brief.
+> - **The dialog follows.** The brief is resolved again from the registry, and the picker takes
+>   the new value, its reason naming the project's rule. When an earlier rule or the downshift
+>   stands over the kept value for this brief, the picker keeps the value shown and the notice
+>   names what stands over it. The chain plan's rows that the owner left alone are resolved again,
+>   and the rows they chose are kept. The downshift stays the last layer (D-23), so it may still
+>   propose Opus 5.5 for an S brief over a kept Fable model.
+>
+> *Alternatives.* First match kept, with a phase keep copying the project's kept values into its
+> rule, or with a warning in the notice; key by key in the project's table alone; the window
+> writing `[project.launch]` model and effort (EP-19b's recommended option).
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time

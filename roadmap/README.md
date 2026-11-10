@@ -696,7 +696,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-19 | [Autopilot: per-project toggle, the gate, the commit variant of the prompt, Commit button resume, per-run and per-day caps, pause at 90 percent, global Pause, chain log](EP-19-autopilot.md) (D-22) | L | EP-14, EP-17 | core | ☑ `86d3717` |
 | EP-19a | [Chain plan and the chain's moment: the owner's model and effort for each brief a chain may run, set in the launch dialog before it starts, the rules' choice the default, a Chain box per brief; a notification of its own at each change of a chain's state](EP-19a-chain-plan.md) (D-22, D-21) | S | EP-19 | core | ☑ `b7e8ba2` |
 | EP-19b | [Launch settings in the window: the autopilot box's offer of `auto` for a project whose runs would wait, a Keep menu beside the launch dialog's Permissions picker writing `[project.launch] permission_mode`, each autopilot project's permission mode, the gate's verdict and its limits in the Autopilot section, idle sessions no longer refusing a chain, a `git push` deny rule for the autopilot's runs, `crw set` twins](EP-19b-launch-settings.md) (D-18, D-22) | M | EP-19a | core | ☑ `e1ff1a2` |
-| EP-19c | Standing model and effort: the Keep menu beside the launch dialog's Model and Effort pickers, "keep for this project" as a `[[project.rule]]` matching every brief and "keep for phase Pn" as one matching the phase, the chain plan's rows resolved again after a keep, `crw set` model and effort (D-22) | S | EP-19b | core | ☐ |
+| EP-19c | [Standing model and effort: the Keep menu beside the launch dialog's Model and Effort pickers, "keep for this project" as a `[[project.rule]]` matching every brief and "keep for phase Pn" as one matching the phase, rules combined key by key, the chain plan's rows resolved again after a keep, `crw set` model and effort](EP-19c-standing-model-and-effort.md) (D-22) | S → M (re-scoped at pickup) | EP-19b | core | ☐ |
 | EP-36 | Screenshot runs over a portfolio copy: `CRW_SCREENSHOT_ROOT` (or the setup flag `root=`) names the data root a screenshot run reads in place of the tracked fixtures, under the run's guards, so a session checks a layout on a scratch copy of the real roadmap files; the README's pictures from a neutral root without a substituted drive (D-29, D-3) | S | EP-6 | core | ☐ |
 | EP-37 | The installed exe and the window's restart: the release exe installed to `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` with the shortcut, the hooks and the status line pointing there, Install and restart in the window and `crw install`, held chains and chain plans carried through a handover file, the gate's own-project condition dropped, this project chained under `auto` (D-22, D-29, D-5) | M | EP-19a, EP-19b | core | ☐ |
 | EP-20 | Inbox delivery: `Handed on (to …)` parsed at completion, append to the receiver's inbox, delivery log, compose dialog, urgent flag, ntfy publisher (D-13, D-21) | M | EP-5, EP-13 | core | ☐ |
@@ -997,7 +997,9 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   menu is `launch::keep_menu(ui, current, own, default) -> Option<Keep>` with its pin lit while
   the project keeps a value, and `Board::keep_permission_mode` updates the open dialog through
   `Dialog::kept_permission_mode`; `rules::permission_mode(project)` is the resolver's own reading
-  of the mode.
+  of the mode. *(Re-scoped S → M at pickup, 2026-11-09, the owner's choice; the owner also chose
+  that rules combine key by key in both tables, so a phase keep leaves the project's keep standing
+  for the keys it does not set: D-22 addendum.)*
 - **EP-36.** Added on 2026-11-08 by a planning session (the owner's choice; D-29 addendum). A screenshot
   run reads a data root named by `CRW_SCREENSHOT_ROOT=<folder>` (or the setup flag `root=<folder>`, the
   v2 item of EP-8) in place of `fixtures/portfolio`, its registry written for that root (the fixture
@@ -1040,6 +1042,10 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   own-project condition shows in the Autopilot section as the gate's verdict
   (`autopilot::standing`) until this brief drops it, and the section's line goes with it; the
   gate's sessions now count only busy or waiting ones, an idle tab named in the chained line.
+  **From EP-19c:** a standing model and effort for this project's chained briefs is kept through
+  the pins beside the launch dialog's Model and Effort (for every brief, or for one phase) or by
+  `crw set clauderoadmapwrangler model|effort`, as `[[project.rule]]` tables the gate's drafts
+  resolve like any rule; a chain plan's rows the owner left alone take them.
 - **EP-20.** `core::inbox::mailman`: after a session completes (headless result, or a hook Stop/SessionEnd
   for visual sessions followed by a re-parse), scan the brief's completion note for `> **Handed on (to
   <project>).**` blocks, resolve the target in the registry, append `- [ ] IN-n (from <project> EP-k, date)

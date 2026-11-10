@@ -237,6 +237,14 @@ pub enum Action {
     /// A project's permission mode kept from the launch dialog (D-18; EP-19b): written into its
     /// `[project.launch]`, or taken out with `None` (back to the default).
     KeepPermissionMode(String, Option<String>),
+    /// A project's model or effort kept from the launch dialog (D-22; EP-19c): written into its
+    /// rule for every brief or for one phase, or taken out with `None` (back to the rules).
+    KeepRule {
+        project: String,
+        scope: rules::Scope,
+        key: rules::Key,
+        value: Option<String>,
+    },
     /// One of a project's autopilot limits set in the Autopilot section (D-22; EP-19b).
     SetAutopilotLimit(String, Limit),
     /// Every chain paused by the owner, or resumed (D-22): the Sessions pane, the tray.
@@ -454,6 +462,12 @@ impl Board {
             .map(ToString::to_string)
             .collect();
         (!words.is_empty()).then(|| words.join("; "))
+    }
+
+    /// The status bar's notice, for the tests (EP-19c).
+    #[cfg(test)]
+    pub fn notice_text(&self) -> Option<&str> {
+        self.notice.as_ref().map(|(text, _, _)| text.as_str())
     }
 
     pub fn notify(&mut self, text: impl Into<String>) {
@@ -1057,6 +1071,12 @@ impl Board {
             Action::KeepPermissionMode(project, mode) => {
                 return self.keep_permission_mode(&project, mode.as_deref());
             }
+            Action::KeepRule {
+                project,
+                scope,
+                key,
+                value,
+            } => return self.keep_rule(&project, &scope, key, value.as_deref()),
             Action::SetAutopilotLimit(project, limit) => {
                 return self.set_autopilot_limit(&project, &limit);
             }
@@ -1300,6 +1320,9 @@ impl Board {
                 return;
             }
         };
+        // The project as the registry says it now, not as the files were last read: a keep just
+        // written is read again only after this (EP-19c's review).
+        let project = registry.project(name).cloned().unwrap_or(project);
         let program = cli::locate(registry.settings.claude_cli.as_deref())
             .unwrap_or_else(|| PathBuf::from("claude.exe"));
         let preflight = self.sessions.preflight(&program, &self.ctx);
@@ -1370,6 +1393,11 @@ impl Board {
         let plan = project.autopilot.enabled.then(|| {
             crw_core::autopilot::plan(&registry, &project, &snapshot, draft.ep, &levels, &usage)
         });
+        // What the project keeps for the model and the effort, which the Keep menus beside them
+        // can take back (EP-19c).
+        let phase = draft.phase.as_deref();
+        let kept_model = rules::Kept::of(&project, phase, rules::Key::Model);
+        let kept_effort = rules::Kept::of(&project, phase, rules::Key::Effort);
         self.launch = Some(Dialog::new(
             draft,
             Opening {
@@ -1386,6 +1414,9 @@ impl Board {
                 route,
                 plan,
                 kept_mode: project.launch.permission_mode.clone(),
+                kept_model,
+                kept_effort,
+                levels,
             },
         ));
         // A screenshot run's launch opens on Headless, where the plan shows.
