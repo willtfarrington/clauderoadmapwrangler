@@ -297,8 +297,8 @@ impl Plan {
     }
 }
 
-/// An older form of the phase tables, in words.
-fn form_words(profile: Profile) -> &'static str {
+/// A form of the phase tables, in words: `the five-column tables`.
+pub fn form_words(profile: Profile) -> &'static str {
     match profile {
         Profile::House => "the house tables",
         Profile::House5 => "the five-column tables",
@@ -634,6 +634,23 @@ pub fn apply(plan: &Plan, backups: &Path, today: &str) -> Result<Applied, Error>
         }
     }
     Ok(applied)
+}
+
+/// Logs a write in the ledger at `path` as an `event` row of kind [`EVENT_KIND`] under
+/// `project`: the row a revert of a session that started before it redoes (EP-21a). `Err` says
+/// why the ledger did not take it. `crw formalise --yes` and the window's Formalise… log alike.
+pub fn log(path: &Path, project: &str, applied: &Applied) -> Result<(), String> {
+    crate::ledger::Ledger::open(path)
+        .and_then(|ledger| {
+            ledger.add_event(
+                chrono::Utc::now(),
+                EVENT_KIND,
+                Some(project),
+                &applied.detail(),
+            )
+        })
+        .map(|_| ())
+        .map_err(|e| format!("the ledger did not take the write's line: {e}"))
 }
 
 /// What writing one step did.

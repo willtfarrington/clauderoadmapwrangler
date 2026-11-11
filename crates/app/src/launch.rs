@@ -16,15 +16,20 @@
 //! `[project.launch]` at once, or takes the project's own mode out. Beside the Model and Effort
 //! pickers the same pin (D-22; EP-19c) keeps the value shown in the project's rule for every
 //! brief or for the brief's phase, or takes it back to the rules; the dialog's brief and its
-//! chain plan are then resolved again from the registry.
+//! chain plan are then resolved again from the registry. From EP-21a the same dialog launches a
+//! **migration** (D-9): opened in Headless by Migrate… with the prompt of a session that
+//! converts a five-column or work-packet roadmap to the house tables, which no choice rewrites;
+//! it has no brief, no chain plan and no Keep pins, and its run is labelled `migration`.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crw_core::autopilot::{Plan, Planned};
 use crw_core::catalog::Catalog;
+use crw_core::formalise;
 use crw_core::prompt::{self, Chosen, Draft, Parts};
 use crw_core::registry::{LaunchMode, Project};
+use crw_core::roadmap::table::Profile;
 use crw_core::roadmap::{EpId, Size};
 use crw_core::rules::{self, Choice, Kept, Key, Picked, Resolution, Scope, Source};
 use crw_core::session::{self, Preflight, Route};
@@ -57,13 +62,28 @@ const KEEP: f32 = 34.0;
 /// How often an open dialog in Visual looks again at VS Code's windows.
 const READINESS_EVERY: Duration = Duration::from_secs(2);
 
+/// What a migration's run is labelled (EP-21a): the ledger row's EP and the session's name,
+/// `<project> migration`, in place of a brief's id.
+pub const MIGRATION: &str = "migration";
+
+/// A migration's title, which the rules resolve it by and the dialog shows (EP-21a).
+pub fn migration_title(profile: Profile) -> String {
+    format!(
+        "{} to the house tables, by a session in the project (D-9)",
+        capital(formalise::form_words(profile))
+    )
+}
+
 /// The dialog of one launch, open over the window.
 pub struct Dialog {
     pub project: String,
     pub folder: PathBuf,
     /// The CLI the preflight asks (D-15).
     pub program: PathBuf,
-    pub ep: EpId,
+    /// The brief launched; none for a migration.
+    pub ep: Option<EpId>,
+    /// The older form of the roadmap a migration converts (D-9; EP-21a): its prompt is fixed.
+    pub migrates: Option<Profile>,
     pub size: Option<Size>,
     pub title: String,
     /// The choices, each with its reason: the rule table's, or the owner's here.
@@ -146,7 +166,8 @@ impl Dialog {
             project: parts.project.clone(),
             folder: opening.folder,
             program: opening.program,
-            ep,
+            ep: Some(ep),
+            migrates: None,
             size,
             title,
             resolution,
@@ -172,6 +193,64 @@ impl Dialog {
             kept_model: opening.kept_model,
             kept_effort: opening.kept_effort,
         }
+    }
+
+    /// The dialog of a migration (D-9; EP-21a): `prompt` is `formalise::migration_prompt`'s for
+    /// the roadmap's older form `profile`, fixed, since it is no opener of a brief; `resolution`
+    /// is the rules' for no brief. It opens in Headless, the owner's choice there, with no chain
+    /// plan; the opening's template is not used.
+    pub fn migration(
+        project: &str,
+        prompt: String,
+        profile: Profile,
+        resolution: Resolution,
+        opening: Opening,
+    ) -> Self {
+        let parts = Parts {
+            project: project.to_owned(),
+            folder: opening.folder.display().to_string(),
+            date: opening.date.clone(),
+            ..Parts::default()
+        };
+        let mut dialog = Self {
+            project: project.to_owned(),
+            folder: opening.folder,
+            program: opening.program,
+            ep: None,
+            migrates: Some(profile),
+            size: None,
+            title: migration_title(profile),
+            resolution,
+            neighbours: opening.neighbours,
+            generated: prompt.clone(),
+            prompt,
+            parts,
+            template: None,
+            problems: Vec::new(),
+            warnings: opening.warnings,
+            catalog: opening.catalog,
+            date: opening.date,
+            readiness: opening.readiness,
+            vscode_setting: opening.vscode_setting,
+            read_at: Some(Instant::now()),
+            error: None,
+            answer_timeout: opening.answer_timeout,
+            route: opening.route,
+            plan: None,
+            kept_mode: opening.kept_mode,
+            phase: None,
+            levels: opening.levels,
+            kept_model: opening.kept_model,
+            kept_effort: opening.kept_effort,
+        };
+        dialog.set_mode(LaunchMode::Headless);
+        dialog
+    }
+
+    /// What the run is labelled: the brief's id, or `migration` (EP-21a).
+    pub fn label(&self) -> String {
+        self.ep
+            .map_or_else(|| MIGRATION.to_owned(), |ep| ep.to_string())
     }
 
     /// The project's rules as the registry says them after a Keep beside the Model or the
@@ -289,7 +368,9 @@ impl Dialog {
         self.parts.commits
     }
 
-    /// Generates the prompt again for the choices; the editor takes it when `follow` holds.
+    /// Generates the prompt again for the choices; the editor takes it when `follow` holds. A
+    /// migration's prompt is the engine's and no choice changes it (EP-21a): the editor takes it
+    /// back as it was.
     fn regenerate(&mut self, follow: bool) {
         self.parts.choose(&Chosen {
             model: &self.resolution.model.value,
@@ -298,6 +379,12 @@ impl Dialog {
             date: &self.date,
             visual: self.visual(),
         });
+        if self.migrates.is_some() {
+            if follow {
+                self.prompt = self.generated.clone();
+            }
+            return;
+        }
         let prompt = prompt::generate(&self.parts, self.template.as_deref());
         self.problems = prompt.problems;
         self.generated = prompt.text;
@@ -321,7 +408,7 @@ impl Dialog {
             &resolution.model.value,
             &self.prompt,
         );
-        launch.ep = Some(self.ep.to_string());
+        launch.ep = Some(self.label());
         launch.effort = resolution.effort.value.clone();
         launch.ultracode = resolution.ultracode.value;
         launch.permission_mode = resolution.permission_mode.value.clone();
@@ -362,7 +449,7 @@ impl Dialog {
     ) -> visual::Launch {
         let mut launch =
             visual::Launch::new(&self.project, &self.folder, &self.prompt, code, locks);
-        launch.ep = Some(self.ep.to_string());
+        launch.ep = Some(self.label());
         launch.ledger = ledger;
         launch
     }
@@ -461,7 +548,10 @@ impl Dialog {
         let height = (screen.height() - 300.0 - self.plan_height()).clamp(200.0, 620.0);
         ui.set_width(width);
         ui.horizontal(|ui| {
-            ui.heading(format!("Launch {} {}", self.project, self.ep));
+            ui.heading(match self.ep {
+                Some(ep) => format!("Launch {} {ep}", self.project),
+                None => format!("Migrate {}'s roadmap", self.project),
+            });
             if let Some(size) = self.size {
                 style::chip(ui, size.as_str(), ui.visuals().weak_text_color());
             }
@@ -597,16 +687,25 @@ impl Dialog {
     fn editor(&mut self, ui: &mut egui::Ui, height: f32) {
         ui.horizontal(|ui| {
             ui.label(RichText::new("Prompt").strong());
-            let note = if self.edited() {
-                "edited here: the choices no longer rewrite it"
-            } else {
-                "generated: it follows the choices until you edit it"
+            let migration = self.migrates.is_some();
+            let note = match (migration, self.edited()) {
+                (true, false) => {
+                    "the migration's, as the tool writes it (D-9): no choice changes it"
+                }
+                (true, true) => "edited here: Regenerate puts the migration's prompt back",
+                (false, true) => "edited here: the choices no longer rewrite it",
+                (false, false) => "generated: it follows the choices until you edit it",
             };
             ui.label(RichText::new(note).small().weak());
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                let hint = if migration {
+                    "Drop the edits and put the migration's prompt back"
+                } else {
+                    "Drop the edits and generate the prompt for the choices again"
+                };
                 if ui
                     .add_enabled(self.edited(), egui::Button::new("Regenerate"))
-                    .on_hover_text("Drop the edits and generate the prompt for the choices again")
+                    .on_hover_text(hint)
                     .clicked()
                 {
                     self.regenerate(true);
@@ -649,6 +748,10 @@ impl Dialog {
     ) {
         let mut changed = false;
         let combo = ui.available_width() - NAME - 12.0;
+        // A migration is no brief: the Keep pins, which write the project's standing choices,
+        // are left out, and the pickers take their room (EP-21a).
+        let keeps = self.migrates.is_none();
+        let keep_room = if keeps { KEEP } else { 0.0 };
 
         let reason = self.resolution.mode.reason();
         field(ui, "Launch", &reason, |ui| {
@@ -681,16 +784,24 @@ impl Dialog {
             let mut picked = None;
             let mut keep = None;
             ui.add_enabled_ui(!visual, |ui| {
-                picked = model_picker(ui, "launch-model", &self.catalog, &current, combo - KEEP);
+                picked = model_picker(
+                    ui,
+                    "launch-model",
+                    &self.catalog,
+                    &current,
+                    combo - keep_room,
+                );
                 // The Keep menu (EP-19c): the model shown, kept for the project's briefs or for
                 // this phase's, or taken back to the rules.
-                keep = rule_keep_menu(
-                    ui,
-                    "keep-model",
-                    Some(&current),
-                    &self.kept_model,
-                    self.phase.as_deref(),
-                );
+                if keeps {
+                    keep = rule_keep_menu(
+                        ui,
+                        "keep-model",
+                        Some(&current),
+                        &self.kept_model,
+                        self.phase.as_deref(),
+                    );
+                }
             });
             if let Some(model) = picked {
                 self.resolution.model = owners(model);
@@ -713,15 +824,17 @@ impl Dialog {
                     "launch-effort",
                     &efforts,
                     current.as_deref(),
-                    combo - KEEP,
+                    combo - keep_room,
                 );
-                keep = rule_keep_menu(
-                    ui,
-                    "keep-effort",
-                    current.as_deref(),
-                    &self.kept_effort,
-                    self.phase.as_deref(),
-                );
+                if keeps {
+                    keep = rule_keep_menu(
+                        ui,
+                        "keep-effort",
+                        current.as_deref(),
+                        &self.kept_effort,
+                        self.phase.as_deref(),
+                    );
+                }
             });
             if let Some(effort) = picked {
                 self.resolution.effort = owners(effort);
@@ -765,7 +878,7 @@ impl Dialog {
             let mut keep = None;
             ui.add_enabled_ui(!visual, |ui| {
                 egui::ComboBox::from_id_salt("launch-mode")
-                    .width(combo - KEEP)
+                    .width(combo - keep_room)
                     .selected_text(&current)
                     .show_ui(ui, |ui| {
                         for mode in &modes {
@@ -777,12 +890,14 @@ impl Dialog {
                     });
                 // The Keep menu (EP-19b): the mode shown, kept for the project's launches and
                 // chains, or the project's own taken back.
-                keep = keep_menu(
-                    ui,
-                    &current,
-                    self.kept_mode.as_deref(),
-                    rules::DEFAULT_PERMISSION_MODE,
-                );
+                if keeps {
+                    keep = keep_menu(
+                        ui,
+                        &current,
+                        self.kept_mode.as_deref(),
+                        rules::DEFAULT_PERMISSION_MODE,
+                    );
+                }
             });
             if chosen != current {
                 self.resolution.permission_mode = owners(chosen);
@@ -1015,6 +1130,14 @@ impl Dialog {
              the launch as visual. The first time, VS Code may ask whether Claude Code may open \
              the link."
                 .to_owned()
+        } else if self.migrates.is_some() {
+            format!(
+                "Runs headless in {}; the ledger records it as {MIGRATION}. The session puts its \
+                 plan to you first, converts the tables, checks them with crw roadmap and stops \
+                 before committing: the commit is yours (D-9). No chain follows it, and its tab \
+                 offers no Commit. Closing the window keeps it in the tray, and quitting stops it.",
+                self.folder.display()
+            )
         } else {
             format!(
                 "Runs headless in {}; the ledger records it. Closing the window keeps it in the \
@@ -1308,6 +1431,15 @@ fn rule_keep_menu(
 }
 
 /// A choice the owner made here.
+/// `words` with a capital first letter.
+fn capital(words: &str) -> String {
+    let mut chars = words.chars();
+    match chars.next() {
+        Some(first) => first.to_uppercase().chain(chars).collect(),
+        None => String::new(),
+    }
+}
+
 fn owners<T>(value: T) -> Choice<T> {
     Choice {
         value,
@@ -1748,6 +1880,104 @@ mod tests {
         );
     }
 
+    /// Migrate… (EP-21a): the migration's prompt, fixed whatever the choices and put back by
+    /// Regenerate after an edit; Headless, no chain plan, no Keep pin; the run labelled
+    /// `migration`.
+    #[test]
+    fn a_migration_keeps_its_prompt_and_labels_its_run() {
+        use crate::testing::{self, Screen};
+
+        let registry = registry(Vec::new());
+        let project = &registry.projects[0];
+        let folder = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("fixtures")
+            .join("portfolio")
+            .join("harbor");
+        let usage = rules::Usage::unread(chrono::Utc::now());
+        let brief = rules::Brief {
+            size: None,
+            phase: None,
+            title: "Migrate the roadmap to the house tables",
+        };
+        let resolution = rules::resolve(&registry, project, &brief, &[], &usage);
+        let prompt = formalise::migration_prompt(
+            "harbor",
+            &folder,
+            Profile::Packet,
+            Path::new(r"C:\Tools\crw.exe"),
+            "2026-11-11",
+        )
+        .unwrap();
+        let mut dialog = Dialog::migration(
+            "harbor",
+            prompt.clone(),
+            Profile::Packet,
+            resolution,
+            Opening {
+                readiness: Readiness::of(&folder, None, None, &[]),
+                folder: folder.clone(),
+                program: PathBuf::from(r"C:\Tools\claude.exe"),
+                neighbours: Vec::new(),
+                warnings: Vec::new(),
+                template: Some("Run {ep} of {project}.".to_owned()),
+                catalog: Catalog::built_in("for the test".to_owned()),
+                date: "2026-11-11".to_owned(),
+                vscode_setting: None,
+                answer_timeout: None,
+                route: (Route::Protocol, None),
+                plan: None,
+                kept_mode: None,
+                kept_model: Kept::of(project, None, Key::Model),
+                kept_effort: Kept::of(project, None, Key::Effort),
+                levels: Vec::new(),
+            },
+        );
+        assert_eq!((dialog.ep, dialog.migrates), (None, Some(Profile::Packet)));
+        assert!(!dialog.visual(), "it opens in Headless");
+        assert!(dialog.plan.is_none() && !dialog.commits());
+        assert_eq!(dialog.prompt, prompt, "the template is not used");
+        // A choice rewrites nothing; an edit stays until Regenerate puts the prompt back.
+        dialog.resolution.model = owners("claude-opus-5-5".to_owned());
+        dialog.chose();
+        assert_eq!(dialog.prompt, prompt);
+        dialog
+            .prompt
+            .push_str("\nKeep the glossary table as it is.");
+        dialog.resolution.effort = owners(Some("max".to_owned()));
+        dialog.chose();
+        assert!(dialog.edited() && dialog.prompt.ends_with("as it is."));
+        dialog.regenerate(true);
+        assert_eq!(dialog.prompt, prompt);
+        assert_eq!(dialog.effort_words(), "max");
+        // The run is labelled migration, with the dialog's choices.
+        let launch = dialog.launch(None);
+        assert_eq!(launch.ep.as_deref(), Some(MIGRATION));
+        assert_eq!(launch.name(), "harbor migration");
+        assert_eq!(
+            (launch.model.as_str(), launch.effort.as_deref()),
+            ("claude-opus-5-5", Some("max"))
+        );
+        assert_eq!(launch.prompt, prompt);
+        // Drawn: its heading, no chain plan and no pin.
+        let preflight = canned_preflight();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            dialog.ui(ui, Some(&preflight), false, false, false);
+        });
+        assert!(testing::text_at(&output, "Migrate harbor's roadmap").is_some());
+        assert!(testing::text_at(&output, "Chain plan").is_none());
+        assert!(testing::texts_at(&output, icons::ICON_PUSH_PIN.codepoint).is_empty());
+        // Switched to Visual, the prompt stays and the link carries the label.
+        dialog.set_mode(LaunchMode::Visual);
+        assert_eq!(dialog.prompt, prompt);
+        let visual = dialog.visual_launch(
+            Path::new(r"C:\Tools\VS Code\Code.exe"),
+            Path::new(r"C:\Locks"),
+            None,
+        );
+        assert_eq!(visual.ep.as_deref(), Some(MIGRATION));
+    }
+
     #[test]
     fn the_keep_menu_beside_permissions_keeps_the_mode_or_takes_it_back() {
         use crate::testing::{self, Screen};
@@ -2059,7 +2289,7 @@ mod tests {
     fn the_launch_carries_every_choice() {
         let mut dialog = dialog(registry(Vec::new()));
         // Harbor's next brief is EP-4, an L: the tool's default, no built-in step.
-        assert_eq!(dialog.ep, EpId::new(4));
+        assert_eq!(dialog.ep, Some(EpId::new(4)));
         dialog.resolution.permission_mode = owners("auto".to_owned());
         assert_eq!(
             dialog.questions_words(),

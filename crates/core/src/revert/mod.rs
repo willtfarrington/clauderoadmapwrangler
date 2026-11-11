@@ -139,6 +139,46 @@ pub fn ticks_since(
         .collect())
 }
 
+/// A formalise the tool wrote into a project (D-11; EP-21): the window's Formalise… or `crw
+/// formalise --yes`, each logged as an `event` row of kind `formalise`. A revert redoes it when
+/// it came after the session's start (EP-21a), as it redoes the tool's ticks.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Formalised {
+    pub at: DateTime<Utc>,
+    /// The write in words, as its row says it (`formalise::Applied::detail`).
+    pub detail: String,
+}
+
+/// The formalise writes the tool made in `project` at `since` or later, the oldest first
+/// (EP-21a). They are read apart from [`ticks_since`], which the autopilot's gate reads too: a
+/// formalise is no message for the gate's inbox exception.
+pub fn formalised_since(
+    ledger: &Ledger,
+    project: &str,
+    since: DateTime<Utc>,
+) -> Result<Vec<Formalised>, String> {
+    let events = ledger
+        .events(crate::formalise::EVENT_KIND, None)
+        .map_err(|e| format!("the ledger's formalise rows did not read: {e}"))?;
+    Ok(events
+        .iter()
+        .rev()
+        .filter(|event| {
+            event
+                .project
+                .as_deref()
+                .is_some_and(|name| name.eq_ignore_ascii_case(project))
+        })
+        .filter_map(|event| {
+            Some(Formalised {
+                at: event.at()?,
+                detail: event.detail.clone().unwrap_or_default(),
+            })
+        })
+        .filter(|formalised| formalised.at >= since)
+        .collect())
+}
+
 /// The session a revert undoes, as the ledger holds it.
 #[derive(Debug, Clone)]
 pub struct Chosen {
@@ -231,6 +271,8 @@ pub struct Context<'a> {
     /// Sessions open there with nothing to do: named, for the owner to close.
     pub idle: Vec<String>,
     pub ticks: Vec<Tick>,
+    /// The tool's formalise writes since the start ([`formalised_since`]), redone after (EP-21a).
+    pub formalised: Vec<Formalised>,
     pub backups: &'a Path,
     pub now: DateTime<Utc>,
 }
@@ -323,6 +365,9 @@ pub struct Plan {
     pub files: Vec<Fate>,
     pub start: Option<Start>,
     pub ticks: Vec<Tick>,
+    /// The tool's formalise writes since the start: after the reset the project is formalised
+    /// again, so that its house-style files come back as the tool's own writes do (EP-21a).
+    pub formalised: Vec<Formalised>,
     /// The later sessions whose work is undone too, in words.
     pub later: Vec<String>,
     pub idle: Vec<String>,
@@ -352,6 +397,7 @@ impl Plan {
             files: Vec::new(),
             start: None,
             ticks: Vec::new(),
+            formalised: Vec::new(),
             later: Vec::new(),
             idle: Vec::new(),
             copy,
@@ -366,8 +412,9 @@ impl Plan {
     }
 
     /// Whether this plan, read again at the owner's word, is the plan `seen` they confirmed: the
-    /// same target, commits, files, start, ticks and sessions, and no refusal new (the window's
-    /// Revert, EP-15c). The copy's folder, named by the moment it was read, is left out.
+    /// same target, commits, files, start, ticks, formalise writes and sessions, and no refusal
+    /// new (the window's Revert, EP-15c). The copy's folder, named by the moment it was read, is
+    /// left out.
     pub fn is_as_seen(&self, seen: &Plan) -> bool {
         let mut again = self.clone();
         again.copy.clone_from(&seen.copy);
@@ -465,6 +512,18 @@ impl Plan {
             lines.push(format!(
                 "The tool's ticks since the start, redone after: {}.",
                 ticks.join("; ")
+            ));
+        }
+        if !self.formalised.is_empty() {
+            let writes: Vec<&str> = self
+                .formalised
+                .iter()
+                .map(|formalised| formalised.detail.as_str())
+                .collect();
+            lines.push(format!(
+                "The tool's formalise since the start ({}), redone after: the house-style files \
+                 it lacks then written again.",
+                writes.join("; then ")
             ));
         }
         lines.push(format!(
@@ -574,6 +633,7 @@ pub fn plan(chosen: &Chosen, cx: &Context<'_>) -> Plan {
         started: chosen.first.started(),
         start: chosen.start.clone(),
         ticks: cx.ticks.clone(),
+        formalised: cx.formalised.clone(),
         later: chosen.later.iter().map(later_words).collect(),
         idle: cx.idle.clone(),
         ..Plan::new(cx.project, cx.folder, copy)
@@ -1047,6 +1107,7 @@ pub fn revert(
         }
     }
     redo_ticks(plan, backups, today, &mut done);
+    redo_formalise(plan, backups, today, &mut done);
     if let Some(path) = ledger {
         let detail = format!(
             "session {} reverted to {} ({}): {}, {}; the work is kept in {}",
@@ -1233,6 +1294,43 @@ fn redo_ticks(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
     }
 }
 
+/// Formalises the project again when the tool formalised it since the start (EP-21a): the plan
+/// read now, after the reset, then written, so that the house-style files and the rule block the
+/// reset took back come back, a file there now kept and `CLAUDE.md` copied first, as every
+/// formalise does. Nothing is logged: the formalise's own row stays, at its own time.
+fn redo_formalise(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
+    if plan.formalised.is_empty() {
+        return;
+    }
+    let again = crate::formalise::plan(&plan.folder, &plan.project);
+    if !again.is_refused() && again.writes() == 0 {
+        // The start had every file and the block already.
+        return;
+    }
+    match crate::formalise::apply(&again, backups, today) {
+        Ok(applied) => {
+            if !applied.written.is_empty() {
+                let written = crate::formalise::Applied {
+                    written: applied.written.clone(),
+                    failed: None,
+                };
+                done.redone
+                    .push(format!("formalise · {}", written.detail()));
+            }
+            if let Some(why) = &applied.failed {
+                done.not_redone.push(format!(
+                    "the rest of the formalise ({why}): `crw formalise {}` writes it",
+                    plan.project
+                ));
+            }
+        }
+        Err(why) => done.not_redone.push(format!(
+            "the formalise ({why}): `crw formalise {}` writes it",
+            plan.project
+        )),
+    }
+}
+
 #[cfg(test)]
 pub(crate) mod testing {
     //! Scratch git repositories for the revert's tests, in temp folders and never the owner's
@@ -1364,6 +1462,7 @@ mod tests {
             working: Vec::new(),
             idle: Vec::new(),
             ticks: Vec::new(),
+            formalised: Vec::new(),
             backups,
             now: Utc::now(),
         }
@@ -1620,6 +1719,110 @@ mod tests {
         assert!(
             inbox.ends_with("- [ ] IN-1 (from beta EP-6, 2026-11-10) The export gains a column.\n"),
             "{inbox}"
+        );
+    }
+
+    /// A formalise made after the session's start is the tool's write (EP-21a): the reset takes
+    /// its block back and its new files go with the span's untracked files, then the project is
+    /// formalised again, the project's own rules kept above the block.
+    #[test]
+    fn a_formalise_after_the_start_is_redone() {
+        let repo = Repo::new("revert-formalise");
+        repo.write("CLAUDE.md", "# alpha\n\nThe project's own rules.\n");
+        repo.write("src/lib.rs", "fn main() {}\n");
+        repo.commit("first");
+        let backups = repo.backups();
+        let start = repo.capture(&start::copies_dir(&backups, &repo.0, "s-1"));
+        repo.write("src/lib.rs", "fn main() { session(); }\n");
+        repo.commit("Session work");
+        // The owner formalises the project meanwhile, and the write is logged.
+        let formalise = crate::formalise::plan(&repo.0, "alpha");
+        let applied = crate::formalise::apply(&formalise, &backups, "2026-11-10").unwrap();
+        assert_eq!(applied.written.len(), 4, "{applied:?}");
+        let ledger = repo.scratch().join("ledger.sqlite");
+        crate::formalise::log(&ledger, "alpha", &applied).unwrap();
+        let read = Ledger::open_read_only(&ledger).unwrap();
+        let since = formalised_since(&read, "ALPHA", start.at).unwrap();
+        assert_eq!(since.len(), 1);
+        assert_eq!(since[0].detail, applied.detail());
+        let later = Utc::now() + TimeDelta::seconds(5);
+        assert!(formalised_since(&read, "alpha", later).unwrap().is_empty());
+        assert!(
+            formalised_since(&read, "beta", start.at)
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            ticks_since(&read, "alpha", start.at).unwrap().is_empty(),
+            "no tick for the gate's inbox exception"
+        );
+        drop(read);
+
+        let mut cx = context(&repo, &backups);
+        cx.formalised = since;
+        let plan = plan(
+            &chosen(row(1, Some("s-1"), "alpha", start.at), Some(start)),
+            &cx,
+        );
+        assert!(!plan.is_refused(), "{:?}", plan.refusals);
+        let preview = plan.lines().join("\n");
+        assert!(
+            preview
+                .contains("The tool's formalise since the start (CLAUDE.md the rule block added;"),
+            "{preview}"
+        );
+        let removed: Vec<&str> = plan
+            .files
+            .iter()
+            .filter(|fate| fate.action == Action::Remove)
+            .map(|fate| fate.path.as_str())
+            .collect();
+        assert_eq!(
+            removed,
+            [
+                "roadmap/_TEMPLATE.md",
+                "roadmap/inbox.md",
+                "roadmap/owner-tasks.md"
+            ]
+        );
+        // A plan read again without the formalise's row is not the plan seen.
+        let mut without = plan.clone();
+        without.formalised.clear();
+        assert!(!without.is_as_seen(&plan) && plan.is_as_seen(&plan.clone()));
+
+        let done = revert(&plan, Some(&ledger), &backups, "2026-11-10").unwrap();
+        assert!(done.problems.is_empty(), "{:?}", done.problems);
+        assert!(done.not_redone.is_empty(), "{:?}", done.not_redone);
+        assert_eq!(
+            repo.read("src/lib.rs").as_deref(),
+            Some("fn main() {}\n"),
+            "the session's work undone"
+        );
+        let rules = repo.read("CLAUDE.md").unwrap();
+        assert!(
+            rules.starts_with("# alpha\n\nThe project's own rules.\n\n")
+                && rules.contains(crate::formalise::BEGIN)
+                && rules.contains(crate::formalise::END),
+            "{rules}"
+        );
+        for path in [
+            "roadmap/owner-tasks.md",
+            "roadmap/inbox.md",
+            "roadmap/_TEMPLATE.md",
+        ] {
+            assert!(repo.read(path).is_some(), "{path} written again");
+        }
+        assert_eq!(done.redone.len(), 1, "{:?}", done.redone);
+        assert!(
+            done.redone[0].starts_with("formalise · CLAUDE.md the rule block added; "),
+            "{:?}",
+            done.redone
+        );
+        assert!(done.lines().join("\n").contains("Redone: formalise · "));
+        assert_eq!(
+            crate::formalise::plan(&repo.0, "alpha").writes(),
+            0,
+            "formalised as before the revert"
         );
     }
 

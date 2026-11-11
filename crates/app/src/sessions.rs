@@ -100,6 +100,9 @@ pub struct Live {
     pub chained: bool,
     /// Its prompt or a resume told it to commit, so the Commit button is not offered.
     pub commits: bool,
+    /// A migration of the project's roadmap (D-9; EP-21a): no gate and no chain follow it, and
+    /// it offers no Commit, whose message records a brief's hash; the owner commits it.
+    pub migration: bool,
     /// What it was launched with: a resume runs the same with `--resume` (EP-13).
     launch: Launch,
     /// The CLI it ran, whose preflight a resume asks, and that CLI's version.
@@ -186,6 +189,7 @@ impl Live {
             capped: None,
             chained: starting.run.chained,
             commits: starting.run.commits,
+            migration: starting.run.migration,
             launch: starting.launch.clone(),
             program: starting.program.clone(),
             version: starting.version.clone(),
@@ -225,6 +229,7 @@ impl Live {
             capped: None,
             chained: false,
             commits: false,
+            migration: false,
             program: PathBuf::from("claude.exe"),
             version: None,
             canned: true,
@@ -314,13 +319,26 @@ impl Live {
             size: self.cap.and_then(|cap| cap.size),
             chained: self.chained,
             commits: self.commits,
+            // A migration resumed stays one (EP-21a).
+            migration: self.migration,
         }
+    }
+
+    /// A migration that completed (EP-21a): its tab holds the session's report and its commit is
+    /// the owner's, so a restart nobody asked for keeps the tab, as it keeps one offering Commit.
+    pub fn finished_migration(&self) -> bool {
+        self.migration
+            && self
+                .ended
+                .as_ref()
+                .is_some_and(|ended| ended.outcome == Outcome::Completed)
     }
 
     /// Whether its tab offers Commit (D-22): the run completed under the rule that stops before
     /// committing, and nothing told it to commit since.
     pub fn offers_commit(&self) -> bool {
         !self.commits
+            && !self.migration
             && self
                 .ended
                 .as_ref()
@@ -501,6 +519,8 @@ pub struct Run {
     pub chained: bool,
     /// Its prompt or its message tells it to commit.
     pub commits: bool,
+    /// A migration of the project's roadmap, launched by Migrate… (EP-21a).
+    pub migration: bool,
 }
 
 /// What became of a start.
@@ -2137,12 +2157,31 @@ pub(crate) mod tests {
             capped: None,
             chained: false,
             commits: false,
+            migration: false,
             launch: Launch::new("alpha", Path::new("alpha"), "fable", "Run EP-3."),
             program: PathBuf::from("claude.exe"),
             version: Some("2.1.316".to_owned()),
             canned: false,
             news: Vec::new(),
         }
+    }
+
+    /// A migration's run (EP-21a) offers no Commit, whose message records a brief's hash, and a
+    /// resume of it, or the answer to a request it left open, stays a migration.
+    #[test]
+    fn a_migration_offers_no_commit_and_resumes_as_one() {
+        let mut live = live();
+        live.ended = Some(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        assert!(live.offers_commit(), "a brief's completed run offers it");
+        live.migration = true;
+        assert!(!live.offers_commit());
+        assert!(live.run().migration);
+        assert!(!live.run().capped && !live.run().chained);
     }
 
     /// A run being stopped is no longer one Quit would stop, but its end is still to come, which
@@ -2321,6 +2360,7 @@ pub(crate) mod tests {
             mail: Vec::new(),
             git: None,
             badges: Default::default(),
+            house: Default::default(),
         };
         let mut row = ledger_row();
         row.mode = "visual".to_owned();
@@ -2390,6 +2430,7 @@ pub(crate) mod tests {
                 size: Some(Size::M),
                 chained: true,
                 commits: false,
+                migration: false,
             }
         );
         assert_eq!(live().run(), Run::default());

@@ -43,6 +43,11 @@
 //! - `compose=<project>[:urgent]` (the compose dialog open on the project once it is read, its
 //!   text canned, the Urgent box ticked with `:urgent`, a session said to work there; its Send
 //!   is refused, as every write is, EP-20c);
+//! - `formalise=<project>` (the Formalise… preview of the project's own plan, read by path from
+//!   the fixture once it is read; its Write is refused, as every write is, EP-21a);
+//!   `formalise=<project>:busy` (the same plan refused by a canned session at work there, an
+//!   idle tab named); `formalise=<project>:migrate` (the launch dialog's migration, a canned
+//!   work-packet form for a fixture in the house form, its prompt naming a neutral `crw.exe`);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
 //!   permission prompt, orchard's manual one busy with its status line's figures though every
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,
@@ -316,6 +321,11 @@ impl Run {
                     // is read, its text canned and the Urgent box ticked (EP-20c).
                     let (project, flag) = value.split_once(':').unwrap_or((value, ""));
                     board.compose_when_read = Some((project.to_owned(), flag == "urgent"));
+                }
+                "formalise" => {
+                    // `formalise=harbor[:busy|:migrate]`, once the project is read (EP-21a).
+                    let (project, flag) = value.split_once(':').unwrap_or((value, ""));
+                    board.formalise_when_read = Some((project.to_owned(), flag.to_owned()));
                 }
                 "sessions" => {
                     canned_sessions(board);
@@ -1075,6 +1085,31 @@ fn flags(setup: &str) -> Vec<String> {
         .filter(|flag| !flag.is_empty())
         .map(str::to_owned)
         .collect()
+}
+
+/// What `formalise=<project>[:busy|:migrate]` opens once the project is read (EP-21a): the
+/// preview of its plan, the same refused by a canned session at work there, or Migrate….
+pub fn open_formalise(board: &mut Board, project: &str, flag: &str) {
+    match flag {
+        "migrate" => board.open_migration(project),
+        "busy" => {
+            let Ok((mut asked, unformalised)) = board.formalise_asked(project) else {
+                return;
+            };
+            asked.view = crate::revert::View {
+                working: vec!["a visual session 3c9d2e71 is busy".to_owned()],
+                idle: vec!["a manual session 9a3e7d41".to_owned()],
+                refusals: Vec::new(),
+            };
+            let plan = crate::formalise::read_plan(&asked);
+            board.formalise = Some(crate::formalise::Dialog::ready(
+                plan,
+                asked.view.idle,
+                unformalised,
+            ));
+        }
+        _ => board.open_formalise(project),
+    }
 }
 
 /// The tracked fake projects.

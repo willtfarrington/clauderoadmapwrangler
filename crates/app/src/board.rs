@@ -26,7 +26,7 @@ use crw_core::discovery::{self, Listing, OwnFile, OwnFiles};
 use crw_core::ledger::{Ledger, Part};
 use crw_core::notify::QuietHours;
 use crw_core::proposal::{self, Reason};
-use crw_core::registry::{LaunchMode, Limit, State, Store};
+use crw_core::registry::{LaunchMode, Limit, Registry, State, Store};
 use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
@@ -65,6 +65,8 @@ const START_TITLE: usize = 48;
 const TEST_DELAY: Duration = Duration::from_secs(10);
 /// What quitting says while a revert runs (EP-15c).
 const REVERTING: &str = "A revert is running: quit once it has finished, in a few seconds.";
+/// What quitting says while a formalise writes (EP-21a's review).
+const FORMALISING: &str = "A formalise is writing: quit once it has finished, in a moment.";
 /// Folders that appear or go in a burst (a clone, a move) are read once, after the burst.
 const SETTLE: Duration = Duration::from_millis(600);
 /// An idle window wakes this often to see whether the hourly look at the GitHub cache is due.
@@ -233,6 +235,17 @@ pub enum Action {
     ConfirmRevert,
     /// The preview put away, or its result read.
     CloseRevert,
+    /// The preview of formalising a project (D-11; EP-21a): a row's Formalise…, the Detail
+    /// pane's House style section.
+    OpenFormalise(String),
+    /// The preview's Write: the plan read again, and written if it is the one shown.
+    ConfirmFormalise,
+    /// The preview put away, or its result read.
+    CloseFormalise,
+    /// The launch dialog in Headless with the prompt of a session that migrates the project's
+    /// older roadmap to the house tables (D-9; EP-21a): a row's Migrate the roadmap…, the Detail
+    /// pane's and the formalise preview's Migrate….
+    OpenMigration(String),
     /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key. Turned
     /// on where its runs would wait at each shell command, it opens the offer of `auto` first
     /// (EP-19b).
@@ -362,6 +375,12 @@ pub struct Board {
     /// A compose dialog to open once the files are read, with its text canned (a screenshot
     /// run's `compose=<project>[:urgent]`).
     pub compose_when_read: Option<(String, bool)>,
+    /// The preview of formalising a project, while it is open (EP-21a).
+    pub formalise: Option<crate::formalise::Dialog>,
+    /// A formalise preview or a migration to open once the files are read (a screenshot run's
+    /// `formalise=<project>[:busy|:migrate]`): the project and the flag.
+    #[cfg(feature = "screenshot")]
+    pub formalise_when_read: Option<(String, String)>,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -428,6 +447,9 @@ impl Board {
             mail: crate::mail::Mail::default(),
             compose: None,
             compose_when_read: None,
+            formalise: None,
+            #[cfg(feature = "screenshot")]
+            formalise_when_read: None,
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -578,6 +600,7 @@ impl Board {
             None => {}
         }
         self.receive_revert(ctx);
+        self.receive_formalise(ctx);
         let portfolio = &self.portfolio;
         let registered = || {
             portfolio
@@ -644,6 +667,15 @@ impl Board {
                     dialog.busy = Some("a session works there".to_owned());
                 }
             }
+        }
+        #[cfg(feature = "screenshot")]
+        if let Some((name, flag)) = &self.formalise_when_read
+            && !self.loader.reading_files
+            && self.portfolio.project(name).is_some()
+        {
+            let (name, flag) = (name.clone(), flag.clone());
+            self.formalise_when_read = None;
+            crate::screenshot::open_formalise(self, &name, &flag);
         }
         #[cfg(feature = "screenshot")]
         if self.fixtures {
@@ -721,7 +753,7 @@ impl Board {
                 self.fixtures,
                 self.tray.is_some(),
                 stoppable,
-                self.reverting(),
+                self.reverting() || self.formalising(),
             ) {
                 Closing::Hide => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -733,7 +765,7 @@ impl Board {
                 }
                 Closing::Wait => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                    self.warn(REVERTING);
+                    self.warn(self.waiting_words());
                 }
                 Closing::Close => {}
             }
@@ -972,13 +1004,30 @@ impl Board {
         self.ctx.request_repaint();
     }
 
-    /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
-    /// runs (EP-15c).
-    fn quit(&mut self) {
+    /// Whether a formalise writes, which quitting waits for too (EP-21a's review): the process's
+    /// end would leave the project half formalised and the write unlogged for a revert.
+    pub fn formalising(&self) -> bool {
+        self.formalise
+            .as_ref()
+            .is_some_and(crate::formalise::Dialog::is_writing)
+    }
+
+    /// What quitting says while it waits: for a revert, or for a formalise's write.
+    fn waiting_words(&self) -> &'static str {
         if self.reverting() {
+            REVERTING
+        } else {
+            FORMALISING
+        }
+    }
+
+    /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
+    /// runs (EP-15c), nor while a formalise writes (EP-21a's review).
+    fn quit(&mut self) {
+        if self.reverting() || self.formalising() {
             self.quit_asked = false;
             self.show();
-            self.warn(REVERTING);
+            self.warn(self.waiting_words());
             return;
         }
         self.quitting = true;
@@ -1068,6 +1117,7 @@ impl Board {
             || self.revert.is_some()
             || self.offer.is_some()
             || self.compose.is_some()
+            || self.formalise.is_some()
         {
             return;
         }
@@ -1195,6 +1245,14 @@ impl Board {
             Action::OpenRevert { project, session } => self.open_revert(&project, session),
             Action::ConfirmRevert => self.confirm_revert(),
             Action::CloseRevert => self.close_revert(),
+            Action::OpenFormalise(name) => self.open_formalise(&name),
+            Action::ConfirmFormalise => self.confirm_formalise(),
+            Action::CloseFormalise => self.close_formalise(),
+            Action::OpenMigration(name) => {
+                // From the formalise preview, which gives way to the launch dialog.
+                self.close_formalise();
+                self.open_migration(&name);
+            }
             Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
             Action::AutopilotOn { project, auto } => return self.autopilot_on(&project, auto),
             Action::CloseOffer => self.offer = None,
@@ -1454,19 +1512,7 @@ impl Board {
         // The project as the registry says it now, not as the files were last read: a keep just
         // written is read again only after this (EP-19c's review).
         let project = registry.project(name).cloned().unwrap_or(project);
-        let program = cli::locate(registry.settings.claude_cli.as_deref())
-            .unwrap_or_else(|| PathBuf::from("claude.exe"));
-        let preflight = self.sessions.preflight(&program, &self.ctx);
-        let levels: Vec<String> = preflight
-            .as_ref()
-            .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
-            .unwrap_or_default();
-        let version = preflight
-            .as_ref()
-            .and_then(|preflight| preflight.version.as_ref().ok().map(ToString::to_string));
-        let route = self
-            .sessions
-            .route(&program, version.as_deref(), registry.settings.decisions);
+        let (program, levels, route) = self.launch_cli(&registry);
         let claude_md = prompt::claude_md(&folder);
         let today = files::today();
         // The downshift weighs the meter's Fable figure as it stands (D-23; EP-18).
@@ -1491,29 +1537,7 @@ impl Board {
         if !draft.parts.due.is_empty() {
             warnings.push(draft.parts.due.clone());
         }
-        if !reasons.is_empty() {
-            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
-            warnings.push(format!(
-                "A session may be in progress already ({}): a second one would edit the same \
-                 files.",
-                texts.join("; ")
-            ));
-        }
-        if let Some(running) = self.sessions.summary(name) {
-            warnings.push(format!("This window already has {running}."));
-        }
-        let own = |id: &str| self.sessions.owns(id);
-        let seen: Vec<String> = self
-            .watch
-            .running(name, own)
-            .map(|seen| seen.summary())
-            .collect();
-        if !seen.is_empty() {
-            warnings.push(format!(
-                "Claude Code reports {}: a second session would edit the same files.",
-                seen.join("; ")
-            ));
-        }
+        warnings.extend(self.launch_warnings(name, &reasons));
         let catalog = self.catalog_folder.as_deref().map_or_else(
             || Catalog::built_in("no profile folder".to_owned()),
             Catalog::read,
@@ -1556,6 +1580,144 @@ impl Board {
         {
             dialog.set_mode(LaunchMode::Headless);
         }
+    }
+
+    /// The CLI a launch dialog starts, its effort levels and the route its questions take (D-15,
+    /// D-19); the CLI's preflight is asked meanwhile.
+    fn launch_cli(
+        &mut self,
+        registry: &Registry,
+    ) -> (PathBuf, Vec<String>, (Route, Option<String>)) {
+        let program = cli::locate(registry.settings.claude_cli.as_deref())
+            .unwrap_or_else(|| PathBuf::from("claude.exe"));
+        let preflight = self.sessions.preflight(&program, &self.ctx);
+        let levels: Vec<String> = preflight
+            .as_ref()
+            .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
+            .unwrap_or_default();
+        let version = preflight
+            .as_ref()
+            .and_then(|preflight| preflight.version.as_ref().ok().map(ToString::to_string));
+        let route = self
+            .sessions
+            .route(&program, version.as_deref(), registry.settings.decisions);
+        (program, levels, route)
+    }
+
+    /// What a launch dialog on `name` warns of first (D-9): a session the files take to be in
+    /// progress there (`reasons`), the window's own run there, the sessions Claude Code reports.
+    fn launch_warnings(&self, name: &str, reasons: &[InProgress]) -> Vec<String> {
+        let mut warnings = Vec::new();
+        if !reasons.is_empty() {
+            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+            warnings.push(format!(
+                "A session may be in progress already ({}): a second one would edit the same \
+                 files.",
+                texts.join("; ")
+            ));
+        }
+        if let Some(running) = self.sessions.summary(name) {
+            warnings.push(format!("This window already has {running}."));
+        }
+        let own = |id: &str| self.sessions.owns(id);
+        let seen: Vec<String> = self
+            .watch
+            .running(name, own)
+            .map(|seen| seen.summary())
+            .collect();
+        if !seen.is_empty() {
+            warnings.push(format!(
+                "Claude Code reports {}: a second session would edit the same files.",
+                seen.join("; ")
+            ));
+        }
+        warnings
+    }
+
+    /// Migrate… (D-9; EP-21a): the launch dialog in Headless with the prompt of a session that
+    /// converts `name`'s five-column or work-packet roadmap to the house tables, in place of an
+    /// opener; the rules' model and effort for no brief, no chain plan. The prompt names the
+    /// installed `crw.exe`, which the session checks the roadmap with. A screenshot run cans a
+    /// work-packet form for a fixture in the house form (`formalise=<project>:migrate`).
+    pub fn open_migration(&mut self, name: &str) {
+        let Some(row) = self.portfolio.project(name) else {
+            self.warn(format!("{name}: no such project to migrate."));
+            return;
+        };
+        let Some(folder) = row.folder.as_ref().map(|folder| folder.path.clone()) else {
+            self.fail(format!(
+                "{name}: its folder is missing, so nothing can start there."
+            ));
+            return;
+        };
+        let profile = match (row.house.migrates, self.fixtures) {
+            (Some(profile), _) => profile,
+            (None, true) => crw_core::roadmap::table::Profile::Packet,
+            (None, false) => {
+                self.warn(format!(
+                    "{name}: its roadmap is in the house form already, or has no table the \
+                     parser reads: nothing to migrate."
+                ));
+                return;
+            }
+        };
+        let (project, reasons) = (row.project.clone(), row.in_progress());
+        let registry = match self.store().load() {
+            Ok(loaded) => loaded.registry,
+            Err(e) => {
+                self.fail(format!("The registry could not be read: {e}"));
+                return;
+            }
+        };
+        let project = registry.project(name).cloned().unwrap_or(project);
+        let (program, levels, route) = self.launch_cli(&registry);
+        let today = files::today();
+        let crw = migration_cli(self.fixtures);
+        let Some(prompt) =
+            crw_core::formalise::migration_prompt(&project.name, &folder, profile, &crw, &today)
+        else {
+            self.warn(format!("{name}: nothing to migrate."));
+            return;
+        };
+        let now = chrono::Utc::now();
+        let usage = rules::Usage::of(&self.meter.gauge.figures(now), now);
+        let title = crate::launch::migration_title(profile);
+        let brief = rules::Brief {
+            size: None,
+            phase: None,
+            title: &title,
+        };
+        let resolution = rules::resolve(&registry, &project, &brief, &levels, &usage);
+        let warnings = self.launch_warnings(name, &reasons);
+        let catalog = self.catalog_folder.as_deref().map_or_else(
+            || Catalog::built_in("no profile folder".to_owned()),
+            Catalog::read,
+        );
+        let vscode_setting = registry.settings.vscode.clone();
+        self.launch = Some(Dialog::migration(
+            &project.name,
+            prompt,
+            profile,
+            resolution,
+            Opening {
+                readiness: self.visual.readiness(&folder, vscode_setting.as_deref()),
+                folder,
+                program,
+                neighbours: project.neighbour_folders(&registry.data_root()),
+                warnings,
+                template: None,
+                catalog,
+                date: today,
+                vscode_setting,
+                answer_timeout: project.answer_timeout(),
+                route,
+                plan: None,
+                kept_mode: project.launch.permission_mode.clone(),
+                kept_model: rules::Kept::of(&project, None, rules::Key::Model),
+                kept_effort: rules::Kept::of(&project, None, rules::Key::Effort),
+                levels,
+            },
+        ));
     }
 
     /// Hands the dialog's prompt to VS Code (D-16, EP-11), off the UI thread, since the project's
@@ -1612,6 +1774,7 @@ impl Board {
         let effort = dialog.effort_words().to_owned();
         let (size, commits) = (dialog.size, dialog.commits());
         let plan = dialog.plan.clone();
+        let migration = dialog.migrates.is_some();
         // The project as the registry says it now, so that an autopilot turned on a moment ago
         // counts before the files are read again (EP-19b's review): its cap, budget, plan and
         // push guard.
@@ -1631,8 +1794,17 @@ impl Board {
             launch.starts = Some(self.store().backups.clone());
         }
         // With the autopilot on, the run has its cap and the project's budget, and its end is
-        // weighed by the gate (D-22; EP-19).
-        let run = match project.filter(|project| project.autopilot.enabled) {
+        // weighed by the gate (D-22; EP-19). A migration is the owner's one run, outside the
+        // autopilot (EP-21a): no cap, no budget, no plan and no gate after it; it keeps the push
+        // guard, since it stops before committing.
+        let run = match project.filter(|project| project.autopilot.enabled && !migration) {
+            _ if migration => {
+                launch.deny_push = true;
+                crate::sessions::Run {
+                    migration: true,
+                    ..crate::sessions::Run::default()
+                }
+            }
             Some(project) => {
                 launch.max_budget_usd = project.autopilot.max_budget_usd;
                 // Its commits stay local until the owner pushes them (D-22; EP-19b).
@@ -1647,6 +1819,7 @@ impl Board {
                     size,
                     chained: false,
                     commits,
+                    migration: false,
                 }
             }
             None => crate::sessions::Run {
@@ -2076,6 +2249,20 @@ pub(crate) fn crw_exe() -> Option<PathBuf> {
         .filter(|path| path.is_file())
 }
 
+/// The `crw.exe` a migration's prompt names, which the session checks the roadmap with (EP-21a):
+/// the installed copy (`install::bin_dir`), which the window runs beside, else the one beside
+/// this exe, else its bare name. A screenshot run's prompt names a neutral path instead.
+fn migration_cli(fixtures: bool) -> PathBuf {
+    if fixtures {
+        return PathBuf::from(r"C:\Tools\Roadmap Wrangler\crw.exe");
+    }
+    crw_core::install::bin_dir()
+        .map(|bin| bin.join(crw_core::install::CLI_EXE))
+        .filter(|path| path.is_file())
+        .or_else(crw_exe)
+        .unwrap_or_else(|| PathBuf::from(crw_core::install::CLI_EXE))
+}
+
 fn stored<T: serde::de::DeserializeOwned>(
     storage: Option<&dyn eframe::Storage>,
     key: &str,
@@ -2292,6 +2479,7 @@ impl eframe::App for Dashboard {
         self.board.compose_dialog(&ctx);
         self.board.quit_dialog(&ctx);
         self.board.revert_dialog(&ctx);
+        self.board.formalise_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 

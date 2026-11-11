@@ -206,7 +206,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   log says `the restart into the installed build waits: …` and the chain goes on in the old
   window. The session exercised this only with stand-ins for the process start (rules 5 and
   13). Notes go to `roadmap/inbox.md`
-- [ ] OT-21 (EP-20, 2026-11-10) The first real delivery between projects: the window now writes
+- [x] OT-21 (EP-20, 2026-11-10) The first real delivery between projects: the window now writes
   into another project's `roadmap/inbox.md` by itself. Once the window runs EP-20's build (after
   its restart), `target\release\crw.exe mail` should print a `first reading` line for each
   registered project within a minute of the first poll of live sessions, with a `counted` line
@@ -244,7 +244,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   not update this marketplace by itself unless you turn its auto-update on under `/plugin`). The
   session checked the plugin with `claude plugin validate` only (rules 5 and 13). Notes go to
   `roadmap/inbox.md`
-- [ ] OT-24 (EP-20a, 2026-11-10) The first real push to your phone through ntfy, when you want the
+- [x] OT-24 (EP-20a, 2026-11-10) The first real push to your phone through ntfy, when you want the
   window's notifications there (it sends them to your ntfy server). Once the window runs EP-20a's
   build (File > Install and restart, or the next gate's moment), run in a terminal in this folder
   `target\release\crw.exe setting ntfy_host <your server>` (its name or address on the tailnet,
@@ -261,7 +261,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   hours and while the window is in front with the focus; `none` for either setting turns it off.
   The session pushed only to a listener on this machine (rules 5 and 13). Notes go to
   `roadmap/inbox.md`
-- [ ] OT-25 (EP-20b, 2026-11-10) Install the prompt hook (it writes your user settings). Once the
+- [x] OT-25 (EP-20b, 2026-11-10) Install the prompt hook (it writes your user settings). Once the
   window runs EP-20b's build (File > Install and restart, or the next gate's moment), the status
   bar's Signals item says `hooks installed but not the prompt hook (crw signals install adds it)`.
   In a terminal in this folder, `target\release\crw.exe signals` should list `UserPromptSubmit not

@@ -2512,12 +2512,19 @@ fn revert_session(args: &[&str]) -> ExitCode {
         Ok(chosen) => chosen,
         Err(why) => return failed(why),
     };
-    let ticks = match chosen.first.started() {
-        Some(since) => match revert::ticks_since(&read, &project.name, since) {
-            Ok(ticks) => ticks,
+    // The tool's own writes since the start, which the revert redoes: its ticks and deliveries,
+    // and its formalise writes (EP-21a).
+    let (ticks, formalised) = match chosen.first.started() {
+        Some(since) => match revert::ticks_since(&read, &project.name, since).and_then(|ticks| {
+            Ok((
+                ticks,
+                revert::formalised_since(&read, &project.name, since)?,
+            ))
+        }) {
+            Ok(both) => both,
             Err(why) => return failed(why),
         },
-        None => Vec::new(),
+        None => (Vec::new(), Vec::new()),
     };
     drop(read);
     let (working, idle) = live_sessions(&registry, &folder);
@@ -2528,6 +2535,7 @@ fn revert_session(args: &[&str]) -> ExitCode {
         working,
         idle,
         ticks,
+        formalised,
         backups: &store.backups,
         now: Utc::now(),
     };
@@ -3305,24 +3313,15 @@ fn formalise_project(args: &[&str]) -> ExitCode {
             .unwrap_or_default();
         println!("wrote {}{copy}", written.path.display());
     }
-    if let Some(path) = paths::ledger_file().filter(|path| path.exists())
+    // The row a revert of a session that started before it redoes (EP-21a): a registered
+    // project's alone, since a revert matches the rows by name, and a folder that is not
+    // registered goes by its folder's name, which a registered project may share (the review).
+    if registered.is_some()
+        && let Some(path) = paths::ledger_file().filter(|path| path.exists())
         && !applied.written.is_empty()
+        && let Err(why) = formalise::log(&path, &name, &applied)
     {
-        let logged = Ledger::open(&path)
-            .map_err(|e| e.to_string())
-            .and_then(|ledger| {
-                ledger
-                    .add_event(
-                        Utc::now(),
-                        formalise::EVENT_KIND,
-                        Some(&name),
-                        &applied.detail(),
-                    )
-                    .map_err(|e| e.to_string())
-            });
-        if let Err(why) = logged {
-            eprintln!("crw: the ledger did not take the write's line: {why}");
-        }
+        eprintln!("crw: {why}: a revert would not redo the write");
     }
     match &applied.failed {
         Some(why) => failed(format!(

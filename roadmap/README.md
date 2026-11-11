@@ -708,7 +708,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-20c | Compose and the mailman's limits: the compose dialog (target, text, urgent) writing `from the owner` through `mailman::append`, its write redone by a revert; the five limitations EP-20's review parked, (a) … (e), fixed where they fit (D-13) | M | EP-20a | core | ☑ `8a1245c` + `438caf0` |
 | EP-20b | [The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event](EP-20b-the-prompt-hook.md) (D-20) | S | EP-20 | core | ☑ `d128921` |
 | EP-20d | [The mailman's keys: a block committed when its words are in HEAD's copy of its brief (`git show HEAD:<brief>`), so an old brief's block whose file is uncommitted at the first reading is counted, block by block; a reworded block, sent again by D-13's rule, said as such in the Detail pane and the status bar; EP-20c's review points: the flag before punctuation, `crw send --urgent` anywhere, the length warning, mail to a held project](EP-20d-the-mailmans-keys.md) (D-13) | S → M (re-scoped at pickup) | EP-20c | core | ☑ `9a7ab96` |
-| EP-21a | Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane, and Migrate… opening the launch dialog in Headless with the migration prompt (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
+| EP-21a | [Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane's House style section, Migrate… opening the launch dialog in Headless with the migration prompt, a revert redoing a formalise made since the session's start](EP-21a-formalise-in-the-window.md) (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
 | EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-20d, EP-21a | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
@@ -1468,6 +1468,16 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   IN-n`. The walk also weighs whether `crw mail` should print the rewording beside its delivery
   (its own `rewording` row today) and whether a rewording of a block counted at a first reading
   should say so (its `counted` row holds no receiver).
+  **From EP-21a:** 11 briefs are still open once EP-21a is checked; EP-23 is next. OT-21 is
+  done: the window's mailman delivered EP-20d's test block as IN-8 once its brief was committed.
+  The walk takes EP-21a's residual-risk paragraph: the first Formalise… from the window on a real
+  project (the House style section and the row's menu, the preview, Write, the files read again
+  and the section gone, the status bar naming the copy of `CLAUDE.md`, the ledger's `formalise`
+  line), the first Migrate… of a real older roadmap, and the first revert that redoes a
+  formalise. Nearly every real project lacks the brief template and the rule block, so the House
+  style section shows on most rows' Detail panes until they are formalised: the walk weighs
+  whether that is wanted, or whether the section should wait for a missing owner-tasks or inbox
+  file.
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 

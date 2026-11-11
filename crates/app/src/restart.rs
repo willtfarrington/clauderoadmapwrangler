@@ -272,6 +272,9 @@ impl Board {
             (self.launch.is_some(), "the launch dialog is open"),
             (self.revert.is_some(), "the revert's preview is open"),
             (self.offer.is_some(), "the offer of auto is open"),
+            // A message being written would be lost (EP-21a's finding: EP-20c left it out).
+            (self.compose.is_some(), "the compose dialog is open"),
+            (self.formalise.is_some(), "the formalise preview is open"),
             (self.quit_asked, "the question before Quit is open"),
         ] {
             if open {
@@ -309,23 +312,33 @@ impl Board {
 
     /// What stands in the way of a restart the gate asks for, beyond what refuses the owner's
     /// (EP-37a's review): an ended run whose tab offers Commit, which the owner has not taken and
-    /// a restart nobody asked for would drop.
+    /// a restart nobody asked for would drop; and a finished migration's tab, whose report and
+    /// commit are the owner's (EP-21a's review).
     fn gate_refusals(&self) -> Vec<String> {
-        let offers: Vec<String> = self
-            .sessions
-            .live
-            .iter()
-            .filter(|live| live.offers_commit())
-            .map(|live| live.title())
-            .collect();
-        if offers.is_empty() {
-            Vec::new()
-        } else {
-            vec![format!(
+        let tabs = |keep: fn(&crate::sessions::Live) -> bool| -> Vec<String> {
+            self.sessions
+                .live
+                .iter()
+                .filter(|live| keep(live))
+                .map(|live| live.title())
+                .collect()
+        };
+        let mut refusals = Vec::new();
+        let offers = tabs(crate::sessions::Live::offers_commit);
+        if !offers.is_empty() {
+            refusals.push(format!(
                 "an ended run's tab offers Commit: {}",
                 offers.join(", ")
-            )]
+            ));
         }
+        let migrated = tabs(crate::sessions::Live::finished_migration);
+        if !migrated.is_empty() {
+            refusals.push(format!(
+                "a finished migration's tab waits for you: {}",
+                migrated.join(", ")
+            ));
+        }
+        refusals
     }
 
     /// What the window carries across a restart asked by `asked` (EP-37a): its held chains, its
@@ -856,6 +869,16 @@ pub(crate) mod tests {
             Err("an ended run's tab offers Commit: alpha EP-3".to_owned())
         );
         assert!(board.restart.closing_at.is_none());
+        // A finished migration offers no Commit, and still holds the restart (EP-21a's review).
+        let done = &mut board.sessions.live[0];
+        done.migration = true;
+        done.ep = crate::launch::MIGRATION.to_owned();
+        assert!(!done.offers_commit());
+        assert_eq!(
+            board.gate_refusals(),
+            ["a finished migration's tab waits for you: alpha migration"]
+        );
+        assert!(board.restart_refusals().is_empty());
     }
 
     /// A request whose caller stopped waiting is dropped unanswered, and one that installed into

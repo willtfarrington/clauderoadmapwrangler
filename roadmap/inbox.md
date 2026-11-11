@@ -108,3 +108,20 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   per project or phase, so, on the owner's choice, a new M row EP-19b right after EP-19a takes
   all four parts, the three limits and "keep for this project" (or phase) beside the dialog's
   pickers; EP-19a stays on the chain plan and the chain's moment.
+- [x] IN-8 (from clauderoadmapwrangler EP-20d, 2026-11-10) A test message from EP-20d, at the
+  owner's request, for OT-21's check of the mailman's delivery between projects: nothing to build;
+  decline it as a test and tick it. **Triaged at EP-21a (2026-11-10):** declined as the test it
+  is: the window's mailman delivered it at 23:03, once EP-20d's brief was committed (`crw mail`:
+  `delivered EP-20d:… to clauderoadmapwrangler as IN-8`), which was the check.
+- [x] IN-9 (from the owner, 2026-11-10) OT-24 is done (the first real push reached the phone, and
+  crw notifications listed ntfy · test). Two findings for the README's ntfy note and OT-24's
+  wording: (1) when the ntfy server runs on the window's own PC, ntfy_host is best its loopback
+  address (http://127.0.0.1:<port>), since a VPN on the PC can leave the server's tailnet name
+  unreachable from the PC itself, while the phone uses the tailnet name; (2) ntfy's iOS app needs a
+  self-hosted server with upstream-base-url set to ntfy.sh and a base-url equal, character for
+  character, to the server URL typed into the app (both sides hash it), and it fetches each
+  message's text over the tailnet, so while another VPN replaces the tailnet on the phone the banner
+  says only "New message" and the text waits in the server's cache until the app is next opened.
+  **Triaged at EP-21a (2026-11-10):** rolled in on the owner's choice, though outside the brief's
+  subject (a few README sentences): the README's ntfy paragraph says both points in generic
+  words; OT-24, ticked, keeps its wording.

@@ -193,9 +193,14 @@ fn read_plan(asked: &Asked) -> Result<Plan, String> {
         .sessions()
         .map_err(|e| format!("{}: {e}", path.display()))?;
     let chosen = revert::choose(&rows, &asked.project, asked.session.as_deref())?;
-    let ticks = match chosen.first.started() {
-        Some(since) => revert::ticks_since(&read, &asked.project, since)?,
-        None => Vec::new(),
+    // The tool's own writes since the start, which the revert redoes: its ticks and deliveries,
+    // and its formalise writes (EP-21a).
+    let (ticks, formalised) = match chosen.first.started() {
+        Some(since) => (
+            revert::ticks_since(&read, &asked.project, since)?,
+            revert::formalised_since(&read, &asked.project, since)?,
+        ),
+        None => (Vec::new(), Vec::new()),
     };
     drop(read);
     let cx = revert::Context {
@@ -205,6 +210,7 @@ fn read_plan(asked: &Asked) -> Result<Plan, String> {
         working: asked.view.working.clone(),
         idle: asked.view.idle.clone(),
         ticks,
+        formalised,
         backups: &asked.backups,
         now: Utc::now(),
     };
@@ -516,10 +522,16 @@ impl Board {
     /// its own runs and starts there, a visual launch on its way, a session's start being read,
     /// and the sessions the hooks and the poll report.
     pub fn revert_view(&self, project: &str) -> View {
+        self.work_view(project, "revert")
+    }
+
+    /// The same for any write the window refuses while a session works or waits in `project`,
+    /// the refusals worded for `verb` (`revert`, `formalise`; EP-21a).
+    pub fn work_view(&self, project: &str, verb: &str) -> View {
         let (mut working, mut refusals) = self.sessions.at_work(project);
         if let Some(ep) = self.visual.opening_in(project) {
             refusals.push(format!(
-                "a visual launch of {ep} is on its way to VS Code: revert once it has opened"
+                "a visual launch of {ep} is on its way to VS Code: {verb} once it has opened"
             ));
         }
         if self.watch.reading_start(project) {

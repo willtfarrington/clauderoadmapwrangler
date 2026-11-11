@@ -257,7 +257,14 @@ window is in front, where the status bar says them instead; File, Send a test no
 in the popup. With `crw setting ntfy_host <server>` and `crw setting ntfy_topic <topic>`, each
 notification the popup shows is also pushed to that [ntfy](https://ntfy.sh) server for the phone
 (`https://` unless the host is written `http://`; urgent messages at ntfy's `urgent` priority, waits,
-failures and usage marks at `high`), and the test is pushed too. The tray icon counts what waits for the owner and marks what is new since the window
+failures and usage marks at `high`), and the test is pushed too. When the ntfy server runs on the
+window's own PC, `ntfy_host` is best its loopback address (`http://127.0.0.1:<port>`): a VPN client
+on the PC can leave the server's name on a private network such as a tailnet unreachable from the
+PC itself, while the phone keeps that name. ntfy's iOS app takes a self-hosted server only when the
+server's `upstream-base-url` is `https://ntfy.sh` and its `base-url` is, character for character,
+the URL typed into the app (both sides hash it); the app fetches each message's text from the
+server, so while the phone cannot reach it the banner says only "New message" and the text waits
+in the server's cache until the app is next opened. The tray icon counts what waits for the owner and marks what is new since the window
 was last in front: an unadopted folder, a remote or a backup to look at, an inbox message. A left
 click on it shows the window; its menu shows the window too, opens the launch dialog on a pinned
 project's next brief, or quits. Closing the window leaves it in the tray with its headless sessions
@@ -358,7 +365,15 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   template `roadmap/_TEMPLATE.md`; a file that is there is never replaced, and the write is
   refused while a session works in the project. For a roadmap in one of the two older shapes,
   `crw formalise <project> --migration` prints the prompt of a session that converts its tables to
-  the house form, keeping every id, hash and file.
+  the house form, keeping every id, hash and file. In the window, a project that lacks one of these
+  files shows a House style section in its Detail pane, and its row's menu offers Formalise…: the
+  same preview in a dialog (each file and its change, the block and the new files' text), then
+  Write, which reads the files again first and writes only the plan shown, refused while a session
+  works or waits there. For an older roadmap, Migrate… (Migrate the roadmap… in the row's menu)
+  opens the launch dialog in Headless with that prompt in place of the opener, for the owner to
+  send: the run is labelled `migration`, no chain follows it, and its commit is the owner's. Each
+  formalise is a line in the ledger, and a revert of a session that started before it writes the
+  house-style files again after the reset, as it redoes the tool's ticks.
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in
   `roadmap/v2-notes.md`.
 - **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.

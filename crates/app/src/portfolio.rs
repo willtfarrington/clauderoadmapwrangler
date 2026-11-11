@@ -25,6 +25,7 @@ use crw_core::badges::hosting::{self, Check, Class, Hosting, Listed};
 use crw_core::badges::online::{self, Reading};
 use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
+use crw_core::formalise::{self, Change};
 use crw_core::git;
 use crw_core::inbox::mailman::Mark;
 use crw_core::inbox::{self, Outgoing};
@@ -33,7 +34,7 @@ use crw_core::process;
 use crw_core::proposal::{self, Facts, Proposal};
 use crw_core::registry::{Project, Registry, State, Store};
 use crw_core::roadmap::snapshot::{self, GitReading, InProgress, Snapshot};
-use crw_core::roadmap::table::{Counts, Row};
+use crw_core::roadmap::table::{Counts, Profile, Row};
 use eframe::egui;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde::{Deserialize, Serialize};
@@ -161,6 +162,75 @@ pub struct ProjectRow {
     /// not a repository.
     pub git: Option<Git>,
     pub badges: Badges,
+    /// What a formalise would write there (EP-21a); empty for a missing folder.
+    pub house: House,
+}
+
+/// What the formalise step would write in a project (D-11; EP-21a), from its files as the files
+/// pass read them, by path only and with no git: each file a formalise writes with its change,
+/// what refuses one, and the roadmap's older form, which a session migrates (D-9).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct House {
+    /// Each file a formalise writes, by its name in the project, with its change.
+    pub writes: Vec<(String, Change)>,
+    /// What refuses a formalise: markers that cannot be read, a file that cannot be looked at.
+    pub refused: Vec<String>,
+    /// The five-column or work-packet form of the roadmap's tables.
+    pub migrates: Option<Profile>,
+}
+
+impl House {
+    pub fn read(folder: &Path, name: &str) -> Self {
+        let plan = formalise::plan(folder, name);
+        let refused = plan
+            .problems
+            .iter()
+            .cloned()
+            .chain(plan.steps.iter().filter_map(|step| match &step.change {
+                Change::Refused(why) if why.contains(&step.name) => Some(why.clone()),
+                Change::Refused(why) => Some(format!("{}: {why}", step.name)),
+                _ => None,
+            }))
+            .collect();
+        Self {
+            writes: plan
+                .steps
+                .iter()
+                .filter(|step| step.writes())
+                .map(|step| (step.name.clone(), step.change.clone()))
+                .collect(),
+            refused,
+            migrates: plan.migrates(),
+        }
+    }
+
+    /// Whether Formalise… has something to show: a file to write, or a refusal to read.
+    pub fn wants(&self) -> bool {
+        !self.writes.is_empty() || !self.refused.is_empty()
+    }
+
+    /// The files a formalise writes, in words: `CLAUDE.md (the rule block added) and
+    /// roadmap/_TEMPLATE.md (created)`.
+    pub fn writes_words(&self) -> String {
+        let parts: Vec<String> = self
+            .writes
+            .iter()
+            .map(|(name, change)| {
+                let what = match change {
+                    Change::Create => "created",
+                    Change::AddBlock => "the rule block added",
+                    Change::ReplaceBlock => "the rule block replaced",
+                    Change::Keep | Change::Refused(_) => "kept",
+                };
+                format!("{name} ({what})")
+            })
+            .collect();
+        match parts.as_slice() {
+            [] => String::new(),
+            [one] => one.clone(),
+            [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
+        }
+    }
 }
 
 /// What the git pass reads of one repository.
@@ -329,6 +399,12 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
     let outgoing = inbox::outgoing(&snapshot.briefs, |name| {
         registry.project(name).map(|project| project.name.clone())
     });
+    // What a formalise would write, read by path like the rest of this pass (EP-21a).
+    let house = registered
+        .folder
+        .as_ref()
+        .map(|folder| House::read(&folder.path, &registered.project.name))
+        .unwrap_or_default();
     ProjectRow {
         project: registered.project,
         path: registered.path,
@@ -339,6 +415,7 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         mail: Vec::new(),
         git: None,
         badges,
+        house,
     }
 }
 

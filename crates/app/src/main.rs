@@ -18,6 +18,7 @@ mod compose;
 mod crash;
 mod decisions;
 mod detail;
+mod formalise;
 mod launch;
 mod layout;
 mod list;

@@ -845,6 +845,31 @@ fn project_row(
             actions.push(Action::OpenCompose(name.to_owned()));
             ui.close();
         }
+        // The house-style files a project lacks, behind their preview, and the migration of an
+        // older roadmap (D-9, D-11; EP-21a): for a project that needs one or the other.
+        let house = &row.house;
+        let formalise = house.wants() || row.project.state == State::Unformalised;
+        if row.folder.is_some() && (formalise || house.migrates.is_some()) {
+            ui.separator();
+            if formalise
+                && ui
+                    .button("Formalise…")
+                    .on_hover_text(house_hint(house))
+                    .clicked()
+            {
+                actions.push(Action::OpenFormalise(name.to_owned()));
+                ui.close();
+            }
+            if house.migrates.is_some()
+                && ui
+                    .button("Migrate the roadmap…")
+                    .on_hover_text(crate::formalise::MIGRATE_HINT)
+                    .clicked()
+            {
+                actions.push(Action::OpenMigration(name.to_owned()));
+                ui.close();
+            }
+        }
         // The project's latest session undone, behind its preview (D-11; EP-15c).
         ui.separator();
         let available = crate::revert::availability(Some(row), name);
@@ -879,6 +904,22 @@ fn project_row(
         expansion(ui, row, indent);
     }
     actions
+}
+
+/// What Formalise… would do, on hover (EP-21a).
+fn house_hint(house: &crate::portfolio::House) -> String {
+    let what = if house.writes.is_empty() {
+        "Preview the house-style files: the project has each one".to_owned()
+    } else {
+        format!(
+            "Preview writing the house-style files it lacks: {}",
+            house.writes_words()
+        )
+    };
+    match house.refused.first() {
+        Some(why) => format!("{what}. Refused: {why}"),
+        None => format!("{what}, then Write or Cancel (D-11)"),
+    }
 }
 
 fn name_label(ui: &mut egui::Ui, name: &str) {

@@ -266,6 +266,10 @@ impl Board {
         let Some(outcome) = live.ended.as_ref().map(|ended| ended.outcome) else {
             return;
         };
+        // A migration is no brief: no gate follows it, and no chain (EP-21a).
+        if live.migration {
+            return;
+        }
         let (project, ran, chained) = (live.project.clone(), live.ep.parse().ok(), live.chained);
         let registry = match self.store().load() {
             Ok(loaded) => loaded.registry,
@@ -658,6 +662,7 @@ impl Board {
             size: queued.size,
             chained: true,
             commits: true,
+            migration: false,
         };
         self.sessions.start(
             preflight,
@@ -1004,19 +1009,21 @@ impl Board {
                 words = format!(
                     "{name}: {what} {value} kept for {}, but for {} {over} stands over it.",
                     scope.words(),
-                    dialog.ep
+                    dialog.label()
                 );
             }
+            // A migration has no brief and no chain plan (EP-21a).
             let plan = dialog
                 .plan
                 .as_ref()
                 .and_then(|_| self.portfolio.project(name))
-                .map(|row| {
+                .zip(dialog.ep)
+                .map(|(row, ep)| {
                     autopilot::plan(
                         &registry,
                         project,
                         &row.snapshot,
-                        dialog.ep,
+                        ep,
                         &dialog.levels,
                         &usage,
                     )

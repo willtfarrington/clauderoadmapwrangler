@@ -241,6 +241,18 @@ house style only with a regex fallback.
 > stops before committing. *Alternatives.* The tool rewriting the tables itself (D-11 forbids
 > it); a prompt that also writes the formalise step's files.
 
+> **Addendum (2026-11-11, EP-21a).** Migrate… is built. A project whose roadmap's first phase
+> table is the five-column or the work-packet form offers it (its row's menu as Migrate the
+> roadmap…, its Detail pane's House style section, the formalise preview's README line): the
+> launch dialog opens in Headless with `formalise::migration_prompt` in its editor, its `crw` the
+> installed `crw.exe` (`install::bin_dir`), for the owner to send. The prompt is fixed: no choice
+> rewrites it, and Regenerate puts it back after an edit. The dialog has no chain plan and no Keep
+> pins, and the owner may still switch it to Visual. The run is labelled `migration` (the ledger
+> row's EP, the session's name), runs outside the autopilot (no cap, no budget, no gate and no
+> chain after it, no Commit button, whose message records a brief's hash; the push guard kept and
+> its start recorded for a revert), and stays so through a resume. *Alternatives.* The ledger
+> row's EP left empty; the dialog held in Headless; a migration run capped and gated as a brief.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -360,6 +372,34 @@ with ticks in the registry.
 > refuses it, and `crw revert` still counts every session. Found by EP-22's review: the skill's
 > route had always been refused by the session itself. *Alternatives.* The skill handing the
 > owner the `--yes` command to run after its turn; the session found by its process id.
+
+> **Addendum (2026-11-11, EP-21a).** The window's Formalise…, and a revert that redoes a
+> formalise.
+>
+> - **Formalise…** opens from a project's row menu and its Detail pane's House style section, for
+>   a project the files pass finds lacking a house-style file or holding markers that cannot be
+>   read (`ProjectRow::house`, from `formalise::plan` by path, no git), or in the unformalised
+>   state. The dialog shows the plan (each file and its change, the roadmap's form, the block and
+>   each new file's text), then Write and Cancel, or Close alone when it is refused or writes
+>   nothing. The plan is read on a worker thread with the Revert's refusals added (EP-15c): the
+>   window's own runs and starts there, a visual launch on its way, a session the hooks or the
+>   poll report at work or waiting, the poll unanswered; an idle tab is named, never a refusal.
+>   At Write the plan is read again and written only when it equals the one shown, `CLAUDE.md`'s
+>   text included; otherwise the new plan is shown and nothing is written. The write is logged as
+>   the `formalise` row (`formalise::log`, which `crw formalise --yes` now shares), the files are
+>   read again, and the status bar names the copy of `CLAUDE.md`. A project's state stays the
+>   owner's (D-6). A screenshot run reads a fixture's plan and writes nothing.
+> - **A revert redoes a formalise** made after the session's start (the owner's choice among the
+>   three ways EP-21's review named), as it redoes the tool's ticks and deliveries:
+>   `revert::formalised_since` reads the project's `formalise` rows since the start, the plan
+>   carries them (its preview names them, `is_as_seen` compares them), and after the reset and
+>   the ticks the project is formalised again, the plan read then and written: the house-style
+>   files it lacks then, and the block. No row is logged for the redo; the formalise's own row
+>   stays. `ticks_since`, which the autopilot's gate reads for its inbox exception, is unchanged.
+>
+> *Alternatives.* Formalise… refused while any tab is open in the project; the revert taking the
+> files and the block back, as EP-21 left it, a formalise again restoring them; the redo in a
+> brief of its own.
 
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20

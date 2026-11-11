@@ -758,6 +758,7 @@ mod tests {
             mail: Vec::new(),
             git: None,
             badges,
+            house: Default::default(),
         }
     }
 

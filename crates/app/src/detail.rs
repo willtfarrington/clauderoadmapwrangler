@@ -192,7 +192,75 @@ fn project(
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
     decisions(ui, snapshot);
+    house_style(ui, row, actions);
     problems(ui, row);
+}
+
+/// What the house style still asks of the project (D-9, D-11; EP-21a): the files Formalise…
+/// would write, what refuses it, and an older roadmap's Migrate…; nothing for a project that has
+/// every file and house tables.
+fn house_style(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
+    let house = &row.house;
+    let unformalised = row.project.state == crw_core::registry::State::Unformalised;
+    let formalise = house.wants() || unformalised;
+    if row.folder.is_none() || (!formalise && house.migrates.is_none()) {
+        return;
+    }
+    section(ui, "House style");
+    if !house.writes.is_empty() {
+        ui.add(
+            egui::Label::new(format!("Formalise… would write {}.", house.writes_words())).wrap(),
+        );
+    } else if unformalised && house.refused.is_empty() {
+        ui.label(
+            RichText::new(
+                "Every house-style file is there; the state stays unformalised until you set it \
+                 (D-6).",
+            )
+            .weak(),
+        );
+    }
+    for why in &house.refused {
+        ui.add(
+            egui::Label::new(RichText::new(format!("Refused: {why}")).color(style::amber(ui)))
+                .wrap(),
+        );
+    }
+    if let Some(profile) = house.migrates {
+        ui.add(
+            egui::Label::new(
+                RichText::new(format!(
+                    "Its roadmap's tables are {}, read-only (D-9): Migrate… opens the launch \
+                     dialog with the prompt of a headless session that converts them to the house \
+                     tables.",
+                    crw_core::formalise::form_words(profile)
+                ))
+                .weak(),
+            )
+            .wrap(),
+        );
+    }
+    ui.horizontal(|ui| {
+        if formalise
+            && ui
+                .button("Formalise…")
+                .on_hover_text(
+                    "Preview the house-style files: each file and its change, the block and the \
+                     new files' text, then Write or Cancel (D-11)",
+                )
+                .clicked()
+        {
+            actions.push(Action::OpenFormalise(row.name().to_owned()));
+        }
+        if house.migrates.is_some()
+            && ui
+                .button("Migrate…")
+                .on_hover_text(crate::formalise::MIGRATE_HINT)
+                .clicked()
+        {
+            actions.push(Action::OpenMigration(row.name().to_owned()));
+        }
+    });
 }
 
 /// Why a session is taken to be in progress: the sessions that run there and what the files say
@@ -1038,6 +1106,54 @@ mod tests {
         ] {
             assert_eq!(without_gate(text, gate), text, "{text}");
         }
+    }
+
+    /// The House style section (EP-21a): what Formalise… would write and its button, Migrate…
+    /// for an older roadmap, and nothing for a project with every file and house tables.
+    #[test]
+    fn the_house_style_section_says_what_formalise_would_write() {
+        use crate::portfolio::House;
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::roadmap::table::Profile;
+
+        let shows = |output: &egui::FullOutput, part: &str| {
+            output.shapes.iter().any(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => shape.galley.text().contains(part),
+                _ => false,
+            })
+        };
+        let scratch = Scratch::new("detail-house");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio.project("harbor").unwrap();
+        let mut screen = Screen::new();
+        let mut actions = Vec::new();
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, harbor, &mut actions));
+        assert!(shows(
+            &output,
+            "Formalise… would write CLAUDE.md (created) and roadmap/_TEMPLATE.md (created)."
+        ));
+        assert!(testing::text_at(&output, "Migrate…").is_none());
+        let at = testing::text_at(&output, "Formalise…").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| house_style(ui, harbor, &mut actions));
+        }
+        assert_eq!(actions, [Action::OpenFormalise("harbor".to_owned())]);
+        // Every file there and house tables: no section.
+        let mut whole = harbor.clone();
+        whole.house = House::default();
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        assert!(testing::text_at(&output, "House style").is_none());
+        // An older roadmap: Migrate…, and no Formalise… while every file is there.
+        whole.house.migrates = Some(Profile::House5);
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        assert!(testing::text_at(&output, "Migrate…").is_some());
+        assert!(testing::text_at(&output, "Formalise…").is_none());
+        assert!(shows(&output, "the five-column tables, read-only (D-9)"));
     }
 
     #[test]
