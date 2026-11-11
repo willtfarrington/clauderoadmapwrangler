@@ -844,6 +844,25 @@ tool. *Alternatives.* Polling only; hooks only.
 > session that ends without having worked leaves the window at once, not after ten minutes.
 > *Alternatives.* The prompt hook installed now, for busy at once whatever the window's focus.
 
+> **Addendum (2026-11-10, EP-20b).** Built; its install is the owner's (OT-25, D-10 addendum).
+> `UserPromptSubmit` is the fifth event `crw signals install` writes, the same exec-form `crw.exe
+> hook` at 5 s, so a prompted session is busy in the window at once; an install from before shows
+> as "hooks installed but not the prompt hook". On that event, in a session the owner works in
+> (an SDK's `-p` run, whose prompt a program wrote, is left out: the tool's own headless runs among
+> them), the relay reads the prompt's `@<project>` mentions (IN-2): an `@` at a word's start and a
+> registered project's name in any case, as the mailman finds a receiver; none inside code, inside
+> pasted content, before a `/` or `\` (a file path, which Claude Code reads itself), or for the
+> session's own project; at most three. For each it prints a framing line (the rules are that
+> project's, not the session's; that project is read-only from here, its plan changing through its
+> inbox), its `CLAUDE.md` and its next row as the opener writes it, with the brief notes verbatim,
+> which Claude Code adds to the session's context. The texts share 9,000 characters, since Claude
+> Code caps a hook's output at 10,000 and beyond it passes only a preview Claude is not asked to
+> read; a cut names the file holding the rest. The registry is read only when a prompt holds an
+> `@`, and the prompt never leaves the relay: the window hears the event's kept fields alone.
+> *Alternatives.* A flag on the entry, as `--inbox` is; the whole `CLAUDE.md` in a file the
+> session is told to read; mentions in headless runs too; the folder name as well as the
+> registry's name.
+
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
 Quit); the Claude app's own push for the phone; **ntfy over the tailnet** (a topic configured in the

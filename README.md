@@ -223,13 +223,16 @@ never answered: Focus brings its VS Code window forward. The ledger keeps how ma
 asked and how long the answers took.
 
 The window also listens on `127.0.0.1` (the registry's `port`, 47831 by default) for Claude Code's
-hooks (SessionStart, Notification, Stop, SessionEnd) and its status line, which `crw signals install`
+hooks (SessionStart, Notification, Stop, SessionEnd, UserPromptSubmit) and its status line, which `crw signals install`
 writes into the user settings to run `crw.exe hook` and `crw.exe statusline` (the installed copy once
 there is one): each reads the
 session's input, keeps the session's id, folder and event (or the status line's model, cost, context
 and rate limits, never a transcript's text) and posts them within half a second, printing nothing
 and exiting quietly when no window listens. With `--inbox` the start hook also prints the project's
-open inbox messages into the session. The window asks `claude agents --json` for the live sessions
+open inbox messages into the session. A prompt typed in a session that names a registered project
+as `@<project>` (outside code, at most three) is given that project's `CLAUDE.md` and next row, cut
+to stay under Claude Code's limit on a hook's output; the prompt's text never leaves the relay, and
+a headless run's prompt, a program's, is given nothing. The window asks `claude agents --json` for the live sessions
 every 5 s while it has the focus (every 30 s otherwise), matches each session's folder to a
 registered project, and lists the sessions started elsewhere (visual, headless or by hand; busy,
 waiting, idle or ended) in the Sessions pane and as a session in progress in the project's row. A

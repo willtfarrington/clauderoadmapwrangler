@@ -18,7 +18,9 @@
 //! folder and the window asked to restart into it, with `signals` and `doctor` naming the
 //! installed copy, from EP-37; `mail`, the mailman's log read without a write, from EP-20;
 //! `formalise`, a project's house-style files previewed and written and the migration prompt of
-//! an older roadmap, from EP-21; `inbox send` arrives with its brief.
+//! an older roadmap, from EP-21; `send`, the owner's message into a project's inbox, from
+//! EP-20c; the prompt hook, `hook` on a `UserPromptSubmit` giving a prompt's `@<project>`
+//! mentions their context and `signals install` adding the event, from EP-20b.
 
 use std::collections::HashMap;
 use std::fs;
@@ -205,8 +207,9 @@ commands:
                                  settings, what an install would change, and whether a window
                                  listens for them
   signals install [--inbox|--no-inbox] [--no-status-line]
-                                 write the SessionStart, Notification, Stop and SessionEnd hooks
-                                 and the status line into the user settings, running the
+                                 write the SessionStart, Notification, Stop, SessionEnd and
+                                 UserPromptSubmit hooks and the status line into the user
+                                 settings, running the
                                  installed crw.exe once there is one (else this crw.exe), after a
                                  dated copy of the file; --inbox has the start
                                  hook print the project's open inbox messages and takes the
@@ -214,7 +217,10 @@ commands:
                                  --no-inbox)
   signals remove                 take the tool's hooks and status line out of the user settings
   hook [--inbox]                 the hooks' relay: posts the hook's input to the window and
-                                 prints nothing (with --inbox, a start's open inbox messages)
+                                 prints nothing (with --inbox, a start's open inbox messages);
+                                 a prompt that names a registered project as @<project> in a
+                                 session you work in is given that project's CLAUDE.md and next
+                                 row, which Claude Code adds to the session's context
   hook --defer | --answer <file> the defer route's PreToolUse decisions, which a headless run's
                                  settings install: defer a question, or answer the deferred call
                                  the file names
@@ -277,6 +283,7 @@ fn main() -> ExitCode {
                 std::io::stdin().lock(),
                 signals::entrypoint(),
                 inbox,
+                signals::registered,
                 &mut out,
                 signals::port(),
             );
@@ -2683,15 +2690,20 @@ fn signals_status() -> ExitCode {
         Err(e) => return failed(e),
     };
     let this = this_exe().ok();
-    println!("  settings     {}", path.display());
+    // One column wide enough for the longest event's name, UserPromptSubmit (EP-20b).
+    println!("  {:<18}{}", "settings", path.display());
     println!(
-        "  this exe     {}",
+        "  {:<18}{}",
+        "this exe",
         this.as_ref()
             .map_or_else(|| "?".to_owned(), |this| this.display().to_string())
     );
     match installed_cli() {
-        Some(installed) => println!("  installed    {}", installed.display()),
-        None => println!("  installed    none: crw install copies the release build there"),
+        Some(installed) => println!("  {:<18}{}", "installed", installed.display()),
+        None => println!(
+            "  {:<18}none: crw install copies the release build there",
+            "installed"
+        ),
     }
     let status = match signal_entries::status(&path) {
         Ok(status) => status,
@@ -2710,17 +2722,17 @@ fn signals_status() -> ExitCode {
                 "more than one entry of the tool's: an install puts one back".to_owned()
             }
         };
-        println!("  {event:<13}{text}");
+        println!("  {event:<18}{text}");
     }
     let line = match &status.line {
         Line::Missing => "none".to_owned(),
         Line::Ours(theirs) => format!("runs {} statusline", which(theirs)),
         Line::Other(command) => format!("another command, which an install leaves: {command}"),
     };
-    println!("  {:<13}{line}", "status line");
+    println!("  {:<18}{line}", "status line");
     if status.stopgap {
         println!(
-            "  {:<13}the stopgap SessionStart hook prints the inbox (install --inbox replaces it)",
+            "  {:<18}the stopgap SessionStart hook prints the inbox (install --inbox replaces it)",
             "stopgap"
         );
     }
@@ -2736,7 +2748,7 @@ fn signals_status() -> ExitCode {
         Ok(answer) => format!("127.0.0.1:{port} answers {}: not the window", answer.status),
         Err(_) => format!("no window listens on 127.0.0.1:{port}"),
     };
-    println!("  {:<13}{window}", "window");
+    println!("  {:<18}{window}", "window");
     let options = Options {
         status_line: true,
         inbox: status.stopgap || status.prints_inbox(),

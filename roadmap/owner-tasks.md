@@ -261,3 +261,16 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   hours and while the window is in front with the focus; `none` for either setting turns it off.
   The session pushed only to a listener on this machine (rules 5 and 13). Notes go to
   `roadmap/inbox.md`
+- [ ] OT-25 (EP-20b, 2026-11-10) Install the prompt hook (it writes your user settings). Once the
+  window runs EP-20b's build (File > Install and restart, or the next gate's moment), the status
+  bar's Signals item says `hooks installed but not the prompt hook (crw signals install adds it)`.
+  In a terminal in this folder, `target\release\crw.exe signals` should list `UserPromptSubmit not
+  installed` and, under what an install would change, `UserPromptSubmit hook added: <the installed
+  crw.exe> hook`. Run `target\release\crw.exe signals install`: it should print that one change
+  and where the copy of your settings went (`%LOCALAPPDATA%\clauderoadmapwrangler\backups\claude-settings\`),
+  after which `crw signals` says `The entries are installed and run the installed copy.` Then, in
+  a new VS Code session of any project, a prompt that names another registered project as
+  `@<project>` (say, "What is next in @<project>?") should be answered with that project's next EP
+  and its rules in view, and the tab should read busy in the window as soon as you send it.
+  `crw signals remove` takes the tool's entries out again. The session ran the relay only on a
+  scratch registry (rules 5 and 13). Notes go to `roadmap/inbox.md`

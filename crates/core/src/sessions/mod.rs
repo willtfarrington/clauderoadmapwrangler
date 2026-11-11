@@ -444,7 +444,7 @@ impl Sessions {
                 },
                 None => Change::Nothing,
             },
-            // Installed with EP-20's prompt hook, or earlier on the owner's ask.
+            // Installed with EP-20b's prompt hook (`crw signals install`).
             "UserPromptSubmit" => {
                 seen.status = Status::Busy;
                 seen.waiting_for = None;

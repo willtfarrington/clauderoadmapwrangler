@@ -614,7 +614,7 @@ impl Board {
         }
         // A session working or waiting in the project since the gate was read would edit the
         // same files; an idle one is named in the chained line (EP-19b). Without the prompt hook
-        // (EP-20) a tab the owner has just prompted reads idle until the next poll, so an idle
+        // (EP-20b, installed by the owner) a tab just prompted reads idle until the next poll, so an idle
         // one is left out only once a poll newer than the queued start has listed it; none
         // within `CONFIRM_FOR`, and it counts as every open session did before (EP-19b's
         // review).

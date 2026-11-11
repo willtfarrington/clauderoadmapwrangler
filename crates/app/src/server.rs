@@ -307,6 +307,7 @@ mod tests {
             input.as_bytes(),
             Some("claude-vscode".to_owned()),
             false,
+            Vec::new,
             &mut out,
             port,
         )

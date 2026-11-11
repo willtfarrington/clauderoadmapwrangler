@@ -7,6 +7,8 @@
 //! With no window listening, or on any error, the relays print nothing and exit 0: a session never
 //! waits on the tool or shows its errors. The forms are the wire format too, so the server reads
 //! them back as they were sent, and a field a later build adds reads as absent in an older one.
+//! A prompt's text is read by the relay alone, for its `@<project>` [`mentions`] (EP-20b), and
+//! never posted.
 
 use std::fs;
 use std::io::{Read, Write};
@@ -17,8 +19,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::inbox;
 use crate::registry::Store;
+use crate::sessions::{self, Registered};
 
 pub mod install;
+pub mod mentions;
 pub mod relay;
 
 /// The window's port when the registry names none (D-28: on 127.0.0.1 only).
@@ -112,7 +116,8 @@ const INBOX_CAP: usize = 6000;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Hook {
-    /// `SessionStart`, `Notification`, `Stop` or `SessionEnd`, as Claude Code names the event.
+    /// `SessionStart`, `UserPromptSubmit`, `Notification`, `Stop` or `SessionEnd`, as Claude Code
+    /// names the event.
     #[serde(rename = "hook_event_name")]
     pub event: String,
     pub session_id: String,
@@ -239,6 +244,25 @@ pub fn port() -> u16 {
         .map_or(DEFAULT_PORT, |loaded| loaded.registry.port())
 }
 
+/// The registered projects with their folders, for a prompt's mentions (EP-20b): the registry's
+/// (`CRW_HOME`'s in a trial); none when it does not read.
+pub fn registered() -> Vec<Registered> {
+    let Some(loaded) = Store::locate().and_then(|store| store.load().ok()) else {
+        return Vec::new();
+    };
+    let root = loaded.registry.data_root();
+    loaded
+        .registry
+        .projects
+        .iter()
+        .map(|project| Registered {
+            name: project.name.clone(),
+            folder: project.folder(&root),
+            revert: project.revert,
+        })
+        .collect()
+}
+
 /// The session's surface from this process's environment, which a relay inherits.
 pub fn entrypoint() -> Option<String> {
     std::env::var(ENTRYPOINT_VAR)
@@ -259,12 +283,14 @@ fn read_input(input: impl Read) -> Result<Vec<u8>, String> {
 
 /// What `crw hook` does: reads the hook's input, keeps the tool's fields with the session's
 /// `entrypoint`, writes a start's inbox text to `out` when `inbox` is asked (the stopgap hook's
-/// job, IN-2), then posts the hook to the window on `port`. What went wrong is returned for the
+/// job, IN-2) and a prompt's mentions of `projects` (asked for only when the prompt holds an `@`,
+/// EP-20b), then posts the hook to the window on `port`. What went wrong is returned for the
 /// tests; the relay itself drops it.
 pub fn relay_hook(
     input: impl Read,
     entrypoint: Option<String>,
     inbox: bool,
+    projects: impl FnOnce() -> Vec<Registered>,
     out: &mut impl Write,
     port: u16,
 ) -> Result<(), String> {
@@ -272,13 +298,42 @@ pub fn relay_hook(
     let mut hook: Hook =
         serde_json::from_slice(&bytes).map_err(|e| format!("the input is not a hook's: {e}"))?;
     hook.entrypoint = entrypoint;
-    if inbox && let Some(text) = inbox_context(&hook) {
-        // Claude Code adds a start hook's standard output to the session's context.
-        writeln!(out, "{text}").map_err(|e| format!("the inbox text did not write: {e}"))?;
+    let start = inbox.then(|| inbox_context(&hook)).flatten();
+    // Claude Code adds a start's or a prompt's standard output to the session's context.
+    for text in start
+        .into_iter()
+        .chain(prompt_context(&hook, &bytes, projects))
+    {
+        writeln!(out, "{text}").map_err(|e| format!("the context did not write: {e}"))?;
         out.flush().ok();
     }
     let body = serde_json::to_vec(&hook).expect("a hook serialises");
     relay::request(port, "POST", HOOK_ROUTE, Some(&body), BUDGET).map(drop)
+}
+
+/// The text a prompt is given (IN-2; EP-20b): the context of the registered projects its `@`
+/// mentions ([`mentions::context`]), read from the hook's `input`, whose `prompt` stays in the
+/// relay; `None` for any other event, for an SDK's session (a `-p` run, whose prompt a program
+/// wrote: the tool's own headless runs among them), and for a prompt without an `@`, which asks
+/// no registry.
+pub fn prompt_context(
+    hook: &Hook,
+    input: &[u8],
+    projects: impl FnOnce() -> Vec<Registered>,
+) -> Option<String> {
+    #[derive(Deserialize)]
+    struct Prompt {
+        #[serde(default)]
+        prompt: String,
+    }
+    if hook.event != "UserPromptSubmit" || !sessions::interactive(hook.entrypoint.as_deref()) {
+        return None;
+    }
+    let prompt: Prompt = serde_json::from_slice(input).ok()?;
+    if !prompt.prompt.contains('@') {
+        return None;
+    }
+    mentions::context(&prompt.prompt, &hook.cwd, &projects())
 }
 
 /// What `crw statusline` does: reads the status line's input, keeps the tool's fields with the
@@ -433,6 +488,7 @@ mod tests {
             STOP.as_bytes(),
             Some("claude-vscode".to_owned()),
             true,
+            || unreachable!("a Stop asks no registry"),
             &mut out,
             port,
         )
@@ -461,7 +517,71 @@ mod tests {
             "{took:?}"
         );
         // An input that is not a hook's is not posted.
-        assert!(relay_hook(&b"not json"[..], None, false, &mut out, port).is_err());
+        assert!(relay_hook(&b"not json"[..], None, false, Vec::new, &mut out, port).is_err());
+    }
+
+    #[test]
+    fn a_prompt_is_given_its_mentions_and_its_text_stays_in_the_relay() {
+        let scratch = Scratch::new("signals-prompt");
+        let beta = scratch.0.join("beta");
+        fs::create_dir_all(&beta).unwrap();
+        fs::write(beta.join("CLAUDE.md"), "# beta\n\n1. Beta's own rule.\n").unwrap();
+        let projects = || {
+            vec![Registered {
+                name: "beta".to_owned(),
+                folder: beta.clone(),
+                revert: true,
+            }]
+        };
+        let input = serde_json::json!({
+            "session_id": "s1",
+            "transcript_path": "C:\\Home\\.claude\\projects\\alpha\\s1.jsonl",
+            "cwd": scratch.0.join("alpha"),
+            "permission_mode": "acceptEdits",
+            "hook_event_name": "UserPromptSubmit",
+            "prompt": "What does @beta do next? A secret word: tangerine."
+        })
+        .to_string();
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || relay::tests::answer_once(&listener, 204));
+        let mut out = Vec::new();
+        let vscode = Some("claude-vscode".to_owned());
+        relay_hook(input.as_bytes(), vscode, false, projects, &mut out, port).unwrap();
+        let printed = String::from_utf8(out).unwrap();
+        assert!(
+            printed.starts_with("The prompt mentions @beta"),
+            "{printed}"
+        );
+        assert!(printed.contains("1. Beta's own rule."), "{printed}");
+        assert!(printed.contains("beta has no next brief") || printed.contains("It has no "));
+        // The window hears the event, never the prompt.
+        let request = server.join().unwrap();
+        let body = request.split("\r\n\r\n").nth(1).unwrap();
+        assert!(!body.contains("tangerine"), "{body}");
+        let hook: Hook = serde_json::from_str(body).unwrap();
+        assert_eq!(hook.event, "UserPromptSubmit");
+
+        let hook: Hook = serde_json::from_str(&input).unwrap();
+        // An SDK's run, whose prompt a program wrote, is given nothing and asks no registry.
+        let sdk = Hook {
+            entrypoint: Some("sdk-cli".to_owned()),
+            ..hook.clone()
+        };
+        let never = || -> Vec<Registered> { unreachable!("no registry for an SDK's run") };
+        assert_eq!(prompt_context(&sdk, input.as_bytes(), never), None);
+        // A prompt without an @ asks no registry either.
+        let plain = input.replace("@beta", "beta");
+        let never = || -> Vec<Registered> { unreachable!("no registry without an @") };
+        assert_eq!(prompt_context(&hook, plain.as_bytes(), never), None);
+        // Another event is no prompt, whatever its input holds.
+        let stop = Hook {
+            event: "Stop".to_owned(),
+            ..hook.clone()
+        };
+        assert_eq!(prompt_context(&stop, input.as_bytes(), projects), None);
+        // A session that does not say its surface is taken for an interactive one.
+        assert!(prompt_context(&hook, input.as_bytes(), projects).is_some());
     }
 
     #[test]
@@ -513,7 +633,7 @@ mod tests {
         let closed = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = closed.local_addr().unwrap().port();
         drop(closed);
-        assert!(relay_hook(&input[..], None, true, &mut out, port).is_err());
+        assert!(relay_hook(&input[..], None, true, Vec::new, &mut out, port).is_err());
         assert!(String::from_utf8(out).unwrap().contains("IN-3"));
     }
 }

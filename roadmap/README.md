@@ -1451,6 +1451,12 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   EP-22a's residual risk waits for a run after a restart; the walk weighs whether a hand start
   while a newer build is installed should offer File > Install and restart first. The walk takes
   EP-20a's residual-risk paragraph with OT-24: the first real push to the owner's ntfy server.
+  **From EP-20b:** 13 briefs are still open once EP-20b is checked. The walk takes EP-20b's
+  residual-risk paragraph with OT-25: the prompt hook installed, a prompt in a VS Code session
+  naming another project as `@<project>` answered with that project's next EP in view and the tab
+  busy in the window at once, a headless run's opener naming a project given nothing; and it
+  weighs what the context should hold, now that a long `CLAUDE.md` is cut to share 9,000
+  characters (the whole file, its numbered rules' first sentences, or a pointer to read it).
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
@@ -1497,7 +1503,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   its pickup notes); the owner left them so for the sessions' sake and expects to ask the chat
   tile what a brief plans, in plain words. **From EP-18b:** a row's badges hold its share of the
   week (`Badges::usage`: the weekly and Fable sums in points of each limit, the sessions counted,
-  the week's start), which the digest's usage figures can give per project.
+  the week's start), which the digest's usage figures can give per project. **From EP-20b:** the
+  prompt hook leaves an SDK's session out, its prompt being a program's, so a chat run gets no
+  `@<project>` context from it although the owner types its prompts; the chat can give its
+  mentions their context itself (`signals::mentions::context(prompt, cwd, projects)`, the same
+  framing, the same budget), or mark its runs for the hook.
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note

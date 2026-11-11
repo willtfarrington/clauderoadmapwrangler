@@ -1,5 +1,7 @@
 //! The signals' entries in the owner's Claude Code user settings (D-20, D-23; EP-12): a
-//! `hooks.<Event>` group for SessionStart, Notification, Stop and SessionEnd that runs the release
+//! `hooks.<Event>` group for SessionStart, Notification, Stop and SessionEnd, and for
+//! UserPromptSubmit since EP-20b (a prompted session busy at once, a prompt's `@<project>`
+//! mentions given their context), that runs the release
 //! `crw.exe` directly with `hook` (Claude Code's exec form: no shell, so no quoting and no Git Bash
 //! to start), with a 5 s timeout behind the relay's own half second; and a `statusLine` that runs
 //! `<crw.exe> statusline`, every 30 s besides Claude Code's own triggers (a status line has no exec
@@ -20,8 +22,11 @@ use serde_json::{Map, Value};
 
 use crate::{files, paths};
 
-/// The hooks the tool listens to (D-20).
-pub const EVENTS: [&str; 4] = ["SessionStart", "Notification", "Stop", "SessionEnd"];
+/// The hooks the tool listens to (D-20); the prompt's last, added by EP-20b.
+pub const EVENTS: [&str; 5] = ["SessionStart", "Notification", "Stop", "SessionEnd", PROMPT];
+
+/// The prompt hook's event (EP-20b).
+pub const PROMPT: &str = "UserPromptSubmit";
 
 /// The longest a hook may run before Claude Code cancels it, in seconds: a backstop behind the
 /// relay's own budget (Claude Code's default is 600).
@@ -111,10 +116,22 @@ impl Status {
             .all(|(_, hooked)| *hooked == Hooked::Missing)
     }
 
+    /// Whether every hook but the prompt's runs `exe` once and the prompt's is missing: an
+    /// install from before EP-20b, which the next install completes.
+    pub fn lacks_prompt_hook(&self, exe: &Path) -> bool {
+        self.hooks.iter().all(|(event, hooked)| match hooked {
+            Hooked::Missing => *event == PROMPT,
+            Hooked::Ours { exe: e, .. } => *event != PROMPT && paths::same(e, exe),
+            Hooked::Several => false,
+        })
+    }
+
     /// The status in a few words for `exe`: installed, partly, pointing elsewhere, or not.
     pub fn summary(&self, exe: &Path) -> String {
         let hooks = if self.hooks_run(exe) {
             "hooks installed".to_owned()
+        } else if self.lacks_prompt_hook(exe) {
+            "hooks installed but not the prompt hook (crw signals install adds it)".to_owned()
         } else if self.no_hooks() {
             "hooks not installed".to_owned()
         } else if self.hooks.iter().any(
@@ -644,10 +661,10 @@ mod tests {
     }
 
     #[test]
-    fn an_install_adds_four_hooks_and_the_status_line_and_keeps_the_rest() {
+    fn an_install_adds_five_hooks_and_the_status_line_and_keeps_the_rest() {
         let exe = Path::new(EXE_PATH);
         let (after, changes) = installed(&value(OWNER), exe, BOTH).unwrap();
-        assert_eq!(changes.len(), 5, "{changes:?}");
+        assert_eq!(changes.len(), 6, "{changes:?}");
         let written = text(&after);
         // The other keys keep their places, the stopgap its entry.
         let order: Vec<&str> = after
@@ -697,14 +714,45 @@ mod tests {
                 "refreshInterval": 30
             })
         );
+        // The prompt hook runs the same relay (EP-20b).
+        assert_eq!(after["hooks"][PROMPT][0]["hooks"][0], *stop);
         // A second install changes nothing.
         let (again, changes) = installed(&after, exe, BOTH).unwrap();
         assert!(changes.is_empty(), "{changes:?}");
         assert_eq!(text(&again), written);
         // A removal leaves the owner's file as it was.
         let (back, changes) = removed(&after).unwrap();
-        assert_eq!(changes.len(), 5, "{changes:?}");
+        assert_eq!(changes.len(), 6, "{changes:?}");
         assert_eq!(text(&back), OWNER);
+    }
+
+    #[test]
+    fn an_install_from_before_the_prompt_hook_adds_it_alone() {
+        let exe = Path::new(EXE_PATH);
+        // The four entries and the status line an install before EP-20b wrote.
+        let mut before = installed(&value(OWNER), exe, BOTH).unwrap().0;
+        before["hooks"]
+            .as_object_mut()
+            .unwrap()
+            .shift_remove(PROMPT);
+        let status = read_status(&before);
+        assert!(!status.hooks_run(exe));
+        assert!(status.lacks_prompt_hook(exe));
+        assert_eq!(
+            status.summary(exe),
+            "hooks installed but not the prompt hook (crw signals install adds it), status line \
+             installed"
+        );
+        let (after, changes) = installed(&before, exe, BOTH).unwrap();
+        assert_eq!(
+            changes,
+            [format!("UserPromptSubmit hook added: {EXE_PATH} hook")]
+        );
+        assert!(read_status(&after).hooks_run(exe));
+        // Another exe's entries are not that case: they point elsewhere.
+        let moved = Path::new(r"D:\Elsewhere\target\release\crw.exe");
+        assert!(!status.lacks_prompt_hook(moved));
+        assert!(!read_status(&value("{}")).lacks_prompt_hook(exe));
     }
 
     #[test]
@@ -739,7 +787,7 @@ mod tests {
             "hooks run another crw.exe, no status line"
         );
         let (after, changes) = installed(&after, moved, options).unwrap();
-        assert_eq!(changes.len(), 4, "{changes:?}");
+        assert_eq!(changes.len(), 5, "{changes:?}");
         assert!(read_status(&after).hooks_run(moved));
         assert_eq!(after["hooks"]["Stop"].as_array().unwrap().len(), 1);
     }
@@ -751,7 +799,7 @@ mod tests {
             r#"{"statusLine": {"type": "command", "command": "~/.claude/statusline.sh", "padding": 2}}"#,
         );
         let (after, changes) = installed(&settings, exe, BOTH).unwrap();
-        assert_eq!(changes.len(), 4, "{changes:?}");
+        assert_eq!(changes.len(), 5, "{changes:?}");
         assert_eq!(after["statusLine"], settings["statusLine"]);
         assert_eq!(
             read_status(&after).line,

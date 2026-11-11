@@ -315,33 +315,8 @@ pub fn parts(
     let mut parts = Parts {
         project: project.to_owned(),
         folder: snapshot.folder.display().to_string(),
-        ep: row.id.to_string(),
-        title: row.brief.title.trim().to_owned(),
-        size: match row.size_text.trim() {
-            "" => "no size".to_owned(),
-            size => size.to_owned(),
-        },
-        depends: match row.depends.text.trim() {
-            "" => "—".to_owned(),
-            depends => depends.to_owned(),
-        },
-        track: row
-            .track
-            .map(|track| track.as_str().to_owned())
-            .unwrap_or_default(),
-        phase: roadmap
-            .phase_of(row.id)
-            .map(|phase| match &phase.heading.id {
-                Some(id) => format!("{id} — {}", phase.heading.name),
-                None => phase.heading.name.clone(),
-            })
-            .unwrap_or_default(),
-        note: roadmap
-            .note(row.id)
-            .map(|note| note.text.trim().to_owned())
-            .unwrap_or_else(|| format!("(The roadmap has no brief notes for {}.)", row.id)),
         own: is_tool(&snapshot.folder),
-        ..Parts::default()
+        ..row_parts(roadmap, row)
     };
     parts.choose(chosen);
     match claude_md.and_then(read_first) {
@@ -429,6 +404,56 @@ pub fn parts(
     );
     parts.commits = commits;
     Ok(parts)
+}
+
+/// The opener's parts that come from `row` of `roadmap`: its id, title, size, depends-on, track,
+/// phase and brief notes verbatim (the prompt hook's next row too, EP-20b).
+pub fn row_parts(roadmap: &Roadmap, row: &Row) -> Parts {
+    Parts {
+        ep: row.id.to_string(),
+        title: row.brief.title.trim().to_owned(),
+        size: match row.size_text.trim() {
+            "" => "no size".to_owned(),
+            size => size.to_owned(),
+        },
+        depends: match row.depends.text.trim() {
+            "" => "—".to_owned(),
+            depends => depends.to_owned(),
+        },
+        track: row
+            .track
+            .map(|track| track.as_str().to_owned())
+            .unwrap_or_default(),
+        phase: roadmap
+            .phase_of(row.id)
+            .map(|phase| match &phase.heading.id {
+                Some(id) => format!("{id} — {}", phase.heading.name),
+                None => phase.heading.name.clone(),
+            })
+            .unwrap_or_default(),
+        note: roadmap
+            .note(row.id)
+            .map(|note| note.text.trim().to_owned())
+            .unwrap_or_else(|| format!("(The roadmap has no brief notes for {}.)", row.id)),
+        ..Parts::default()
+    }
+}
+
+/// The row as the opener writes it: `- EP-7 · S · depends on EP-6 · core · phase P2 — Name`,
+/// then `- <title>`.
+pub fn row_lines(parts: &Parts) -> String {
+    let mut row = vec![
+        parts.ep.clone(),
+        parts.size.clone(),
+        format!("depends on {}", parts.depends),
+    ];
+    if !parts.track.is_empty() {
+        row.push(parts.track.clone());
+    }
+    if !parts.phase.is_empty() {
+        row.push(format!("phase {}", parts.phase));
+    }
+    format!("- {}\n- {}", row.join(" · "), parts.title)
 }
 
 /// The open tasks gated before `row` or before a row above it, which are due first (D-10).
@@ -563,18 +588,7 @@ pub fn opener(parts: &Parts) -> String {
     out.push(
         "The next brief is the first unchecked row of roadmap/README.md in table order:".to_owned(),
     );
-    let mut row = vec![
-        parts.ep.clone(),
-        parts.size.clone(),
-        format!("depends on {}", parts.depends),
-    ];
-    if !parts.track.is_empty() {
-        row.push(parts.track.clone());
-    }
-    if !parts.phase.is_empty() {
-        row.push(format!("phase {}", parts.phase));
-    }
-    out.push(format!("- {}\n- {}", row.join(" · "), parts.title));
+    out.push(row_lines(parts));
     out.push("Its brief notes, verbatim:".to_owned());
     out.push(parts.note.clone());
     for paragraph in [&parts.brief, &parts.last_brief] {
