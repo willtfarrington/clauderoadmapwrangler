@@ -1413,6 +1413,7 @@ pub fn readings(portfolio: &mut Portfolio, now: DateTime<Utc>) {
                     0 => MailState::Delivered {
                         receiver: receiver.clone(),
                         id: "IN-3".to_owned(),
+                        rewording: Vec::new(),
                     },
                     1 => MailState::Waits("a session works there".to_owned()),
                     _ => MailState::Counted,

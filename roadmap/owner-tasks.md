@@ -231,7 +231,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   are the five-column or work-packet form, `--migration` prints the prompt to hand to a session
   there. The session wrote only into scratch folders (rules 4 and 13). Notes go to
   `roadmap/inbox.md`
-- [ ] OT-23 (EP-22, 2026-11-10) Install the roadmap-wrangler plugin into your own Claude Code
+- [x] OT-23 (EP-22, 2026-11-10) Install the roadmap-wrangler plugin into your own Claude Code
   sessions (it writes your user settings). First push this project's commits (the plugin must be
   on GitHub). Then, in any terminal, run `claude plugin install roadmap-wrangler --marketplace
   willtfarrington/clauderoadmapwrangler`: it should add the marketplace `clauderoadmapwrangler` to

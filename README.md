@@ -266,8 +266,9 @@ each Show and each badge is a line in the ledger, which `crw notifications` prin
 
 The window is also the mailman between projects (D-13). A brief's `> **Handed on (to <project>).**`
 block to a registered project is appended to that project's `roadmap/inbox.md` as a new `IN-n` line
-once the brief is committed, while no session works or waits there; the status bar says so, the
-receiving row shows the message, and the Detail pane says what became of each block. Each delivery
+once its words are committed (the brief's copy at `HEAD` holds them), while no session works or
+waits there; the status bar says so, the receiving row shows the message, and the Detail pane says
+what became of each block, a reworded block, sent again, naming the message it rewords. Each delivery
 is a line in the ledger, which `crw mail` prints, and a revert of a session in the receiving project
 puts the message back. The owner writes a message of their own from the Detail pane's Compose… or a
 row's Send a message… (or `crw send`): it goes into the project's inbox at once as
@@ -343,9 +344,9 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
 - **Inbox.** `roadmap/inbox.md`, one line per message from another project:
   `- [ ] IN-n (from <project> EP-k, date) text`, optionally ending `[urgent]`, which notifies the
   owner (the popup, and ntfy when set), never the receiving session. A sending session writes
-  `> **Handed on (to <project>).** …` after its completion note and the tool delivers it once the brief
-  is committed and no session works in the receiving project (its first reading of a project counts
-  the blocks already there as delivered); the receiving
+  `> **Handed on (to <project>).** …` after its completion note and the tool delivers it once the
+  block's words are committed and no session works in the receiving project (its first reading of a
+  project counts the committed blocks already there as delivered); the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
   The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line,
   and may write one, `- [ ] IN-n (from the owner, date) text`, from the tool or by hand.

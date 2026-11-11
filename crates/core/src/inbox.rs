@@ -12,7 +12,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::checklist;
-use crate::roadmap::brief::Kind;
+use crate::roadmap::brief::{Brief, Kind};
 use crate::roadmap::snapshot::Entry;
 use crate::roadmap::table::Problem;
 use crate::roadmap::{EpId, ep_ids, first_date};
@@ -245,28 +245,40 @@ pub enum Recipient {
 /// each target resolved by `resolve` (the registry's name, case aside), whole or by its first
 /// word (`beta EP-6` → `beta`).
 pub fn outgoing(briefs: &[Entry], resolve: impl Fn(&str) -> Option<String>) -> Vec<Outgoing> {
+    briefs
+        .iter()
+        .flat_map(|entry| outgoing_of(entry.file.id, &entry.file.path, &entry.brief, &resolve))
+        .collect()
+}
+
+/// One brief's blocks as [`outgoing`] reads them: the brief `id` in the file at `path`, read as
+/// `brief` (the working tree's, or `HEAD`'s copy, which the mailman keys alike, EP-20d).
+pub fn outgoing_of(
+    id: EpId,
+    path: &Path,
+    brief: &Brief,
+    resolve: impl Fn(&str) -> Option<String>,
+) -> Vec<Outgoing> {
     let mut found = Vec::new();
-    for entry in briefs {
-        for quote in entry.brief.handed_on() {
-            let Kind::HandedOn { to: Some(to) } = &quote.kind else {
-                continue;
-            };
-            if is_owner(to) {
-                continue;
-            }
-            let first_word = to.split([' ', ',']).next().unwrap_or_default();
-            let recipient = resolve(to)
-                .or_else(|| resolve(first_word))
-                .map_or(Recipient::Unknown, Recipient::Project);
-            found.push(Outgoing {
-                brief: entry.file.id,
-                path: entry.file.path.clone(),
-                line: quote.line,
-                to: to.clone(),
-                recipient,
-                text: quote.text.clone(),
-            });
+    for quote in brief.handed_on() {
+        let Kind::HandedOn { to: Some(to) } = &quote.kind else {
+            continue;
+        };
+        if is_owner(to) {
+            continue;
         }
+        let first_word = to.split([' ', ',']).next().unwrap_or_default();
+        let recipient = resolve(to)
+            .or_else(|| resolve(first_word))
+            .map_or(Recipient::Unknown, Recipient::Project);
+        found.push(Outgoing {
+            brief: id,
+            path: path.to_owned(),
+            line: quote.line,
+            to: to.clone(),
+            recipient,
+            text: quote.text.clone(),
+        });
     }
     found
 }

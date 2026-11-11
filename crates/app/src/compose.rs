@@ -25,6 +25,11 @@ const WIDTH: f32 = 640.0;
 /// The hint in the empty text.
 const HINT: &str = "What the project's next session should know; it triages the message first";
 
+/// The warning for a message longer than the ledger keeps (EP-20c's review; EP-20d).
+const TOO_LONG: &str = "Longer than the ledger keeps (1,000 characters with its id and date): a \
+                        revert of a session there would name this message instead of putting it \
+                        back.";
+
 /// The compose dialog, while it is open.
 pub struct Dialog {
     pub project: String,
@@ -80,10 +85,17 @@ impl Dialog {
     /// Whether there is a message to send: words beyond the flag, no revert open there.
     pub fn ready(&self) -> bool {
         let words = mailman::compose_text(&self.text, false);
-        !words.is_empty()
-            && !words.eq_ignore_ascii_case(mailman::URGENT)
-            && !self.is_sending()
-            && !self.revert_open()
+        !mailman::is_empty_message(&words) && !self.is_sending() && !self.revert_open()
+    }
+
+    /// Whether a revert of a session there would put the message back: its line fits the
+    /// ledger's cap (EP-20c's review; EP-20d).
+    pub fn revert_keeps(&self, today: &str) -> bool {
+        mailman::revert_keeps(
+            &format!("IN-{}", self.next_id),
+            &mailman::owner_meta(today),
+            &self.words(),
+        )
     }
 
     /// Starts the write on a worker thread, which wakes `ctx` when it is done.
@@ -217,6 +229,9 @@ impl Dialog {
                             .wrap(),
                     );
                 });
+            if !self.revert_keeps(today) {
+                ui.label(RichText::new(TOO_LONG).color(style::amber(ui)));
+            }
         }
         if let Some(error) = &self.error {
             ui.add_space(4.0);
@@ -328,11 +343,11 @@ impl Board {
                     Some(copy) => format!("the file as it was is kept as {}", copy.display()),
                     None => "roadmap/inbox.md created with its header".to_owned(),
                 };
-                let unlogged = sent
-                    .unlogged
-                    .as_ref()
-                    .map(|why| format!(" {}; a revert would not redo it.", capital(why)))
-                    .unwrap_or_default();
+                let unlogged = match &sent.unlogged {
+                    Some(why) => format!(" {}; a revert would not redo it.", capital(why)),
+                    None if !sent.revert_keeps => format!(" {TOO_LONG}"),
+                    None => String::new(),
+                };
                 self.notify(format!("Sent {} to {project}; {kept}.{unlogged}", sent.id));
                 self.loader.read_files();
             }
@@ -416,6 +431,25 @@ mod tests {
             draw(testing::button(at, PointerButton::Primary, false));
         }
         assert_eq!(pressed, [Action::Send, Action::CloseCompose]);
+    }
+
+    #[test]
+    fn a_message_longer_than_the_ledger_keeps_is_warned_of() {
+        let mut dialog = Dialog::new("harbor", PathBuf::from("harbor"), 4, None);
+        dialog.text = "[Urgent] !".to_owned();
+        assert!(!dialog.ready(), "the flag and punctuation are no message");
+        dialog.text = "word ".repeat(150);
+        assert!(dialog.ready() && dialog.revert_keeps("2026-11-10"));
+        let mut screen = Screen::new();
+        let mut draw = |dialog: &mut Dialog| {
+            screen.pass(Vec::new(), |ui| {
+                dialog.ui(ui, 600.0, "2026-11-10");
+            })
+        };
+        assert!(testing::text_at(&draw(&mut dialog), TOO_LONG).is_none());
+        dialog.text = "word ".repeat(200);
+        assert!(dialog.ready() && !dialog.revert_keeps("2026-11-10"));
+        assert!(testing::text_at(&draw(&mut dialog), TOO_LONG).is_some());
     }
 
     #[test]

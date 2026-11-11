@@ -160,8 +160,8 @@ impl Board {
     }
 }
 
-/// One round over every registered project whose folder is there (git asked only of a sender
-/// with a letter to send, in its turn, D-29).
+/// One round over every registered project whose folder is there (git asked only for a brief
+/// that holds a letter to send, `HEAD`'s copy of it once a round, in its turn, D-29; EP-20d).
 fn round(
     registry: &Registry,
     ledger: &Path,
@@ -212,29 +212,25 @@ fn round(
             .map(|project| project.folder(&root))
             .filter(|folder| folder.is_dir())
     };
-    let mut changes = |folder: &Path| {
+    let resolve = |name: &str| registry.project(name).map(|known| known.name.clone());
+    let mut head = |folder: &Path, path: &str| {
         // Its own repository only, as the git pass asks: in a folder without one, git would answer
-        // for an enclosing repository, whose paths never name the brief, so all would seem
-        // committed.
+        // for an enclosing repository, which holds no copy of the brief, so none would seem
+        // committed and the first reading would count nothing.
         if !folder.join(".git").exists() {
             return Err("the folder is not a git repository".to_owned());
         }
         let _turn = process::turn();
-        let status = git::status(folder);
+        let shown = git::show_at_head(folder, path);
         thread::sleep(process::SPACING);
-        status.map(|status| {
-            status
-                .changes
-                .into_iter()
-                .map(|change| change.path)
-                .collect()
-        })
+        shown
     };
     let busy_of = |name: &str| busy.get(&name.to_lowercase()).cloned();
     let today = files::today();
     let mut cx = Round {
         folder_of: &folder_of,
-        changes: &mut changes,
+        resolve: &resolve,
+        head: &mut head,
         busy: &busy_of,
         backups,
         today: &today,

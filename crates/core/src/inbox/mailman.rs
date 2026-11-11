@@ -3,13 +3,14 @@
 //!
 //! A block of a registered target is a [`Letter`], known by a key made of its brief and a hash of
 //! its receiver and words, so that a letter goes out once and a block whose words change is a new
-//! one. A letter goes out only once its brief is committed, so that a draft of a completion note
-//! is never sent, and only while no session works or waits in the receiver, which is never
-//! disturbed (D-13); otherwise it waits for the next round. The mailman's first reading of a
-//! project counts its blocks as delivered, since the owner carried the messages by hand until
-//! then. The log is the ledger's `event` rows of kind [`EVENT_KIND`], under the sender; each
-//! delivery is also a `tick` row of the receiver, which a revert of a session there redoes
-//! (EP-15b's rule for the tool's own writes).
+//! one, which says what it rewords (EP-20d). A letter goes out only once its words are committed
+//! (its key among the letters of `HEAD`'s copy of its brief, EP-20d), so that a draft of a
+//! completion note is never sent, and only while no session works or waits in the receiver,
+//! which is never disturbed (D-13); otherwise it waits for the next round. The mailman's first
+//! reading of a project counts its committed blocks as delivered, since the owner carried the
+//! messages by hand until then. The log is the ledger's `event` rows of kind [`EVENT_KIND`], under
+//! the sender; each delivery is also a `tick` row of the receiver, which a revert of a session
+//! there redoes (EP-15b's rule for the tool's own writes).
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -18,12 +19,12 @@ use std::path::{Path, PathBuf};
 
 use chrono::{DateTime, Utc};
 
-use super::{Outgoing, PREFIX, Recipient, parse, path as inbox_path};
+use super::{Outgoing, PREFIX, Recipient, outgoing_of, parse, path as inbox_path};
 use crate::checklist;
 use crate::files;
-use crate::ledger::{EventRow, Ledger};
+use crate::ledger::{self, EventRow, Ledger};
 use crate::revert::{self, Tick};
-use crate::roadmap::EpId;
+use crate::roadmap::{EpId, brief};
 
 /// The `event` rows of the mail: the first reading, the letters counted then, the deliveries.
 pub const EVENT_KIND: &str = "mail";
@@ -252,16 +253,35 @@ pub const OWNER: &str = "the owner";
 pub const URGENT: &str = "[urgent]";
 
 /// The owner's message as the inbox line takes it: its words on one line, [`URGENT`] at the
-/// end when flagged (where `inbox::parse` reads it and the Detail pane's chip says it).
+/// end when flagged (where `inbox::parse` reads it and the Detail pane's chip says it), unless
+/// the words hold one already, anywhere, as `inbox::parse` reads it, so that a flag typed
+/// before punctuation is not doubled (EP-20c's review; EP-20d).
 pub fn compose_text(text: &str, urgent: bool) -> String {
     let mut words = words(text);
-    if urgent && !words.to_ascii_lowercase().ends_with(URGENT) {
+    if urgent && !words.to_ascii_lowercase().contains(URGENT) {
         if !words.is_empty() {
             words.push(' ');
         }
         words.push_str(URGENT);
     }
     words
+}
+
+/// Whether the owner's message holds nothing beyond the flag and punctuation: no message.
+pub fn is_empty_message(words: &str) -> bool {
+    !words
+        .to_ascii_lowercase()
+        .replace(URGENT, " ")
+        .chars()
+        .any(char::is_alphanumeric)
+}
+
+/// Whether a revert of a session in the receiver would put the message back (EP-20c's review;
+/// EP-20d): its `tick` row, `delivered <id> · (<meta>) <words>`, fits the ledger's cap; a
+/// longer one is cut there, so the revert names the message instead.
+pub fn revert_keeps(id: &str, meta: &str, words: &str) -> bool {
+    let tick = Tick::delivery(Utc::now(), id, &format!("({meta}) {words}"));
+    tick.detail().chars().count() < ledger::DETAIL_CAP
 }
 
 /// The parenthesis of the owner's message: `from the owner, 2026-11-10`.
@@ -282,13 +302,15 @@ pub struct Sent {
     pub copy: Option<PathBuf>,
     /// What the ledger did not keep, when it did not: the write stands all the same.
     pub unlogged: Option<String>,
+    /// Whether a revert there would put it back ([`revert_keeps`]); a longer message is named.
+    pub revert_keeps: bool,
 }
 
 /// Writes the owner's message into the inbox of `receiver` (the project in `folder`), in the
 /// process's turn as a delivery is, and logs it in the ledger at `ledger` when there is one: a
 /// `tick` row of the receiver, which a revert of a session there redoes (EP-15b's rule for the
-/// tool's own writes), and a `mail` row (`written IN-n from the owner`). An empty message is
-/// refused.
+/// tool's own writes), and a `mail` row (`written IN-n from the owner`). An empty message
+/// ([`is_empty_message`]) is refused.
 pub fn send_from_owner(
     folder: &Path,
     receiver: &str,
@@ -299,7 +321,7 @@ pub fn send_from_owner(
     ledger: Option<&Path>,
 ) -> Result<Sent, String> {
     let words = compose_text(text, urgent);
-    if words.is_empty() || words.eq_ignore_ascii_case(URGENT) {
+    if is_empty_message(&words) {
         return Err("the message is empty".to_owned());
     }
     let meta = owner_meta(today);
@@ -321,6 +343,7 @@ pub fn send_from_owner(
             .map(|e| format!("the ledger did not log the message: {e}"))
     });
     Ok(Sent {
+        revert_keeps: revert_keeps(&appended.id, &meta, &words),
         id: appended.id,
         written: appended.written,
         copy: appended.copy,
@@ -400,11 +423,14 @@ pub enum Known {
     },
 }
 
-/// The mail log, read from the ledger: the senders read once, and each letter's key.
+/// The mail log, read from the ledger: the senders read once, the projects whose mail was
+/// counted while their own first reading waited, each letter's key and what it reworded.
 #[derive(Debug, Clone, Default)]
 pub struct Log {
     read: HashSet<String>,
+    received: HashSet<String>,
     known: HashMap<(String, String), Known>,
+    rewords: HashMap<(String, String), Vec<String>>,
 }
 
 impl Log {
@@ -420,11 +446,25 @@ impl Log {
                 log.read.insert(sender);
                 continue;
             }
+            if detail.starts_with(MAIL_PAST) {
+                log.received.insert(sender);
+                continue;
+            }
             let mut parts = detail.split_whitespace();
             let (Some(verb), Some(key)) = (parts.next(), parts.next()) else {
                 continue;
             };
             let known = match verb {
+                REWORDING => {
+                    // `rewording <key> of IN-4, IN-6`
+                    let ids = parts
+                        .map(|word| word.trim_end_matches(','))
+                        .filter(|word| number(word).is_some())
+                        .map(str::to_owned)
+                        .collect();
+                    log.rewords.insert((sender, key.to_owned()), ids);
+                    continue;
+                }
                 "counted" => Known::Counted,
                 "delivered" => {
                     // `delivered <key> to <receiver> as IN-n`
@@ -458,14 +498,81 @@ impl Log {
         self.read.contains(&sender.to_lowercase())
     }
 
+    /// Whether the mail to `project` was counted as its past while its own first reading
+    /// waited for a brief that did not read (EP-20d).
+    pub fn has_received(&self, project: &str) -> bool {
+        self.received.contains(&project.to_lowercase())
+    }
+
     pub fn known(&self, letter: &Letter) -> Option<&Known> {
         self.known
             .get(&(letter.sender.to_lowercase(), letter.key.clone()))
+    }
+
+    /// The ids a delivered letter reworded, as its delivery recorded them.
+    pub fn rewording_of(&self, letter: &Letter) -> Vec<String> {
+        self.rewords
+            .get(&(letter.sender.to_lowercase(), letter.key.clone()))
+            .cloned()
+            .unwrap_or_default()
+    }
+
+    /// What `letter` rewords as it goes out (EP-20d): the letters its sender delivered from the
+    /// same brief to the same receiver whose words are gone from the sender's briefs (`current`,
+    /// the keys of its letters now), by id; one another of them reworded already is left out,
+    /// so a third version names the second, not both (the review).
+    fn reworded(&self, letter: &Letter, current: &HashSet<String>) -> Vec<String> {
+        let sender = letter.sender.to_lowercase();
+        let brief = format!("{}:", letter.brief);
+        let gone: Vec<(&String, &String)> = self
+            .known
+            .iter()
+            .filter_map(|((from, key), known)| {
+                let Known::Delivered { receiver, id } = known else {
+                    return None;
+                };
+                let same = *from == sender
+                    && key.starts_with(&brief)
+                    && *key != letter.key
+                    && !current.contains(key)
+                    && receiver.eq_ignore_ascii_case(&letter.receiver);
+                same.then_some((key, id))
+            })
+            .collect();
+        let replaced: HashSet<&String> = gone
+            .iter()
+            .filter_map(|(key, _)| self.rewords.get(&(sender.clone(), (*key).clone())))
+            .flatten()
+            .collect();
+        let mut ids: Vec<String> = gone
+            .into_iter()
+            .filter(|(_, id)| !replaced.contains(id))
+            .map(|(_, id)| id.clone())
+            .collect();
+        ids.sort_by_key(|id| number(id));
+        ids.dedup();
+        ids
     }
 }
 
 /// The words a first reading's row opens with.
 const FIRST_READING: &str = "first reading";
+
+/// The words the row opens with that records a project's mail counted as its past while its own
+/// first reading waits (EP-20d).
+const MAIL_PAST: &str = "mail counted as its past";
+
+/// The verb of the row that records what a delivered letter reworded (EP-20d).
+const REWORDING: &str = "rewording";
+
+/// `, rewording IN-4`, `, rewording IN-4 and IN-6`: what a delivered letter rewords, or nothing.
+fn rewording_words(ids: &[String]) -> String {
+    match ids {
+        [] => String::new(),
+        [one] => format!(", rewording {one}"),
+        [rest @ .., last] => format!(", rewording {} and {last}", rest.join(", ")),
+    }
+}
 
 /// What became of a letter in a round, or of a block that is no letter.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -474,6 +581,8 @@ pub enum State {
     Delivered {
         receiver: String,
         id: String,
+        /// The ids of the letters it rewords (EP-20d).
+        rewording: Vec<String>,
     },
     /// Not sent yet, and why.
     Waits(String),
@@ -486,7 +595,14 @@ impl State {
     pub fn words(&self) -> String {
         match self {
             State::Counted => "counted as delivered at the mailman's first reading".to_owned(),
-            State::Delivered { receiver, id } => format!("delivered to {receiver} as {id}"),
+            State::Delivered {
+                receiver,
+                id,
+                rewording,
+            } => format!(
+                "delivered to {receiver} as {id}{}",
+                rewording_words(rewording)
+            ),
             State::Waits(why) => format!("waits: {why}"),
             State::Unknown => "not registered: shown, not delivered".to_owned(),
         }
@@ -534,13 +650,21 @@ impl Sender<'_> {
     }
 }
 
+/// What [`Round::head`] answers: the text `HEAD` holds at a brief, `None` when it holds none, or
+/// why git could not say.
+pub type Shown = Result<Option<String>, String>;
+
 /// What a round needs besides the senders.
 pub struct Round<'a> {
     /// A registered project's folder, by name.
     pub folder_of: &'a dyn Fn(&str) -> Option<PathBuf>,
-    /// The changed paths of a sender's working tree (git's status, `/` separated), or why git
-    /// could not say: asked only of a sender with a letter to send.
-    pub changes: &'a mut dyn FnMut(&Path) -> Result<Vec<String>, String>,
+    /// A block's target as the registry names it (`inbox::outgoing`'s resolve), so that the
+    /// blocks of `HEAD`'s copy of a brief are keyed as the working tree's are (EP-20d).
+    pub resolve: &'a dyn Fn(&str) -> Option<String>,
+    /// The text a sender's `HEAD` holds at one of its briefs (the sender's folder, the brief's
+    /// path from it with `/` between folders): `None` when `HEAD` holds nothing there, or why
+    /// git could not say. Asked once a round per brief that holds a letter to send (EP-20d).
+    pub head: &'a mut dyn FnMut(&Path, &str) -> Shown,
     /// Why a receiver must wait: a session works or waits there.
     pub busy: &'a dyn Fn(&str) -> Option<String>,
     pub backups: &'a Path,
@@ -558,8 +682,12 @@ pub struct Report {
     pub problems: Vec<String>,
 }
 
+/// The keys of the letters `HEAD`'s copy of each brief holds, by the brief's file, asked once a
+/// round: `None` when `HEAD` holds no copy, or why git could not say (EP-20d).
+type Heads = HashMap<PathBuf, Result<Option<HashSet<String>>, String>>;
+
 /// One round of the mailman over `senders`, its log the ledger's: a first reading counted, each
-/// letter not yet in the log sent when its brief is committed and its receiver free.
+/// letter not yet in the log sent when its words are committed and its receiver free.
 pub fn round(ledger: &Ledger, senders: &[Sender<'_>], cx: &mut Round<'_>) -> Report {
     let mut report = Report::default();
     let log = match Log::read(ledger) {
@@ -569,21 +697,26 @@ pub fn round(ledger: &Ledger, senders: &[Sender<'_>], cx: &mut Round<'_>) -> Rep
             return report;
         }
     };
-    // The projects read for the first time this round. Mail to one of them written before (it
-    // was registered later, or its folder came back) is its past too (EP-20's review). A
-    // project whose first reading waits for a brief that did not read is neither: mail to it
-    // waits with it, so that nothing is counted as its past by mistake (EP-20c).
+    // The senders whose first reading waits for a brief that did not read (EP-20c).
     let held: HashMap<String, String> = senders
         .iter()
         .filter(|sender| !log.has_read(sender.name))
         .filter_map(|sender| Some((sender.name.to_lowercase(), sender.unread_words()?)))
         .collect();
+    // The projects read for the first time this round, as receivers: mail to one of them
+    // written before (it was registered later, or its folder came back) and committed is its
+    // past too (EP-20's review). A project whose own first reading waits (a brief that did not
+    // read, or git that could not say) is one as well, in its first round, which is recorded,
+    // so that a letter written to it later is news, delivered while its own reading still
+    // waits (EP-20d, EP-20c's review and this brief's).
     let fresh_receivers: HashSet<String> = senders
         .iter()
-        .filter(|sender| !log.has_read(sender.name))
+        .filter(|sender| !log.has_read(sender.name) && !log.has_received(sender.name))
         .map(|sender| sender.name.to_lowercase())
-        .filter(|name| !held.contains_key(name))
         .collect();
+    let mut counted_to: HashMap<String, usize> = HashMap::new();
+    let mut uncounted: HashSet<String> = HashSet::new();
+    let mut git_held: HashSet<String> = HashSet::new();
     for sender in senders {
         for block in sender
             .outgoing
@@ -612,16 +745,22 @@ pub fn round(ledger: &Ledger, senders: &[Sender<'_>], cx: &mut Round<'_>) -> Rep
                 }
                 continue;
             }
-            // Only a committed brief's blocks are the past: a brief a session is still writing
-            // hands its letters on later, once committed.
-            let changes = if letters.is_empty() {
-                Ok(Vec::new())
-            } else {
-                (cx.changes)(sender.folder)
-            };
-            if let Err(why) = &changes {
-                // Read again next round, when git may answer.
-                for letter in &letters {
+            // Only a block committed as it reads is the past (EP-20d: block by block, from
+            // `HEAD`'s copy of its brief): one a session is still writing, or rewording, goes
+            // out later, once committed.
+            let mut heads = Heads::new();
+            let checked: Vec<(Letter, Result<(), State>)> = letters
+                .into_iter()
+                .map(|letter| {
+                    let committed = committed(sender, &letter, &mut heads, cx);
+                    (letter, committed)
+                })
+                .collect();
+            if let Some(why) = heads.values().find_map(|answer| answer.as_ref().err()) {
+                // Read again next round, when git may answer: a brief it could not show may
+                // hold the past.
+                git_held.insert(sender.name.to_lowercase());
+                for (letter, _) in &checked {
                     report.marks.push(Mark {
                         sender: sender.name.to_owned(),
                         path: letter.path.clone(),
@@ -631,46 +770,72 @@ pub fn round(ledger: &Ledger, senders: &[Sender<'_>], cx: &mut Round<'_>) -> Rep
                 }
                 continue;
             }
-            let (past, fresh): (Vec<Letter>, Vec<Letter>) = letters
-                .into_iter()
-                .partition(|letter| committed(sender, letter, &changes).is_ok());
+            let mut past = Vec::new();
+            let mut fresh = Vec::new();
+            for (letter, committed) in checked {
+                match committed {
+                    Ok(()) => past.push(letter),
+                    Err(waits) => fresh.push((letter, waits)),
+                }
+            }
             first_reading(ledger, sender.name, &past, cx.now, &mut report);
-            for letter in fresh {
+            for (letter, waits) in fresh {
                 report.marks.push(Mark {
                     sender: sender.name.to_owned(),
                     path: letter.path,
                     line: letter.line,
-                    state: State::Waits("its brief is not committed yet".to_owned()),
+                    state: waits,
                 });
             }
             continue;
         }
-        let mut changes: Option<Result<Vec<String>, String>> = None;
+        let current: HashSet<String> = letters.iter().map(|letter| letter.key.clone()).collect();
+        let mut heads = Heads::new();
         for letter in &letters {
+            let receiver = letter.receiver.to_lowercase();
             let state = match log.known(letter) {
                 Some(Known::Counted) => State::Counted,
                 Some(Known::Delivered { receiver, id }) => State::Delivered {
                     receiver: receiver.clone(),
                     id: id.clone(),
+                    rewording: log.rewording_of(letter),
                 },
-                None if fresh_receivers.contains(&letter.receiver.to_lowercase()) => {
+                None if fresh_receivers.contains(&receiver) => {
+                    // Only a letter committed as it reads is the receiver's past: a draft goes
+                    // out later, once committed (EP-20d, the review). Where git cannot say, it
+                    // is counted, as before.
+                    let draft = match committed(sender, letter, &mut heads, cx) {
+                        Ok(()) => None,
+                        Err(waits) => heads
+                            .get(&letter.path)
+                            .is_some_and(Result::is_ok)
+                            .then_some(waits),
+                    };
                     let row = format!("counted {}", letter.key);
-                    match ledger.add_event(cx.now, EVENT_KIND, Some(&letter.sender), &row) {
-                        Ok(_) => State::Counted,
-                        Err(e) => {
-                            let why = format!("the mail log did not keep a count: {e}");
-                            report.problems.push(why.clone());
-                            State::Waits(why)
+                    match draft {
+                        Some(waits) => waits,
+                        None => {
+                            match ledger.add_event(cx.now, EVENT_KIND, Some(&letter.sender), &row) {
+                                Ok(_) => {
+                                    *counted_to.entry(receiver).or_default() += 1;
+                                    State::Counted
+                                }
+                                Err(e) => {
+                                    uncounted.insert(receiver);
+                                    let why = format!("the mail log did not keep a count: {e}");
+                                    report.problems.push(why.clone());
+                                    State::Waits(why)
+                                }
+                            }
                         }
                     }
                 }
-                None if held.contains_key(&letter.receiver.to_lowercase()) => {
-                    State::Waits(held[&letter.receiver.to_lowercase()].clone())
-                }
-                None => {
-                    let changed = changes.get_or_insert_with(|| (cx.changes)(sender.folder));
-                    send(ledger, sender, letter, changed, cx, &mut report)
-                }
+                None => match send(ledger, sender, letter, &mut heads, cx, &mut report) {
+                    Ok(delivery) => {
+                        delivered(ledger, letter, delivery, &log, &current, &mut report)
+                    }
+                    Err(waits) => waits,
+                },
             };
             report.marks.push(Mark {
                 sender: sender.name.to_owned(),
@@ -678,6 +843,28 @@ pub fn round(ledger: &Ledger, senders: &[Sender<'_>], cx: &mut Round<'_>) -> Rep
                 line: letter.line,
                 state,
             });
+        }
+    }
+    // The mail of a project whose own first reading waits, counted as its past this round, is
+    // recorded as such, so that a letter written to it later is news (EP-20d). A count the log
+    // did not keep is tried again.
+    for sender in senders {
+        let name = sender.name.to_lowercase();
+        let waits = held.contains_key(&name) || git_held.contains(&name);
+        if !waits || !fresh_receivers.contains(&name) || uncounted.contains(&name) {
+            continue;
+        }
+        let n = counted_to.get(&name).copied().unwrap_or(0);
+        let row = format!(
+            "{MAIL_PAST}: {n} block{} to it from projects read before, while its first reading \
+             waits",
+            if n == 1 { "" } else { "s" }
+        );
+        if let Err(e) = ledger.add_event(cx.now, EVENT_KIND, Some(sender.name), &row) {
+            report.problems.push(format!(
+                "the mail log did not keep {}'s past mail: {e}",
+                sender.name
+            ));
         }
     }
     report
@@ -721,50 +908,66 @@ fn first_reading(
     }
 }
 
-/// Whether `letter`'s brief is committed by git's `changes` of its sender, or why it waits.
+/// Whether `letter`'s words are committed: its key among the letters of `HEAD`'s copy of its
+/// brief, parsed and resolved as the working tree's (EP-20d), or why it waits. `heads` keeps
+/// each brief's answer for the round, so git is asked once per brief.
 fn committed(
     sender: &Sender<'_>,
     letter: &Letter,
-    changes: &Result<Vec<String>, String>,
+    heads: &mut Heads,
+    cx: &mut Round<'_>,
 ) -> Result<(), State> {
-    let changed = changes.as_ref().map_err(|why| {
-        State::Waits(format!(
-            "git could not say whether its brief is committed: {why}"
-        ))
-    })?;
     let Ok(relative) = letter.path.strip_prefix(sender.folder) else {
         return Err(State::Waits(
             "its brief lies outside the project's folder".to_owned(),
         ));
     };
-    let relative = relative.to_string_lossy().replace('\\', "/");
-    // A path git lists, or an untracked folder (`roadmap/`) that holds the brief.
-    let uncommitted = changed.iter().any(|path| {
-        *path == relative || path.ends_with('/') && relative.starts_with(path.as_str())
+    let keys = heads.entry(letter.path.clone()).or_insert_with(|| {
+        let relative = relative.to_string_lossy().replace('\\', "/");
+        let text = (cx.head)(sender.folder, &relative)?;
+        Ok(text.map(|text| {
+            let blocks = outgoing_of(letter.brief, &letter.path, &brief::parse(&text), cx.resolve);
+            letters(sender.name, &blocks)
+                .into_iter()
+                .map(|committed| committed.key)
+                .collect()
+        }))
     });
-    if uncommitted {
-        return Err(State::Waits("its brief is not committed yet".to_owned()));
+    match keys {
+        Ok(Some(keys)) if keys.contains(&letter.key) => Ok(()),
+        Ok(Some(_)) => Err(State::Waits("its words are not committed yet".to_owned())),
+        Ok(None) => Err(State::Waits("its brief is not committed yet".to_owned())),
+        Err(why) => Err(State::Waits(format!(
+            "git could not say whether its words are committed: {why}"
+        ))),
     }
-    Ok(())
 }
 
-/// Sends `letter` when its brief is committed and its receiver free.
+/// A letter sent: the message's id in the receiver's inbox, and whether it was written now
+/// (it may be there already, carried by hand or delivered before).
+struct Delivery {
+    id: String,
+    appended: bool,
+}
+
+/// Sends `letter` when its words are committed and its receiver free; else why it waits.
 fn send(
     ledger: &Ledger,
     sender: &Sender<'_>,
     letter: &Letter,
-    changes: &Result<Vec<String>, String>,
-    cx: &Round<'_>,
+    heads: &mut Heads,
+    cx: &mut Round<'_>,
     report: &mut Report,
-) -> State {
-    if let Err(waits) = committed(sender, letter, changes) {
-        return waits;
-    }
+) -> Result<Delivery, State> {
+    committed(sender, letter, heads, cx)?;
     let Some(folder) = (cx.folder_of)(&letter.receiver) else {
-        return State::Waits(format!("{}'s folder is missing", letter.receiver));
+        return Err(State::Waits(format!(
+            "{}'s folder is missing",
+            letter.receiver
+        )));
     };
     if let Some(why) = (cx.busy)(&letter.receiver) {
-        return State::Waits(why);
+        return Err(State::Waits(why));
     }
     let meta = letter.meta(cx.today);
     // In the process's turn, the time taken there (EP-20's review): a session's start, which
@@ -779,7 +982,7 @@ fn send(
             Err(e) => {
                 let why = format!("{}'s inbox could not be written: {e}", letter.receiver);
                 report.problems.push(why.clone());
-                return State::Waits(why);
+                return Err(State::Waits(why));
             }
         },
     };
@@ -803,14 +1006,46 @@ fn send(
                 "the ledger did not log a delivery for a revert: {e}"
             ));
         }
+    }
+    Ok(Delivery {
+        id,
+        appended: written.is_some(),
+    })
+}
+
+/// A letter just sent: what it rewords (EP-20d) recorded in the log, the status bar's words
+/// when it was written now, and its state.
+fn delivered(
+    ledger: &Ledger,
+    letter: &Letter,
+    delivery: Delivery,
+    log: &Log,
+    current: &HashSet<String>,
+    report: &mut Report,
+) -> State {
+    let rewording = log.reworded(letter, current);
+    if !rewording.is_empty() {
+        let row = format!("{REWORDING} {} of {}", letter.key, rewording.join(", "));
+        if let Err(e) = ledger.add_event(Utc::now(), EVENT_KIND, Some(&letter.sender), &row) {
+            report
+                .problems
+                .push(format!("the mail log did not keep a rewording: {e}"));
+        }
+    }
+    if delivery.appended {
         report.delivered.push(format!(
-            "{id} to {}, from {} {}",
-            letter.receiver, letter.sender, letter.brief
+            "{} to {}, from {} {}{}",
+            delivery.id,
+            letter.receiver,
+            letter.sender,
+            letter.brief,
+            rewording_words(&rewording)
         ));
     }
     State::Delivered {
         receiver: letter.receiver.clone(),
-        id,
+        id: delivery.id,
+        rewording,
     }
 }
 
@@ -853,6 +1088,26 @@ mod tests {
                 .find(|known| known.eq_ignore_ascii_case(name))
                 .map(|known| (*known).to_owned())
         })
+    }
+
+    /// The tests' registry, for the blocks of `HEAD`'s copies: alpha, beta and gamma.
+    fn resolve(name: &str) -> Option<String> {
+        ["alpha", "beta", "gamma"]
+            .iter()
+            .find(|known| known.eq_ignore_ascii_case(name))
+            .map(|known| (*known).to_owned())
+    }
+
+    /// A `HEAD` seam over `texts` (a brief's path from its project's folder → its committed
+    /// text), counting the briefs it is asked for.
+    fn head_over<'t>(
+        texts: &'t HashMap<String, String>,
+        asked: &'t std::cell::Cell<usize>,
+    ) -> impl FnMut(&Path, &str) -> Shown + 't {
+        move |_, path| {
+            asked.set(asked.get() + 1);
+            Ok(texts.get(path).cloned())
+        }
     }
 
     #[test]
@@ -930,46 +1185,144 @@ mod tests {
                 "first reading: 0 blocks counted as delivered",
             )
             .unwrap();
-        // alpha, read before, wrote to gamma while gamma was not registered.
-        let outgoing = vec![Outgoing {
+        // alpha, read before, wrote to gamma while gamma was not registered, and is writing a
+        // second note to it, not committed yet.
+        let note = |line: usize, words: &str| Outgoing {
             brief: EpId::new(6),
             path: alpha.join("roadmap").join("EP-6-export.md"),
-            line: 9,
+            line,
             to: "gamma".to_owned(),
             recipient: Recipient::Project("gamma".to_owned()),
-            text: "**Handed on (to gamma).** An old note.".to_owned(),
-        }];
+            text: format!("**Handed on (to gamma).** {words}"),
+        };
+        let outgoing = vec![note(9, "An old note."), note(11, "A draft note.")];
+        let old = "# EP-6\n\n> **Handed on (to gamma).** An old note.\n";
+        let both = format!("{old}\n> **Handed on (to gamma).** A draft note.\n");
         let backups = scratch.0.join("backups");
         let folders = |name: &str| (name == "gamma").then(|| gamma.clone());
-        let mut changes = |_: &Path| Ok::<_, String>(Vec::new());
-        let free = |_: &str| None;
-        let mut cx = Round {
-            folder_of: &folders,
-            changes: &mut changes,
-            busy: &free,
-            backups: &backups,
-            today: "2026-11-10",
-            now: Utc::now(),
+        let run = |committed: &str| {
+            let texts =
+                HashMap::from([("roadmap/EP-6-export.md".to_owned(), committed.to_owned())]);
+            let asked = std::cell::Cell::new(0);
+            let mut head = head_over(&texts, &asked);
+            let free = |_: &str| None;
+            let mut cx = Round {
+                folder_of: &folders,
+                resolve: &resolve,
+                head: &mut head,
+                busy: &free,
+                backups: &backups,
+                today: "2026-11-10",
+                now: Utc::now(),
+            };
+            let senders = [
+                Sender {
+                    name: "alpha",
+                    folder: &alpha,
+                    outgoing: &outgoing,
+                    unread: &[],
+                },
+                Sender {
+                    name: "gamma",
+                    folder: &gamma,
+                    outgoing: &[],
+                    unread: &[],
+                },
+            ];
+            round(&ledger, &senders, &mut cx)
         };
-        let senders = [
-            Sender {
-                name: "alpha",
-                folder: &alpha,
-                outgoing: &outgoing,
-                unread: &[],
-            },
-            Sender {
-                name: "gamma",
-                folder: &gamma,
-                outgoing: &[],
-                unread: &[],
-            },
-        ];
-        let report = round(&ledger, &senders, &mut cx);
+        // The committed note is gamma's past; the draft is not (EP-20d, the review): it waits.
+        let report = run(old);
         assert!(report.delivered.is_empty(), "{:?}", report.delivered);
         assert_eq!(report.marks[0].state, State::Counted);
+        assert_eq!(
+            report.marks[1].state,
+            State::Waits("its words are not committed yet".to_owned())
+        );
         assert!(!inbox_path(&gamma).exists(), "nothing written into gamma");
         assert!(Log::read(&ledger).unwrap().has_read("gamma"));
+        // Committed once gamma is read: news, delivered.
+        let report = run(&both);
+        assert_eq!(report.delivered, ["IN-1 to gamma, from alpha EP-6"]);
+        assert_eq!(report.marks[0].state, State::Counted);
+    }
+
+    #[test]
+    fn mail_to_a_project_whose_git_cannot_say_goes_on_after_its_first_round() {
+        let scratch = Scratch::new("mail-git-held");
+        let (alpha, beta) = portfolio(&scratch);
+        let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
+        ledger
+            .add_event(
+                Utc::now(),
+                EVENT_KIND,
+                Some("alpha"),
+                "first reading: 0 blocks",
+            )
+            .unwrap();
+        let note = |folder: &Path, to: &str, line: usize, words: &str| Outgoing {
+            brief: EpId::new(6),
+            path: folder.join("roadmap").join("EP-6-export.md"),
+            line,
+            to: to.to_owned(),
+            recipient: Recipient::Project(to.to_owned()),
+            text: format!("**Handed on (to {to}).** {words}"),
+        };
+        let from_beta = vec![note(&beta, "alpha", 3, "From beta.")];
+        let first = "# EP-6\n\n> **Handed on (to beta).** An old note.\n";
+        let later = format!("{first}\n> **Handed on (to beta).** A new note.\n");
+        let backups = scratch.0.join("backups");
+        let folders = |name: &str| (name == "beta").then(|| beta.clone());
+        let run = |committed: &str, from_alpha: &[Outgoing]| {
+            let texts =
+                HashMap::from([("roadmap/EP-6-export.md".to_owned(), committed.to_owned())]);
+            // beta's git fails at every round; alpha's answers.
+            let mut head = |folder: &Path, path: &str| -> Shown {
+                if folder == beta.as_path() {
+                    return Err("exited with exit code: 128: fatal: dubious ownership".to_owned());
+                }
+                Ok(texts.get(path).cloned())
+            };
+            let free = |_: &str| None;
+            let mut cx = Round {
+                folder_of: &folders,
+                resolve: &resolve,
+                head: &mut head,
+                busy: &free,
+                backups: &backups,
+                today: "2026-11-10",
+                now: Utc::now(),
+            };
+            let senders = [
+                Sender {
+                    name: "alpha",
+                    folder: &alpha,
+                    outgoing: from_alpha,
+                    unread: &[],
+                },
+                Sender {
+                    name: "beta",
+                    folder: &beta,
+                    outgoing: &from_beta,
+                    unread: &[],
+                },
+            ];
+            round(&ledger, &senders, &mut cx)
+        };
+        // beta's first reading waits for git; alpha's committed note to it is its past, and
+        // that is recorded once (the review's point on EP-20d).
+        let report = run(first, &[note(&alpha, "beta", 3, "An old note.")]);
+        assert_eq!(report.marks[0].state, State::Counted);
+        assert!(matches!(&report.marks[1].state, State::Waits(why) if why.contains("dubious")));
+        let log = Log::read(&ledger).unwrap();
+        assert!(!log.has_read("beta") && log.has_received("beta"));
+        // A note alpha writes to beta later is news, delivered while beta's reading waits.
+        let both = [
+            note(&alpha, "beta", 3, "An old note."),
+            note(&alpha, "beta", 5, "A new note."),
+        ];
+        let report = run(&later, &both);
+        assert_eq!(report.delivered, ["IN-3 to beta, from alpha EP-6"]);
     }
 
     #[test]
@@ -1064,8 +1417,14 @@ mod tests {
             "Read this first [urgent]"
         );
         assert_eq!(compose_text("Done [Urgent]", true), "Done [Urgent]");
+        // A flag typed before punctuation is not doubled (EP-20c's review; EP-20d).
+        assert_eq!(compose_text("Do it [urgent].", true), "Do it [urgent].");
         assert_eq!(owner_meta("2026-11-10"), "from the owner, 2026-11-10");
-        for empty in ["", " \n ", "[urgent]"] {
+        // The revert keeps a message whose tick row fits the ledger's cap, and names a longer.
+        let meta = owner_meta("2026-11-10");
+        assert!(revert_keeps("IN-3", &meta, &"word ".repeat(150)));
+        assert!(!revert_keeps("IN-3", &meta, &"word ".repeat(200)));
+        for empty in ["", " \n ", "[urgent]", "[Urgent] !"] {
             assert_eq!(
                 send_from_owner(&beta, "beta", empty, true, &backups, "2026-11-10", None),
                 Err("the message is empty".to_owned()),
@@ -1092,6 +1451,7 @@ mod tests {
             Some(backups.join("beta").join("inbox.2026-11-10.md"))
         );
         assert_eq!(sent.unlogged, None);
+        assert!(sent.revert_keeps);
         let inbox = super::super::read(&beta).unwrap().unwrap();
         let message = inbox.messages.last().unwrap();
         assert_eq!(message.sender.as_deref(), Some("the owner"));
@@ -1148,7 +1508,7 @@ mod tests {
     }
 
     #[test]
-    fn a_first_reading_waits_for_a_brief_that_did_not_read() {
+    fn a_first_reading_waits_for_a_brief_that_did_not_read_and_mail_to_it_goes_on() {
         let scratch = Scratch::new("mail-unread");
         let (alpha, beta) = portfolio(&scratch);
         let ledger = Ledger::open(&scratch.0.join("ledger.sqlite")).unwrap();
@@ -1159,17 +1519,28 @@ mod tests {
             _ => None,
         };
         let outgoing = outgoing_of(&alpha);
-        // beta hands a letter to alpha too, from a committed brief.
-        let to_alpha = vec![Outgoing {
+        // beta hands letters to alpha too, from a committed brief.
+        let note = |line: usize, words: &str| Outgoing {
             brief: EpId::new(2),
             path: beta.join("roadmap").join("EP-2-two.md"),
-            line: 5,
+            line,
             to: "alpha".to_owned(),
             recipient: Recipient::Project("alpha".to_owned()),
-            text: "**Handed on (to alpha).** A note for alpha.".to_owned(),
-        }];
+            text: format!("**Handed on (to alpha).** {words}"),
+        };
+        let old = vec![note(3, "A note for alpha.")];
+        let later = vec![note(3, "A note for alpha."), note(5, "A later note.")];
+        let texts = HashMap::from([
+            ("roadmap/EP-6-export.md".to_owned(), BRIEF.to_owned()),
+            (
+                "roadmap/EP-2-two.md".to_owned(),
+                "# EP-2\n\n> **Handed on (to alpha).** A note for alpha.\n\n\
+                 > **Handed on (to alpha).** A later note.\n"
+                    .to_owned(),
+            ),
+        ]);
         let unread = vec![alpha.join("roadmap").join("EP-7-broken.md")];
-        // beta was read before, so its letter to alpha is news, not its past.
+        // beta was read before, so a letter it writes to alpha later is news.
         ledger
             .add_event(
                 Utc::now(),
@@ -1178,12 +1549,14 @@ mod tests {
                 "first reading: 0 blocks counted as delivered",
             )
             .unwrap();
-        let run = |unread: &[PathBuf]| {
-            let mut changes = |_: &Path| Ok::<_, String>(Vec::new());
+        let run = |unread: &[PathBuf], to_alpha: &[Outgoing]| {
+            let asked = std::cell::Cell::new(0);
+            let mut head = head_over(&texts, &asked);
             let free = |_: &str| None;
             let mut cx = Round {
                 folder_of: &folders,
-                changes: &mut changes,
+                resolve: &resolve,
+                head: &mut head,
                 busy: &free,
                 backups: &backups,
                 today: "2026-11-10",
@@ -1199,29 +1572,44 @@ mod tests {
                 Sender {
                     name: "beta",
                     folder: &beta,
-                    outgoing: &to_alpha,
+                    outgoing: to_alpha,
                     unread: &[],
                 },
             ];
             round(&ledger, &senders, &mut cx)
         };
-        let report = run(&unread);
+        let report = run(&unread, &old);
         let waits =
             State::Waits("alpha's first reading waits: EP-7-broken.md did not read".to_owned());
         // alpha's letter waits with its first reading, which is not recorded; beta's letter to
-        // alpha waits with it, neither sent nor counted as alpha's past.
+        // alpha, there when alpha is first seen, is alpha's past, counted at once and recorded
+        // so (EP-20d).
         assert_eq!(report.marks[1].state, waits);
-        assert_eq!(report.marks[2].state, waits);
+        assert_eq!(report.marks[2].state, State::Counted);
         assert!(report.delivered.is_empty(), "{:?}", report.delivered);
         let log = Log::read(&ledger).unwrap();
-        assert!(!log.has_read("alpha") && log.has_read("beta"));
+        assert!(!log.has_read("alpha") && log.has_read("beta") && log.has_received("alpha"));
         assert!(!inbox_path(&alpha).exists());
-        // Once it reads, the first reading counts alpha's letter, and beta's letter to alpha is
-        // alpha's past as well, read for the first time then: said, not sent.
-        let report = run(&[]);
+        // A letter beta writes to alpha during the hold is news: delivered while alpha's own
+        // first reading still waits.
+        let report = run(&unread, &later);
+        assert_eq!(report.marks[1].state, waits);
+        assert_eq!(report.marks[2].state, State::Counted);
+        assert_eq!(
+            report.marks[3].state,
+            State::Delivered {
+                receiver: "alpha".to_owned(),
+                id: "IN-1".to_owned(),
+                rewording: Vec::new(),
+            }
+        );
+        assert_eq!(report.delivered, ["IN-1 to alpha, from beta EP-2"]);
+        // Once alpha's brief reads, its first reading counts its letter; beta's keep theirs.
+        let report = run(&[], &later);
         assert_eq!(report.marks[1].state, State::Counted);
         assert_eq!(report.marks[2].state, State::Counted);
-        assert!(report.delivered.is_empty() && !inbox_path(&alpha).exists());
+        assert!(matches!(report.marks[3].state, State::Delivered { .. }));
+        assert!(report.delivered.is_empty());
         assert!(Log::read(&ledger).unwrap().has_read("alpha"));
     }
 
@@ -1237,18 +1625,25 @@ mod tests {
             _ => None,
         };
         let now = Utc::now();
-        let run = |busy: Option<&str>, changed: Vec<String>| {
+        let run = |busy: Option<&str>, committed: &[&str]| {
             let outgoing = outgoing_of(&alpha);
-            let mut asked = 0;
-            let mut changes = |_: &Path| {
-                asked += 1;
-                Ok::<_, String>(changed.clone())
-            };
+            // HEAD holds the briefs named, as they are on disk.
+            let texts: HashMap<String, String> = committed
+                .iter()
+                .map(|name| {
+                    let path = format!("roadmap/{name}");
+                    let text = fs::read_to_string(alpha.join(&path)).unwrap();
+                    (path, text)
+                })
+                .collect();
+            let asked = std::cell::Cell::new(0);
+            let mut head = head_over(&texts, &asked);
             let busy_words = busy.map(str::to_owned);
             let busy_of = |name: &str| busy_words.clone().filter(|_| name == "beta");
             let mut cx = Round {
                 folder_of: &folders,
-                changes: &mut changes,
+                resolve: &resolve,
+                head: &mut head,
                 busy: &busy_of,
                 backups: &backups,
                 today: "2026-11-10",
@@ -1261,35 +1656,37 @@ mod tests {
                 unread: &[],
             }];
             let report = round(&ledger, &senders, &mut cx);
-            (report, asked)
+            (report, asked.get())
         };
         // A brief a session is still writing when the mailman first reads the project.
         let brief = alpha.join("roadmap").join("EP-7-more.md");
         fs::write(&brief, "# EP-7\n\n> **Completion note (2026-11-10).** Done.\n\n> **Handed on (to beta).** A second note.\n").unwrap();
         // The first reading counts the committed brief's letter and sends nothing; the brief
         // still being written is no past: its letter waits.
-        let (report, asked) = run(None, vec!["roadmap/EP-7-more.md".to_owned()]);
-        assert_eq!(asked, 1, "git asked once for the sender");
+        let (report, asked) = run(None, &["EP-6-export.md"]);
+        assert_eq!(asked, 2, "git asked once per brief with a letter");
         let states: Vec<&State> = report.marks.iter().map(|m| &m.state).collect();
         let waits = State::Waits("its brief is not committed yet".to_owned());
         assert_eq!(states, [&State::Unknown, &State::Counted, &waits]);
         assert!(report.delivered.is_empty());
         // Still uncommitted at the next round: it waits.
-        let (report, _) = run(None, vec!["roadmap/EP-7-more.md".to_owned()]);
+        let (report, _) = run(None, &["EP-6-export.md"]);
         assert_eq!(report.marks.last().unwrap().state, waits);
+        let both = ["EP-6-export.md", "EP-7-more.md"];
         // A session works in the receiver: it waits.
-        let (report, _) = run(Some("a session works there"), Vec::new());
+        let (report, _) = run(Some("a session works there"), &both);
         assert_eq!(
             report.marks.last().unwrap().state,
             State::Waits("a session works there".to_owned())
         );
         // Committed and free: delivered once, logged, and a tick for a revert.
-        let (report, _) = run(None, Vec::new());
+        let (report, _) = run(None, &both);
         assert_eq!(
             report.marks.last().unwrap().state,
             State::Delivered {
                 receiver: "beta".to_owned(),
-                id: "IN-3".to_owned()
+                id: "IN-3".to_owned(),
+                rewording: Vec::new(),
             }
         );
         assert_eq!(report.delivered, ["IN-3 to beta, from alpha EP-7"]);
@@ -1306,7 +1703,7 @@ mod tests {
             "delivered IN-3 · (from alpha EP-7, 2026-11-10) A second note."
         );
         // The next round sends nothing again and asks git nothing.
-        let (report, asked) = run(None, Vec::new());
+        let (report, asked) = run(None, &both);
         assert_eq!(asked, 0);
         assert!(
             report.delivered.is_empty() && report.problems.is_empty(),
@@ -1320,5 +1717,120 @@ mod tests {
         assert_eq!(fs::read_to_string(inbox_path(&beta)).unwrap(), text);
         let log = Log::read(&ledger).unwrap();
         assert!(log.has_read("Alpha"));
+    }
+
+    /// The window's `HEAD` seam over a real repository: `git::show_at_head`, as `app::mail` asks.
+    fn real_head(folder: &Path, path: &str) -> Shown {
+        let _turn = crate::process::turn();
+        crate::git::show_at_head(folder, path)
+    }
+
+    #[test]
+    fn a_block_is_committed_by_its_words_and_a_rewording_says_so() {
+        let repo = crate::revert::testing::Repo::new("mail-head");
+        let alpha = repo.0.clone();
+        let beta = repo.scratch().join("beta");
+        fs::create_dir_all(beta.join("roadmap")).unwrap();
+        fs::write(
+            inbox_path(&beta),
+            "# Inbox\n\n- [ ] IN-2 (from the owner, 2026-11-01) Old.\n",
+        )
+        .unwrap();
+        repo.write("roadmap/EP-6-export.md", BRIEF);
+        repo.commit("EP-6");
+        // An old brief edited since its commit, here with CRLF line ends against HEAD's LF, and
+        // a new brief no commit holds: the first reading counts the old block, whose words are
+        // committed, and holds the new one (EP-20d; the file's status made it news before).
+        repo.write(
+            "roadmap/EP-6-export.md",
+            &BRIEF
+                .replace("One session.", "One long session.")
+                .replace('\n', "\r\n"),
+        );
+        let seven = "# EP-7\n\n> **Completion note (2026-11-10).** Done.\n\n\
+                     > **Handed on (to beta).** A second note.\n";
+        repo.write("roadmap/EP-7-more.md", seven);
+        let ledger = Ledger::open(&repo.scratch().join("ledger.sqlite")).unwrap();
+        let backups = repo.backups();
+        let folders = |name: &str| match name {
+            "alpha" => Some(alpha.clone()),
+            "beta" => Some(beta.clone()),
+            _ => None,
+        };
+        let run = || {
+            let outgoing = outgoing_of(&alpha);
+            let mut head = real_head;
+            let free = |_: &str| None;
+            let mut cx = Round {
+                folder_of: &folders,
+                resolve: &resolve,
+                head: &mut head,
+                busy: &free,
+                backups: &backups,
+                today: "2026-11-10",
+                now: Utc::now(),
+            };
+            let senders = [Sender {
+                name: "alpha",
+                folder: &alpha,
+                outgoing: &outgoing,
+                unread: &[],
+            }];
+            round(&ledger, &senders, &mut cx)
+        };
+        let report = run();
+        let states: Vec<&State> = report.marks.iter().map(|m| &m.state).collect();
+        let not_committed = State::Waits("its brief is not committed yet".to_owned());
+        assert_eq!(states, [&State::Unknown, &State::Counted, &not_committed]);
+        // Committed: the new block goes out as news.
+        repo.commit("EP-7");
+        let report = run();
+        assert_eq!(report.delivered, ["IN-3 to beta, from alpha EP-7"]);
+        // Reworded in the working tree: a new letter, waiting for its words to be committed.
+        repo.write(
+            "roadmap/EP-7-more.md",
+            &seven.replace("A second note.", "A second note, reworded."),
+        );
+        let report = run();
+        assert_eq!(
+            report.marks.last().unwrap().state,
+            State::Waits("its words are not committed yet".to_owned())
+        );
+        assert!(report.delivered.is_empty());
+        // Committed: sent again (D-13), saying what it rewords, here and in later rounds.
+        repo.commit("EP-7 reworded");
+        let report = run();
+        assert_eq!(
+            report.delivered,
+            ["IN-4 to beta, from alpha EP-7, rewording IN-3"]
+        );
+        let words = "delivered to beta as IN-4, rewording IN-3";
+        assert_eq!(report.marks.last().unwrap().state.words(), words);
+        let report = run();
+        assert!(report.delivered.is_empty() && report.problems.is_empty());
+        assert_eq!(report.marks.last().unwrap().state.words(), words);
+        let text = fs::read_to_string(inbox_path(&beta)).unwrap();
+        assert!(
+            text.ends_with(
+                "- [ ] IN-3 (from alpha EP-7, 2026-11-10) A second note.\n\
+                 - [ ] IN-4 (from alpha EP-7, 2026-11-10) A second note, reworded.\n"
+            ),
+            "{text}"
+        );
+        // A third version names the second, which reworded the first already (the review).
+        repo.write(
+            "roadmap/EP-7-more.md",
+            &seven.replace("A second note.", "A second note, reworded twice."),
+        );
+        repo.commit("EP-7 reworded twice");
+        let report = run();
+        assert_eq!(
+            report.delivered,
+            ["IN-5 to beta, from alpha EP-7, rewording IN-4"]
+        );
+        assert_eq!(
+            rewording_words(&["IN-4".to_owned(), "IN-6".to_owned(), "IN-9".to_owned()]),
+            ", rewording IN-4, IN-6 and IN-9"
+        );
     }
 }

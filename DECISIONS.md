@@ -478,6 +478,50 @@ urgent messages into running headless sessions.
 > unconditional, or read from the mailman's rounds in the window rather than the ledger; a
 > first reading recorded with the unread brief named, its blocks counted when it reads.
 
+> **Addendum (2026-11-10, EP-20d).** The mailman's keys, (a) and (b) of EP-20's review, and the
+> four points EP-20c's review left; re-scoped S → M at pickup (the owner's choice).
+>
+> - **Committed block by block** (the review's (a)): a letter is committed when its key is
+>   among the letters of `HEAD`'s copy of its brief (`git cat-file blob HEAD:<brief>`, which
+>   unlike `git show` never reads the argument as a pathspec; parsed and its targets resolved
+>   as the working tree's), not when git's status lists no change to the brief's file. An old
+>   brief edited since its commit keeps its committed blocks, which a first reading counts; a
+>   new block, or a reworded one, waits until its words are committed. A brief `HEAD` does not
+>   hold (`does not exist in 'HEAD'`, `exists on disk, but not in 'HEAD'`, or no commit yet)
+>   has no committed block, an ignored brief among them; any other failure of git waits for the
+>   next round and holds a first reading whole. Git is asked once a round per brief that holds
+>   a letter to send, in the process's turn and spaced (D-29). Mail to a project read for the
+>   first time is its past only when committed: a draft another project is writing to it goes
+>   out later, once committed (a git failure counts it, as before).
+> - **A rewording said** (the review's (b)): a block whose words change is still a new letter,
+>   sent again (EP-20's addendum). As it goes out, the letters its sender delivered from the
+>   same brief to the same receiver whose words are gone from the sender's briefs, less any of
+>   them another reworded already, are what it rewords: a `rewording <key> of IN-n` row records
+>   them, and the Detail pane and the status bar say `delivered to <receiver> as IN-9,
+>   rewording IN-4`. A rewording of a block counted at a first reading is not said, since its
+>   `counted` row holds no receiver; two blocks to one receiver reworded at once each name both.
+> - **Mail to a held project goes on** (EP-20c's review, replacing EP-20c's hold of it): a
+>   project whose own first reading waits, for a brief that does not read or for git that
+>   cannot say what is committed, is read for the first time as a receiver all the same: its
+>   first round counts the mail to it as its past and records that (`mail counted as its past:
+>   n blocks to it from projects read before, while its first reading waits`), so a letter
+>   written to it later is news, delivered while its own first reading still waits. Before,
+>   its mail waited and was then counted as its past when the hold lifted, so a letter written
+>   during the hold was never written (and under a git failure that never lifted, never).
+> - **The owner's message:** `[urgent]` is added only when the words hold none, anywhere, as the
+>   inbox's parser reads it, so a flag typed before punctuation is not doubled; a message of the
+>   flag and punctuation alone is empty; the compose dialog, `crw send` and the status bar warn
+>   when the message is longer than the ledger keeps for a revert (1,000 characters with its id
+>   and date), since the revert then names it instead of putting it back; `crw send` takes
+>   `--urgent` anywhere among its arguments.
+>
+> *Alternatives.* Keeping the file's git status and accepting the old brief's case; keying a
+> delivered letter by its place so a rewording replaces it in the log; the rewording put into
+> the `delivered` row (older builds would misread its receiver); recomputing the rewording at
+> each round from the letters now (a later deletion would misname it); holding a held
+> project's mail until its brief reads, as EP-20c did; keeping a long message whole for the
+> revert in a file of its own.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,

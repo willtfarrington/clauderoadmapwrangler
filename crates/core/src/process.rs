@@ -77,7 +77,24 @@ where
 {
     let mut command = Command::new(program);
     command.envs(env.iter().copied());
-    output(command, args, timeout)
+    output(command, args, timeout, false)
+}
+
+/// [`output_with`] for a child whose failures differ only in their words (git's `show`, EP-20d):
+/// a failure's reason ends with what the child printed on its standard error, its lines joined.
+pub fn output_with_stderr<I, S>(
+    program: &Path,
+    args: I,
+    env: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(program);
+    command.envs(env.iter().copied());
+    output(command, args, timeout, true)
 }
 
 /// [`output_of`] with the variables named in `remove` taken out of the child's environment too:
@@ -96,10 +113,24 @@ where
     for name in remove {
         command.env_remove(name);
     }
-    output(command, args, timeout)
+    output(command, args, timeout, false)
 }
 
-fn output<I, S>(mut command: Command, args: I, timeout: Duration) -> Result<String, String>
+/// Reads a child's pipe on a thread, so a chatty child cannot fill it and stall before it exits.
+fn reader(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<String> {
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = pipe.read_to_end(&mut bytes);
+        String::from_utf8_lossy(&bytes).into_owned()
+    })
+}
+
+fn output<I, S>(
+    mut command: Command,
+    args: I,
+    timeout: Duration,
+    keep_stderr: bool,
+) -> Result<String, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -109,7 +140,11 @@ where
         .env_remove("ANTHROPIC_API_KEY")
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null());
+        .stderr(if keep_stderr {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        });
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -117,13 +152,8 @@ where
         command.creation_flags(0x0800_0000);
     }
     let mut child = command.spawn().map_err(|e| format!("did not start: {e}"))?;
-    let mut stdout = child.stdout.take().expect("stdout is piped");
-    // Read on a thread so a chatty child cannot fill the pipe and stall before it exits.
-    let reader = thread::spawn(move || {
-        let mut bytes = Vec::new();
-        let _ = stdout.read_to_end(&mut bytes);
-        String::from_utf8_lossy(&bytes).into_owned()
-    });
+    let stdout = reader(child.stdout.take().expect("stdout is piped"));
+    let stderr = child.stderr.take().map(reader);
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -138,10 +168,16 @@ where
             Err(e) => return Err(format!("could not wait for it: {e}")),
         }
     };
-    let text = reader.join().unwrap_or_default();
+    let text = stdout.join().unwrap_or_default();
     if status.success() {
-        Ok(text)
-    } else {
-        Err(format!("exited with {status}"))
+        return Ok(text);
     }
+    let said = stderr
+        .and_then(|stderr| stderr.join().ok())
+        .map(|said| said.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|said| !said.is_empty());
+    Err(match said {
+        Some(said) => format!("exited with {status}: {said}"),
+        None => format!("exited with {status}"),
+    })
 }

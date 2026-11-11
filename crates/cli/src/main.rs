@@ -253,7 +253,7 @@ fn main() -> ExitCode {
         ["tasks", target] => waiting(target),
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
         ["untick", target, id] => tick(target, id, &[], false),
-        ["send", target, words @ ..] => send_message(target, words),
+        ["send", rest @ ..] => send_message(rest),
         ["status", rest @ ..] => status(rest),
         ["prompt", target] => prompt(target, None),
         ["prompt", target, "--visual"] => prompt(target, Some(LaunchMode::Visual)),
@@ -3079,17 +3079,12 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
 /// <project|folder> <words…> [--urgent]`, the mailman's own append after a copy, logged for a
 /// revert to redo. A session at work there does not hold it (the owner's choice): it is named,
 /// and the next session triages the message.
-fn send_message(target: &str, args: &[&str]) -> ExitCode {
-    let urgent = args.contains(&"--urgent");
-    let text = args
-        .iter()
-        .filter(|arg| **arg != "--urgent")
-        .copied()
-        .collect::<Vec<_>>()
-        .join(" ");
-    if text.trim().is_empty() {
-        return usage_error("send takes the message's words, and --urgent to flag it");
-    }
+fn send_message(args: &[&str]) -> ExitCode {
+    let Some((target, text, urgent)) = send_args(args) else {
+        return usage_error(
+            "send takes a project or folder and the message's words, and --urgent to flag it",
+        );
+    };
     let folder = match project_folder(target) {
         Ok(folder) => folder,
         Err(e) => return failed(e),
@@ -3125,6 +3120,12 @@ fn send_message(target: &str, args: &[&str]) -> ExitCode {
             println!("  {}", sent.written.replace('\n', "\n  "));
             if let Some(why) = sent.unlogged {
                 eprintln!("crw: {why}; a revert would not redo the message");
+            } else if !sent.revert_keeps {
+                println!(
+                    "note: the message is longer than the ledger keeps (1,000 characters with \
+                     its id and date): a revert of a session there would name it instead of \
+                     putting it back"
+                );
             }
             if let Some(registry) = registry {
                 let (working, _) = live_sessions(&registry, &folder);
@@ -3140,6 +3141,16 @@ fn send_message(target: &str, args: &[&str]) -> ExitCode {
         }
         Err(e) => failed(e),
     }
+}
+
+/// `crw send`'s arguments: `--urgent` anywhere (EP-20c's review; EP-20d), the first other one the
+/// project or folder, the rest the message's words; `None` without a target or words.
+fn send_args<'a>(args: &[&'a str]) -> Option<(&'a str, String, bool)> {
+    let urgent = args.contains(&"--urgent");
+    let mut rest = args.iter().copied().filter(|arg| *arg != "--urgent");
+    let target = rest.next()?;
+    let text = rest.collect::<Vec<_>>().join(" ");
+    (!text.trim().is_empty()).then_some((target, text, urgent))
 }
 
 /// The registry's name for the project in `folder`, when one is registered there.
@@ -3488,6 +3499,26 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn send_takes_the_flag_anywhere() {
+        let words = "Read the export first.";
+        let expect = Some(("alpha", words.to_owned(), true));
+        assert_eq!(
+            send_args(&["--urgent", "alpha", "Read", "the", "export", "first."]),
+            expect
+        );
+        assert_eq!(
+            send_args(&["alpha", "Read", "the", "--urgent", "export", "first."]),
+            expect
+        );
+        assert_eq!(
+            send_args(&["alpha", "Read", "the", "export", "first."]),
+            Some(("alpha", words.to_owned(), false))
+        );
+        assert_eq!(send_args(&["--urgent", "alpha"]), None, "no words");
+        assert_eq!(send_args(&[]), None);
+    }
 
     /// The formalise step's session check (EP-22): the session that runs `crw formalise --yes`
     /// in its own project is left out, another one at work there still refuses the write, and

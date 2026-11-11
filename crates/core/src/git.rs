@@ -99,6 +99,36 @@ pub fn status_all(folder: &Path) -> Result<Status, String> {
     run(folder, &args).map(|text| parse_status(&text))
 }
 
+/// What git says when `HEAD` holds nothing at a path: the path is not in its tree, on disk or
+/// not, or there is no commit yet. Read under `LC_ALL=C`, so a translated git says them too.
+const NOT_AT_HEAD: [&str; 3] = [
+    "does not exist in 'HEAD'",
+    "exists on disk, but not in 'HEAD'",
+    "invalid object name 'HEAD'",
+];
+
+/// The text `HEAD` holds at `path` (from the repository's root, `/` between folders), one child,
+/// `git cat-file blob HEAD:<path>` (unlike `git show`, it never reads the argument as a pathspec
+/// when `HEAD` holds nothing there): `None` when `HEAD` holds nothing there ([`NOT_AT_HEAD`]); an
+/// error when git failed for another reason, which a caller takes as "ask again later" (the
+/// mailman's keys, EP-20d).
+pub fn show_at_head(folder: &Path, path: &str) -> Result<Option<String>, String> {
+    let spec = format!("HEAD:{path}");
+    let args: [&OsStr; 5] = [
+        OsStr::new("-C"),
+        folder.as_os_str(),
+        OsStr::new("cat-file"),
+        OsStr::new("blob"),
+        OsStr::new(&spec),
+    ];
+    let env = [("LC_ALL", "C")];
+    match process::output_with_stderr(Path::new("git"), args, &env, process::TIMEOUT) {
+        Ok(text) => Ok(Some(text)),
+        Err(why) if NOT_AT_HEAD.iter().any(|words| why.contains(words)) => Ok(None),
+        Err(why) => Err(why),
+    }
+}
+
 /// `--porcelain=v2 -z`: `# branch.*` headers, then one record per path, each ending in NUL; a
 /// renamed or copied path's record is followed by its old path as a record of its own.
 pub fn parse_status(text: &str) -> Status {
@@ -200,6 +230,30 @@ fn config_value(text: &str, section: &str, subsection: &str, key: &str) -> Optio
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn head_shows_a_committed_file_and_nothing_where_it_holds_none() {
+        let repo = crate::revert::testing::Repo::new("git-show-head");
+        let show = |path: &str| {
+            let _turn = process::turn();
+            show_at_head(&repo.0, path)
+        };
+        // No commit yet: `invalid object name 'HEAD'`.
+        repo.write("roadmap/EP-1-one.md", "# EP-1\n");
+        assert_eq!(show("roadmap/EP-1-one.md"), Ok(None));
+        repo.commit("one");
+        assert_eq!(show("roadmap/EP-1-one.md"), Ok(Some("# EP-1\n".to_owned())));
+        // On disk but not in HEAD, and nowhere at all.
+        repo.write("roadmap/EP-2-two.md", "# EP-2\n");
+        assert_eq!(show("roadmap/EP-2-two.md"), Ok(None));
+        assert_eq!(show("roadmap/EP-3-three.md"), Ok(None));
+        // Any other failure is an error, with git's words: a caller asks again later.
+        let missing = repo.scratch().join("no such folder");
+        let _turn = process::turn();
+        let failed = show_at_head(&missing, "roadmap/EP-1-one.md").unwrap_err();
+        assert!(failed.contains("exited with"), "{failed}");
+        assert!(failed.contains("fatal"), "{failed}");
+    }
 
     #[test]
     fn reads_the_porcelain_v2_status() {

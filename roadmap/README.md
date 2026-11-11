@@ -707,7 +707,7 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-20a | [Urgent and ntfy: a finished run's popup saying its result's gist (the first prose paragraph's first sentence), an open message's trailing `[urgent]` left to its chip, an urgent message's popup, the ntfy publisher (`notify::ntfy`, `ntfy_host` and `ntfy_topic` in the registry) pushing what the popup shows](EP-20a-urgent-and-ntfy.md) (D-13, D-21) | M | EP-20 | core | ☑ `15d731f` |
 | EP-20c | Compose and the mailman's limits: the compose dialog (target, text, urgent) writing `from the owner` through `mailman::append`, its write redone by a revert; the five limitations EP-20's review parked, (a) … (e), fixed where they fit (D-13) | M | EP-20a | core | ☑ `8a1245c` + `438caf0` |
 | EP-20b | [The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event](EP-20b-the-prompt-hook.md) (D-20) | S | EP-20 | core | ☑ `d128921` |
-| EP-20d | The mailman's keys: a block committed when its words are in HEAD's copy of its brief (`git show HEAD:<brief>`), so an old brief's block whose file is uncommitted at the first reading is counted, block by block; a reworded block, sent again by D-13's rule, said as such in the Detail pane and the status bar (D-13) | S | EP-20c | core | ☐ |
+| EP-20d | [The mailman's keys: a block committed when its words are in HEAD's copy of its brief (`git show HEAD:<brief>`), so an old brief's block whose file is uncommitted at the first reading is counted, block by block; a reworded block, sent again by D-13's rule, said as such in the Detail pane and the status bar; EP-20c's review points: the flag before punctuation, `crw send --urgent` anywhere, the length warning, mail to a held project](EP-20d-the-mailmans-keys.md) (D-13) | S → M (re-scoped at pickup) | EP-20c | core | ☐ |
 | EP-21a | Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane, and Migrate… opening the launch dialog in Headless with the migration prompt (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
 | EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-20d, EP-21a | core | ☐ |
 
@@ -1457,6 +1457,17 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   busy in the window at once, a headless run's opener naming a project given nothing; and it
   weighs what the context should hold, now that a long `CLAUDE.md` is cut to share 9,000
   characters (the whole file, its numbered rules' first sentences, or a pointer to read it).
+  **From EP-20d (re-scoped S → M at pickup, the owner's choice: the four points EP-20c's review
+  left for it joined (a) and (b)):** the totals are 54 briefs, 14 S · 34 M · 6 L ≈ 53
+  session-hours, 12 still open once EP-20d is checked. The walk takes EP-20d's residual-risk
+  paragraph with OT-21: the brief hands a test block on to this project's own inbox (the owner's
+  choice, since the environment repository's name stays out of tracked files; `crw send` wrote
+  the owner's own test message there), which the window's mailman should deliver once the
+  session is idle, `crw mail` listing `delivered EP-20d:… to clauderoadmapwrangler as IN-8`; and
+  the first reworded block sent again, the Detail pane and the status bar saying `rewording
+  IN-n`. The walk also weighs whether `crw mail` should print the rewording beside its delivery
+  (its own `rewording` row today) and whether a rewording of a block counted at a first reading
+  should say so (its `counted` row holds no receiver).
 
 ## Phase P4 — Chat, analytics, exports, diagnostics (planned 2026-10-31)
 
