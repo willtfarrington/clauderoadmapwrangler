@@ -31,6 +31,19 @@ row, in P3 before EP-19). v1 is now **41 briefs, 11 S · 24 M · 6 L ≈ 41.5 se
 them open. From EP-17 on, every EP of this project starts from the tool, visually by default (D-5,
 D-16 addenda).
 
+**Re-planned 2026-11-11 (EP-23, the P3 re-plan).** P3 took 15 h 58 min of active work against 18
+h planned (89 %) and about 24 h of wall time without one night (134 %); an S about 34 minutes of
+active work, an M about 54, and the sizes stay the planning unit (D-4 addendum). Planned as 8
+rows, P3 closed with 22: eleven joined by a split at pickup, one at the owner's request, two from
+the planning session of 2026-11-08. The re-plan opened with the first walk (D-10 addendum): the
+phase's residual risks settled from the records or taken with the owner, six of them fixes that
+became EP-38 and EP-39 at P4's start. P4's three large rows are cut beforehand (EP-24, EP-26 and
+EP-28 into seven M briefs), its order kept. v1 is now **61 briefs, 14 S · 42 M · 5 L ≈ 59
+session-hours**, 16 of them open, counted afresh from the tables: the totals carried in EP-23's
+note were one M short since EP-19b joined without a recount (55 briefs before this re-plan, not
+54). Since EP-37a this project's own briefs also run as chained headless runs, the window
+restarting itself into each brief's build (D-5, D-22 addenda).
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -48,6 +61,8 @@ the top-level [`README.md`](../README.md#the-roadmap-house-style) (moved there a
 **Sizes:** S ≈ 30 min, M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger
 is split at pickup. A re-plan is M from EP-23: it opens with the phase walk (D-10 addendum, 2026-11-08). L is reserved for six engines: the tile shell (EP-6), the session runner (EP-9), the
 decisions tile (EP-14), the autopilot (EP-19), the chat tile (EP-24) and the web pages (EP-30).
+*(EP-23, 2026-11-11.)* The chat tile was cut beforehand into three M briefs, so five L remain, one
+of them open (EP-30).
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -705,11 +720,11 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-22 | [Roadmap-wrangler plugin: the skills plan, replan, formalise and status and the house-style reference quoting the formalise engine's texts, the repository as its marketplace, the README's install notes, a structural test; the gate's test of a re-plan title](EP-22-roadmap-wrangler-plugin.md) (D-27, D-22) | M | EP-21 | core | ☑ `7378d71` |
 | EP-22a | [The plugin in the tool's runs: `--plugin-dir` for every headless run, the plugin's files carried in the build and written under the tool's local folder, the flag passed only when `claude --help` lists it, the launch dialog and `crw doctor` naming the copy a run gets](EP-22a-plugin-in-the-tools-runs.md) (D-27, D-15) | S | EP-22 | core | ☑ `b5f696f` |
 | EP-20a | [Urgent and ntfy: a finished run's popup saying its result's gist (the first prose paragraph's first sentence), an open message's trailing `[urgent]` left to its chip, an urgent message's popup, the ntfy publisher (`notify::ntfy`, `ntfy_host` and `ntfy_topic` in the registry) pushing what the popup shows](EP-20a-urgent-and-ntfy.md) (D-13, D-21) | M | EP-20 | core | ☑ `15d731f` |
-| EP-20c | Compose and the mailman's limits: the compose dialog (target, text, urgent) writing `from the owner` through `mailman::append`, its write redone by a revert; the five limitations EP-20's review parked, (a) … (e), fixed where they fit (D-13) | M | EP-20a | core | ☑ `8a1245c` + `438caf0` |
+| EP-20c | [Compose and the mailman's limits: the compose dialog (target, text, urgent) writing `from the owner` through `mailman::append`, its write redone by a revert; the five limitations EP-20's review parked, (a) … (e), fixed where they fit](EP-20c-compose-and-the-mailmans-limits.md) (D-13) | M | EP-20a | core | ☑ `8a1245c` + `438caf0` |
 | EP-20b | [The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event](EP-20b-the-prompt-hook.md) (D-20) | S | EP-20 | core | ☑ `d128921` |
 | EP-20d | [The mailman's keys: a block committed when its words are in HEAD's copy of its brief (`git show HEAD:<brief>`), so an old brief's block whose file is uncommitted at the first reading is counted, block by block; a reworded block, sent again by D-13's rule, said as such in the Detail pane and the status bar; EP-20c's review points: the flag before punctuation, `crw send --urgent` anywhere, the length warning, mail to a held project](EP-20d-the-mailmans-keys.md) (D-13) | S → M (re-scoped at pickup) | EP-20c | core | ☑ `9a7ab96` |
 | EP-21a | [Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane's House style section, Migrate… opening the launch dialog in Headless with the migration prompt, a revert redoing a formalise made since the session's start](EP-21a-formalise-in-the-window.md) (D-11, D-9, D-16) | M | EP-21 | core | ☑ `fb95a7a` |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-20d, EP-21a | core | ☐ |
+| EP-23 | [Re-plan P3, opening with the P3 walk: the phase's residual risks settled from the records or taken with the owner, retro and timings, the first week of chains, addenda, the README's pictures retaken, P4 cut beforehand and confirmed with pickup notes](EP-23-replan-p3.md) (D-4, D-10) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-20d, EP-21a | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -1483,24 +1498,93 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-24 | Chat tile: hosted read-only portfolio session in DATA, digest system prompt, resumable conversations, delegation of adopt, formalise and compose actions, Opus default (D-27) | L | EP-14, EP-22 | core | ☐ |
+| EP-38 | List and Detail fixes from the P3 walk: the Brief's title giving way before the badges at the default width, its floor set from pictures of a real-roadmap copy; Waiting counting tasks and inbox only where a project keeps `owner-tasks.md`, its risks listed uncounted; the House style section only when it matters (D-25, D-10, D-11) | M | EP-7a, EP-36, EP-21a | core | ☐ |
+| EP-39 | Launch dialog and prompt fixes from the P3 walk: the dialog saying a newer build is installed and offering Install and restart, opening again after it; the opener's quoted read-first rule with its lines joined; the prompt hook's context with the next row first and the rules in short (D-29, D-17, D-20) | M | EP-37a, EP-10, EP-20b | core | ☐ |
+| EP-24 | Chat, the hosted session: a read-only portfolio session per conversation at the data root, the digest system prompt, conversations kept in the ledger and resumed, a plain tile with streaming replies and an input, Opus default (D-27) | L → M (cut beforehand at EP-23) | EP-14, EP-22a | core | ☐ |
+| EP-24a | Chat, the replies: Markdown drawn with `egui_commonmark`, the conversation list, the model picker, the session's questions answered in the tile (D-27, D-15) | M | EP-24 | core | ☐ |
+| EP-24b | Chat, the delegated actions: chips for Adopt, Formalise…, Migrate… and Compose… opening the window's own dialogs, the `crw` commands the session may run, the chat's own `@<project>` mentions (D-27, D-11, D-13, D-20) | M | EP-24a, EP-20c, EP-21a, EP-39 | core | ☐ |
 | EP-25 | History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots (D-26) | M | EP-2, EP-4 | core | ☐ |
-| EP-26 | Analytics: activity heatmap, burn-up per project, velocity and projection, inline row expansion, Expand all and Collapse all, the cards view (D-25, D-26) | M | EP-25 | core | ☐ |
+| EP-26 | Analytics, the graphs: activity heatmap, burn-up per project, velocity and projection in the Detail pane, with `egui_plot` (D-25, D-26) | M | EP-25 | core | ☐ |
+| EP-26a | Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view (D-25) | M | EP-26 | core | ☐ |
 | EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
 | EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
-| EP-28 | Operations: `doctor` and the Diagnostics tile, rolling log, install script final, start-at-login entry, single instance, AV hints, start-up reconciliation (D-29) | M | EP-15 | core | ☐ |
-| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-24, EP-25, EP-26, EP-27, EP-34, EP-28 | core | ☐ |
+| EP-28 | Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints (D-29) | M | EP-15, EP-37 | core | ☐ |
+| EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
+| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-26, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
 backfill feeds the graphs and the exports; operations polish lands before the phone view exposes the tool
 beyond the desk. *(EP-8, 2026-11-01.)* EP-34 follows the exports, the other brief that writes outward,
-and comes before operations.
+and comes before operations. *(EP-23, 2026-11-11, the owner's choices.)* EP-38 and EP-39 open the
+phase: the walk's six fixes to the surfaces the owner uses daily come before the chat is built, as
+EP-7a and EP-15a came before their re-plans. The three large rows are cut beforehand, since every
+large row of P3 split at pickup and a chained run can ask that only while its chain waits: EP-24a
+and EP-24b follow EP-24, EP-26a follows EP-26, EP-28a follows EP-28. The plan's order is otherwise
+kept, the start at login included: the window stayed up through P3 without it.
 
 Standing decisions for phase P4: D-27 (read-only chat session; writes delegated), D-26 (no transcript
-parsing), D-3 (exports into `private/`; the site export names public projects only).
+parsing), D-3 (exports into `private/`; the site export names public projects only). *(EP-23,
+2026-11-11.)* D-10 addendum: hands-only owner tasks, a residual-risk paragraph per brief, and a brief
+that changes a list or a pane checks it on a copy of the real roadmaps before its close; D-15
+addendum: `egui_commonmark` 0.26.0 and `egui_plot` 0.38.0 are cleared, each pinned exactly by the
+brief that first uses it, and the protocol crate stays at 2.1.316.
 
 **Brief notes.**
 
+- **EP-38.** Added at EP-23 (2026-11-11, the P3 re-plan) from the walk (the owner's choices; D-25,
+  D-10 and D-11 addenda of that date): three fixes to the list and the Detail pane, checked on a
+  copy of the real roadmaps (`scripts\copy-roadmap.ps1 -Project <folder> -Into <scratchpad folder>`,
+  one call per non-data project, then `CRW_SCREENSHOT_ROOT=<folder>` with a fresh `CRW_HOME`; rule
+  5), the pictures kept out of git. (1) **The title gives way first.** At 1440 and 1600 points the
+  real names leave no badge column: `list::TITLE_AT_LEAST` keeps the title 160 points while
+  `Column::GIVE_WAY`'s five choices drop the optional columns in four steps (the badges compact,
+  the counts, the badges, the progress), and `TITLE_MIN` is its floor of 40 once they are gone. The title, already
+  cut with an ellipsis, gives way to a smaller least before the compact badges and the counts
+  leave, whole on hover and in the Detail pane; the brief takes pictures at both widths with two
+  or three candidate floors, sets the one that keeps the compact badges, and puts the pictures'
+  choice to the owner if none does. The order among the optional columns stays D-25's
+  (`list::tests::a_narrowing_row_gives_way_in_d25s_order`). (2) **Waiting counts tasks and mail.**
+  A project whose `roadmap/owner-tasks.md` exists counts its open owner tasks and open inbox
+  messages in the row's Waiting cell and the status bar's sum; its numbered risks list
+  (`crw_core::tasks::legacy`, read into `Snapshot::owner_items()`) is drawn in the Detail pane
+  under a heading of its own, uncounted. A project without the file counts every older form as
+  today; `crw tasks` prints the same split. (3) **The House style section only when it matters.**
+  `portfolio::House` (`read`, `wants`, `writes`, `refused`, `migrates`) gains the test the section
+  asks: `roadmap/owner-tasks.md` or `roadmap/inbox.md` among the files to create, a refusal, or an
+  older form; the row menu's Formalise… keeps its test of today (`wants()`, or the unformalised
+  state), and a project in the unformalised state keeps the section too. Tests on fixtures: a project lacking only
+  the template and the block shows the menu item and no section. Verification ends with screenshot
+  runs on the fake portfolio and on the copy, both themes. **The field check** also reads the
+  test letter EP-23 handed on to this project's own inbox, flagged `[urgent]` (the owner's choice;
+  D-13 addendum): once EP-23 was committed and its tab idle the mailman should have delivered it,
+  `crw mail` listing `delivered EP-23:… to clauderoadmapwrangler as IN-n` and `crw notifications`
+  an `urgent` popup with its ntfy line. The brief says what the log showed and declines the
+  message as a test.
+- **EP-39.** Added at EP-23 (2026-11-11, the P3 re-plan) from the walk (the owner's choices; D-29,
+  D-17 and D-20 addenda of that date): three fixes to the launch dialog and the prompts. (1) **A
+  newer build is installed.** When `install::restart_due(&Running, installed)` holds, the status
+  bar shows its chip today (`restart.rs`: "A newer build is installed: File > Install and restart
+  …") and a run started by hand starts in the older window. The launch dialog (`launch::Dialog`,
+  opened by `Board::open_launch`) says so above its footer and offers Install and restart; nothing
+  restarts by itself, and Start stays enabled. An open dialog refuses a restart
+  (`Board::restart_refusals`), so the button closes the dialog, asks the restart, and the handover
+  (`crw_core::handover`, `handover.json`) carries the project whose dialog to open again, as an
+  optional field in the version 1 form, like `urgent_seen` (the frozen-form test extended in both
+  directions); the new window opens the dialog once its files are read. A refused restart leaves
+  the dialog open with the reasons. A screenshot flag cans the state. (2) **The quote's lines
+  joined.** `prompt::read_first(claude_md)` returns the rule with the file's hard line breaks,
+  which `prompt::opener` puts under "Read first, as the project's CLAUDE.md says:"; each paragraph
+  becomes one line, list items and blank lines kept, in `crw prompt`, the dialog and the opener
+  sent (the app's `markup::reflow` does this for the Detail pane and lives in `app`, so `core`
+  needs its own). The rule block's own Read first item, quoted for a project with none, reads the
+  same way. (3) **The hook's context.** `signals::mentions::context(prompt, cwd, projects)` shares
+  `BUDGET` (9,000 characters) between the rules file and the note through `shares` and `cut`. The
+  new order: the next row's line and the start of its brief note; each numbered rule's first
+  sentence (a `CLAUDE.md` without numbered rules: its first paragraphs, cut at a paragraph's end);
+  then the paths of the project's `CLAUDE.md` and `roadmap/README.md`. No rule is cut in the
+  middle, and several mentioned projects still share the budget. A trial of the release exe uses
+  a scratch registry on another port, so no post reaches the owner's window (EP-20b's way). The
+  chat's own mentions (EP-24b) call the same function.
 - **EP-24.** `core::chat`: a session per conversation spawned like EP-9 but with cwd = the DATA root,
   `--tools "Read,Glob,Grep,Bash"` narrowed by `--allowedTools` to read-only shell commands plus the tool's
   own `cli` (`cli scan`, `cli inbox send`, `cli tasks add`, `cli adopt`), `--permission-mode dontAsk`,
@@ -1528,7 +1612,52 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   prompt hook leaves an SDK's session out, its prompt being a program's, so a chat run gets no
   `@<project>` context from it although the owner types its prompts; the chat can give its
   mentions their context itself (`signals::mentions::context(prompt, cwd, projects)`, the same
-  framing, the same budget), or mark its runs for the hook.
+  framing, the same budget), or mark its runs for the hook. **From EP-23 (cut beforehand, the
+  owner's choice; D-27 addendum of 2026-11-11):** EP-24 keeps the hosted session and a plain
+  tile: `core::chat`, a conversation's session started through the window's one start funnel
+  (`Sessions::begin`, which writes the plugin's copy and passes `--plugin-dir` when the help lists
+  it, EP-22a; a chat run is the first that loads that copy for certain, which the P3 walk carried
+  here), `--permission-prompt-tool stdio`, the digest written to a file for
+  `--append-system-prompt-file`, the conversations as ledger rows (a schema step, which older
+  builds refuse), replies as plain text while they stream, an input box, Opus at medium. EP-24a
+  takes the Markdown, the conversation list and the picker, EP-24b the actions and the mentions.
+  **The first question at pickup is what the session may read.** Its cwd is the data root (D-27),
+  under which the data repositories lie beside the projects. The owner's environment keeps a data
+  repository out of every other session's folders (IN-6), the registry has no mark for one, and
+  `crw status` is never run over the whole registry for the same reason (EP-7's note). The brief
+  puts to the owner how the chat's session is kept out of them: a `Read` deny rule per data
+  repository passed with `--settings`, as a neighbour's `Edit` rule is (EP-9), with a registry
+  mark that names them; or a cwd that is not the data root, the projects joined by `--add-dir`.
+- **EP-24a.** Added at EP-23 (2026-11-11, the P3 re-plan) when EP-24 was cut beforehand (the
+  owner's choice, D-4 addendum): the replies. `egui_commonmark` 0.26.0 joins
+  `[workspace.dependencies]`, pinned exactly (D-15 addendum: built against egui ^0.37.0,
+  egui_extras ^0.37.0 and pulldown-cmark ^0.13, read on crates.io on 2026-11-11; no feature for
+  syntax highlighting or for loading images unless the brief needs one; the lock's additions are
+  named in the completion note). A reply is drawn through it as it streams (headings, lists,
+  fenced code, tables), in the theme's colours where the crate allows; the notes' `markup` stays
+  as it is. The conversation list (a title from the first prompt, the last activity, a
+  conversation resumed with `--resume`), the model and effort picker per conversation, and the
+  session's own questions answered in the tile with the Decisions form (`decisions::Draft`,
+  `Sessions::respond`; EP-14's note). A screenshot flag opens a canned conversation holding every
+  block form; tests draw it through `testing::Screen`. If the crate's widgets cannot take the
+  theme or the tile's click rules, the brief says so and puts the fallback, a renderer of the
+  tool's own on pulldown-cmark, to the owner.
+- **EP-24b.** Added at EP-23 (2026-11-11, the P3 re-plan) when EP-24 was cut beforehand (the
+  owner's choice, D-4 addendum): the delegated actions (D-27: adopt a project, formalise or
+  migrate one, compose inbox messages and owner tasks). The window's own dialogs are the targets:
+  `Board::open_formalise(project)` (the preview, EP-21a), `Board::open_migration(name)` (the launch
+  dialog with the fixed migration prompt), `Board::open_compose(project)` (EP-20c) and the Adopt
+  action of an unadopted folder. A chip under a reply opens one with the project filled in, and
+  nothing is written before the owner's click there. The commands as built: `crw send <project>
+  <words…> [--urgent]`, `crw formalise <project> [--yes|--migration]`, `crw adopt`, and the
+  reading ones (`crw roadmap`, `crw tasks`, `crw sessions`, `crw mail`, `crw notifications`, `crw
+  usage`, `crw autopilot` without arguments); no command adds an owner task. **The first question
+  at pickup** is which writing commands the session's `--allowedTools` admit (D-27 says the tool's
+  own `cli`) and which stay chips. How the session proposes a chip (a line form the tile reads
+  out of the reply, or a tool call the host answers) is the brief's design. The chat's mentions:
+  an `@<project>` in the owner's prompt gets `signals::mentions::context` in EP-39's order, since
+  the prompt hook leaves an SDK's session out (EP-20b's note). A chat run that works refuses a
+  restart as a headless run does (`Board::restart_refusals`).
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note
@@ -1542,7 +1671,14 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   **From EP-14:** the runner writes `questions` (a question the defer route's hook ended the run
   at counts) and `answer_latency_s`, the mean seconds from a request to the owner's answer in the
   run, a deferred request's answer counted on the resume that carries it (`SessionRow`'s fields,
-  worded by `ledger::asked`); rows before EP-14 have no latency.
+  worded by `ledger::asked`); rows before EP-14 have no latency. **From EP-23:** the record
+  commits' subjects vary: `docs(roadmap): record EP-n commit hash`, the same with a suffix
+  (`record EP-20b commit hash (and EP-20c's front matter set to done)`), one for a review's fixes
+  (`record EP-20c review-fix commit hash`), and a row's Done cell may hold two hashes joined by
+  ` + ` (EP-20c's). A planning session commits with no brief (`811d9a6`), one brief may take two
+  sessions (EP-37), and a chained headless run's record commit comes seconds after its work
+  commit. The three retros' tables (the completion notes of EP-8, EP-16 and EP-23) give each
+  brief's measured time, and the Done cells its record commit, to check the import against.
 - **EP-26.** `app::analytics` with egui_plot 0.38: a calendar heatmap (sessions and completions per day,
   per project and for the portfolio), a burn-up per project (done and total over time; re-plans visible as
   total jumps), velocity (EPs per week over the last 8 weeks) and projection (remaining session-hours from
@@ -1574,14 +1710,34 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   the meter's `Week`). The chart of D-23 and D-26 needs each week's sums between two resets,
   while `Ledger::shares_since` takes a start alone. **From EP-35:** a session resumed after its
   row ended has a row per run under the same session id (D-26 addendum), so the heatmap's
-  sessions per day count runs unless it groups the rows by id.
+  sessions per day count runs unless it groups the rows by id. **From EP-23 (cut beforehand, the
+  owner's choice):** EP-26 keeps the graphs in the Detail pane: `egui_plot` 0.38.0, pinned
+  exactly at pickup (built against egui ^0.37.0, read on crates.io on 2026-11-11; D-15 addendum),
+  the heatmap, the burn-up, the velocity and the projection, and the measure of a brief's time.
+  EP-26a takes the row expansion and the cards. The retros' figures to check the measure against,
+  in minutes of active work: an S 34 on average in P3 (24 to 45 in P2), an M about 42 in P1 (45
+  of session time), 52 in P2 and 54 in P3, an L about an hour (47 for EP-19). A headless run's
+  row ends with its run, so its run length is the brief's wall time within a minute (EP-20: 50
+  minutes in the ledger, 49 in the transcript), which a visual row's is not.
+- **EP-26a.** Added at EP-23 (2026-11-11, the P3 re-plan) when EP-26 was cut beforehand (the
+  owner's choice, D-4 addendum): the graphs in the list. The inline row expansion gains the
+  burn-up sparkline (an expanded row says today that the heatmap and the sparkline arrive at
+  EP-26), Expand all and Collapse all, and the cards view of D-25 (EP-26's note from EP-8: a
+  Cards switch in the Projects toolbar, saved with the view, one card per project with its name,
+  state chip, next brief and size, progress pill, badges and sparkline, in the list's groups and
+  order). Cards and expanded rows follow `style::unselectable` (EP-15a), wrap in a narrow pane
+  (EP-26's note from EP-16), and are checked on a copy of the real roadmaps (rule 5), where
+  names and titles are long.
 - **EP-27.** `core::export`: `projects.json` (name, badge text, done, total, percent, next one or two
   undone rows, `as_of`) and `projects-cards.html` for projects whose remote is public, written into the site
   repository's `assets/data/` after the owner's yes (the site's own session wires it in; a `Handed on (to
   <site>)` message is created for that); the daily JSON export of registry and ledger into this repository's
   `private/export/<date>/`; CSV per project (sessions, snapshots) on demand. **From EP-7:** "whose
   remote is public" is `Hosting::class() == Class::Public`, from the account's list cached in the
-  ledger's `badge_cache`.
+  ledger's `badge_cache`. **From EP-23:** the message for the site's project is a `Handed on (to
+  <site>)` block after the brief's completion note, which the mailman delivers once the brief is
+  committed (EP-20), so the block names the site by its registry name; the daily export reads the
+  ledger at the schema it then has (5 on 2026-11-11, one more once the chat keeps conversations).
 - **EP-34.** Added at EP-8 (2026-11-01) for the actions D-24 decided and EP-7 parked (D-24
   addendum): Create private remote (`gh repo create <owner>/<name> --private --source <folder>
   --push`), Make public and Make private (`gh repo edit --visibility …
@@ -1594,6 +1750,12 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   `detail`, there since V1) and followed by a refresh of that project's badges; a failure is shown,
   never retried silently. Tests use an injected runner, never `gh` or the network (D-29). **From
   EP-7:** the state is read already (`badges::hosting::Hosting`, `badges::backup::Reading`).
+  **From EP-23:** the dialogs follow the Revert's and the formalise's pattern (`app::revert`,
+  `app::formalise`: the plan read on a worker thread with the refusals of `Board::work_view(project,
+  verb)`, read again at the click and run only when it is the plan shown); a restart is refused
+  while one is open (`Board::restart_refusals`), Quit waits for a running action, and each dialog
+  has a screenshot flag. Make public is the one action that publishes, so its dialog says what
+  rule 3 says of a push.
 - **EP-28.** `cli doctor` and the Diagnostics tile with the checks of D-29 (Claude Code version vs
   minimum, auth status, extension version from the extensions folder, hooks and status-line entries present
   and pointing at the current exe, Tailscale state via `tailscale status --json`, `D:` mounted with the
@@ -1640,11 +1802,56 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   show the running window as the tray's Show does; the popup's corner assumes a taskbar at the
   bottom of the screen (`popup::BOTTOM`). **From EP-16:** the ledger has rows only for the
   sessions that started while a window ran (none for EP-13 … EP-15a's), which a start at login
-  makes the rule rather than luck.
+  makes the rule rather than luck. **From EP-23 (cut beforehand, the owner's choice):** EP-28
+  keeps `crw doctor`, the Diagnostics tile, the rolling log and the AV hints; EP-28a takes the
+  start. Since P3 `crw doctor` also prints the installed copy with its build time, the plugin's
+  copy and whether it matches the build, and which `crw.exe` the hooks run (EP-37, EP-22a), and
+  `crw signals` the five events and the status line. The tile shows these, the standalone CLI's
+  version beside the extension's (2.1.316 and 2.1.322 on 2026-11-11) and the protocol crate's pin,
+  `crash.log`'s last report, the ntfy settings with the last push (EP-20a), the mailman's last
+  round and the usage poll's last answer. The walk left the push guard as a risk, not a check
+  (risk 17).
+- **EP-28a.** Added at EP-23 (2026-11-11, the P3 re-plan) when EP-28 was cut beforehand (the
+  owner's choice, D-4 addendum): the start. Since EP-37 the exes run from
+  `%LOCALAPPDATA%\clauderoadmapwrangler\bin\`, so the start-at-login entry starts the installed
+  `clauderoadmapwrangler.exe` there, hidden in the tray (`Board::hidden`), registered and removed
+  through the tool's own switch and written only on the owner's yes (rule 7). Single instance: a
+  second start finds the window by `/health` on the loopback port, asks it to show itself, as
+  `crw install` asks a restart over `POST /restart`, and exits; only the window that holds the
+  port runs the mailman's rounds and hears the hooks, so a second window is half a window today.
+  The start-up reconciliation closes the rows no window heard end (`RowState::Open`; one of
+  EP-37's two sessions still reads `open: no end recorded`) against `claude agents --json`, and a
+  headless row a crash left open (v2 notes). `crw` on PATH: the installed `bin` folder on the
+  user's PATH, or a shim beside `claude.exe` that forwards to `bin\crw.exe` (IN-3); either is a
+  write into the owner's environment, so an owner decision. The app's own icon in the tray and
+  the window (EP-28's note from EP-15), and `install-shortcut.ps1` final. A taskbar pin made
+  before EP-37 still starts `target\release`, which the window's chip offers to move. EP-28's
+  note holds the earlier segments for these parts (From IN-3, EP-12, EP-13, EP-15 and EP-16:
+  `signals::install::status`, the `/health` probe, `Ledger::open_read_only` and the open rows, the
+  hidden start), which this brief reads with its own.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown. **From the planning
   session (2026-11-08):** the re-plan opens with the P4 walk, compiled from the residual-risk
   paragraphs of P4's briefs and taken by the owner live (D-10 addendum); the row is M for it.
+  **From EP-23 (the P3 walk's method and what it carried):** settle from the records first what
+  they can say (`crw autopilot`, whose log prints the latest twenty rows, so the `event` rows of
+  kind `autopilot` are read through a read-only SQLite connection; `crw mail`, `crw
+  notifications --all`, `crw doctor`, `crw signals`), and ask the owner only for what needs their
+  eyes, hands or judgement, a live step with its place, its steps and its expected result inside
+  the question. Time the briefs as EP-23 did (its completion note; a stdlib script over each
+  transcript's timestamps and each Write or Edit's file path). Carried from P3, for this walk to
+  ask again: the push guard's refusal in a real run (EP-19b; risk 17); the Keep pins on the real
+  registry and a chain with a kept value (EP-19c); a delivery from one project into another, and
+  one under a session idle in the receiver (EP-20); a chain that meets a changed inbox with no
+  mail since its run, and a restart with an urgent letter in flight (EP-20c); the first reworded
+  block, and whether `crw mail` should then say it on the delivery's line (EP-20d; v2 notes); a
+  revert that redoes a formalise (EP-21a); the first migration's tables, converted at the P3
+  walk, as the owner found them once committed (D-9 addendum); the plugin's skills in the owner's
+  own sessions, their wording, the `replan` skill's missing sentence on settling from the
+  records first, and
+  `/roadmap-wrangler:formalise` writing from a session in the project (EP-22); a headless run
+  that loads the `--plugin-dir` copy (EP-22a; the chat's runs do). The pins are looked at again
+  (D-15 addendum: the protocol crate at 2.1.316 against 2.1.323), and egui#8470.
 
 ## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
 
@@ -1699,6 +1906,9 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
   A registry's data root must be a full path, so a relative root cannot give a neutral path, and
   Claude Code refuses to remove a folder directly under the drive root (`C:\Projects`). The two
   pictures' setups: `light,select=harbor,size=2300x1000` and `dark,select=meadow,expand=meadow,legend`.
+  **From EP-23:** retaken at the P3 re-plan the same way (the dark picture now shows the Detail
+  pane's Compose…, the usage lines and the legend's urgent mark); the close-out takes them once
+  more after P4 and P5, when the Chat tab and the graphs are no longer placeholders.
 
 ## Risks / open items
 
@@ -1726,7 +1936,11 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
    `claude-codes` pin) while the extension's stays at 2.1.314, so the gap moves either way: the minimum
    is a floor, and the version is read at every preflight. *(EP-16, 2026-11-04.)* It moved the other
    way: the extension carries 2.1.318 and the standalone binary is still 2.1.316, so a visual
-   session may meet a release the runner has not.
+   session may meet a release the runner has not. *(EP-23, 2026-11-11.)* The gap widened: the
+   extension carries 2.1.322, the standalone binary is still 2.1.316, and the protocol crate's
+   newest release is 2.1.323 against the pin 2.1.316, kept because it is the runner's CLI (D-15
+   addendum); the day the standalone binary updates itself, the adapter meets a newer CLI than
+   its pin, which shows as events it cannot read rather than a hung run (risk 2).
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
@@ -1774,17 +1988,35 @@ parsing), D-3 (exports into `private/`; the site export names public projects on
     project's release build needs, or a crash (EP-14a) ends its headless runs, recorded as
     stopped. That is why Visual stays the default; EP-35's Resume in VS Code picks such a run up
     from its ledger row, and the autopilot (EP-19) decides how a chain of this project's own briefs
-    ends.
+    ends. *(EP-23, 2026-11-11.)* Since EP-37 the exes run from their installed copy, so a release
+    build ends no run, and since EP-37a the window restarts into a new build only between two
+    runs of a chain (four times in the first week, none refused). A quit or a crash still ends a
+    headless run, and VS Code cannot open one: `claude --resume <id>` in a terminal is the way
+    back, the window's own resume after a restart staying in the v2 notes (the owner's choice).
 15. **The ledger knows what a running window heard** (D-26; EP-16). A session that starts while no
     window runs gets no row, and a VS Code tab left open runs its row on for hours, so the ledger
     cannot yet time a brief: the re-plans time them from the transcripts, EP-26 decides the
-    measure, and EP-28's start at login closes the gap in the rows.
+    measure, and EP-28's start at login closes the gap in the rows. *(EP-23, 2026-11-11.)* The
+    start at login is EP-28a's since P4's cut.
 16. **The owner's look after each brief ends** (D-10 and D-29 addenda, 2026-11-08). From EP-19b a
     brief leaves a residual-risk paragraph rather than an owner task, and the phase's re-plan walks
     them: what the fake portfolio hides (P2 grew from 8 rows to 13 by the owner's looks) may now
     surface a phase later and cost a fix brief then. The guards: the field check at each session's
     start, screenshot runs over a copy of the real portfolio (EP-36), the review of the diff for M and
-    L briefs, and the hands-only tasks still written at once.
+    L briefs, and the hands-only tasks still written at once. *(EP-23, 2026-11-11.)* The first
+    walk bore it out in part: P3's fourteen briefs since EP-19b left no blocker, and what the fake
+    portfolio hides came out through EP-36's copy runs, three findings that waited eleven briefs
+    for their fix (EP-38, EP-39). The cadence stays for P4, and a brief that changes a list or a pane now
+    checks it on a copy before its close (D-10 addendum, rule 5). What a walk cannot reach in one
+    sitting is carried to the next in EP-29's note, so a rare route (a reworded letter, a revert
+    after a formalise) may stay unexercised through v1.
+17. **The push guard is unexercised** (D-22; EP-19b, EP-23). An autopilot run under permission
+    mode `auto` carries a deny rule for `git push`, since `auto` would allow a plain push and a
+    push of this repository publishes at once (risk 11). The opener's "never push" is the first
+    guard and the rule the second; that Claude Code refuses a push under the rule rests on its
+    permissions page and on EP-9's probe of a deny rule passed the same way, and no run is known
+    to have tried. The rule guards the usual form, not a push written another way (`git -C .
+    push`). The first refused push seen in a run's transcript closes this.
 
 ## Decision record
 

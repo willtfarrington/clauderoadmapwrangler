@@ -125,3 +125,7 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   **Triaged at EP-21a (2026-11-10):** rolled in on the owner's choice, though outside the brief's
   subject (a few README sentences): the README's ntfy paragraph says both points in generic
   words; OT-24, ticked, keeps its wording.
+- [x] IN-10 (from the owner, 2026-11-11) A test from the P3 walk: decline it. **Triaged at EP-23
+  (2026-11-11):** declined as the test it is: the owner wrote it from the window's Compose…
+  dialog while this session worked here, the first real compose (`crw mail`: `written IN-10 from
+  the owner` at 12:40), which was the walk's check.

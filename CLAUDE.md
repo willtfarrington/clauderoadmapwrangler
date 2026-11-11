@@ -48,7 +48,8 @@
    -Project <folder> -Into <scratchpad folder>` copies what a row reads of one non-data project, one call
    at a time, and `CRW_SCREENSHOT_ROOT=<folder>` (or the setup flag `root=<folder>`) points a run at the
    copy under the same guards, so a layout is checked on real content. The copy and the pictures never
-   enter git, and the brief names what was checked, never the projects (rule 3).
+   enter git, and the brief names what was checked, never the projects (rule 3). A brief that changes
+   a list or a pane makes such a run before its close (D-10 addendum, 2026-11-11).
 6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
    --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
    (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M or L brief a
@@ -74,7 +75,7 @@
    Write/Edit tools, keep Bash to single lines, no heredocs, no `python -` stdin scripts. Spawn child
    processes one at a time; no burst copy or delete loops (two AV products watch this machine).
 10. **Pins (D-15).** `Cargo.lock` pins everything; the egui family (eframe, egui, egui_tiles, egui_extras,
-    egui_plot) and the `claude-codes` protocol crate move only in a re-plan brief. The minimum Claude Code
+    egui_plot, and egui_commonmark from EP-24a, D-15 addendum of 2026-11-11) and the `claude-codes` protocol crate move only in a re-plan brief. The minimum Claude Code
     version lives in `core` and is raised only by a brief that needs a newer flag; features are detected
     from `claude --version` and the `system/init` capabilities, never assumed. The tool never passes
     `--bare` and removes `ANTHROPIC_API_KEY` from every child environment.
