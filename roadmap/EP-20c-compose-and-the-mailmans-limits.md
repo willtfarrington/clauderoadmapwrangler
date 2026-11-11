@@ -157,9 +157,11 @@ changed surface for the P3 walk, not an owner task.
 >
 > **The review (rule 6).** A subagent was given the code diff alone (every changed file and
 > the new module, with the existing callers to check) and asked for verified findings with a
-> failure scenario each; its report had not come back when the cap drew near, so the work was
-> committed first. Its findings, fixed or logged, are recorded in the paragraph that follows
-> this one, and a fix is a commit of its own named in the roadmap's row beside the first.
+> failure scenario each; its report had not come back after thirteen minutes of waiting past
+> the gate, with the run's cap drawing near, so the work was committed first and the review
+> is parked at EP-20d's start (its brief note): a subagent given `8a1245c`'s diff alone, its
+> findings fixed there or logged. A finding that reaches this session before it ends is
+> recorded below this paragraph.
 >
 > **Verification.**
 >
