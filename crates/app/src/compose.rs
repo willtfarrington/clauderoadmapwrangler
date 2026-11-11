@@ -69,9 +69,21 @@ impl Dialog {
         mailman::line(self.next_id, &mailman::owner_meta(today), &self.words())
     }
 
-    /// Whether there is a message to send: words beyond the flag.
+    /// A revert is open or running in the project (the review's finding): the message would be
+    /// written under it and put back with the start's inbox, so Send waits for it.
+    pub fn revert_open(&self) -> bool {
+        self.busy
+            .as_deref()
+            .is_some_and(|busy| busy.starts_with("a revert"))
+    }
+
+    /// Whether there is a message to send: words beyond the flag, no revert open there.
     pub fn ready(&self) -> bool {
-        !mailman::compose_text(&self.text, false).is_empty() && !self.is_sending()
+        let words = mailman::compose_text(&self.text, false);
+        !words.is_empty()
+            && !words.eq_ignore_ascii_case(mailman::URGENT)
+            && !self.is_sending()
+            && !self.revert_open()
     }
 
     /// Starts the write on a worker thread, which wakes `ctx` when it is done.
@@ -140,14 +152,19 @@ impl Dialog {
             .weak(),
         );
         if let Some(busy) = &self.busy {
-            ui.label(
-                RichText::new(format!(
+            let words = if self.revert_open() {
+                format!(
+                    "{}: the message would be put back under it. Send once the revert is done.",
+                    capital(busy)
+                )
+            } else {
+                format!(
                     "{}: it has read its inbox already, so the session after it triages the \
                      message. The write is the tool's own, kept through a revert.",
                     capital(busy)
-                ))
-                .color(style::amber(ui)),
-            );
+                )
+            };
+            ui.label(RichText::new(words).color(style::amber(ui)));
         }
         ui.add_space(4.0);
         ui.add_enabled(
@@ -281,6 +298,10 @@ impl Board {
                 "A screenshot run writes nothing into its projects: {} is a fixture or a copy.",
                 dialog.project
             ));
+            return;
+        }
+        if dialog.revert_open() {
+            dialog.error = Some("A revert is open there: send once it is done.".to_owned());
             return;
         }
         if !dialog.ready() {

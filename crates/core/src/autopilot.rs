@@ -169,9 +169,10 @@ pub struct Facts {
     pub pause_percent: u8,
     /// The working tree's changes, by path, or why git could not say.
     pub tree: Result<Vec<String>, String>,
-    /// A message was delivered or written into the project's inbox since the run started, by
-    /// the ledger's tick rows (EP-20c): then a changed `roadmap/inbox.md` is left out of the
-    /// clean-tree condition; otherwise the run left its own triage uncommitted.
+    /// The tool wrote into the project since the run started, by the ledger's tick rows (a
+    /// delivery, the owner's message or tick; EP-20c): then a changed `roadmap/inbox.md` is
+    /// left out of the clean-tree condition; otherwise the run left its own triage uncommitted,
+    /// or a hand edit is there.
     pub mail_since_run: bool,
     /// The chained runs today in the project, and its cap.
     pub chained_today: u32,
@@ -313,8 +314,9 @@ impl Refusal {
                 if paths.len() == 1 && paths[0].eq_ignore_ascii_case(crate::inbox::TREE_PATH) =>
             {
                 format!(
-                    "the tree is not clean after the commit: {} changed with no message \
-                     delivered since the run started, so its triage is not committed",
+                    "the tree is not clean after the commit: {} changed with nothing written \
+                     into it by the tool since the run started (a triage of the run's own, or \
+                     a hand edit, is not committed)",
                     paths[0]
                 )
             }
@@ -1002,9 +1004,9 @@ pub fn read(ask: &Ask<'_>) -> Reading {
     }
 }
 
-/// Whether a message was delivered or written into `project`'s inbox since its latest run of
-/// `ran` started (EP-20c): the ledger's `tick` rows of the delivery kind (the mailman's and the
-/// owner's, `revert::Tick::delivery`) after the run's session row's start. Without the run's
+/// Whether the tool wrote into `project` since its latest run of `ran` started (EP-20c): any of
+/// the ledger's `tick` rows (a delivery, the owner's message, the owner's tick of a message or
+/// a task from the window or `crw tick`) after the run's session row's start. Without the run's
 /// row, or when the ledger does not read, no: a changed inbox then counts as dirty, which ends
 /// a chain rather than chaining over an uncommitted triage.
 pub fn mail_since_run(ledger: &Path, project: &str, ran: Option<EpId>) -> bool {
@@ -1033,7 +1035,9 @@ pub fn mail_since_run(ledger: &Path, project: &str, ran: Option<EpId>) -> bool {
         return false;
     };
     crate::revert::ticks_since(&ledger, project, started)
-        .is_ok_and(|ticks| ticks.iter().any(|tick| tick.delivery))
+        // Any tick of the tool's: a delivery, the owner's message, the owner's tick of a
+        // message or a task from the window or `crw tick` (the review's finding).
+        .is_ok_and(|ticks| !ticks.is_empty())
 }
 
 /// The headless launch of a chained brief (D-22): the draft's model, effort, ultracode and
@@ -1153,8 +1157,9 @@ mod tests {
         );
         assert_eq!(
             refusals[0].words(),
-            "the tree is not clean after the commit: roadmap/inbox.md changed with no message \
-             delivered since the run started, so its triage is not committed"
+            "the tree is not clean after the commit: roadmap/inbox.md changed with nothing \
+             written into it by the tool since the run started (a triage of the run's own, or \
+             a hand edit, is not committed)"
         );
         let next = |id: &str, title: &str, size: Option<Size>| {
             Ok(Next {
@@ -1829,7 +1834,7 @@ mod tests {
             (
                 "alpha",
                 Tick {
-                    at: started + TimeDelta::minutes(2),
+                    at: started - TimeDelta::minutes(2),
                     id: "OT-3".to_owned(),
                     checked: true,
                     disposition: None,
@@ -1842,6 +1847,19 @@ mod tests {
                 .unwrap();
         }
         assert!(!mail_since_run(&path, "alpha", Some(ep("EP-4"))));
+        // The owner's own tick of a message from the window during the run counts too (the
+        // review's finding): the tool wrote it, not the run.
+        let ticked = Tick {
+            at: started + TimeDelta::minutes(3),
+            id: "IN-1".to_owned(),
+            checked: true,
+            disposition: Some("rolled in".to_owned()),
+            delivery: false,
+        };
+        ledger
+            .add_event(ticked.at, TICK_KIND, Some("alpha"), &ticked.detail())
+            .unwrap();
+        assert!(mail_since_run(&path, "alpha", Some(ep("EP-4"))));
         // A delivery into the project since the run started counts, the owner's message too.
         let owner = Tick::delivery(
             started + TimeDelta::minutes(5),

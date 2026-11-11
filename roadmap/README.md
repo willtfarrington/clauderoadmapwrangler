@@ -1300,10 +1300,15 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   IN-9, rewording IN-4`), so the owner sees why a message came twice. **From EP-20c:**
   `Sender::unread` holds a project's first reading while one of its briefs does not read, and
   `Round::changes` is the seam to replace; `mailman.rs`'s tests drive a round with a closure in
-  the seam's place, and `app::mail::round` supplies the real one. **From EP-20c's close:** the
-  diff review of EP-20c's commit `8a1245c` (rule 6) had not come back from its subagent when
-  the run's cap drew near, so this brief opens with it: a review subagent given that commit's
-  diff alone (`git show 8a1245c`), its findings fixed here or logged in this brief's note.
+  the seam's place, and `app::mail::round` supplies the real one. **From EP-20c's review
+  (logged there, for here):** a letter from a sender read before to a receiver whose first
+  reading waits for an unread brief is marked as waiting, then counted as the receiver's past
+  once the brief reads (`fresh_receivers`), never written: if a letter held that way should be
+  news once the hold lifts, the second round should send it (a `held` row in the mail log, or
+  the receiver's first reading recorded with the letters then waiting named); `compose_text`
+  doubles the flag after punctuation (`Do it [urgent].` → `… [urgent]. [urgent]`); `crw send
+  --urgent <folder> …` takes the flag for the target; a message over the ledger's
+  1,000-character cap is not redone by a revert and the dialog has no length hint.
 - **EP-20b.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4), from
   EP-20's note. **From EP-12 (the owner's answer at its close):** IN-2's `UserPromptSubmit` hook:
   it recognises `@<project>` in a prompt and adds that project's `CLAUDE.md` rules and next-EP

@@ -157,11 +157,31 @@ changed surface for the P3 walk, not an owner task.
 >
 > **The review (rule 6).** A subagent was given the code diff alone (every changed file and
 > the new module, with the existing callers to check) and asked for verified findings with a
-> failure scenario each; its report had not come back after thirteen minutes of waiting past
-> the gate, with the run's cap drawing near, so the work was committed first and the review
-> is parked at EP-20d's start (its brief note): a subagent given `8a1245c`'s diff alone, its
-> findings fixed there or logged. A finding that reaches this session before it ends is
-> recorded below this paragraph.
+> failure scenario each; its report came back fifteen minutes after the work was committed
+> (`8a1245c`), with the cap drawing near, so the fixes are a commit of their own, named beside
+> the first in the roadmap's row. It found no API misuse and no test that cannot fail, and
+> eight points. Fixed and tested:
+>
+> 1. **A message composed while a revert is open in the project** could be written between the
+>    revert's reset and its write-back of the start's files and then put back with them, its
+>    tick row logged after the plan's ticks were read: Send is refused while a revert is open
+>    there (the dialog says so in place of the busy note), as the mailman holds a delivery.
+> 2. **The gate's inbox condition counted deliveries only**, so the owner's own tick of a
+>    message or a task from the window or `crw tick` between two chained runs ended the chain,
+>    and the refusal's words blamed the run: any tick row of the tool's since the run counts
+>    now, and the words say that nothing was written into the inbox by the tool, so a triage
+>    of the run's own or a hand edit is not committed.
+> 3. **The dialog's Send and the write disagreed on an empty message** (`[urgent]` typed with
+>    the box unticked): the dialog refuses it too.
+>
+> Logged, not fixed (each rare, or a design the note records): a letter held by a receiver's
+> unread brief is counted as that receiver's past once the hold lifts, though its mark said
+> that it waits (routine choice 5; EP-20d's note takes it up); a message over the ledger's
+> 1,000-character cap is not redone by a revert and nothing says so at write time; a flag
+> typed before punctuation (`[urgent].`) is doubled; `crw send --urgent <folder> …` takes the
+> flag for the target; the preview's id and date are those of the dialog's opening (routine
+> choice 3). The lesson, for the memory: launch the review subagent as soon as the code builds,
+> before the test gate, and wait for it with foreground work.
 >
 > **Verification.**
 >
