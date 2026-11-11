@@ -129,6 +129,10 @@ pub struct Dialog {
     pub kept_model: Kept,
     /// The same for the effort, beside Effort.
     pub kept_effort: Kept,
+    /// The line that a newer build is installed, while one is (EP-39): a session started from
+    /// here would run in the older window, and Install and restart beside it opens the new one
+    /// with the dialog again. The board keeps it current.
+    pub newer_build: Option<String>,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -192,6 +196,7 @@ impl Dialog {
             levels: opening.levels,
             kept_model: opening.kept_model,
             kept_effort: opening.kept_effort,
+            newer_build: None,
         }
     }
 
@@ -242,6 +247,7 @@ impl Dialog {
             levels: opening.levels,
             kept_model: opening.kept_model,
             kept_effort: opening.kept_effort,
+            newer_build: None,
         };
         dialog.set_mode(LaunchMode::Headless);
         dialog
@@ -1109,6 +1115,26 @@ impl Dialog {
         opening: bool,
         actions: &mut Vec<Action>,
     ) {
+        // A newer build installed (EP-39): said first, with the restart beside it; Start stays.
+        if let Some(words) = &self.newer_build {
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(words).color(style::amber(ui)));
+                let button = ui
+                    .add_enabled(
+                        !starting && !opening,
+                        egui::Button::new("Install and restart"),
+                    )
+                    .on_hover_text(
+                        "Close this dialog, restart the window into the installed build and \
+                         open the dialog again in the new window; refused with its reasons \
+                         here while something would be lost. Nothing restarts by itself.",
+                    )
+                    .on_disabled_hover_text("A launch is on its way");
+                if button.clicked() {
+                    actions.push(Action::RestartFromLaunch);
+                }
+            });
+        }
         let notes: Vec<String> = self
             .warnings
             .iter()
@@ -1788,6 +1814,47 @@ mod tests {
                 levels: Vec::new(),
             },
         )
+    }
+
+    /// The line that a newer build is installed, with its Install and restart (EP-39): drawn
+    /// above the footer's notes while the board sets it, its button asking the restart from the
+    /// dialog; nothing of it otherwise. Open in VS Code stays either way.
+    #[test]
+    fn a_newer_build_installed_is_said_above_the_footer_with_its_restart() {
+        use crate::testing::{self, Screen};
+
+        let mut dialog = dialog(registry(Vec::new()));
+        let preflight = canned_preflight();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            dialog.ui(ui, Some(&preflight), false, false, false);
+        });
+        assert!(testing::text_at(&output, "Install and restart").is_none());
+        let words = crate::restart::installed_words_of("2026-11-11 18:05");
+        dialog.newer_build = Some(words.clone());
+        let mut asked = Vec::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+        });
+        assert!(testing::text_at(&output, &words).is_some(), "the line");
+        assert!(testing::text_at(&output, "Open in VS Code").is_some());
+        let at = testing::text_at(&output, "Install and restart").expect("the button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| {
+                asked.extend(dialog.ui(ui, Some(&preflight), false, false, false));
+            });
+        }
+        assert_eq!(asked, [Action::RestartFromLaunch]);
+        // Gone again once the board clears it.
+        dialog.newer_build = None;
+        let output = screen.pass(Vec::new(), |ui| {
+            dialog.ui(ui, Some(&preflight), false, false, false);
+        });
+        assert!(testing::text_at(&output, "Install and restart").is_none());
     }
 
     /// Harbor's dialog with its autopilot on and the chain plan after EP-4: EP-5 (M), then EP-6,

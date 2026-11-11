@@ -219,6 +219,9 @@ pub enum Action {
     /// A newer build of the window's repository installed, and the installed window started in
     /// place of this one, unless something would be lost (EP-37): File's item, the tray's.
     InstallAndRestart,
+    /// The same from the launch dialog's own button (EP-39): the dialog closes for the restart
+    /// and opens again in the new window; a refusal puts it back with the reasons.
+    RestartFromLaunch,
     /// Quit: at once, or after a question when headless runs would stop (EP-15).
     Quit,
     /// The question's yes: quit, and the runs stop.
@@ -368,6 +371,9 @@ pub struct Board {
     /// The restart into the installed build (EP-37); set by `main`, inert in a screenshot run
     /// or a test.
     pub restart: crate::restart::Restart,
+    /// The project whose launch dialog asked for the restart under way (EP-39): what the
+    /// handover carries, for the new window to open the dialog again.
+    pub reopen_launch: Option<String>,
     /// The mailman's rounds and what they made of each block (D-13; EP-20).
     pub mail: crate::mail::Mail,
     /// The compose dialog, while it is open (D-13; EP-20c).
@@ -444,6 +450,7 @@ impl Board {
             quit_asked: false,
             revert: None,
             restart: crate::restart::Restart::default(),
+            reopen_launch: None,
             mail: crate::mail::Mail::default(),
             compose: None,
             compose_when_read: None,
@@ -1239,6 +1246,7 @@ impl Board {
             Action::TestToastLater => self.test_later(),
             Action::HideWindow => self.hide(),
             Action::InstallAndRestart => self.restart_from_window(),
+            Action::RestartFromLaunch => self.restart_from_launch(),
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
             Action::KeepRunning => self.quit_asked = false,
@@ -1489,7 +1497,7 @@ impl Board {
     /// Opens the launch dialog on `name`'s next brief (D-17, D-22): the rule table's resolution
     /// and the prompt, from the registry as it stands and the project's snapshot; or says why
     /// there is nothing to launch. The CLI's preflight is asked meanwhile.
-    fn open_launch(&mut self, name: &str) {
+    pub(crate) fn open_launch(&mut self, name: &str) {
         let Some(row) = self.portfolio.project(name) else {
             self.warn(format!("{name}: no such project to start."));
             return;
@@ -1515,6 +1523,8 @@ impl Board {
         let (program, levels, route) = self.launch_cli(&registry);
         let claude_md = prompt::claude_md(&folder);
         let today = files::today();
+        // Whether a newer build is installed, read now: the dialog's line says so (EP-39).
+        self.restart.look_now();
         // The downshift weighs the meter's Fable figure as it stands (D-23; EP-18).
         let now = chrono::Utc::now();
         let usage = rules::Usage::of(&self.meter.gauge.figures(now), now);
@@ -2032,6 +2042,14 @@ impl Board {
         if let Some(preflight) = &preflight {
             dialog.fit(preflight);
         }
+        // The line on a newer build installed follows the window's looks (EP-39); a migration's
+        // dialog shows none, since only a brief's launch opens again after the restart (the
+        // review's finding): the status bar's chip still says it.
+        dialog.newer_build = if dialog.migrates.is_none() {
+            self.restart.installed_words()
+        } else {
+            None
+        };
         if dialog.readiness_due() {
             let readiness = self
                 .visual

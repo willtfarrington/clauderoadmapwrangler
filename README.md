@@ -122,7 +122,9 @@ installed exe renamed to a dated previous copy first (Windows lets a running exe
 replaced), and asks the window to restart into it. The window does so at once, starting the installed
 window and closing, unless something would be lost, such as a headless run of its own that works or
 waits; a refused request is not remembered, and File > Install and restart, or the tray's item, does it
-later. Between two runs of a chain the autopilot takes a newer installed build itself, at the gate's
+later. While a newer build is installed the launch dialog says so too, since a session started from
+it would run in the older window, and its own Install and restart closes the dialog, restarts the
+window and opens the dialog again there. Between two runs of a chain the autopilot takes a newer installed build itself, at the gate's
 moment: the held chains and the chain plans cross the restart in a handover file, and the next
 brief starts in the new window once its first poll of live sessions has answered. A chain that ends
 leaves the window as it is. The status bar says when a newer build waits. The registry lists the folders of one data root (by default the folder
@@ -233,8 +235,10 @@ session's input, keeps the session's id, folder and event (or the status line's 
 and rate limits, never a transcript's text) and posts them within half a second, printing nothing
 and exiting quietly when no window listens. With `--inbox` the start hook also prints the project's
 open inbox messages into the session. A prompt typed in a session that names a registered project
-as `@<project>` (outside code, at most three) is given that project's `CLAUDE.md` and next row, cut
-to stay under Claude Code's limit on a hook's output; the prompt's text never leaves the relay, and
+as `@<project>` (outside code, at most three) is given that project's next row with the start of its
+brief notes, its rules in short (each numbered rule's first sentence, none cut in the middle) and
+the paths of its `CLAUDE.md` and roadmap, within Claude Code's limit on a hook's output; the prompt's
+text never leaves the relay, and
 a headless run's prompt, a program's, is given nothing. The window asks `claude agents --json` for the live sessions
 every 5 s while it has the focus (every 30 s otherwise), matches each session's folder to a
 registered project, and lists the sessions started elsewhere (visual, headless or by hand; busy,

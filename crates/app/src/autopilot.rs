@@ -1727,6 +1727,7 @@ mod tests {
             Vec::new(),
             false,
             None,
+            None,
         );
         crw_core::handover::write(&local, &written).unwrap();
         board.take_handover(Some(&local), Some(4242), " of 2026-11-10 16:40");

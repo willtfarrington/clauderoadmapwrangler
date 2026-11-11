@@ -23,6 +23,11 @@
 //! the window, a passing chain held for the restart, so that a chain of the tool's own briefs goes
 //! on in each brief's build; a restart refused then lets the chain go on in this window. A chain's
 //! end restarts nothing (the owner's choice), and the gate's moment installs nothing.
+//! **The launch dialog** (EP-39): while a newer build is installed, the dialog says so above its
+//! footer, since a run started from it would run in the older window, and offers Install and
+//! restart, which closes the dialog (an open one refuses a restart), asks the owner's restart and
+//! carries the dialog's project in the handover, so that the new window opens the dialog again
+//! once its files are read; a refusal puts the dialog back with the reasons.
 
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -107,6 +112,12 @@ pub struct Restart {
     /// The installed copy whose window ended at once: the gate's moment leaves it alone until the
     /// owner's own restart or a newer install.
     failed: Option<Stamp>,
+    /// The installed build's date, read with the standing while it is one to restart into
+    /// (EP-39): what the launch dialog's line names.
+    installed_when: Option<String>,
+    /// A screenshot run's canned words for the launch dialog's line (EP-39): a run has no
+    /// installed copy to read.
+    pub canned: Option<String>,
 }
 
 impl Restart {
@@ -128,8 +139,44 @@ impl Restart {
         }
         self.looked = Some(Instant::now());
         self.standing = self.standing_now();
+        self.installed_when = match (self.standing, &self.bin) {
+            (Standing::Installed, Some(bin)) => {
+                Stamp::of(&bin.join(install::WINDOW_EXE)).map(|stamp| stamp.when())
+            }
+            _ => None,
+        };
     }
 
+    /// Looks at the files now, whatever the pace: at the launch dialog's opening (EP-39).
+    pub fn look_now(&mut self) {
+        self.looked = None;
+        self.look(LOOK_EVERY);
+    }
+
+    /// The launch dialog's line while a newer build is installed (EP-39): a run started from
+    /// the dialog would run in this older window, and the dialog's Install and restart opens
+    /// the new one with the dialog again. None while the window runs the newest build; a
+    /// screenshot run's canned words otherwise.
+    pub fn installed_words(&self) -> Option<String> {
+        if let Some(words) = &self.canned {
+            return Some(words.clone());
+        }
+        match (self.standing, &self.installed_when) {
+            (Standing::Installed, Some(when)) => Some(installed_words_of(when)),
+            _ => None,
+        }
+    }
+}
+
+/// The launch dialog's line for an installed build of `when` (EP-39).
+pub fn installed_words_of(when: &str) -> String {
+    format!(
+        "A newer build is installed (of {when}): a session started from here runs in this older \
+         window. Install and restart opens the new window and this dialog again, afresh."
+    )
+}
+
+impl Restart {
     /// Whether the installed copy is one to restart into at the gate's moment (EP-37a), looked at
     /// now: another build than the window runs, so that a gate never restarts the window into
     /// its own build (the move out of `target\release` stays the owner's), and not one whose
@@ -342,7 +389,8 @@ impl Board {
     }
 
     /// What the window carries across a restart asked by `asked` (EP-37a): its held chains, its
-    /// plans, whether the new window opens hidden, and the urgent messages it has seen (EP-20c).
+    /// plans, whether the new window opens hidden, the urgent messages it has seen (EP-20c) and
+    /// the project whose launch dialog asked for the restart, to open again (EP-39).
     pub fn handover(&self, asked: Asked) -> Handover {
         Handover::new(
             std::process::id(),
@@ -355,7 +403,44 @@ impl Board {
                     .map(|(project, id)| UrgentSeen { project, id })
                     .collect()
             }),
+            self.reopen_launch.clone(),
         )
+    }
+
+    /// The launch dialog's Install and restart (EP-39): the dialog closes, since an open one
+    /// refuses a restart, and the handover carries its project, so that the new window opens it
+    /// again once its files are read. A refused restart, none due, or one under way already
+    /// puts the dialog back with the words; nothing restarts by itself. The project stays in
+    /// `reopen_launch` while the window closes, so that an installed window that ends at once
+    /// opens the dialog here again (the review's finding).
+    pub fn restart_from_launch(&mut self) {
+        let Some(mut dialog) = self.launch.take() else {
+            return;
+        };
+        if self.restart.closing_at.is_some() {
+            dialog.error = Some("The window is restarting already.".to_owned());
+            self.launch = Some(dialog);
+            return;
+        }
+        self.reopen_launch = Some(dialog.project.clone());
+        match self.install_and_restart() {
+            Outcome::Restarting(words) => self.notify(capitalized(&format!(
+                "{words}, with the launch dialog of {} open again",
+                dialog.project
+            ))),
+            Outcome::Newest(words) => {
+                self.reopen_launch = None;
+                dialog.newer_build = None;
+                dialog.error = None;
+                self.launch = Some(dialog);
+                self.notify(capitalized(&words));
+            }
+            Outcome::Refused(words) => {
+                self.reopen_launch = None;
+                dialog.error = Some(capitalized(&words));
+                self.launch = Some(dialog);
+            }
+        }
     }
 
     /// The restart, asked by the owner (a settled build installed first) or at the gate's moment
@@ -400,8 +485,7 @@ impl Board {
         }
         // The handover first, which the new window takes at its start (EP-37a).
         let handover = self.handover(asked);
-        let carried = !handover.held.is_empty() || !handover.plans.is_empty() || handover.hidden;
-        let local = match (&self.restart.local, carried) {
+        let local = match (&self.restart.local, handover.carries()) {
             (_, false) => None,
             (Some(dir), true) => Some(dir.clone()),
             (None, true) => {
@@ -529,9 +613,17 @@ impl Board {
                     .as_ref()
                     .and_then(|bin| Stamp::of(&bin.join(install::WINDOW_EXE)));
                 self.autopilot.recheck = true;
+                // The launch dialog that asked opens here again, the files being read (EP-39).
+                let dialog = match self.reopen_launch.take() {
+                    Some(project) => {
+                        self.open_when_read = Some(project.clone());
+                        format!(", and the launch dialog of {project} opens again")
+                    }
+                    None => String::new(),
+                };
                 self.warn(format!(
                     "Not restarted: the installed window ended at once ({code}), so this window \
-                     stays"
+                     stays{dialog}"
                 ));
             } else {
                 self.close_for_restart();
@@ -557,8 +649,16 @@ impl Board {
                 }
             }
             Taken::Ours(found) => {
-                let carried =
-                    (!found.held.is_empty() || !found.plans.is_empty()).then(|| found.words());
+                let carried = (!found.held.is_empty()
+                    || !found.plans.is_empty()
+                    || found.open_launch.is_some())
+                .then(|| found.words());
+                // The launch dialog that asked for the restart opens again once the files are
+                // read (EP-39), the way a screenshot run's `launch=` opens one.
+                if let Some(project) = found.open_launch {
+                    self.open_when_read = Some(project);
+                    self.open_headless = false;
+                }
                 if !found.held.is_empty() {
                     self.autopilot.carried = Some(Instant::now());
                     self.autopilot.held.extend(found.held);
@@ -923,6 +1023,138 @@ pub(crate) mod tests {
         );
         assert!(!scratch.0.join("bin").exists(), "nothing installed");
         assert!(board.restart.closing_at.is_none());
+    }
+
+    /// A board over the fake portfolio with its files read and the CLI and VS Code canned, so
+    /// that the launch dialog opens without asking anything real (rule 5).
+    fn board_with_files(scratch: &Scratch) -> Board {
+        let mut board = board(scratch);
+        board.portfolio = crate::portfolio::read_files(board.store());
+        board.sessions.canned = Some(std::sync::Arc::new(crate::launch::canned_preflight()));
+        board.visual.canned = Some((
+            PathBuf::from(r"C:\Tools\VS Code\Code.exe"),
+            crw_core::version::Version::new(2, 1, 314),
+        ));
+        board.catalog_folder = None;
+        board
+    }
+
+    /// The launch dialog's Install and restart (EP-39): the dialog closes for the restart, the
+    /// handover carries its project, and the restarted window opens it again once its files
+    /// are read; a refusal puts the dialog back with the reasons, its own openness not among
+    /// them; nothing newer puts it back with its line gone.
+    #[test]
+    fn the_launch_dialogs_restart_carries_its_project_and_a_refusal_keeps_the_dialog() {
+        let scratch = Scratch::new("restart-launch");
+        let mut board = board_with_files(&scratch);
+        installed(&mut board, &scratch);
+        // Opened, the dialog learns that a newer build is installed, read then and there.
+        assert!(board.restart.installed_words().is_none(), "not looked yet");
+        board.open_launch("harbor");
+        assert!(board.launch.is_some());
+        let words = board
+            .restart
+            .installed_words()
+            .expect("a newer build installed");
+        assert!(
+            words.starts_with("A newer build is installed (of 20")
+                && words.ends_with("opens the new window and this dialog again, afresh."),
+            "{words}"
+        );
+        assert_eq!(board.restart_refusals(), ["the launch dialog is open"]);
+        // Refused: the dialog stays, with the reason, and no handover is written.
+        board.offer = Some(crate::autopilot::Offer {
+            project: "harbor".to_owned(),
+            mode: "acceptEdits".to_owned(),
+        });
+        board.restart_from_launch();
+        let dialog = board.launch.as_ref().expect("the dialog is back");
+        assert_eq!(
+            dialog.error.as_deref(),
+            Some("Not restarted: the offer of auto is open")
+        );
+        assert!(board.reopen_launch.is_none() && board.restart.closing_at.is_none());
+        let local = scratch.0.join("local");
+        assert!(!handover::path(&local).exists());
+        // Taken: the dialog is gone, the handover names its project, and the window closes.
+        board.offer = None;
+        board.restart_from_launch();
+        assert!(board.launch.is_none());
+        assert!(board.restart.closing_at.is_some());
+        assert!(
+            board.notice_text().is_some_and(|text| {
+                text.starts_with("Restarting into the build of")
+                    && text.ends_with(", with the launch dialog of harbor open again")
+            }),
+            "{:?}",
+            board.notice_text()
+        );
+        let Taken::Ours(found) = handover::take(&local, Some(std::process::id())) else {
+            panic!("the handover is the window's");
+        };
+        assert_eq!(found.open_launch.as_deref(), Some("harbor"));
+        assert!(found.held.is_empty() && !found.hidden);
+        assert_eq!(found.words(), "the launch dialog of harbor");
+        // The project is kept while the window closes, for an installed window that ends at
+        // once; a dialog opened meanwhile is put back, the window restarting already.
+        assert_eq!(board.reopen_launch.as_deref(), Some("harbor"));
+        board.open_launch("harbor");
+        board.restart_from_launch();
+        let dialog = board.launch.as_ref().expect("the dialog is back");
+        assert_eq!(
+            dialog.error.as_deref(),
+            Some("The window is restarting already.")
+        );
+        assert_eq!(board.reopen_launch.as_deref(), Some("harbor"));
+        board.launch = None;
+        // The restarted window: the dialog opens again once the files are read, the way a
+        // screenshot run's `launch=` opens one.
+        handover::write(&local, &found).unwrap();
+        let mut restarted = board_with_files(&scratch);
+        restarted.open_headless = true;
+        restarted.take_handover(
+            Some(&local),
+            Some(std::process::id()),
+            " of 2026-11-11 18:05",
+        );
+        assert_eq!(restarted.open_when_read.as_deref(), Some("harbor"));
+        assert!(
+            !restarted.open_headless,
+            "the dialog opens in the project's mode"
+        );
+        assert_eq!(
+            restarted.notice_text(),
+            Some(
+                "Restarted into the installed build of 2026-11-11 18:05, carrying the launch \
+                 dialog of harbor"
+            )
+        );
+        // Nothing newer after all: the dialog comes back with its line gone.
+        let scratch = Scratch::new("restart-launch-newest");
+        let mut board = board_with_files(&scratch);
+        installed(&mut board, &scratch);
+        board.open_launch("harbor");
+        let exe = board
+            .restart
+            .bin
+            .as_ref()
+            .unwrap()
+            .join(install::WINDOW_EXE);
+        board.restart.running = Some(Running {
+            stamp: Stamp::of(&exe),
+            exe,
+        });
+        board.restart_from_launch();
+        let dialog = board.launch.as_ref().expect("the dialog is back");
+        assert!(dialog.error.is_none() && dialog.newer_build.is_none());
+        assert!(board.restart.closing_at.is_none());
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|text| text.contains("runs the newest build already")),
+            "{:?}",
+            board.notice_text()
+        );
     }
 
     #[test]

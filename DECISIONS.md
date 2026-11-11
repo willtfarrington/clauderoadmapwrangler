@@ -908,6 +908,16 @@ into a session without editing `CLAUDE.md` files. *Alternatives.* "Execute EP-n"
 > wide editor shows as lines broken in mid-sentence. *Alternatives.* The quote byte for byte as
 > the file writes it; a pointer to the rule and no quote, which would also shorten every opener.
 
+> **Addendum (2026-11-11, EP-39).** Built. `prompt::joined` joins each paragraph of the quoted
+> rule into one line: a list item, a heading, a table row or a quote's line starts a line of its
+> own with its indent kept, a run of blank lines stays as one, and a fenced block is kept as
+> written. `prompt::parts` stores the rule joined, so `crw prompt`, the dialog's editor, the
+> opener a session receives and a template's `{read_first}` all carry it; the house default is
+> one line already, and the rule block's own item (EP-21) joins to one. `read_first` itself still
+> returns the rule as written. *Alternatives.* The join inside `read_first`, whose callers in the
+> formalise step read the rule as written; the app's `markup::reflow` moved to `core`, which sets
+> the Detail pane's blocks and is more than a prompt needs.
+
 **D-18 Permissions for headless runs.** `--permission-mode acceptEdits --permission-prompts host`: edits
 inside the project pass; shell commands outside the project's allow rules, network and writes elsewhere
 reach the decisions tile; each project's own `.claude/settings.json` allow and deny rules still apply; a
@@ -1073,6 +1083,23 @@ tool. *Alternatives.* Polling only; hooks only.
 > paths of its `CLAUDE.md` and its roadmap, for the session to read the rest. *Alternatives.*
 > The cut as built; the row's line and the two paths alone, which leaves a data repository's
 > rules unread by a session that cannot reach its files.
+
+> **Addendum (2026-11-11, EP-39).** Built. A mentioned project's part of the context holds, in
+> this order: the framing line; its next row and its brief notes, whole when they fit and else
+> their start, cut at a sentence's end where one lies in the second half (else at a line's end,
+> else at a space), the marker naming the roadmap; its rules in short, each numbered rule's
+> first sentence under its number on a line of its own (`mentions::in_short` and
+> `first_sentence`: a `.`, `!` or `?` outside code spans and brackets that a space or the end
+> follows, the closing marks kept), or for a `CLAUDE.md` without numbered rules its paragraphs
+> and bullets whole, each a line; a cut drops whole lines from the end and counts the rest
+> (`[and n more rules, in <path>]`), so no rule is cut in the middle; then "The rest is in
+> <CLAUDE.md> and <roadmap/README.md>." The budget's shares are unchanged (six tenths to the
+> rules when both texts are long), as is the limit of three projects. Over a copy of this
+> project's own files, one of two projects a prompt named came to about 4,400 characters: the
+> row, the note's first paragraph and seven of the thirteen rules, the six left counted.
+> *Alternatives.* The whole rules text cut at a line's end, as EP-20b built it; the first
+> sentence of unnumbered bullets too, which the formalise block's bullets would want but a plain
+> list of reminders would not.
 
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
@@ -2143,6 +2170,23 @@ an opt-in live smoke test; documented AV exclusions.
 > it. *Alternatives.* A restart at a chain's end too; both; File > Install and restart left as
 > the only way; the tabs carried, or each ended run's result named in the new window's notice;
 > EP-28a moved up before the chat.
+
+> **Addendum (2026-11-11, EP-39).** The launch dialog and a newer build installed (the owner's
+> choice at the P3 walk). While the installed copy is one to restart into
+> (`install::restart_due`, read when the dialog opens and at the window's looks every 30 s), the
+> dialog says so in amber above its footer, naming the build's date, since a session started from
+> it would run in the older window, and offers Install and restart beside the line; Start
+> headless and Open in VS Code stay enabled, and nothing restarts by itself. The button closes
+> the dialog, since an open one refuses a restart, asks the owner's restart (a settled build
+> installed first, as File > Install and restart does) and carries the dialog's project in the
+> handover (`open_launch`, an optional field of the version 1 form beside `urgent_seen`, which
+> the build before it leaves alone); the restarted window opens the dialog on that project once
+> its files are read, afresh from the registry and the files: the prompt's edits, the mode and
+> the chain plan's rows are not carried. A refused restart puts the dialog back with the reasons
+> in its error line; a window that runs the newest build after all puts it back with the line
+> gone. A screenshot run cans the line (`newer`). *Alternatives.* A restart by itself when the
+> dialog opens; the dialog's edits carried across the restart; the status bar's chip alone, as
+> before, which a run started from the dialog never met.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

@@ -273,6 +273,93 @@ fn read_first_in(claude_md: &str) -> Option<String> {
     })
 }
 
+/// `text` with each paragraph's lines joined into one (EP-39): a line that opens a list item, a
+/// heading, a table row or a blockquote, or that follows a blank line, starts a line of its own
+/// with its indent kept; a run of blank lines stays as one; a fenced block is kept as written.
+/// The quote of a read-first rule in the opener, which a wide editor otherwise shows broken in
+/// mid-sentence (the app's `markup::reflow` does the like for the Detail pane).
+pub fn joined(text: &str) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut fence: Option<(char, usize)> = None;
+    let mut blank = false;
+    // Whether the last line written may take a continuation.
+    let mut joining = false;
+    for line in text.lines().map(str::trim_end) {
+        let trimmed = line.trim_start();
+        if let Some((c, run)) = fence {
+            out.push(line.to_owned());
+            if closes_fence(trimmed, c, run) {
+                fence = None;
+            }
+            continue;
+        }
+        if trimmed.is_empty() {
+            if !blank && !out.is_empty() {
+                out.push(String::new());
+            }
+            blank = true;
+            joining = false;
+            continue;
+        }
+        if let Some(open) = opens_fence(trimmed) {
+            fence = Some(open);
+            out.push(line.to_owned());
+            blank = false;
+            joining = false;
+            continue;
+        }
+        if joining && !blank && !starts_line(trimmed) {
+            if let Some(last) = out.last_mut() {
+                last.push(' ');
+                last.push_str(trimmed);
+            }
+        } else {
+            out.push(line.to_owned());
+        }
+        blank = false;
+        // A heading, a table row, a quote's line and a break stand alone; the rest may go on.
+        joining = !(trimmed.starts_with(['#', '|', '>']) || thematic_break(trimmed));
+    }
+    out.join("\n")
+}
+
+/// Whether a line (its indent trimmed) opens a list item, a heading, a table row, a quote or a
+/// thematic break.
+fn starts_line(trimmed: &str) -> bool {
+    if trimmed.starts_with(['#', '|', '>']) || thematic_break(trimmed) {
+        return true;
+    }
+    if trimmed.starts_with(['-', '*', '+']) {
+        return trimmed[1..].starts_with(' ') || trimmed.len() == 1;
+    }
+    let digits = trimmed.bytes().take_while(u8::is_ascii_digit).count();
+    (1..=9).contains(&digits)
+        && trimmed[digits..].starts_with(['.', ')'])
+        && trimmed[digits + 1..].starts_with(' ')
+}
+
+/// A thematic break (`---`, `* * *`, `___`): three or more of one mark, spaces between allowed.
+fn thematic_break(trimmed: &str) -> bool {
+    let Some(mark) = trimmed.chars().next().filter(|c| "-*_".contains(*c)) else {
+        return false;
+    };
+    trimmed.chars().filter(|c| *c == mark).count() >= 3
+        && trimmed.chars().all(|c| c == mark || c == ' ')
+}
+
+/// A code fence a trimmed line opens: its character and its run's length.
+fn opens_fence(trimmed: &str) -> Option<(char, usize)> {
+    let c = trimmed.chars().next().filter(|c| *c == '`' || *c == '~')?;
+    let run = trimmed.chars().take_while(|other| *other == c).count();
+    (run >= 3).then_some((c, run))
+}
+
+/// Whether a trimmed line closes the fence of `c` × `run`.
+fn closes_fence(trimmed: &str, c: char, run: usize) -> bool {
+    let closing = trimmed.chars().take_while(|other| *other == c).count();
+    closing >= run && trimmed[closing..].trim().is_empty()
+}
+
 fn opens_read_first(text: &str) -> bool {
     text.trim_start()
         .trim_start_matches(['*', '_'])
@@ -320,8 +407,10 @@ pub fn parts(
     };
     parts.choose(chosen);
     match claude_md.and_then(read_first) {
+        // The rule's lines joined (D-17 addendum, 2026-11-11; EP-39): a wide editor showed the
+        // file's hard breaks as lines broken in mid-sentence.
         Some(rule) => {
-            parts.read_first = rule;
+            parts.read_first = joined(&rule);
             parts.read_first_quoted = true;
         }
         None => parts.read_first = HOUSE_READ_FIRST.to_owned(),
@@ -843,6 +932,51 @@ Intro.
         assert_eq!(read_first("```\n**Read first:** not this\n```\n"), None);
     }
 
+    /// The quote's lines joined (EP-39): a paragraph one line, list items, headings, blank lines
+    /// and a fenced block kept, an item's indent kept.
+    #[test]
+    fn a_rules_lines_are_joined_by_paragraph() {
+        assert_eq!(
+            joined(&read_first(ITEM).unwrap()),
+            "**Read first:** `roadmap/README.md` (the next unchecked EP and its brief notes), \
+             `DECISIONS.md`, then `roadmap/inbox.md`."
+        );
+        // The section's shape stands as it is: each line starts one.
+        assert_eq!(
+            joined(&read_first(SECTION).unwrap()),
+            read_first(SECTION).unwrap()
+        );
+        assert_eq!(
+            joined(
+                "Read first: the roadmap,\nthen the decisions,\n  and the log.\n- a list\n  \
+                 item that\n  goes on\n  - nested\n\n\n```\ncode\n  kept\n```\nafter\n| a |\n\
+                 | b |\n> quoted\n> too\n## Heading\ntext"
+            ),
+            "Read first: the roadmap, then the decisions, and the log.\n- a list item that \
+             goes on\n  - nested\n\n```\ncode\n  kept\n```\nafter\n| a |\n| b |\n> quoted\n\
+             > too\n## Heading\ntext"
+        );
+        // A numbered item's marker; a dash with no space after it is text, as Markdown reads it.
+        assert_eq!(
+            joined("1. one\n   more\n2) two\n-not an item\nstill"),
+            "1. one more\n2) two -not an item still"
+        );
+        // A thematic break stands alone (the review's finding); a dash in text does not.
+        assert_eq!(
+            joined("above\n---\nbelow\n* * *\nlast - one"),
+            "above\n---\nbelow\n* * *\nlast - one"
+        );
+        assert_eq!(joined(""), "");
+        // The rule block's own item (EP-21) joins to one line.
+        let block = crate::formalise::block("\n");
+        let item = read_first(&block).unwrap();
+        assert!(item.contains('\n'));
+        let one = joined(&item);
+        assert!(!one.contains('\n'), "{one}");
+        assert!(one.starts_with("**Read first:** `roadmap/README.md` (the next unchecked EP"));
+        assert!(one.ends_with("`roadmap/owner-tasks.md` and `roadmap/inbox.md`."));
+    }
+
     fn parts_fixture() -> Parts {
         Parts {
             project: "alpha".to_owned(),
@@ -960,13 +1094,20 @@ Intro.
         assert!(text.contains("Open inbox messages in roadmap/inbox.md:\n\n- IN-2"));
         assert!(!text.contains("IN-1") && !text.contains("OT-1"));
 
-        // With the project's own rule.
+        // With the project's own rule, its lines joined (EP-39).
         let quoted = super::parts("house", &snapshot, Some(ITEM), &CHOSEN, false).unwrap();
         assert!(quoted.read_first_quoted);
-        assert!(
-            opener(&quoted)
-                .contains("Read first, as the project's CLAUDE.md says:\n\n**Read first:**")
+        assert_eq!(
+            quoted.read_first,
+            "**Read first:** `roadmap/README.md` (the next unchecked EP and its brief notes), \
+             `DECISIONS.md`, then `roadmap/inbox.md`."
         );
+        assert!(opener(&quoted).contains(&format!(
+            "Read first, as the project's CLAUDE.md says:\n\n{}\n\nThe next brief",
+            quoted.read_first
+        )));
+        let (rendered, _) = render("{read_first}", &quoted);
+        assert_eq!(rendered, quoted.read_first);
     }
 
     #[test]

@@ -64,7 +64,8 @@
 //!   harbor's refused edit of a neighbour);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
-//!   reasons in the status bar, from EP-37);
+//!   reasons in the status bar, from EP-37); `newer` (a newer build installed, canned, so that
+//!   a `launch=` dialog shows its line and its Install and restart, from EP-39);
 //!   `popup` (the notifications' popup with canned toasts, drawn inside the window: a
 //!   real one is a window of its own at the screen's lower right);
 //! - `revert=<project>` (the preview of undoing the project's latest session with a canned plan,
@@ -365,6 +366,12 @@ impl Run {
                         canned_sessions(board);
                     }
                     board.actions.push(Action::InstallAndRestart);
+                }
+                // A newer build installed, canned (EP-39): the launch dialog's line and its
+                // Install and restart, which a run refuses as it refuses every restart.
+                "newer" => {
+                    board.restart.canned =
+                        Some(crate::restart::installed_words_of("2026-11-11 18:05"));
                 }
                 "popup" => {
                     ctx.set_embed_viewports(true);

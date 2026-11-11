@@ -1,6 +1,7 @@
 //! The handover (D-22, D-29; EP-37a): what the window carries across its restart into the
 //! installed build. Before the window starts the installed window (`--restarted <pid>`), it writes
-//! its held chains and chain plans, and whether the new window opens hidden, to [`FILE`] in the
+//! its held chains and chain plans, whether the new window opens hidden, the urgent messages it
+//! has seen (EP-20c) and the project whose launch dialog to open again (EP-39) to [`FILE`] in the
 //! local folder; the restarted window takes the file at its start, which reads and deletes it. A
 //! file another process wrote, of another version, or that does not read is deleted too, and what
 //! it held is named, so that a later start never takes up an old chain. The old window writes the
@@ -41,6 +42,11 @@ pub struct Handover {
     /// when the old window had not looked, or wrote the form before this field.
     #[serde(default)]
     pub urgent_seen: Option<Vec<UrgentSeen>>,
+    /// The project whose launch dialog the new window opens again, once its files are read
+    /// (EP-39): the dialog's own Install and restart closed it for the restart. None when no
+    /// dialog asked, or the form was written before this field.
+    #[serde(default)]
+    pub open_launch: Option<String>,
 }
 
 /// An urgent message a window has seen: its project and its id (EP-20c).
@@ -59,6 +65,7 @@ impl Handover {
         plans: Vec<Plan>,
         hidden: bool,
         urgent_seen: Option<Vec<UrgentSeen>>,
+        open_launch: Option<String>,
     ) -> Self {
         Self {
             version: VERSION,
@@ -68,10 +75,18 @@ impl Handover {
             plans,
             hidden,
             urgent_seen,
+            open_launch,
         }
     }
 
-    /// What it carries, in words: `1 held chain (harbor) and 2 chain plans (harbor, meadow)`.
+    /// Whether anything in it needs the file: a held chain, a plan, a hidden window or a dialog
+    /// to open again. A window with nothing to carry restarts without one.
+    pub fn carries(&self) -> bool {
+        !self.held.is_empty() || !self.plans.is_empty() || self.hidden || self.open_launch.is_some()
+    }
+
+    /// What it carries, in words: `1 held chain (harbor) and 2 chain plans (harbor, meadow)`,
+    /// `the launch dialog of harbor` (EP-39).
     pub fn words(&self) -> String {
         let count = |n: usize, one: &str, many: &str, names: Vec<&str>| {
             let what = if n == 1 { one } else { many };
@@ -89,6 +104,9 @@ impl Handover {
                 .map(|plan| plan.project.as_str())
                 .collect();
             parts.push(count(self.plans.len(), "chain plan", "chain plans", names));
+        }
+        if let Some(project) = &self.open_launch {
+            parts.push(format!("the launch dialog of {project}"));
         }
         if parts.is_empty() {
             "no chain".to_owned()
@@ -294,6 +312,7 @@ mod tests {
                 project: "harbor".to_owned(),
                 id: "IN-4".to_owned(),
             }]),
+            None,
         )
     }
 
@@ -314,6 +333,22 @@ mod tests {
         assert_eq!(
             written.words(),
             "1 held chain (harbor) and 1 chain plan (harbor)"
+        );
+        assert!(written.carries());
+        // A dialog to open again is carried on its own (EP-39), and named.
+        let dialog = Handover::new(1, String::new(), Vec::new(), Vec::new(), false, None, None);
+        assert!(!dialog.carries());
+        let dialog = Handover {
+            open_launch: Some("meadow".to_owned()),
+            ..dialog
+        };
+        assert!(dialog.carries());
+        assert_eq!(dialog.words(), "the launch dialog of meadow");
+        let mut both = written.clone();
+        both.open_launch = Some("meadow".to_owned());
+        assert_eq!(
+            both.words(),
+            "1 held chain (harbor) and 1 chain plan (harbor) and the launch dialog of meadow"
         );
     }
 
@@ -360,7 +395,7 @@ mod tests {
         );
         assert!(!path(&scratch.0).exists());
         // An empty handover in words, and a discarded one.
-        let empty = Handover::new(1, String::new(), Vec::new(), Vec::new(), false, None);
+        let empty = Handover::new(1, String::new(), Vec::new(), Vec::new(), false, None, None);
         assert_eq!(empty.words(), "no chain");
         write(&scratch.0, &empty).unwrap();
         discard(&scratch.0);
@@ -417,6 +452,7 @@ mod tests {
         };
         assert!(found.hidden);
         assert_eq!(found.urgent_seen, None, "the form before EP-20c's field");
+        assert_eq!(found.open_launch, None, "the form before EP-39's field");
         assert_eq!(found.held[0].after, Some(ep("EP-4")));
         let plan = &found.plans[0];
         assert_eq!(plan.briefs[0].ep, ep("EP-4a"));
@@ -465,5 +501,34 @@ mod tests {
             panic!("a file with an empty seen set reads");
         };
         assert_eq!(found.urgent_seen, Some(Vec::new()));
+    }
+
+    /// The frozen version 1 file with EP-39's field reads with it, and this build writes the
+    /// field in the version 1 form, so that the build before it reads the file too (serde leaves
+    /// a field it does not know alone).
+    #[test]
+    fn the_frozen_file_reads_with_and_without_the_dialog_to_open_again() {
+        let scratch = Scratch::new("handover-frozen-launch");
+        let with_field = FROZEN.replacen(
+            "\"hidden\": true",
+            "\"hidden\": true, \"open_launch\": \"harbor\"",
+            1,
+        );
+        assert_ne!(with_field, FROZEN);
+        fs::write(path(&scratch.0), with_field).unwrap();
+        let Taken::Ours(found) = take(&scratch.0, Some(9)) else {
+            panic!("a version 1 file with the field reads");
+        };
+        assert_eq!(found.open_launch.as_deref(), Some("harbor"));
+        assert_eq!(found.version, VERSION);
+        assert!(found.hidden && found.urgent_seen.is_none());
+        // Written by this build: version 1 still, the field by its name.
+        let mut written = handover(9);
+        written.open_launch = Some("meadow".to_owned());
+        let path = write(&scratch.0, &written).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"version\": 1"), "{text}");
+        assert!(text.contains("\"open_launch\": \"meadow\""), "{text}");
+        assert_eq!(take(&scratch.0, Some(9)), Taken::Ours(written));
     }
 }
