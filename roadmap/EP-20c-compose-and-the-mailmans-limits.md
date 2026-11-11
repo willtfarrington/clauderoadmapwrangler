@@ -4,7 +4,7 @@ title: Compose and the mailman's limits
 size: M
 model: fable
 effort: xhigh
-status: in progress
+status: done
 ---
 
 # EP-20c — Compose and the mailman's limits
