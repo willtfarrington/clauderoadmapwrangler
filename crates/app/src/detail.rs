@@ -774,15 +774,36 @@ fn inbox(
     drafts: &mut std::collections::HashMap<(String, String), String>,
     actions: &mut Vec<Action>,
 ) {
+    // Compose… beside the section's title (D-13; EP-20c): the owner's message into the inbox,
+    // which the append creates when the project keeps none.
+    let compose = |ui: &mut egui::Ui, title: &str, actions: &mut Vec<Action>| {
+        ui.add_space(10.0);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new(title).strong());
+            if ui
+                .add_enabled(row.folder.is_some(), egui::Button::new("Compose…").small())
+                .on_hover_text(
+                    "Write a message from you into this project's roadmap/inbox.md, for its \
+                     next session to triage (D-13)",
+                )
+                .on_disabled_hover_text("The project's folder is missing")
+                .clicked()
+            {
+                actions.push(Action::OpenCompose(row.name().to_owned()));
+            }
+        });
+        ui.add_space(2.0);
+    };
     let Some(inbox) = &row.snapshot.inbox else {
-        section(ui, "Inbox");
-        ui.label(RichText::new("No roadmap/inbox.md.").weak());
+        compose(ui, "Inbox", actions);
+        ui.label(RichText::new("No roadmap/inbox.md: Compose… creates it.").weak());
         return;
     };
     let open: Vec<_> = inbox.open().collect();
-    section(
+    compose(
         ui,
         &format!("Inbox: {} open of {}", open.len(), inbox.messages.len()),
+        actions,
     );
     for message in open {
         ui.horizontal_wrapped(|ui| {

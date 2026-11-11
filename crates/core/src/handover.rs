@@ -36,6 +36,18 @@ pub struct Handover {
     /// The new window opens hidden in the tray: the old one was, and the restart was the gate's.
     #[serde(default)]
     pub hidden: bool,
+    /// The urgent messages the old window had seen at its last look (EP-20c): the new window's
+    /// first look toasts what arrived since, instead of taking every open one as seen. None
+    /// when the old window had not looked, or wrote the form before this field.
+    #[serde(default)]
+    pub urgent_seen: Option<Vec<UrgentSeen>>,
+}
+
+/// An urgent message a window has seen: its project and its id (EP-20c).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UrgentSeen {
+    pub project: String,
+    pub id: String,
 }
 
 impl Handover {
@@ -46,6 +58,7 @@ impl Handover {
         held: Vec<Held>,
         plans: Vec<Plan>,
         hidden: bool,
+        urgent_seen: Option<Vec<UrgentSeen>>,
     ) -> Self {
         Self {
             version: VERSION,
@@ -54,6 +67,7 @@ impl Handover {
             held,
             plans,
             hidden,
+            urgent_seen,
         }
     }
 
@@ -276,6 +290,10 @@ mod tests {
             }],
             vec![plan()],
             true,
+            Some(vec![UrgentSeen {
+                project: "harbor".to_owned(),
+                id: "IN-4".to_owned(),
+            }]),
         )
     }
 
@@ -289,6 +307,7 @@ mod tests {
         // The JSON keeps ids by their text.
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"EP-4a\""), "{text}");
+        assert!(text.contains("\"urgent_seen\""), "{text}");
         assert_eq!(take(&scratch.0, Some(4242)), Taken::Ours(written.clone()));
         assert!(!path.exists(), "taken means deleted");
         assert_eq!(take(&scratch.0, Some(4242)), Taken::Nothing);
@@ -341,7 +360,7 @@ mod tests {
         );
         assert!(!path(&scratch.0).exists());
         // An empty handover in words, and a discarded one.
-        let empty = Handover::new(1, String::new(), Vec::new(), Vec::new(), false);
+        let empty = Handover::new(1, String::new(), Vec::new(), Vec::new(), false, None);
         assert_eq!(empty.words(), "no chain");
         write(&scratch.0, &empty).unwrap();
         discard(&scratch.0);
@@ -397,6 +416,7 @@ mod tests {
             panic!("a version 1 file reads");
         };
         assert!(found.hidden);
+        assert_eq!(found.urgent_seen, None, "the form before EP-20c's field");
         assert_eq!(found.held[0].after, Some(ep("EP-4")));
         let plan = &found.plans[0];
         assert_eq!(plan.briefs[0].ep, ep("EP-4a"));
@@ -433,5 +453,17 @@ mod tests {
             panic!("a file without the flag reads");
         };
         assert!(!found.hidden);
+        assert_eq!(found.urgent_seen, None);
+        // An empty seen set is one the old window had: it reads as such, not as none (EP-20c).
+        fs::write(
+            path(&scratch.0),
+            r#"{"version": 1, "from": 9, "written": "now", "held": [], "plans": [],
+               "urgent_seen": []}"#,
+        )
+        .unwrap();
+        let Taken::Ours(found) = take(&scratch.0, Some(9)) else {
+            panic!("a file with an empty seen set reads");
+        };
+        assert_eq!(found.urgent_seen, Some(Vec::new()));
     }
 }

@@ -1172,6 +1172,9 @@ fn write_back(from: &Path, to: &Path) -> Result<(), String> {
 /// Redoes the tool's ticks made since the start, the oldest first (D-10, D-13).
 fn redo_ticks(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
     let folder = plan.folder.as_path();
+    // A delivery redone under another id (the old one taken meanwhile): a later tick of the
+    // old id in the same redo ticks the message where it is now (EP-20c, the review's (d)).
+    let mut renamed: BTreeMap<String, String> = BTreeMap::new();
     for tick in &plan.ticks {
         if tick.delivery {
             // A message the mailman delivered (EP-20): appended again unless it is there. A row
@@ -1185,17 +1188,32 @@ fn redo_ticks(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
                 continue;
             }
             match crate::inbox::mailman::redeliver(folder, words, backups, today) {
-                Ok(_) => done.redone.push(tick.detail()),
+                Ok(redelivered) if redelivered.id.eq_ignore_ascii_case(&tick.id) => {
+                    done.redone.push(tick.detail());
+                }
+                Ok(redelivered) => {
+                    done.redone
+                        .push(format!("{} (as {})", tick.detail(), redelivered.id));
+                    renamed.insert(tick.id.to_ascii_uppercase(), redelivered.id);
+                }
                 Err(why) => done.not_redone.push(format!("{} ({why})", tick.id)),
             }
             continue;
         }
+        let id = renamed
+            .get(&tick.id.to_ascii_uppercase())
+            .map_or(tick.id.as_str(), String::as_str);
+        let said = if id == tick.id {
+            tick.detail()
+        } else {
+            format!("{} (as {id})", tick.detail())
+        };
         let result = match (tick.id.split('-').next(), tick.checked) {
             (Some("OT"), true) => tasks::tick(folder, &tick.id, backups, today),
             (Some("OT"), false) => tasks::untick(folder, &tick.id, backups, today),
             (Some("IN"), true) => inbox::tick(
                 folder,
-                &tick.id,
+                id,
                 tick.disposition.as_deref().unwrap_or_default(),
                 backups,
                 today,
@@ -1206,7 +1224,7 @@ fn redo_ticks(plan: &Plan, backups: &Path, today: &str, done: &mut Done) {
             }
         };
         match result {
-            Ok(_) => done.redone.push(tick.detail()),
+            Ok(_) => done.redone.push(said),
             Err(
                 crate::checklist::Error::AlreadyTicked(_) | crate::checklist::Error::NotTicked(_),
             ) => {}
@@ -1603,6 +1621,68 @@ mod tests {
             inbox.ends_with("- [ ] IN-1 (from beta EP-6, 2026-11-10) The export gains a column.\n"),
             "{inbox}"
         );
+    }
+
+    /// A delivery redone under another id, the old one taken at the redo (the session had
+    /// created the inbox with a message of its own before the mailman's): a later tick of the
+    /// old id in the same redo ticks the message where it is now (EP-20c, the review's (d)).
+    #[test]
+    fn a_delivery_redone_under_another_id_carries_its_tick_along() {
+        let repo = Repo::new("revert-delivery-id");
+        repo.write("src/lib.rs", "fn main() {}\n");
+        repo.commit("first");
+        let backups = repo.backups();
+        let start = repo.capture(&start::copies_dir(&backups, &repo.0, "s-1"));
+        // The session writes the inbox itself, with a message of its own, and commits it.
+        repo.write(
+            "roadmap/inbox.md",
+            "# Inbox\n\n- [ ] IN-1 (from the owner, 2026-11-10) The session's own.\n",
+        );
+        repo.commit("Session work");
+        // Then the mailman delivers, under the next id, and the owner ticks that message.
+        let words = "(from beta EP-6, 2026-11-10) The export gains a column.";
+        let delivered =
+            crate::inbox::mailman::redeliver(&repo.0, words, &backups, "2026-11-10").unwrap();
+        assert_eq!(delivered.id, "IN-2");
+        inbox::tick(&repo.0, "IN-2", "rolled in", &backups, "2026-11-10").unwrap();
+        let mut cx = context(&repo, &backups);
+        let at = Utc::now();
+        cx.ticks = vec![
+            Tick::delivery(at, "IN-2", words),
+            Tick {
+                at,
+                id: "IN-2".to_owned(),
+                checked: true,
+                disposition: Some("rolled in".to_owned()),
+                delivery: false,
+            },
+        ];
+        let plan = plan(
+            &chosen(row(1, Some("s-1"), "alpha", start.at), Some(start)),
+            &cx,
+        );
+        assert!(!plan.is_refused(), "{:?}", plan.refusals);
+        let done = revert(&plan, None, &backups, "2026-11-10").unwrap();
+        assert!(done.problems.is_empty(), "{:?}", done.problems);
+        // The session's commit undone, the inbox is gone: the message comes back as IN-1, and
+        // the tick of IN-2 follows it there.
+        assert_eq!(
+            done.redone,
+            [
+                format!("delivered IN-2 · {words} (as IN-1)"),
+                "ticked IN-2 · rolled in (as IN-1)".to_owned()
+            ]
+        );
+        assert!(done.not_redone.is_empty(), "{:?}", done.not_redone);
+        let inbox = repo.read("roadmap/inbox.md").unwrap();
+        assert!(
+            inbox.ends_with(
+                "- [x] IN-1 (from beta EP-6, 2026-11-10) The export gains a column. \
+                 **Disposition (2026-11-10):** rolled in\n"
+            ),
+            "{inbox}"
+        );
+        assert!(!inbox.contains("IN-2"), "{inbox}");
     }
 
     /// Without a recorded start, the target is the last brief recorded before the session; a

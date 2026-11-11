@@ -166,6 +166,12 @@ pub enum Action {
         project: String,
         id: String,
     },
+    /// The compose dialog on a project (D-13; EP-20c): the Detail pane's Compose…, a row's
+    /// Send a message….
+    OpenCompose(String),
+    /// The dialog's Send: the message written into the project's inbox.
+    Send,
+    CloseCompose,
     Refresh,
     /// The launch dialog on the project's next brief (S, a row's Start button).
     OpenLaunch(String),
@@ -351,6 +357,11 @@ pub struct Board {
     pub restart: crate::restart::Restart,
     /// The mailman's rounds and what they made of each block (D-13; EP-20).
     pub mail: crate::mail::Mail,
+    /// The compose dialog, while it is open (D-13; EP-20c).
+    pub compose: Option<crate::compose::Dialog>,
+    /// A compose dialog to open once the files are read, with its text canned (a screenshot
+    /// run's `compose=<project>[:urgent]`).
+    pub compose_when_read: Option<(String, bool)>,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -415,6 +426,8 @@ impl Board {
             revert: None,
             restart: crate::restart::Restart::default(),
             mail: crate::mail::Mail::default(),
+            compose: None,
+            compose_when_read: None,
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -481,6 +494,12 @@ impl Board {
     #[cfg(test)]
     pub fn notice_text(&self) -> Option<&str> {
         self.notice.as_ref().map(|(text, _, _)| text.as_str())
+    }
+
+    /// The status bar's error, while one stands.
+    #[cfg(test)]
+    pub fn error_text(&self) -> Option<&str> {
+        self.error.as_deref()
     }
 
     pub fn notify(&mut self, text: impl Into<String>) {
@@ -599,6 +618,7 @@ impl Board {
         self.autopilot_pass();
         // The mailman delivers what the briefs hand on (D-13; EP-20).
         self.mail_pass();
+        self.compose_pass();
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
             && self.portfolio.project(name).is_some()
@@ -606,6 +626,24 @@ impl Board {
             let name = name.clone();
             self.open_when_read = None;
             self.actions.push(Action::OpenLaunch(name));
+        }
+        if let Some((name, urgent)) = &self.compose_when_read
+            && !self.loader.reading_files
+            && self.portfolio.project(name).is_some()
+        {
+            let (name, urgent) = (name.clone(), *urgent);
+            self.compose_when_read = None;
+            self.open_compose(&name);
+            if let Some(dialog) = self.compose.as_mut() {
+                dialog.text = "The export's shared fixture names changed on 2026-11-10: read \
+                               `fixtures/README.md` before your EP-4, and keep the old names \
+                               as aliases until the index is rebuilt."
+                    .to_owned();
+                dialog.urgent = urgent;
+                if dialog.busy.is_none() {
+                    dialog.busy = Some("a session works there".to_owned());
+                }
+            }
         }
         #[cfg(feature = "screenshot")]
         if self.fixtures {
@@ -1026,7 +1064,11 @@ impl Board {
     /// pane, S opens the launch dialog, A says what is not built yet, F5 refreshes.
     pub fn keys(&mut self, ctx: &egui::Context) {
         // A dialog over the window takes the keys: none reaches the list behind it.
-        if self.launch.is_some() || self.revert.is_some() || self.offer.is_some() {
+        if self.launch.is_some()
+            || self.revert.is_some()
+            || self.offer.is_some()
+            || self.compose.is_some()
+        {
             return;
         }
         if ctx.input_mut(|i| i.consume_shortcut(&REFRESH)) {
@@ -1109,6 +1151,13 @@ impl Board {
                 self.bring = Some(Pane::Detail);
             }
             Action::OpenLaunch(name) => self.open_launch(&name),
+            Action::OpenCompose(name) => self.open_compose(&name),
+            Action::Send => self.send_message(),
+            Action::CloseCompose => {
+                if self.compose.as_ref().is_none_or(|d| !d.is_sending()) {
+                    self.compose = None;
+                }
+            }
             Action::CloseLaunch => {
                 if self.visual.is_opening() {
                     self.visual.cancel();
@@ -2240,6 +2289,7 @@ impl eframe::App for Dashboard {
             .show(ui, |ui| self.layout.ui(&mut self.board, ui));
         self.board.launch_dialog(&ctx);
         self.board.offer_dialog(&ctx);
+        self.board.compose_dialog(&ctx);
         self.board.quit_dialog(&ctx);
         self.board.revert_dialog(&ctx);
         self.board.run_actions(&mut self.layout);

@@ -899,6 +899,25 @@ impl Toasts {
         !self.on || self.urgent.is_some()
     }
 
+    /// The urgent messages of the last look, by project and id, for the handover (EP-20c); none
+    /// before the first look.
+    pub fn urgent_seen(&self) -> Option<Vec<(String, String)>> {
+        self.urgent
+            .as_ref()
+            .map(|seen| seen.iter().cloned().collect())
+    }
+
+    /// Starts from the urgent messages the old window had seen (the handover, EP-20c), so that
+    /// the first look toasts what arrived since the old window's last look, a letter its mailman
+    /// delivered in its last seconds included, instead of taking every open one as seen.
+    pub fn carry_urgent_seen(&mut self, seen: Vec<(String, String)>) {
+        self.urgent = Some(
+            seen.into_iter()
+                .map(|(project, id)| (project.to_lowercase(), id))
+                .collect(),
+        );
+    }
+
     /// Shows this pass's toasts in the popup, or holds them back (`quiet`, `in_front`), each
     /// logged; each one shown is pushed to `ntfy` as well (EP-20a, the owner's choice), when the
     /// registry names a server. Returns those held back because the window is in front, for its

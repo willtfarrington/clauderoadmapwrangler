@@ -45,6 +45,9 @@ pub struct Snapshot {
     pub legacy: Vec<OwnerItem>,
     /// Files that could not be read.
     pub problems: Vec<String>,
+    /// The briefs among them, by path: the mailman's first reading of the project waits for
+    /// them (EP-20c).
+    pub unread_briefs: Vec<PathBuf>,
 }
 
 #[derive(Debug, Clone)]
@@ -286,9 +289,12 @@ pub fn read_tree(folder: &Path) -> Snapshot {
                 brief: parsed,
                 handoff: brief::handoff_file(folder, file.id),
             }),
-            Err(e) => snapshot
-                .problems
-                .push(format!("{}: {e}", file.path.display())),
+            Err(e) => {
+                snapshot
+                    .problems
+                    .push(format!("{}: {e}", file.path.display()));
+                snapshot.unread_briefs.push(file.path.clone());
+            }
         }
     }
     snapshot.decisions = decisions::read(folder);

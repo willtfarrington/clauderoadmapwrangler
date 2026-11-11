@@ -121,7 +121,7 @@ impl Board {
     }
 
     /// The projects where a session works or waits, by lowercase name, with the words.
-    fn busy_projects(&self) -> HashMap<String, String> {
+    pub(crate) fn busy_projects(&self) -> HashMap<String, String> {
         let mut busy = HashMap::new();
         for seen in self.watch.model.all() {
             let Some(project) = &seen.project else {
@@ -178,7 +178,7 @@ fn round(
         }
     };
     let root = registry.data_root();
-    let projects: Vec<(String, PathBuf, Vec<Outgoing>)> = registry
+    let projects: Vec<(String, PathBuf, Vec<Outgoing>, Vec<PathBuf>)> = registry
         .projects
         .iter()
         .filter_map(|project| {
@@ -188,16 +188,22 @@ fn round(
                 let outgoing = inbox::outgoing(&snapshot.briefs, |name| {
                     registry.project(name).map(|known| known.name.clone())
                 });
-                (project.name.clone(), folder, outgoing)
+                (
+                    project.name.clone(),
+                    folder,
+                    outgoing,
+                    snapshot.unread_briefs,
+                )
             })
         })
         .collect();
     let senders: Vec<Sender<'_>> = projects
         .iter()
-        .map(|(name, folder, outgoing)| Sender {
+        .map(|(name, folder, outgoing, unread)| Sender {
             name,
             folder,
             outgoing,
+            unread,
         })
         .collect();
     let folder_of = |name: &str| {

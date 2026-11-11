@@ -707,8 +707,9 @@ every commit's added lines are checked before it is made, the repository being p
 | EP-20a | [Urgent and ntfy: a finished run's popup saying its result's gist (the first prose paragraph's first sentence), an open message's trailing `[urgent]` left to its chip, an urgent message's popup, the ntfy publisher (`notify::ntfy`, `ntfy_host` and `ntfy_topic` in the registry) pushing what the popup shows](EP-20a-urgent-and-ntfy.md) (D-13, D-21) | M | EP-20 | core | ☑ `15d731f` |
 | EP-20c | Compose and the mailman's limits: the compose dialog (target, text, urgent) writing `from the owner` through `mailman::append`, its write redone by a revert; the five limitations EP-20's review parked, (a) … (e), fixed where they fit (D-13) | M | EP-20a | core | ☐ |
 | EP-20b | The prompt hook: `UserPromptSubmit` through `crw hook`, an `@<project>` in a prompt adding that project's `CLAUDE.md` rules and next-EP row to the session, `signals::install` adding the event (D-20) | S | EP-20 | core | ☐ |
+| EP-20d | The mailman's keys: a block committed when its words are in HEAD's copy of its brief (`git show HEAD:<brief>`), so an old brief's block whose file is uncommitted at the first reading is counted, block by block; a reworded block, sent again by D-13's rule, said as such in the Detail pane and the status bar (D-13) | S | EP-20c | core | ☐ |
 | EP-21a | Formalise in the window: the Formalise… dialog (the plan's preview, Write, refused while a session works there) on the row menu and in the Detail pane, and Migrate… opening the launch dialog in Headless with the migration prompt (D-11, D-9, D-16) | M | EP-21 | core | ☐ |
-| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-21a | core | ☐ |
+| EP-23 | Re-plan P3, opening with the P3 walk (D-10 addendum, 2026-11-08) | M | EP-17, EP-18, EP-18a, EP-18b, EP-35, EP-19, EP-19a, EP-19b, EP-19c, EP-36, EP-37, EP-37a, EP-20, EP-21, EP-22, EP-22a, EP-20a, EP-20c, EP-20b, EP-20d, EP-21a | core | ☐ |
 
 Ordering rationale: the meter precedes the autopilot because the gate reads it; the inbox mailman needs
 completion-note parsing from EP-5 and session completion from EP-13; adoption files and the plugin make the
@@ -749,7 +750,9 @@ chat (EP-24) finds the flag ready.
 *(2026-11-10, EP-20a split at pickup, the owner's choice.)* EP-20a keeps the notifications (the
 popup's gist, the urgent message's popup and chip, ntfy); EP-20c (M) takes the compose dialog and
 the mailman's limits (a) … (e), right after EP-20a, whose urgent popup leaves the owner's own
-messages out.
+messages out. *(2026-11-10, EP-20c split at pickup, the owner's choice.)* EP-20c keeps the
+compose dialog, the handover's seen set and (c), (d), (e); EP-20d (S) takes (a) and (b), the
+mailman's keys, after EP-20b and before EP-21a.
 
 Standing decisions for phase P3: D-22 (the gate, the commit policy, the caps), D-23 (the endpoint is
 undocumented and breakable; the token is read per poll and never stored or logged), D-13 (never interrupt
@@ -1278,6 +1281,26 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   restart at the gate's moment is taken as seen by the new window, whose first look takes every
   open urgent message as seen (`toasts::urgent_arrivals`); carrying the seen set in
   `handover.json` (its frozen v1 form gains an optional field) would toast it in the new window.
+  *(Split at pickup, 2026-11-10, the owner's choice: (a) and (b) are EP-20d; the dialog writes at
+  once while a session works in the receiver, with a note, where the mailman would hold.)*
+- **EP-20d.** Added on 2026-11-10 when EP-20c was split at pickup (the owner's choice, D-4): the
+  two limitations of EP-20's review that did not fit EP-20c's M. (a) **Committed block by
+  block.** `mailman::committed` tells the past from the new by git's status of the brief's file,
+  so a block of an old brief whose file is uncommitted at a project's first reading goes out
+  once committed, as news. Instead, a letter is committed when its key is among the letters of
+  `git show HEAD:<brief>` (the text parsed through `brief::parse`, its blocks resolved as
+  `inbox::outgoing` resolves them), which replaces the round's `changes` seam (`Round::changes`,
+  one `git status` per sender with a letter) with one `git show` per brief that has a letter to
+  send, in the process's turn and spaced (D-29); a brief not in HEAD (`does not exist in
+  'HEAD'`, `exists on disk, but not in 'HEAD'`) has no committed block, and a `git show` that
+  fails for another reason waits for the next round, as a status error does. (b) **A reworded
+  block said.** A block whose words change is a new letter and is sent again (D-13's EP-20
+  addendum, kept); the round finds, under the same sender, a `Known::Delivered` of the same brief
+  and receiver and says so in the mark's words and the status bar (`delivered to <receiver> as
+  IN-9, rewording IN-4`), so the owner sees why a message came twice. **From EP-20c:**
+  `Sender::unread` holds a project's first reading while one of its briefs does not read, and
+  `Round::changes` is the seam to replace; `mailman.rs`'s tests drive a round with a closure in
+  the seam's place, and `app::mail::round` supplies the real one.
 - **EP-20b.** Added on 2026-11-10 when EP-20 was split at pickup (the owner's choice, D-4), from
   EP-20's note. **From EP-12 (the owner's answer at its close):** IN-2's `UserPromptSubmit` hook:
   it recognises `@<project>` in a prompt and adds that project's `CLAUDE.md` rules and next-EP
@@ -1406,7 +1429,13 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
   --yes` now leaves the calling session out of its check, D-11 addendum).
   **From EP-20a (split at pickup, the owner's choice):** EP-20c (M) joined P3 after EP-20a, so
   the totals are 53 briefs, 14 S · 33 M · 6 L ≈ 52 session-hours, 14 still open once EP-20a is
-  checked. A finished run's popup now says its result's gist, the first prose paragraph's first
+  checked. **From EP-20c (split at pickup, the owner's choice):** EP-20d (S) joined P3 after
+  EP-20b with the mailman's keys, (a) and (b) of EP-20's review, so the totals are 54 briefs,
+  15 S · 33 M · 6 L ≈ 52.5 session-hours, 14 still open once EP-20c is checked; the walk's
+  items from EP-20c are the first real compose from the window (the dialog on a real project,
+  the row showing the message, `crw mail`'s `written` line), the first chain that meets a
+  changed inbox with no mail since the run (the chain should end, naming the inbox's triage),
+  and the first restart with an urgent letter in flight (the new window's popup should say it). A finished run's popup now says its result's gist, the first prose paragraph's first
   sentence (the owner reversed EP-19b's choice of the last paragraph on the ledger's ten real
   results), which the first week's review reads in `crw notifications`. EP-20a's field check:
   the owner started it by hand from a window still on EP-22's build (the cap had ended the chain,

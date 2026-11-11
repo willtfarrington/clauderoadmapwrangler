@@ -16,7 +16,7 @@ use std::time::{Duration, Instant};
 use chrono::{DateTime, Local, NaiveDate, TimeDelta, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::ledger::{self, EventRow, Ledger};
+use crate::ledger::{self, EventRow, Ledger, SessionRow};
 use crate::prompt::{self, Draft};
 use crate::registry::{Project, Registry};
 use crate::roadmap::table::Row;
@@ -169,6 +169,10 @@ pub struct Facts {
     pub pause_percent: u8,
     /// The working tree's changes, by path, or why git could not say.
     pub tree: Result<Vec<String>, String>,
+    /// A message was delivered or written into the project's inbox since the run started, by
+    /// the ledger's tick rows (EP-20c): then a changed `roadmap/inbox.md` is left out of the
+    /// clean-tree condition; otherwise the run left its own triage uncommitted.
+    pub mail_since_run: bool,
     /// The chained runs today in the project, and its cap.
     pub chained_today: u32,
     pub daily: u32,
@@ -305,6 +309,15 @@ impl Refusal {
                 TRUSTED_FOR.num_minutes()
             ),
             Refusal::Unread(which) => format!("no {which} figure has been read"),
+            Refusal::Dirty(paths)
+                if paths.len() == 1 && paths[0].eq_ignore_ascii_case(crate::inbox::TREE_PATH) =>
+            {
+                format!(
+                    "the tree is not clean after the commit: {} changed with no message \
+                     delivered since the run started, so its triage is not committed",
+                    paths[0]
+                )
+            }
             Refusal::Dirty(paths) => {
                 let shown: Vec<&str> = paths.iter().take(3).map(String::as_str).collect();
                 let more = if paths.len() > shown.len() {
@@ -446,13 +459,16 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     for (which, figure) in [("weekly", &facts.weekly), ("Fable", &facts.fable)] {
         no.extend(weigh(which, figure.as_ref(), facts.pause_percent, now));
     }
-    // The inbox is left out (EP-20): a message delivered between two runs waits for the next
-    // brief's triage (D-13) and ends no chain.
+    // The inbox is left out (EP-20) when a message was delivered or written into it since the
+    // run started (EP-20c): it waits for the next brief's triage (D-13) and ends no chain. With
+    // no such message, a changed inbox is the run's own triage left uncommitted.
     match &facts.tree {
         Ok(changes) => {
             let left: Vec<String> = changes
                 .iter()
-                .filter(|path| !path.eq_ignore_ascii_case(crate::inbox::TREE_PATH))
+                .filter(|path| {
+                    !(facts.mail_since_run && path.eq_ignore_ascii_case(crate::inbox::TREE_PATH))
+                })
                 .cloned()
                 .collect();
             if !left.is_empty() {
@@ -955,6 +971,9 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         .ledger
         .and_then(|ledger| recent(ledger, 500).ok())
         .map_or((0, 0), |events| chained_on(&events, &ask.project.name, day));
+    let mail_since_run = ask
+        .ledger
+        .is_some_and(|ledger| mail_since_run(ledger, &ask.project.name, ask.ran));
     let settings = &ask.registry.settings;
     let facts = Facts {
         enabled: ask.project.autopilot.enabled,
@@ -969,6 +988,7 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         fable: ask.figures.fable.clone(),
         pause_percent: settings.autopilot_pause_percent(),
         tree,
+        mail_since_run,
         chained_today,
         daily: ask.project.autopilot.daily(),
         chained_total,
@@ -980,6 +1000,40 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         facts,
         draft: draft.ok(),
     }
+}
+
+/// Whether a message was delivered or written into `project`'s inbox since its latest run of
+/// `ran` started (EP-20c): the ledger's `tick` rows of the delivery kind (the mailman's and the
+/// owner's, `revert::Tick::delivery`) after the run's session row's start. Without the run's
+/// row, or when the ledger does not read, no: a changed inbox then counts as dirty, which ends
+/// a chain rather than chaining over an uncommitted triage.
+pub fn mail_since_run(ledger: &Path, project: &str, ran: Option<EpId>) -> bool {
+    let Some(ran) = ran else {
+        return false;
+    };
+    let Ok(ledger) = Ledger::open_read_only(ledger) else {
+        return false;
+    };
+    let Ok(rows) = ledger.sessions() else {
+        return false;
+    };
+    let wanted = ran.to_string();
+    let Some(started) = rows
+        .iter()
+        .rev()
+        .find(|row| {
+            row.project.eq_ignore_ascii_case(project)
+                && row
+                    .ep
+                    .as_deref()
+                    .is_some_and(|ep| ep.eq_ignore_ascii_case(&wanted))
+        })
+        .and_then(SessionRow::started)
+    else {
+        return false;
+    };
+    crate::revert::ticks_since(&ledger, project, started)
+        .is_ok_and(|ticks| ticks.iter().any(|tick| tick.delivery))
 }
 
 /// The headless launch of a chained brief (D-22): the draft's model, effort, ultracode and
@@ -1071,6 +1125,7 @@ mod tests {
             fable: Some(figure(30.0, 3, 48)),
             pause_percent: 90,
             tree: Ok(Vec::new()),
+            mail_since_run: false,
             chained_today: 1,
             daily: 2,
             chained_total: 3,
@@ -1083,10 +1138,24 @@ mod tests {
     #[test]
     fn the_gate_passes_when_every_condition_holds_and_names_each_that_fails() {
         assert_eq!(gate(&passing(), now()), Vec::new());
-        // A message delivered between two runs leaves the tree clean enough (EP-20).
+        // A message delivered between two runs leaves the tree clean enough (EP-20), when the
+        // ledger shows one since the run started (EP-20c); else the inbox is the run's own
+        // triage left uncommitted.
         let mut delivered = passing();
         delivered.tree = Ok(vec!["roadmap/inbox.md".to_owned()]);
+        delivered.mail_since_run = true;
         assert_eq!(gate(&delivered, now()), Vec::new());
+        delivered.mail_since_run = false;
+        let refusals = gate(&delivered, now());
+        assert_eq!(
+            refusals,
+            [Refusal::Dirty(vec!["roadmap/inbox.md".to_owned()])]
+        );
+        assert_eq!(
+            refusals[0].words(),
+            "the tree is not clean after the commit: roadmap/inbox.md changed with no message \
+             delivered since the run started, so its triage is not committed"
+        );
         let next = |id: &str, title: &str, size: Option<Size>| {
             Ok(Next {
                 id: ep(id),
@@ -1149,7 +1218,8 @@ mod tests {
                     f.tree = Ok(vec![
                         "roadmap/inbox.md".to_owned(),
                         "src/main.rs".to_owned(),
-                    ])
+                    ]);
+                    f.mail_since_run = true;
                 }),
                 Refusal::Dirty(vec!["src/main.rs".to_owned()]),
             ),
@@ -1724,6 +1794,79 @@ mod tests {
         ] {
             assert!(!is_replan(title), "{title}");
         }
+    }
+
+    #[test]
+    fn a_message_since_the_run_started_is_read_from_the_ledgers_ticks() {
+        use crate::ledger::NewSession;
+        use crate::revert::{TICK_KIND, Tick};
+
+        let scratch = Scratch::new("autopilot-mail-since");
+        let path = scratch.0.join("ledger.sqlite");
+        let ledger = Ledger::open(&path).unwrap();
+        let started = now() - TimeDelta::minutes(30);
+        assert!(!mail_since_run(&path, "alpha", Some(ep("EP-4"))), "no run");
+        ledger
+            .start_session(&NewSession {
+                session_id: Some("s-1"),
+                project: "alpha",
+                ep: Some("EP-4"),
+                mode: "headless",
+                model: None,
+                effort: None,
+                ultracode: false,
+                started_at: started,
+            })
+            .unwrap();
+        assert!(!mail_since_run(&path, "alpha", Some(ep("EP-4"))), "no tick");
+        assert!(!mail_since_run(&path, "alpha", None));
+        // A tick before the run, an owner task's tick during it, a delivery into another project:
+        // none counts.
+        let delivery = |at, id: &str| Tick::delivery(at, id, "(from beta EP-6, 2026-11-10) A.");
+        for (project, tick) in [
+            ("alpha", delivery(started - TimeDelta::minutes(1), "IN-1")),
+            ("beta", delivery(started + TimeDelta::minutes(1), "IN-2")),
+            (
+                "alpha",
+                Tick {
+                    at: started + TimeDelta::minutes(2),
+                    id: "OT-3".to_owned(),
+                    checked: true,
+                    disposition: None,
+                    delivery: false,
+                },
+            ),
+        ] {
+            ledger
+                .add_event(tick.at, TICK_KIND, Some(project), &tick.detail())
+                .unwrap();
+        }
+        assert!(!mail_since_run(&path, "alpha", Some(ep("EP-4"))));
+        // A delivery into the project since the run started counts, the owner's message too.
+        let owner = Tick::delivery(
+            started + TimeDelta::minutes(5),
+            "IN-2",
+            "(from the owner, 2026-11-10) A note.",
+        );
+        ledger
+            .add_event(owner.at, TICK_KIND, Some("Alpha"), &owner.detail())
+            .unwrap();
+        assert!(mail_since_run(&path, "alpha", Some(ep("EP-4"))));
+        // The run of another brief, started later: nothing since it.
+        ledger
+            .start_session(&NewSession {
+                session_id: Some("s-2"),
+                project: "alpha",
+                ep: Some("EP-5"),
+                mode: "headless",
+                model: None,
+                effort: None,
+                ultracode: false,
+                started_at: started + TimeDelta::minutes(10),
+            })
+            .unwrap();
+        assert!(!mail_since_run(&path, "alpha", Some(ep("EP-5"))));
+        assert!(mail_since_run(&path, "alpha", Some(ep("EP-4"))));
     }
 
     #[test]

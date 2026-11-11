@@ -831,6 +831,20 @@ fn project_row(
                 ui.close();
             }
         }
+        // A message from the owner into the project's inbox (D-13; EP-20c).
+        ui.separator();
+        if ui
+            .add_enabled(row.folder.is_some(), egui::Button::new("Send a message…"))
+            .on_hover_text(
+                "Write a message from you into the project's roadmap/inbox.md, for its next \
+                 session to triage (D-13)",
+            )
+            .on_disabled_hover_text("The project's folder is missing")
+            .clicked()
+        {
+            actions.push(Action::OpenCompose(name.to_owned()));
+            ui.close();
+        }
         // The project's latest session undone, behind its preview (D-11; EP-15c).
         ui.separator();
         let available = crate::revert::availability(Some(row), name);

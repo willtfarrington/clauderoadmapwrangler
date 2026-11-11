@@ -36,7 +36,7 @@ use crw_core::badges::stack::{self, Chip};
 use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
 use crw_core::doctor::{self, Outcome};
-use crw_core::inbox::{self, Recipient};
+use crw_core::inbox::{self, Recipient, mailman};
 use crw_core::install;
 use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
 use crw_core::prompt::Chosen;
@@ -134,6 +134,11 @@ commands:
   tick <project|folder> IN-n <disposition...>
                                  tick an inbox message, its disposition written on its line
   untick <project|folder> OT-n   clear an owner task's tick
+  send <project|folder> <words...> [--urgent]
+                                 write a message from you into a project's roadmap/inbox.md, as
+                                 `IN-n (from the owner, <date>)`, for its next session to triage;
+                                 --urgent flags it; the file as it was is copied first, and the
+                                 write is logged for a revert to redo (D-13)
   status [--offline] [<project|folder>]
                                  print the badges of every registered project, or one: stack,
                                  progress, activity, hosting with the head check, CI and license,
@@ -242,6 +247,7 @@ fn main() -> ExitCode {
         ["tasks", target] => waiting(target),
         ["tick", target, id, words @ ..] => tick(target, id, words, true),
         ["untick", target, id] => tick(target, id, &[], false),
+        ["send", target, words @ ..] => send_message(target, words),
         ["status", rest @ ..] => status(rest),
         ["prompt", target] => prompt(target, None),
         ["prompt", target, "--visual"] => prompt(target, Some(LaunchMode::Visual)),
@@ -2034,7 +2040,7 @@ fn notifications(args: &[&str]) -> ExitCode {
 fn mail(args: &[&str]) -> ExitCode {
     events(
         "mail",
-        crw_core::inbox::mailman::EVENT_KIND,
+        mailman::EVENT_KIND,
         "the window's mailman logs each project's first reading and each message it delivers",
         args,
     )
@@ -3054,6 +3060,73 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
             ExitCode::SUCCESS
         }
         Err(e) => failed(format!("{}: {e}", path.display())),
+    }
+}
+
+/// Writes a message from the owner into a project's inbox (D-13; EP-20c): `crw send
+/// <project|folder> <words…> [--urgent]`, the mailman's own append after a copy, logged for a
+/// revert to redo. A session at work there does not hold it (the owner's choice): it is named,
+/// and the next session triages the message.
+fn send_message(target: &str, args: &[&str]) -> ExitCode {
+    let urgent = args.contains(&"--urgent");
+    let text = args
+        .iter()
+        .filter(|arg| **arg != "--urgent")
+        .copied()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if text.trim().is_empty() {
+        return usage_error("send takes the message's words, and --urgent to flag it");
+    }
+    let folder = match project_folder(target) {
+        Ok(folder) => folder,
+        Err(e) => return failed(e),
+    };
+    let store = match store() {
+        Ok(store) => store,
+        Err(e) => return failed(e),
+    };
+    let registry = store.load().ok().map(|loaded| loaded.registry);
+    let name = registered_name(&store, &folder).unwrap_or_else(|| folder_name(&folder));
+    let today = files::today();
+    let ledger = paths::ledger_file();
+    let sent = mailman::send_from_owner(
+        &folder,
+        &name,
+        &text,
+        urgent,
+        &store.backups,
+        &today,
+        ledger.as_deref(),
+    );
+    match sent {
+        Ok(sent) => {
+            let kept = match &sent.copy {
+                Some(copy) => format!("the file as it was is kept as {}", copy.display()),
+                None => "the file was created with its header".to_owned(),
+            };
+            println!(
+                "sent {} to {name} in {}; {kept}",
+                sent.id,
+                inbox::path(&folder).display()
+            );
+            println!("  {}", sent.written.replace('\n', "\n  "));
+            if let Some(why) = sent.unlogged {
+                eprintln!("crw: {why}; a revert would not redo the message");
+            }
+            if let Some(registry) = registry {
+                let (working, _) = live_sessions(&registry, &folder);
+                if !working.is_empty() {
+                    println!(
+                        "note: {}; a session that has read its inbox leaves the message to the \
+                         next one",
+                        working.join("; ")
+                    );
+                }
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
     }
 }
 

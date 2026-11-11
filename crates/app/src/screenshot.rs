@@ -40,6 +40,9 @@
 //!   `private`, `remote`, `local`), each adding to its filter;
 //! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read;
 //!   with `usage`, lantern's EP-3, an S launched visually, shows the Fable downshift, EP-18);
+//! - `compose=<project>[:urgent]` (the compose dialog open on the project once it is read, its
+//!   text canned, the Urgent box ticked with `:urgent`, a session said to work there; its Send
+//!   is refused, as every write is, EP-20c);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
 //!   permission prompt, orchard's manual one busy with its status line's figures though every
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,
@@ -307,6 +310,12 @@ impl Run {
                     let (project, mode) = value.split_once(':').unwrap_or((value, ""));
                     board.open_when_read = Some(project.to_owned());
                     board.open_headless = mode == "headless";
+                }
+                "compose" => {
+                    // `compose=lantern:urgent` opens the compose dialog on the project once it
+                    // is read, its text canned and the Urgent box ticked (EP-20c).
+                    let (project, flag) = value.split_once(':').unwrap_or((value, ""));
+                    board.compose_when_read = Some((project.to_owned(), flag == "urgent"));
                 }
                 "sessions" => {
                     canned_sessions(board);

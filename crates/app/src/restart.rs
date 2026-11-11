@@ -28,7 +28,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant, SystemTime};
 
-use crw_core::handover::{self, Handover, Taken};
+use crw_core::handover::{self, Handover, Taken, UrgentSeen};
 use crw_core::install::{self, Running, Stamp};
 use crw_core::paths;
 use crw_core::signals::RestartAnswer;
@@ -329,7 +329,7 @@ impl Board {
     }
 
     /// What the window carries across a restart asked by `asked` (EP-37a): its held chains, its
-    /// plans, and whether the new window opens hidden.
+    /// plans, whether the new window opens hidden, and the urgent messages it has seen (EP-20c).
     pub fn handover(&self, asked: Asked) -> Handover {
         Handover::new(
             std::process::id(),
@@ -337,6 +337,11 @@ impl Board {
             self.autopilot.held.clone(),
             self.autopilot.plans.values().cloned().collect(),
             asked == Asked::Gate && self.hidden,
+            self.toasts.urgent_seen().map(|seen| {
+                seen.into_iter()
+                    .map(|(project, id)| UrgentSeen { project, id })
+                    .collect()
+            }),
         )
     }
 
@@ -550,6 +555,15 @@ impl Board {
                 }
                 if found.hidden {
                     self.hide_at_start();
+                }
+                // The old window's last look at the urgent messages: what arrived since is news
+                // to this one (EP-20c).
+                if let Some(seen) = found.urgent_seen {
+                    self.toasts.carry_urgent_seen(
+                        seen.into_iter()
+                            .map(|seen| (seen.project, seen.id))
+                            .collect(),
+                    );
                 }
                 if let Some(restart) = restart {
                     self.notify(match carried {

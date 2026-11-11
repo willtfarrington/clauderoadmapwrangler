@@ -440,6 +440,44 @@ urgent messages into running headless sessions.
 > key by its place in the brief; the mailman waiting between a chain's runs instead of the gate's
 > exception; a table of deliveries of its own (a schema 6).
 
+> **Addendum (2026-11-10, EP-20c).** The owner's side of the mail, and three of the five
+> limitations EP-20's review parked; split at pickup (the owner's choice): the other two, (a) a
+> block committed block by block from HEAD and (b) a reworded block said, are EP-20d's.
+>
+> - **Compose.** The owner writes a message into a project's `roadmap/inbox.md` from the tool:
+>   the Detail pane's Compose…, a row's Send a message…, or `crw send <project> <words…>
+>   [--urgent]`. The line is `- [ ] IN-n (from the owner, <date>) <text>`, the next free id, the
+>   mailman's own append after a dated copy (the file created with the house header when the
+>   project keeps none), `[urgent]` at the end when flagged. The dialog previews the message as
+>   the Detail pane will draw it and the line as written. The write is logged as a delivery is:
+>   a `tick` row of the receiver, which a revert of a session there redoes, and a `mail` row
+>   (`written IN-n from the owner`) under the receiver, which `crw mail` prints.
+> - **A session at work there does not hold it** (the owner's choice at pickup, unlike a
+>   delivery): the dialog and `crw send` say that the session has read its inbox already and
+>   that the next one triages the message, and write at once. The urgent flag on the owner's own
+>   message makes no popup and no push (EP-20a's rule): it is the next session's to see.
+> - **The gate's inbox exception holds only after mail** (the review's (c)): a changed
+>   `roadmap/inbox.md` is left out of the clean-tree condition when the ledger shows a delivery
+>   or an owner's message into the project since the run started (`Facts::mail_since_run`, from
+>   the receiver's delivery ticks after the run's session row); otherwise it is the run's own
+>   triage left uncommitted, and the chain ends with that said.
+> - **A delivery redone under another id carries its ticks** (the review's (d)): when the
+>   restored inbox gives the message another id (the session had created the file with a
+>   message of its own), a later tick of the old id in the same redo ticks the message where it
+>   is now, the done lines saying `(as IN-k)`.
+> - **A first reading waits for a brief that does not read** (the review's (e)): while one of a
+>   project's briefs fails to read, its first reading is not recorded, its letters wait with the
+>   file named, and mail to it waits too, neither sent nor counted as its past.
+> - **The handover carries the urgent messages seen** (EP-20a's review): `handover.json` gains
+>   an optional field with the project and id of each urgent message the old window had seen,
+>   kept in its version 1 form, so that the restarted window toasts a letter delivered in the
+>   seconds before the restart instead of taking every open one as seen.
+>
+> *Alternatives.* Send held while a session works there, as a delivery is; the owner's message
+> delivered by the mailman's next round; a `compose` event kind of its own; the inbox exception
+> unconditional, or read from the mailman's rounds in the window rather than the ledger; a
+> first reading recorded with the unread brief named, its blocks counted when it reads.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,

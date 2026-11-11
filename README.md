@@ -88,6 +88,7 @@ target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its
 target\release\crw.exe tasks <folder>   # what waits on the owner: tasks, inbox, handed-on blocks
 target\release\crw.exe tick <folder> OT-n         # tick an owner task
 target\release\crw.exe tick <folder> IN-n <text>  # tick an inbox message with its disposition
+target\release\crw.exe send <folder> <words> [--urgent]  # write a message from you into its inbox
 target\release\crw.exe mail [--all]               # the mailman's log: first readings, deliveries
 target\release\crw.exe status [--offline]         # every project's badges; asks git, gh, the origins
 target\release\crw.exe setting <key> <value>      # set a registry setting, such as backup_settings
@@ -265,7 +266,11 @@ block to a registered project is appended to that project's `roadmap/inbox.md` a
 once the brief is committed, while no session works or waits there; the status bar says so, the
 receiving row shows the message, and the Detail pane says what became of each block. Each delivery
 is a line in the ledger, which `crw mail` prints, and a revert of a session in the receiving project
-puts the message back.
+puts the message back. The owner writes a message of their own from the Detail pane's Compose… or a
+row's Send a message… (or `crw send`): it goes into the project's inbox at once as
+`IN-n (from the owner, <date>)`, with `[urgent]` at its end when flagged, even while a session works
+there (the dialog says so: the next session triages it), and is logged like a delivery, so a revert
+puts it back too.
 
 The usage meter (EP-17) polls the undocumented `GET https://api.anthropic.com/api/oauth/usage`,
 treated as breakable, every 5 minutes, soon after a session the tool launched ends, and with a
@@ -339,7 +344,8 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   is committed and no session works in the receiving project (its first reading of a project counts
   the blocks already there as delivered); the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
-  The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line.
+  The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line,
+  and may write one, `- [ ] IN-n (from the owner, date) text`, from the tool or by hand.
 - **Formalising a project.** `crw formalise <project|folder>` previews the house-style files a
   project is given and `--yes` writes them: a rule block in its `CLAUDE.md` between
   `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->` (the house's rules in short;
