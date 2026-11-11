@@ -256,6 +256,41 @@ impl Snapshot {
             .chain(self.legacy.iter().cloned())
             .collect()
     }
+
+    /// Whether the older forms are what waits on the owner (D-10 addendum of 2026-11-11): only
+    /// where the project keeps no `owner-tasks.md`. A project that keeps the file counts its
+    /// tasks (and its inbox, counted beside them), and its older forms, a README's risks list
+    /// among them, are read-only context that no one waits on.
+    pub fn older_forms_wait(&self) -> bool {
+        self.tasks.is_none()
+    }
+
+    /// The items counted as waiting on the owner: the lines of `owner-tasks.md` where the file
+    /// is kept, else the older forms.
+    pub fn waiting(&self) -> Vec<OwnerItem> {
+        match &self.tasks {
+            Some(tasks) => tasks.items().collect(),
+            None => self.legacy.clone(),
+        }
+    }
+
+    /// How many of [`Self::waiting`] are open.
+    pub fn open_waiting(&self) -> usize {
+        match &self.tasks {
+            Some(tasks) => tasks.open().count(),
+            None => self.legacy.iter().filter(|item| item.is_open()).count(),
+        }
+    }
+
+    /// The older forms shown uncounted, under a heading of their own: every older form of a
+    /// project that keeps `owner-tasks.md`; none elsewhere, where [`Self::waiting`] holds them.
+    pub fn uncounted(&self) -> &[OwnerItem] {
+        if self.tasks.is_some() {
+            &self.legacy
+        } else {
+            &[]
+        }
+    }
 }
 
 /// Reads `folder` from the working tree alone: the README, the briefs, the decision log, the

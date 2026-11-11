@@ -348,6 +348,16 @@ forms only with ticks in the registry; tasks only in the registry.
 > *Alternatives.* A second walk in the middle of P4; an ungated task per changed surface again;
 > no project's risks counted; the risks counted as before.
 
+> **Addendum (2026-11-11, EP-38).** Built as the addendum above says. `Snapshot::waiting` is
+> what counts: the lines of `owner-tasks.md` where the file is kept, else the older forms;
+> `Snapshot::uncounted` is the older forms of a project that keeps the file, drawn in the Detail
+> pane as "Risks and older forms" after the handed-on mail, read-only and counted nowhere; the
+> row's Waiting cell, the status bar's sum and `crw tasks` say the same split. The file decides,
+> not the form: a parked block or a handoff note of such a project is uncounted too, since the
+> house style writes what needs the owner's hands to the file. The gate (`prompt::due`) read the
+> file alone already. *Alternatives.* The older forms counted by kind (a block to the owner
+> counted, a risk not); the uncounted list folded; the list before the inbox.
+
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
 the `.code-workspace` file. It **never edits `roadmap/README.md`, briefs or `DECISIONS.md`**; sessions do,
@@ -464,6 +474,13 @@ with ticks in the registry.
 > unformalised state, as today. A missing template or block alone leaves Formalise… in the row's
 > menu and no section. *Alternatives.* The section as
 > built, a nudge until every project is formalised; the menu alone, no section.
+
+> **Addendum (2026-11-11, EP-38).** The test as built: `portfolio::House::matters`
+> (`roadmap/owner-tasks.md` or `roadmap/inbox.md` among the files to write, a refusal, or an older
+> form of the roadmap), or the unformalised state, shows the section; the row menu's Formalise…
+> keeps `wants` (any file to write, or a refusal), or the unformalised state. On the fixtures a
+> project lacking only the rule block and the template shows the menu item and no section, and one
+> lacking the tasks file shows both.
 
 **D-12 House-style amendments.** From the next brief on, sessions in every house-style project (1) record
 model, effort and duration in the completion note: `> **Completion note (2026-10-31; fable/xhigh; 1 h 20
@@ -1738,6 +1755,21 @@ state; graphs only in the detail tile or a separate window.
 > EP-38 sets the floor from pictures of the real copy at both widths. *Alternatives.* The names
 > cut first, the title keeping its 160 points; both tried and chosen from the pictures; the
 > list left as it is, with the v2 notes' drag-resizable columns.
+
+> **Addendum (2026-11-11, EP-38).** Built: `list::TITLE_AT_LEAST` (160) guards the full form
+> alone and `list::TITLE_FLOOR` (80, the owner's choice from the pictures) the compact forms, so
+> the badges compact first, then the title gives way to the floor before the counts leave, and
+> again before the compact badges and the progress do; `TITLE_MIN` (40) stays the floor with
+> every optional column gone, and the gaps widen only beyond 160, as before. The copy of the real
+> roadmaps measured, at the default layout (the Projects pane at 55 % of the width), a row of
+> 766 points in a 1440-point window and 854 in a 1600-point one, against 935 for the full
+> badges, 842 for the compact badges with the counts, 765 without them and 551 for the progress
+> alone, the longest name taking 153. So at 1440 no floor keeps a badge column, and at 1600 the
+> floor of 80 keeps the compact badges without the counts, the title cut at 89 points; the
+> counts return from a row of 922. The divider between the panes is the other lever, saved with
+> the layout. *Alternatives.* A floor of 100 (the progress alone at both widths) or 60 (the
+> badges kept down to a row of 825, the title as short as 60); the Projects pane's default
+> share widened, which a saved layout would not take up.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

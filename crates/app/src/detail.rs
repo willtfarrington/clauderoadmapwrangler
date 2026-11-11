@@ -191,19 +191,22 @@ fn project(
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
+    older_forms(ui, row);
     decisions(ui, snapshot);
     house_style(ui, row, actions);
     problems(ui, row);
 }
 
 /// What the house style still asks of the project (D-9, D-11; EP-21a): the files Formalise…
-/// would write, what refuses it, and an older roadmap's Migrate…; nothing for a project that has
-/// every file and house tables.
+/// would write, what refuses it, and an older roadmap's Migrate…; only when that matters
+/// (`House::matters`: the tasks file or the inbox to create, a refusal, an older form; D-11
+/// addendum of 2026-11-11) or in the unformalised state. A missing template or rule block alone
+/// leaves Formalise… in the row's menu and no section here.
 fn house_style(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
     let house = &row.house;
     let unformalised = row.project.state == crw_core::registry::State::Unformalised;
     let formalise = house.wants() || unformalised;
-    if row.folder.is_none() || (!formalise && house.migrates.is_none()) {
+    if row.folder.is_none() || !(house.matters() || unformalised) {
         return;
     }
     section(ui, "House style");
@@ -729,8 +732,11 @@ fn gate_hint(gate: &Gate) -> String {
     }
 }
 
+/// What waits on the owner (D-10): the open owner tasks where `owner-tasks.md` is kept, else the
+/// older forms' open items (the D-10 addendum of 2026-11-11), each tickable or locked, then the
+/// ticked tasks folded.
 fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
-    let items = row.snapshot.owner_items();
+    let items = row.snapshot.waiting();
     let folder = row
         .folder
         .as_ref()
@@ -746,60 +752,16 @@ fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
         ),
     );
     if items.is_empty() {
-        ui.label(RichText::new("Nothing: no owner tasks and none of the older forms.").weak());
+        let nothing = if row.snapshot.older_forms_wait() {
+            "Nothing: no owner tasks and none of the older forms."
+        } else {
+            "Nothing: no open owner task."
+        };
+        ui.label(RichText::new(nothing).weak());
         return;
     }
     for item in &open {
-        ui.horizontal_top(|ui| {
-            if item.is_tickable() {
-                let mut done = false;
-                if ui
-                    .checkbox(&mut done, "")
-                    .on_hover_text("Tick it: the box changes in owner-tasks.md, nothing else")
-                    .clicked()
-                    && let Some(id) = &item.id
-                {
-                    actions.push(Action::Tick {
-                        project: row.name().to_owned(),
-                        id: id.clone(),
-                    });
-                }
-            } else {
-                ui.label(style::icon(
-                    icons::ICON_LOCK,
-                    Some(ui.visuals().weak_text_color()),
-                ))
-                .on_hover_text("An older form: shown here, changed only in its file");
-            }
-            ui.vertical(|ui| {
-                // An id the text opens with (a register's `**R-2**`) is not said twice.
-                let id = item
-                    .id
-                    .as_ref()
-                    .filter(|id| !item.text.contains(id.as_str()));
-                if id.is_some() || item.gate.is_some() {
-                    ui.horizontal(|ui| {
-                        if let Some(id) = id {
-                            ui.label(RichText::new(id).monospace().strong());
-                        }
-                        if let Some(gate) = &item.gate {
-                            style::chip(ui, &gate.to_string(), style::amber(ui))
-                                .on_hover_text(gate_hint(gate));
-                        }
-                    });
-                }
-                markup::note(
-                    ui,
-                    without_gate(&item.text, item.gate.as_ref()),
-                    Look {
-                        sentences: true,
-                        ..Look::default()
-                    },
-                );
-                ui.label(RichText::new(meta(item, &folder)).small().weak());
-            });
-        });
-        ui.add_space(4.0);
+        owner_item(ui, row, item, &folder, actions);
     }
     let ticked: Vec<&OwnerItem> = items
         .iter()
@@ -833,6 +795,103 @@ fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
                     });
                 }
             });
+    }
+}
+
+/// One open owner item: its box when it is a line of `owner-tasks.md`, the lock of an older
+/// form, then its id and gate, its text and its meta line.
+fn owner_item(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    item: &OwnerItem,
+    folder: &std::path::Path,
+    actions: &mut Vec<Action>,
+) {
+    ui.horizontal_top(|ui| {
+        if item.is_tickable() {
+            let mut done = false;
+            if ui
+                .checkbox(&mut done, "")
+                .on_hover_text("Tick it: the box changes in owner-tasks.md, nothing else")
+                .clicked()
+                && let Some(id) = &item.id
+            {
+                actions.push(Action::Tick {
+                    project: row.name().to_owned(),
+                    id: id.clone(),
+                });
+            }
+        } else {
+            ui.label(style::icon(
+                icons::ICON_LOCK,
+                Some(ui.visuals().weak_text_color()),
+            ))
+            .on_hover_text("An older form: shown here, changed only in its file");
+        }
+        ui.vertical(|ui| {
+            // An id the text opens with (a register's `**R-2**`) is not said twice.
+            let id = item
+                .id
+                .as_ref()
+                .filter(|id| !item.text.contains(id.as_str()));
+            if id.is_some() || item.gate.is_some() {
+                ui.horizontal(|ui| {
+                    if let Some(id) = id {
+                        ui.label(RichText::new(id).monospace().strong());
+                    }
+                    if let Some(gate) = &item.gate {
+                        style::chip(ui, &gate.to_string(), style::amber(ui))
+                            .on_hover_text(gate_hint(gate));
+                    }
+                });
+            }
+            markup::note(
+                ui,
+                without_gate(&item.text, item.gate.as_ref()),
+                Look {
+                    sentences: true,
+                    ..Look::default()
+                },
+            );
+            ui.label(RichText::new(meta(item, folder)).small().weak());
+        });
+    });
+    ui.add_space(4.0);
+}
+
+/// The older forms of a project that keeps `owner-tasks.md` (D-10 addendum of 2026-11-11): its
+/// README's risks list, the registers, the latest brief's blocks and handoff notes, readable
+/// under a heading of their own and counted nowhere, since the tasks file is what waits on the
+/// owner. Nothing for a project without the file, whose older forms count above.
+fn older_forms(ui: &mut egui::Ui, row: &ProjectRow) {
+    let items = row.snapshot.uncounted();
+    if items.is_empty() {
+        return;
+    }
+    let folder = row
+        .folder
+        .as_ref()
+        .map(|f| f.path.clone())
+        .unwrap_or_default();
+    let open: Vec<&OwnerItem> = items.iter().filter(|item| item.is_open()).collect();
+    let resolved = items.len() - open.len();
+    section(
+        ui,
+        &format!(
+            "Risks and older forms: {} open, {resolved} resolved, not counted",
+            open.len()
+        ),
+    );
+    ui.label(
+        RichText::new(
+            "Read-only, from the README and the older files; the project keeps owner-tasks.md, \
+             which is what waits on the owner (D-10).",
+        )
+        .weak(),
+    );
+    ui.add_space(4.0);
+    for item in &open {
+        owner_item(ui, row, item, &folder, &mut Vec::new());
     }
 }
 
@@ -1108,8 +1167,18 @@ mod tests {
         }
     }
 
+    /// Whether `output` paints a text that contains `part`.
+    fn shows(output: &egui::FullOutput, part: &str) -> bool {
+        output.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) => shape.galley.text().contains(part),
+            _ => false,
+        })
+    }
+
     /// The House style section (EP-21a): what Formalise… would write and its button, Migrate…
-    /// for an older roadmap, and nothing for a project with every file and house tables.
+    /// for an older roadmap, and nothing for a project with every file and house tables. Since
+    /// EP-38 it shows only when it matters (D-11 addendum of 2026-11-11): a project lacking only
+    /// the rule block and the template keeps Formalise… in its row's menu and gets no section.
     #[test]
     fn the_house_style_section_says_what_formalise_would_write() {
         use crate::portfolio::House;
@@ -1117,21 +1186,18 @@ mod tests {
         use crate::testing::{self, Screen};
         use crw_core::roadmap::table::Profile;
 
-        let shows = |output: &egui::FullOutput, part: &str| {
-            output.shapes.iter().any(|clipped| match &clipped.shape {
-                egui::Shape::Text(shape) => shape.galley.text().contains(part),
-                _ => false,
-            })
-        };
         let scratch = Scratch::new("detail-house");
         let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
-        let harbor = portfolio.project("harbor").unwrap();
+        // lantern keeps an inbox and no owner-tasks.md: the section matters.
+        let lantern = portfolio.project("lantern").unwrap();
+        assert!(lantern.house.matters());
         let mut screen = Screen::new();
         let mut actions = Vec::new();
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, harbor, &mut actions));
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, lantern, &mut actions));
         assert!(shows(
             &output,
-            "Formalise… would write CLAUDE.md (created) and roadmap/_TEMPLATE.md (created)."
+            "Formalise… would write CLAUDE.md (created), roadmap/owner-tasks.md (created) and \
+             roadmap/_TEMPLATE.md (created)."
         ));
         assert!(testing::text_at(&output, "Migrate…").is_none());
         let at = testing::text_at(&output, "Formalise…").expect("its button");
@@ -1140,20 +1206,110 @@ mod tests {
             testing::button(at, egui::PointerButton::Primary, true),
             testing::button(at, egui::PointerButton::Primary, false),
         ] {
-            screen.pass(events, |ui| house_style(ui, harbor, &mut actions));
+            screen.pass(events, |ui| house_style(ui, lantern, &mut actions));
         }
-        assert_eq!(actions, [Action::OpenFormalise("harbor".to_owned())]);
+        assert_eq!(actions, [Action::OpenFormalise("lantern".to_owned())]);
+        // harbor lacks only CLAUDE.md and the template: Formalise… stays in the row's menu
+        // (`wants`), and the pane shows no section (EP-38).
+        let harbor = portfolio.project("harbor").unwrap();
+        assert!(harbor.house.wants() && !harbor.house.matters());
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, harbor, &mut Vec::new()));
+        assert!(testing::text_at(&output, "House style").is_none());
+        // Unformalised, the section stays, saying what Formalise… would write.
+        let mut unformalised = harbor.clone();
+        unformalised.project.state = crw_core::registry::State::Unformalised;
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, &unformalised, &mut Vec::new())
+        });
+        assert!(shows(
+            &output,
+            "Formalise… would write CLAUDE.md (created) and roadmap/_TEMPLATE.md (created)."
+        ));
         // Every file there and house tables: no section.
         let mut whole = harbor.clone();
         whole.house = House::default();
         let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
         assert!(testing::text_at(&output, "House style").is_none());
+        // A refusal matters.
+        whole.house.refused = vec!["CLAUDE.md: an end marker without a begin".to_owned()];
+        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        assert!(shows(
+            &output,
+            "Refused: CLAUDE.md: an end marker without a begin"
+        ));
+        whole.house.refused.clear();
         // An older roadmap: Migrate…, and no Formalise… while every file is there.
         whole.house.migrates = Some(Profile::House5);
         let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
         assert!(testing::text_at(&output, "Migrate…").is_some());
         assert!(testing::text_at(&output, "Formalise…").is_none());
         assert!(shows(&output, "the five-column tables, read-only (D-9)"));
+    }
+
+    /// The older forms of a project that keeps owner-tasks.md are listed under a heading of
+    /// their own and counted nowhere; without the file they are what waits (D-10 addendum of
+    /// 2026-11-11; EP-38).
+    #[test]
+    fn the_older_forms_of_a_project_with_a_tasks_file_are_listed_uncounted() {
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::tasks::State;
+
+        let scratch = Scratch::new("detail-older-forms");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let mut harbor = portfolio.project("harbor").unwrap().clone();
+        let mut screen = Screen::new();
+        // Two open tasks and no older form: no section.
+        assert_eq!(harbor.open_items(), 2);
+        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
+        assert!(!shows(&output, "Risks and older forms"));
+        let readme = harbor.snapshot.folder.join("roadmap").join("README.md");
+        let risk = |line, id: &str, text: &str, state| OwnerItem {
+            form: Form::Risk,
+            path: readme.clone(),
+            line,
+            id: Some(id.to_owned()),
+            text: text.to_owned(),
+            gate: None,
+            state,
+            raised: None,
+            date: None,
+        };
+        harbor.snapshot.legacy = vec![
+            risk(
+                60,
+                "1",
+                "**The tide cache goes stale.** Read again in March.",
+                State::Open,
+            ),
+            risk(61, "2", "~~**The CSV's encoding.**~~", State::Resolved),
+        ];
+        // The tasks file is what waits: the risks are listed, uncounted, with the lock.
+        assert_eq!(harbor.open_items(), 2);
+        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
+        assert!(shows(
+            &output,
+            "Risks and older forms: 1 open, 1 resolved, not counted"
+        ));
+        assert!(shows(&output, "The tide cache goes stale."));
+        assert!(!shows(&output, "The CSV's encoding."));
+        let in_readme = std::path::Path::new("roadmap").join("README.md");
+        assert!(shows(
+            &output,
+            &format!("risk · {}:60", in_readme.display())
+        ));
+        let output = screen.pass(Vec::new(), |ui| owner_items(ui, &harbor, &mut Vec::new()));
+        assert!(shows(&output, "Waiting on the owner: 2 open, 1 resolved"));
+        assert!(!shows(&output, "The tide cache goes stale."));
+        // Without the file the same forms count, under the waiting heading alone.
+        harbor.snapshot.tasks = None;
+        assert_eq!(harbor.open_items(), 1);
+        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
+        assert!(!shows(&output, "Risks and older forms"));
+        let output = screen.pass(Vec::new(), |ui| owner_items(ui, &harbor, &mut Vec::new()));
+        assert!(shows(&output, "Waiting on the owner: 1 open, 1 resolved"));
+        assert!(shows(&output, "The tide cache goes stale."));
+        assert!(testing::text_at(&output, "1").is_some());
     }
 
     #[test]

@@ -129,3 +129,12 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   (2026-11-11):** declined as the test it is: the owner wrote it from the window's Compose…
   dialog while this session worked here, the first real compose (`crw mail`: `written IN-10 from
   the owner` at 12:40), which was the walk's check.
+- [x] IN-11 (from clauderoadmapwrangler EP-23, 2026-11-11) A test letter from EP-23's P3 walk, at
+  the owner's request, for the first real urgent popup and its push: nothing to build; decline it as
+  a test and tick it, saying what `crw notifications` showed for it. [urgent] **Triaged at EP-38
+  (2026-11-11):** declined as the test it is. The window's mailman delivered it once EP-23 was
+  committed and its tab idle (`crw mail`: `delivered EP-23:3cee3099e762a81f to
+  clauderoadmapwrangler as IN-11` at 13:48:01), and `crw notifications` showed at 13:48:02 the
+  `badge · inbox` row, the `popup · urgent` row ("clauderoadmapwrangler: IN-11 is urgent", the
+  letter's first words as its gist) and the `ntfy · urgent` row: the first real urgent letter
+  reached the popup and the phone.

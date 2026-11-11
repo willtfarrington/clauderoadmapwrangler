@@ -29,11 +29,18 @@ const EXPANDER: f32 = 20.0;
 const PIN: f32 = 20.0;
 const AUTOPILOT: f32 = 26.0;
 const START: f32 = 32.0;
-/// Below this the title gives way: the badges shrink to their compact form, the counts go, the
-/// badges go, then the progress.
+/// The title's least in the full form: below it the badges shrink to their compact form.
 const TITLE_AT_LEAST: f32 = 160.0;
+/// The title's least in the compact forms (D-25 addendum of 2026-11-11; EP-38): the title, cut
+/// with an ellipsis and whole on hover, gives way down to it before the counts leave, and again
+/// before the compact badges leave and before the progress does, so a long project name costs
+/// the title first and a badge column last. Set from pictures of a copy of the real roadmaps at
+/// 1440 and 1600 points (the owner's choice at EP-38: the compact badges show at 1600 at the
+/// default layout, without the counts, the title cut at 89).
+const TITLE_FLOOR: f32 = 80.0;
 /// The title's floor when even the fewest columns leave it less.
 const TITLE_MIN: f32 = 40.0;
+const _: () = assert!(TITLE_MIN < TITLE_FLOOR && TITLE_FLOOR < TITLE_AT_LEAST);
 /// Between two columns; the expander, the pin and the name sit closer.
 const GAP: f32 = 10.0;
 const TIGHT: f32 = 2.0;
@@ -156,7 +163,11 @@ impl Column {
             ),
             Column::Title => ("Brief", "The next brief's one-line summary"),
             Column::Progress => ("Done", "Rows done of all rows"),
-            Column::Items => ("Waiting", "Open owner items, and open inbox messages"),
+            Column::Items => (
+                "Waiting",
+                "Open owner tasks (the older forms' open items where there is no owner-tasks.md), \
+                 and open inbox messages",
+            ),
             Column::Stack => ("Stack", "The first stack found, and how many more"),
             Column::Hosting => ("Hosting", "Where the repository lives"),
             Column::Sync => ("Sync", "The clone against its origin"),
@@ -285,8 +296,12 @@ impl Plan {
         };
         let columns = Column::GIVE_WAY
             .iter()
-            .map(|optional| columns_with(optional))
-            .find(|columns| width - Self::least(widths, columns) >= TITLE_AT_LEAST)
+            .enumerate()
+            .map(|(choice, optional)| (choice, columns_with(optional)))
+            .find(|(choice, columns)| {
+                width - Self::least(widths, columns) >= Self::title_least(*choice)
+            })
+            .map(|(_, columns)| columns)
             .unwrap_or_else(|| columns_with(&[]));
         let room = width - Self::least(widths, &columns);
         let spreading = columns
@@ -317,6 +332,17 @@ impl Plan {
             })
             .collect();
         Self { cells }
+    }
+
+    /// The title's least with the `choice`th of [`Column::GIVE_WAY`]: the full form keeps
+    /// [`TITLE_AT_LEAST`], and every narrower one lets the title give way to [`TITLE_FLOOR`]
+    /// before the next column leaves (EP-38).
+    fn title_least(choice: usize) -> f32 {
+        if choice == 0 {
+            TITLE_AT_LEAST
+        } else {
+            TITLE_FLOOR
+        }
     }
 
     /// What a row of `columns` takes besides its title: their widths and the gaps between them
@@ -1423,11 +1449,56 @@ mod tests {
         assert!((title - TITLE_AT_LEAST).abs() < 0.01);
     }
 
+    /// The title gives way before a column does (D-25 addendum of 2026-11-11): the badges
+    /// compact first, then the title shrinks from its least to the floor while the compact
+    /// badges and the counts stay, and only under the floor do the counts leave, then the
+    /// badges, each time with the title at the floor again first.
+    #[test]
+    fn the_title_gives_way_before_the_counts_and_the_compact_badges() {
+        let widths = widths(30.0);
+        let full = columns_with(Column::GIVE_WAY[0]);
+        let compact = columns_with(Column::GIVE_WAY[1]);
+        let fewer = columns_with(Column::GIVE_WAY[2]);
+        // A point short of the full form's least: the badges compact, the title keeps its least.
+        let plan = Plan::new(&widths, Plan::least(&widths, &full) + TITLE_AT_LEAST - 1.0);
+        check(&plan, &widths);
+        assert_eq!(shown(&plan), compact);
+        assert!(plan.span(Column::Title).unwrap().1 >= TITLE_AT_LEAST);
+        // From there down to the floor the title alone gives way: the compact badges and the
+        // counts stay, the gaps keep their least, and the row is still filled to its edge.
+        let least = Plan::least(&widths, &compact);
+        for room in [
+            TITLE_AT_LEAST - 1.0,
+            (TITLE_AT_LEAST + TITLE_FLOOR) / 2.0,
+            TITLE_FLOOR,
+        ] {
+            let plan = Plan::new(&widths, least + room);
+            check(&plan, &widths);
+            assert_eq!(shown(&plan), compact, "{room}");
+            let (_, title) = plan.span(Column::Title).unwrap();
+            assert!((title - room).abs() < 0.01, "{room}: {title}");
+            assert!((right_edge(&plan) - (least + room)).abs() < 0.01, "{room}");
+        }
+        // A point under the floor and the counts leave; the title takes the room they free.
+        let plan = Plan::new(&widths, least + TITLE_FLOOR - 1.0);
+        check(&plan, &widths);
+        assert_eq!(shown(&plan), fewer);
+        assert!(plan.span(Column::Title).unwrap().1 > TITLE_FLOOR);
+        // The compact badges leave only once the title is at the floor again.
+        let least = Plan::least(&widths, &fewer);
+        assert_eq!(shown(&Plan::new(&widths, least + TITLE_FLOOR)), fewer);
+        assert_eq!(
+            shown(&Plan::new(&widths, least + TITLE_FLOOR - 1.0)),
+            columns_with(Column::GIVE_WAY[3])
+        );
+    }
+
     #[test]
     fn a_narrowing_row_gives_way_in_d25s_order() {
         let widths = widths(30.0);
         let fitting = |choice: usize| {
-            Plan::least(&widths, &columns_with(Column::GIVE_WAY[choice])) + TITLE_AT_LEAST
+            Plan::least(&widths, &columns_with(Column::GIVE_WAY[choice]))
+                + Plan::title_least(choice)
         };
         for choice in 0..Column::GIVE_WAY.len() {
             let plan = Plan::new(&widths, fitting(choice));

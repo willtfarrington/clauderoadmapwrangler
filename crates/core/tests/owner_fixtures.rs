@@ -116,6 +116,12 @@ fn house_owner_tasks_inbox_owner_actions_risks_and_the_latest_briefs_blocks() {
     assert_eq!(items[10].raised, Some(ep(2)));
     assert_eq!(items.iter().filter(|item| item.is_tickable()).count(), 3);
     assert_eq!(items.iter().filter(|item| item.is_open()).count(), 8);
+    // The tasks file is kept, so its lines alone count as waiting; the older forms are listed
+    // uncounted (D-10 addendum of 2026-11-11, EP-38).
+    assert!(!snapshot.older_forms_wait());
+    assert_eq!(summary(&snapshot.waiting()), summary(&items[..3]));
+    assert_eq!(snapshot.open_waiting(), 2);
+    assert_eq!(summary(snapshot.uncounted()), summary(&items[3..]));
 
     // EP-0's block to the owner is an owner item, not mail; the registry knows beta only.
     let outgoing = inbox::outgoing(&snapshot.briefs, |name| {
@@ -157,6 +163,11 @@ fn house5_open_items_with_a_date_gate_and_a_numbered_risks_list() {
         Some(Gate::OnOrAfter("2026-11-02".to_owned()))
     );
     assert_eq!(items[0].gate, None);
+    // No tasks file: the older forms are what waits, and none is listed uncounted (EP-38).
+    assert!(snapshot.older_forms_wait());
+    assert_eq!(summary(&snapshot.waiting()), summary(&items));
+    assert_eq!(snapshot.open_waiting(), 5);
+    assert!(snapshot.uncounted().is_empty());
     assert!(
         items[3].text.contains("- **Bed count**"),
         "a struck item keeps the open items nested under it: {}",

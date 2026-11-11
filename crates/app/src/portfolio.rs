@@ -209,6 +209,17 @@ impl House {
         !self.writes.is_empty() || !self.refused.is_empty()
     }
 
+    /// Whether the Detail pane's House style section has something that matters to say (D-11
+    /// addendum of 2026-11-11): `roadmap/owner-tasks.md` or `roadmap/inbox.md` among the files to
+    /// write, a refusal, or an older form of the roadmap. A missing template or rule block alone
+    /// leaves Formalise… in the row's menu and no section.
+    pub fn matters(&self) -> bool {
+        self.writes.iter().any(|(name, _)| {
+            name.ends_with(crw_core::tasks::FILE) || name.ends_with(crw_core::inbox::FILE)
+        }) || !self.refused.is_empty()
+            || self.migrates.is_some()
+    }
+
     /// The files a formalise writes, in words: `CLAUDE.md (the rule block added) and
     /// roadmap/_TEMPLATE.md (created)`.
     pub fn writes_words(&self) -> String {
@@ -278,16 +289,10 @@ impl ProjectRow {
         (counts.total > 0).then(|| counts.total - counts.done)
     }
 
-    /// The owner's open items: owner tasks and the older forms (D-10).
+    /// The owner's open items counted as waiting (D-10 addendum of 2026-11-11): the open owner
+    /// tasks where `owner-tasks.md` is kept, else the older forms' open items.
     pub fn open_items(&self) -> usize {
-        let tasks = self.snapshot.tasks.as_ref().map_or(0, |t| t.open().count());
-        tasks
-            + self
-                .snapshot
-                .legacy
-                .iter()
-                .filter(|item| item.is_open())
-                .count()
+        self.snapshot.open_waiting()
     }
 
     /// Open inbox messages, and how many of them are urgent (D-13).
@@ -1277,6 +1282,13 @@ pub(crate) mod tests {
         assert_eq!((harbor.counts().done, harbor.counts().total), (4, 9));
         assert_eq!(harbor.open_items(), 2);
         assert_eq!(harbor.open_messages(), (1, 0));
+        // Lacking only CLAUDE.md and the template, harbor's row menu offers Formalise… and its
+        // Detail pane shows no House style section (D-11 addendum of 2026-11-11; EP-38).
+        assert!(harbor.house.wants() && !harbor.house.matters());
+        assert_eq!(
+            harbor.house.writes_words(),
+            "CLAUDE.md (created) and roadmap/_TEMPLATE.md (created)"
+        );
         assert_eq!(
             harbor.in_progress(),
             [InProgress::BriefWithoutCompletion(EpId::new(4))]
@@ -1296,6 +1308,20 @@ pub(crate) mod tests {
             ]
         );
         assert_eq!(lantern.open_messages(), (1, 1));
+        // Lacking owner-tasks.md, lantern's section matters; a refusal or an older form does too.
+        assert!(lantern.house.matters());
+        let mut house = House::default();
+        assert!(!house.matters());
+        house.refused.push("CLAUDE.md: two blocks".to_owned());
+        assert!(house.matters() && house.wants());
+        house.refused.clear();
+        house.migrates = Some(Profile::House5);
+        assert!(house.matters() && !house.wants());
+        house.migrates = None;
+        house
+            .writes
+            .push(("roadmap/inbox.md".to_owned(), Change::Create));
+        assert!(house.matters());
         // The pickup gate proposes a pause; the finished project in maintenance is left alone.
         let now = Utc::now();
         let quarry = portfolio.project("quarry").unwrap();
