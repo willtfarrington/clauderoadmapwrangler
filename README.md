@@ -58,7 +58,9 @@ project's VS Code window from the Sessions pane, and each resumed run gets a led
 message is a turn of one session, kept in the ledger and listed by `crw chats`, with a digest of
 every project's standing appended to its system prompt; the session is confined to the projects'
 folders by `--restricted`, a project marked as a data repository is never given to it, and it
-writes nothing. The roadmap is
+writes nothing. Its replies draw as Markdown, the ledger's conversations are listed in the pane
+and picked up again, each conversation has its own model and effort, and the session's questions
+are answered in the pane with the Decisions form (EP-24a). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

@@ -761,6 +761,19 @@ everything.
 > of the tool's own on pulldown-cmark, one look for notes and replies at about a brief's cost;
 > replies shown as source text.
 
+> **Addendum (2026-11-11, EP-24a).** `egui_commonmark` is pinned at `=0.26.0` in the workspace
+> with its default features off and only its `pulldown_cmark` backend on: no `load-images` (no
+> image loader, so a reply's image reads as its alt text), no `better_syntax_highlighting` (a
+> fenced block takes egui_extras' own simple highlighter), no `regex` (no search in a reply),
+> no `fetch`. The lock gained seven packages: `egui_commonmark` and `egui_commonmark_backend`
+> 0.26.0, `egui_extras` 0.37.0 and `pulldown-cmark` 0.13.6 (pinned in the workspace since EP-1
+> but used by no member until now, so absent from the lock), `enum-map` 3.1.0,
+> `enum-map-derive` 1.0.1 and `unicase` 2.10.0. The crate takes the theme: its headings, code,
+> quotes and bullets use egui's visuals, and the link colour is set on a scoped `Ui`; its
+> links are egui's own hyperlinks, whose click the tile takes over (D-27 addendum of this
+> date), so no fallback renderer was needed. *Alternatives.* The default features (an image
+> loader and a regex search the chat has no use for); syntect highlighting at a build-time cost.
+
 ## Sessions
 
 **D-16 Launch surfaces and cwd.** v1 offers **Visual** (the VS Code extension's
@@ -2018,6 +2031,44 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > *Alternatives.* The data root as cwd with `Read` deny rules; `dontAsk`; the digest by file
 > alone; a mode of its own in the ledger; an allow-list mark (`chat = true`) in place of the
 > data mark.
+
+> **Addendum (2026-11-11, EP-24a).** The replies, the list, the picker and the questions.
+>
+> - **The replies draw as Markdown** through `egui_commonmark` (D-15 addendum of this date):
+>   headings, lists, fenced code, tables, quotes and links in egui's visuals, a link's text in
+>   the violet the notes give a reference and a link (EP-15a), its target on hover; the text
+>   streaming in is drawn the same, a fence left open reading as code until it closes. **A
+>   link's click opens nothing**: the window opens no URL anywhere, and a reply is a session's
+>   text, so the click's command is taken out of egui's output and the status bar says the
+>   target instead; a fenced block's own copy button still copies it to the clipboard. Two
+>   limits of the crate's widgets, seen on the canned reply: a table is a grid that neither
+>   wraps nor scrolls, so one wider than the pane is cut at the pane's edge (the owner widens
+>   the pane; a renderer of the tool's own is the v2 note), and a reply's image reads as its
+>   alt text. The notes' own `markup` and the Sessions pane's transcripts stay as they were.
+> - **The conversation list** reads the ledger's latest twenty conversations as the Sessions
+>   pane reads its rows (stale after a start or an end, else every half minute while the pane
+>   shows): the title, the last activity, the turns, the model at its effort, the cost and the
+>   session's short id. It stands in the exchange's place while no conversation is open and
+>   folds under the header while one is. A row's click picks the conversation up: the tile
+>   takes its title, session id, model and effort, and the next Send resumes the session with
+>   `--resume` under a fresh live; the earlier turns are the session's own record, of which the
+>   tool keeps no copy (D-26), and a note says so over the exchange. A conversation thus
+>   survives the window's restart through the ledger, not the handover.
+> - **The model and effort are the conversation's**, picked in the header with the launch
+>   dialog's own pickers (the catalog Claude Code caches, the effort levels the model and the
+>   CLI's help list), greyed while a reply streams; a new conversation starts at Opus 5.5 at
+>   medium, a picked-up one at its row's, and the row's model and effort follow the latest turn
+>   (the upsert moves them with the last activity; no schema step).
+> - **The session's questions are answered in the Chat tile** with the Decisions form (the
+>   same cards, `decisions::request_card`), the deferred case too; the Decisions tile and its
+>   count leave chat lives out, the Chat tab says `Chat · n` while a question waits, and the
+>   "waits for you" toast of a chat leads to the Chat pane. Permission requests still never
+>   wait: the window refuses them (the EP-24 addendum).
+>
+> *Alternatives.* `http(s)` targets opened in the browser from a reply (the owner's choice
+> against it, EP-24a's question 1); a renderer of the tool's own on pulldown-cmark; the
+> questions kept in the Decisions tile beside the runs'; the list in a pane of its own; the
+> conversation's earlier turns read back from Claude Code's transcripts (D-26).
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

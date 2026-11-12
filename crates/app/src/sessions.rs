@@ -640,6 +640,9 @@ pub struct Sessions {
     /// The start that last came back was a chat conversation's turn (EP-24), whatever asked
     /// for it: the Chat tile takes its outcome.
     pub last_chat: bool,
+    /// The ledger's conversations may have changed (a start came back, a run ended): the Chat
+    /// tile's list reads them again (EP-24a).
+    pub conversations_stale: bool,
 }
 
 impl Default for Sessions {
@@ -657,6 +660,7 @@ impl Default for Sessions {
             news: Vec::new(),
             ended: Vec::new(),
             last_chat: false,
+            conversations_stale: false,
         }
     }
 }
@@ -766,6 +770,25 @@ impl Sessions {
         self.live
             .iter()
             .find(|live| live.key == key && live.is_chat())
+    }
+
+    /// The same, to answer its questions in the Chat tile (EP-24a).
+    pub fn conversation_mut(&mut self, key: u64) -> Option<&mut Live> {
+        self.live
+            .iter_mut()
+            .find(|live| live.key == key && live.is_chat())
+    }
+
+    /// The conversation's model and effort for its next turn, from the Chat tile's picker
+    /// (EP-24a): a resume that carries a deferred question's answer builds on the live's
+    /// launch, so the choice is written into it first.
+    pub fn set_chat_pick(&mut self, key: u64, model: &str, effort: Option<&str>) {
+        if let Some(live) = self.conversation_mut(key) {
+            live.launch.model = model.to_owned();
+            live.launch.effort = effort.map(str::to_owned);
+            live.model = model.to_owned();
+            live.effort = crw_core::prompt::effort_words(effort, false);
+        }
     }
 
     /// Resumes the window's ended session `key` with `message` as its next prompt (EP-13): a new
@@ -1040,6 +1063,7 @@ impl Sessions {
                         Err(why) => Started::Refused(why),
                     });
                     self.history.stale = true;
+                    self.conversations_stale = true;
                 }
                 Err(TryRecvError::Disconnected) => {
                     self.starting = None;
@@ -1053,6 +1077,7 @@ impl Sessions {
         for live in &mut self.live {
             if live.drain() {
                 self.history.stale = true;
+                self.conversations_stale = true;
                 self.ended.push(live.key);
             }
             let key = live.key;
@@ -1112,9 +1137,14 @@ impl Sessions {
             live.commits |= starting.run.commits;
             let answered = live.open.take().is_some() && starting.launch.answered_after.is_some();
             live.transcript.prompt(&starting.message, true);
-            // A conversation's later turn: the tile goes on, no tab (EP-24).
+            // A conversation's later turn: the tile goes on, no tab (EP-24). Each turn
+            // rebuilds the whole launch (the digest, and from EP-24a the model and effort the
+            // picker holds), so the live keeps the latest, which a deferred question's resume
+            // builds on (the review's finding).
             if let Some(title) = &starting.launch.conversation {
-                live.launch.appended = starting.launch.appended.clone();
+                live.launch = starting.launch.clone();
+                live.model = starting.launch.model.clone();
+                live.effort = starting.effort.clone();
                 return Started::Running(format!(
                     "The conversation goes on: chat: {title}, its reply in the Chat pane."
                 ));
@@ -1267,16 +1297,36 @@ impl Sessions {
             .then(|| (message.to_owned(), live.program.clone()))
     }
 
+    /// How many requests the window's runs wait on, for the Decisions tile; a conversation's
+    /// are the Chat tile's (EP-24a) and are not counted.
     pub fn waiting(&self) -> usize {
-        self.live.iter().map(|live| live.waiting.len()).sum()
+        self.live
+            .iter()
+            .filter(|live| !live.is_chat())
+            .map(|live| live.waiting.len())
+            .sum()
     }
 
-    /// How many ended runs wait for the owner's answer to resume (EP-14).
+    /// How many ended runs wait for the owner's answer to resume (EP-14), a conversation's
+    /// aside (EP-24a).
     pub fn deferred(&self) -> usize {
         self.live
             .iter()
-            .filter(|live| live.open.is_some() && live.ended.is_some())
+            .filter(|live| !live.is_chat() && live.open.is_some() && live.ended.is_some())
             .count()
+    }
+
+    /// The CLI's answers when they are in hand, without asking: a screenshot run's canned ones,
+    /// or the last preflight that came back, fresh or not (the Chat tile's effort picker reads
+    /// the levels from them, EP-24a).
+    pub fn preflight_ready(&self) -> Option<Arc<Preflight>> {
+        if let Some(canned) = &self.canned {
+            return Some(Arc::clone(canned));
+        }
+        match &self.asked {
+            Asked::Ready(preflight) => Some(Arc::clone(preflight)),
+            _ => None,
+        }
     }
 
     /// Sends the owner's `response` to the request `request` the session `key` waits on (D-19);

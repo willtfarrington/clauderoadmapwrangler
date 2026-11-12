@@ -20,7 +20,8 @@ use crate::session::{Appended, Launch, edit_deny_rule};
 /// The project name a conversation's runs carry in the ledger: `crw sessions chat` lists them.
 pub const PROJECT: &str = "chat";
 
-/// The model and effort a conversation starts with until EP-24a's picker (D-27).
+/// The model and effort a new conversation starts with (D-27), until its picker says otherwise
+/// (EP-24a): the choice is the conversation's and goes with each of its turns.
 pub const MODEL: &str = "claude-opus-5-5";
 pub const EFFORT: &str = "medium";
 
@@ -321,11 +322,39 @@ impl Default for Turn {
     }
 }
 
+/// The model and effort a turn runs with: the conversation's picker (EP-24a), or the defaults.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pick {
+    /// A model alias or id, passed as written.
+    pub model: String,
+    /// None for the CLI's default effort.
+    pub effort: Option<String>,
+}
+
+impl Default for Pick {
+    fn default() -> Self {
+        Self {
+            model: MODEL.to_owned(),
+            effort: Some(EFFORT.to_owned()),
+        }
+    }
+}
+
+impl Pick {
+    /// `claude-opus-5-5 at medium`, or `… at the CLI's default effort`.
+    pub fn words(&self) -> String {
+        match &self.effort {
+            Some(effort) => format!("{} at {effort}", self.model),
+            None => format!("{} at the CLI's default effort", self.model),
+        }
+    }
+}
+
 /// The launch of one turn of the conversation `title`: a new session, or the one `turn` resumes
-/// continued with `prompt` as its next message (D-27; EP-24).
-pub fn launch(title: &str, prompt: &str, turn: &Turn, places: Places) -> Launch {
-    let mut launch = Launch::new(PROJECT, &places.cwd, MODEL, prompt);
-    launch.effort = Some(EFFORT.to_owned());
+/// continued with `prompt` as its next message (D-27; EP-24), run with `pick`'s model and effort.
+pub fn launch(title: &str, prompt: &str, turn: &Turn, places: Places, pick: &Pick) -> Launch {
+    let mut launch = Launch::new(PROJECT, &places.cwd, &pick.model, prompt);
+    launch.effort = pick.effort.clone();
     launch.permission_mode = PERMISSION_MODE.to_owned();
     launch.neighbours = places.folders;
     launch.neighbour_claude_md = false;
@@ -600,6 +629,7 @@ mod tests {
             "What does EP-24 plan?",
             &first,
             places,
+            &Pick::default(),
         );
         assert_eq!(launch.name(), "chat: What does EP-24 plan?");
         assert_eq!(launch.project, PROJECT);
@@ -645,7 +675,8 @@ mod tests {
         // The neighbours' CLAUDE.md files stay unloaded: the key alone leaves the environment.
         assert_eq!(line.env, [(OsString::from("ANTHROPIC_API_KEY"), None)]);
 
-        // A later turn resumes the session with the owner's message.
+        // A later turn resumes the session with the owner's message, under the model and
+        // effort the conversation's picker holds (EP-24a).
         let places = Places {
             cwd: cwd.clone(),
             folders: vec![alpha.clone()],
@@ -658,7 +689,19 @@ mod tests {
         let resumed = Turn::Resume {
             session_id: "0e1d".to_owned(),
         };
-        let turn = super::launch("What does EP-24 plan?", "And EP-24a?", &resumed, places);
+        let pick = Pick {
+            model: "fable".to_owned(),
+            effort: None,
+        };
+        assert_eq!(pick.words(), "fable at the CLI's default effort");
+        assert_eq!(Pick::default().words(), "claude-opus-5-5 at medium");
+        let turn = super::launch(
+            "What does EP-24 plan?",
+            "And EP-24a?",
+            &resumed,
+            places,
+            &pick,
+        );
         assert!(turn.session_id.is_none());
         let line = crate::session::launch::command_line(&turn, &flags, "0e1d", []).unwrap();
         let args: Vec<String> = line
@@ -671,6 +714,11 @@ mod tests {
                 .any(|pair| pair[0] == "--resume" && pair[1] == "0e1d")
         );
         assert!(args.contains(&"A fresh digest.".to_owned()));
+        assert!(
+            args.windows(2)
+                .any(|pair| pair[0] == "--model" && pair[1] == "fable")
+        );
+        assert!(!args.iter().any(|arg| arg == "--effort"));
 
         // The digest by file when the help lists the flag and the file is there; inline until
         // the file is written.

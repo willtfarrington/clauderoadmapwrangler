@@ -155,6 +155,11 @@ impl egui_tiles::Behavior<Pane> for Board {
                     count => format!("Sessions · {count}").into(),
                 }
             }
+            // A conversation's questions are answered in the Chat tile (EP-24a).
+            Pane::Chat => match self.chat_asks() {
+                0 => "Chat".into(),
+                count => format!("Chat · {count}").into(),
+            },
             pane => pane.title().into(),
         }
     }

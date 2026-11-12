@@ -175,10 +175,12 @@ pub enum Action {
     Send,
     CloseCompose,
     /// The Chat tile (D-27; EP-24): one turn of the conversation with the message typed, the
-    /// reply's turn interrupted, the conversation let go for a new one.
+    /// reply's turn interrupted, the conversation let go for a new one, and (EP-24a) a
+    /// conversation picked up from the ledger's list by its session id, the next Send its turn.
     ChatSend,
     ChatStop,
     ChatNew,
+    ChatPickUp(String),
     Refresh,
     /// The launch dialog on the project's next brief (S, a row's Start button).
     OpenLaunch(String),
@@ -492,6 +494,15 @@ impl Board {
     /// The ledger the window's sessions are recorded in, when it has one.
     pub fn ledger(&self) -> Option<&Path> {
         self.ledger.as_deref()
+    }
+
+    /// Claude Code's model catalog as its cache holds it (D-15's EP-10 addendum), the built-in
+    /// list without a profile folder: the launch dialog's and the Chat tile's pickers.
+    pub fn read_catalog(&self) -> Catalog {
+        self.catalog_folder.as_deref().map_or_else(
+            || Catalog::built_in("no profile folder".to_owned()),
+            Catalog::read,
+        )
     }
 
     /// The name of the selected project or folder.
@@ -1127,6 +1138,10 @@ impl Board {
                     self.view.selected = Some(Selection::Project(name));
                     self.bring = Some(Pane::Detail);
                 }
+                Target::Chat => {
+                    self.show();
+                    self.bring = Some(Pane::Chat);
+                }
                 Target::Window => self.show(),
             }
         }
@@ -1235,6 +1250,7 @@ impl Board {
             Action::ChatSend => self.chat_send(),
             Action::ChatStop => self.chat_stop(),
             Action::ChatNew => self.chat_new(),
+            Action::ChatPickUp(session_id) => self.chat_pick_up(&session_id),
             Action::CloseLaunch => {
                 if self.visual.is_opening() {
                     self.visual.cancel();
@@ -1568,10 +1584,7 @@ impl Board {
             warnings.push(draft.parts.due.clone());
         }
         warnings.extend(self.launch_warnings(name, &reasons));
-        let catalog = self.catalog_folder.as_deref().map_or_else(
-            || Catalog::built_in("no profile folder".to_owned()),
-            Catalog::read,
-        );
+        let catalog = self.read_catalog();
         let vscode_setting = registry.settings.vscode.clone();
         // The chain plan (EP-19a): the briefs a chain may run after this one, each as the rules
         // resolve it, for a project whose autopilot is on.
@@ -1719,10 +1732,7 @@ impl Board {
         };
         let resolution = rules::resolve(&registry, &project, &brief, &levels, &usage);
         let warnings = self.launch_warnings(name, &reasons);
-        let catalog = self.catalog_folder.as_deref().map_or_else(
-            || Catalog::built_in("no profile folder".to_owned()),
-            Catalog::read,
-        );
+        let catalog = self.read_catalog();
         let vscode_setting = registry.settings.vscode.clone();
         self.launch = Some(Dialog::migration(
             &project.name,
@@ -1937,6 +1947,16 @@ impl Board {
             .sessions
             .route_for(&preflight, self.decisions_setting())
             .0;
+        // A conversation's resume takes the picker's model and effort, and the Chat tile holds
+        // its buttons back while the start is on its way (EP-24a; the review's findings).
+        let chat = self.chat.key == Some(key);
+        if chat {
+            self.sessions.set_chat_pick(
+                key,
+                &self.chat.pick.model,
+                self.chat.pick.effort.as_deref(),
+            );
+        }
         let answered = self.sessions.answer_open(
             key,
             preflight,
@@ -1944,8 +1964,10 @@ impl Board {
             (route, crw_exe(), &answers),
             &self.ctx,
         );
-        if let Err(why) = answered {
-            self.fail(format!("The session cannot resume: {why}."));
+        match answered {
+            Ok(()) if chat => self.chat.starting = self.sessions.is_starting(),
+            Ok(()) => {}
+            Err(why) => self.fail(format!("The session cannot resume: {why}.")),
         }
     }
 

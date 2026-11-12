@@ -68,6 +68,8 @@ pub enum Target {
     ChainLog,
     /// The window, a project selected and the Detail pane in front, where its inbox is (EP-20a).
     Project(String),
+    /// The window, the Chat pane in front, where a conversation's question waits (EP-24a).
+    Chat,
     /// The window as it stands.
     Window,
 }
@@ -257,7 +259,8 @@ impl Toast {
 }
 
 /// The toast a window's run's news calls for (D-21): its request, its end; none for a stop.
-/// `title` is the session's, `<project> <EP>`.
+/// `title` is the session's, `<project> <EP>`, or a conversation's `chat: <title>`, whose
+/// question is answered in the Chat pane (EP-24a).
 pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<Toast> {
     let toast = match news {
         News::Asked(summary) => Toast::new(
@@ -265,7 +268,11 @@ pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<To
             project,
             format!("{title} waits for you"),
             summary.clone(),
-            Target::Decisions,
+            if project == crw_core::chat::PROJECT {
+                Target::Chat
+            } else {
+                Target::Decisions
+            },
         ),
         News::Ended(Outcome::Completed, line) => Toast::new(
             Kind::Finished,

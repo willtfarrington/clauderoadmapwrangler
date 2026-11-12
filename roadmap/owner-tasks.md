@@ -282,7 +282,9 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   the most open owner tasks?" and press Send (or Ctrl+Enter). The header should say `claude-opus-5-5
   at medium · reads N projects, M left out · read-only` with M the data repositories marked (hover it
   for the names and the digest's file under `%LOCALAPPDATA%\clauderoadmapwrangler\chat`), the
-  reply should stream in within a minute as plain text, and `target\release\crw.exe chats` should
+  reply should stream in within a minute as plain text (as Markdown from EP-24a's build, which
+  also lists the conversation in the pane and answers the session's questions there), and
+  `target\release\crw.exe chats` should
   list the conversation with 1 turn (`crw sessions chat` its run). Then ask it which folders it can
   read and whether it can read a data repository by its path: it should name the projects given and
   nothing else, and a refusal shows in the pane in red. If a reply says a tool is missing (Skill,

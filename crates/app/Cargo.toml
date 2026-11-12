@@ -20,6 +20,8 @@ axum.workspace = true
 chrono.workspace = true
 crw-core.workspace = true
 eframe.workspace = true
+# The chat's replies as Markdown (D-27; EP-24a).
+egui_commonmark.workspace = true
 egui_material_icons.workspace = true
 egui_tiles.workspace = true
 image = { workspace = true, optional = true }

@@ -3,29 +3,55 @@
 //! the launch `crw_core::chat` builds, each of the owner's messages a turn that resumes the
 //! session by its id. The window builds the digest the session is given from its own readings
 //! (the portfolio's rows, the sessions it sees, the usage meter), writes it to the chat folder
-//! for the record and passes it inline. The exchange is drawn from the run's transcript as plain
-//! text while the reply streams (EP-24a draws it as Markdown); a permission request is refused by
-//! the window at once (`sessions::Live::take`), and a question waits in the Decisions tile as
-//! any run's. A screenshot run cans a conversation (`chat`), and starts nothing.
+//! for the record and passes it inline. The exchange is drawn from the run's transcript, the
+//! replies as Markdown through `egui_commonmark` while they stream (EP-24a), a link's click
+//! opening nothing (the target goes to the status bar); a permission request is refused by the
+//! window at once (`sessions::Live::take`), and the session's questions are answered here with
+//! the Decisions form (EP-24a). The ledger's conversations are listed, the latest activity
+//! first, and one is picked up again with `--resume`; the model and effort are the
+//! conversation's, picked in the header (EP-24a). A screenshot run cans a conversation
+//! (`chat`, `chat=asks`), and starts nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
-use chrono::{Local, Utc};
-use crw_core::chat::{self, Digest, Next, ProjectDigest, Turn};
+use chrono::{DateTime, Local, Utc};
+use crw_core::catalog::Catalog;
+use crw_core::chat::{self, Digest, Next, Pick, ProjectDigest, Turn};
 use crw_core::files;
-use crw_core::ledger;
-use crw_core::session::{Appended, Outcome};
+use crw_core::ledger::{self, ConversationRow, Ledger};
+use crw_core::session::{Appended, Outcome, Request};
 use crw_core::usage;
-use eframe::egui::{self, RichText};
+use eframe::egui::{self, OutputCommand, RichText};
+use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
 use crate::board::{Action, Board, crw_exe};
+use crate::decisions::{self, Draft, Wait};
+use crate::launch;
 use crate::sessions::Live;
 use crate::style::{self, icons};
 use crate::transcript::{self, Entry, Transcript};
 
 /// The room the footer keeps under the exchange: the notes, the input and its buttons.
 const FOOTER: f32 = 132.0;
+
+/// The most conversations the list shows, the latest activity first (the ledger keeps them all;
+/// `crw chats --all` prints every one).
+pub const CONVERSATIONS_SHOWN: usize = 20;
+
+/// How often the list reads the ledger again while the pane shows and nothing marked it stale.
+const LIST_EVERY: Duration = Duration::from_secs(30);
+
+/// The pickers' widths, in points: each takes the rest of its row, between these, so that a
+/// narrow pane is never widened past its edge by one (EP-13's lesson, seen at 1200 points).
+const PICKER_MIN: f32 = 80.0;
+const PICKER_MAX: f32 = 220.0;
+
+/// A picker's width on its row: what is left beside its label, within the bounds.
+fn picker_width(ui: &egui::Ui) -> f32 {
+    (ui.available_width() - ui.spacing().item_spacing.x).clamp(PICKER_MIN, PICKER_MAX)
+}
 
 /// The tile's state: one conversation at a time.
 #[derive(Default)]
@@ -34,7 +60,8 @@ pub struct Chat {
     pub key: Option<u64>,
     /// The turn on its way: its id and title, taken up once the start comes back.
     pub pending: Option<Pending>,
-    /// The session id chosen for the conversation's first turn, kept for its later turns.
+    /// The session id chosen for the conversation's first turn, kept for its later turns; a
+    /// conversation picked up from the list carries its row's (EP-24a).
     pub session_id: Option<String>,
     /// The conversation's title, from its first prompt.
     pub title: Option<String>,
@@ -49,6 +76,20 @@ pub struct Chat {
     pub left_out: Vec<(String, String)>,
     /// Where the last digest was written, for the record.
     pub digest_file: Option<PathBuf>,
+    /// The model and effort of the conversation's next turn (EP-24a): the defaults for a new
+    /// one, a picked-up conversation's row's, the header's pickers after.
+    pub pick: Pick,
+    /// The conversation was picked up from the ledger's list: its earlier turns are the
+    /// session's own record, and the exchange holds the turns since (EP-24a).
+    pub picked_up: bool,
+    /// The ledger's conversations, for the list (EP-24a).
+    pub list: Conversations,
+    /// Open the list's fold at the next draw (a screenshot run's `chat=list`).
+    pub unfold: bool,
+    /// Claude Code's model catalog, read once for the picker.
+    catalog: Option<Catalog>,
+    /// The Markdown viewer's cache, one per conversation.
+    cache: CommonMarkCache,
 }
 
 /// A turn handed to the start thread: the session id it starts or resumes under, and the
@@ -58,12 +99,59 @@ pub struct Pending {
     pub title: String,
 }
 
+/// The ledger's conversations as the list shows them (EP-24a), read as the Sessions pane reads
+/// its rows: when the pane first shows, again when a start came back or a run ended, and
+/// every half minute while it shows.
+#[derive(Default)]
+pub struct Conversations {
+    /// The latest activity first.
+    pub rows: Vec<ConversationRow>,
+    pub problem: Option<String>,
+    read_at: Option<Instant>,
+    /// The ledger changed since the last read.
+    pub stale: bool,
+    /// A screenshot run's or a test's rows: the ledger is not read.
+    pub canned: bool,
+}
+
+impl Conversations {
+    fn refresh(&mut self, ledger: Option<&Path>) {
+        let due = self.stale || self.read_at.is_none_or(|at| at.elapsed() >= LIST_EVERY);
+        let Some(path) = ledger.filter(|_| due && !self.canned) else {
+            return;
+        };
+        self.read_at = Some(Instant::now());
+        self.stale = false;
+        if !path.exists() {
+            self.rows.clear();
+            return;
+        }
+        match Ledger::open_read_only(path)
+            .and_then(|ledger| ledger.conversations(CONVERSATIONS_SHOWN))
+        {
+            Ok(rows) => {
+                self.rows = rows;
+                self.problem = None;
+            }
+            Err(e) => self.problem = Some(format!("The ledger did not read: {e}")),
+        }
+    }
+}
+
 impl Board {
     /// The conversation's live, when it has one.
     fn conversation(&self) -> Option<&Live> {
         self.chat
             .key
             .and_then(|key| self.sessions.conversation(key))
+    }
+
+    /// How many questions the conversation waits on, answered in this tile (EP-24a): the Chat
+    /// tab's count.
+    pub fn chat_asks(&self) -> usize {
+        self.conversation().map_or(0, |live| {
+            live.waiting.len() + usize::from(live.open.is_some() && live.ended.is_some())
+        })
     }
 
     /// The folders the session reads (`chat::folders`): each registered project not marked a
@@ -210,16 +298,27 @@ impl Board {
             ));
             return;
         }
-        // The turn: the conversation's session goes on, or a new one starts under a chosen id.
-        let (turn, title, resumes) = match self.conversation() {
-            Some(live) => (
+        // The turn: the conversation's session goes on, a conversation picked up from the
+        // list is resumed under a fresh live (EP-24a), or a new one starts under a chosen id.
+        let (turn, title, resumes) = match (self.conversation(), &self.chat.session_id) {
+            (Some(live), _) => (
                 Turn::Resume {
                     session_id: live.session_id.clone(),
                 },
                 live.conversation().unwrap_or_default().to_owned(),
                 Some(live.key),
             ),
-            None => (Turn::new(), chat::title_of(&message), None),
+            (None, Some(session_id)) => (
+                Turn::Resume {
+                    session_id: session_id.clone(),
+                },
+                self.chat
+                    .title
+                    .clone()
+                    .unwrap_or_else(|| chat::title_of(&message)),
+                None,
+            ),
+            (None, None) => (Turn::new(), chat::title_of(&message), None),
         };
         // The plugin's copy written now, so that the first digest of a fresh profile names
         // the reference (the start writes it again, on its worker).
@@ -247,7 +346,7 @@ impl Board {
             digest: Appended { file, text },
             ledger: self.ledger().map(Path::to_owned),
         };
-        let mut launch = chat::launch(&title, &message, &turn, places);
+        let mut launch = chat::launch(&title, &message, &turn, places, &self.chat.pick);
         launch.route = route.0;
         launch.hooks = crw_exe();
         // The message, the id and the title stay pending until the start comes back: a
@@ -301,13 +400,41 @@ impl Board {
         }
     }
 
+    /// Whether the conversation can be let go now: not while its reply streams, nor while any
+    /// start is on its way (a deferred question's resume among them, the review's finding),
+    /// which would leave a running chat no pane shows.
+    fn chat_can_let_go(&mut self) -> bool {
+        if self.conversation().is_some_and(Live::is_running)
+            || self.chat.starting
+            || self.sessions.is_starting()
+        {
+            self.warn(
+                "The conversation is still replying, or a session is starting: wait for it, or \
+                 Stop it.",
+            );
+            return false;
+        }
+        true
+    }
+
+    /// What going on from an ended conversation that still holds a deferred question says.
+    fn chat_let_go_words(&self) -> &'static str {
+        if self.conversation().is_some_and(|live| live.open.is_some()) {
+            " Its open question went with it: picking the conversation up again resumes the \
+             session, which asks again."
+        } else {
+            ""
+        }
+    }
+
     /// New conversation: the ended one let go (the ledger keeps its rows), the next Send a new
-    /// session; refused while a reply streams.
+    /// session at the default model and effort; refused while a reply streams or a session
+    /// starts.
     pub(crate) fn chat_new(&mut self) {
-        if self.conversation().is_some_and(Live::is_running) || self.chat.starting {
-            self.warn("The conversation is still replying: Stop it first.");
+        if !self.chat_can_let_go() {
             return;
         }
+        let went = self.chat_let_go_words();
         if let Some(key) = self.chat.key.take() {
             self.sessions.dismiss(key);
         }
@@ -317,10 +444,68 @@ impl Board {
         self.chat.reads.clear();
         self.chat.left_out.clear();
         self.chat.digest_file = None;
+        self.chat.pick = Pick::default();
+        self.chat.picked_up = false;
+        self.chat.cache = CommonMarkCache::default();
+        if !went.is_empty() {
+            self.notify(format!("The conversation was let go.{went}"));
+        }
+    }
+
+    /// A conversation picked up from the list (EP-24a): the open one let go, the tile taking
+    /// the row's title, session id, model and effort; the next Send resumes its session with
+    /// the message. Refused while a reply streams or a session starts.
+    pub(crate) fn chat_pick_up(&mut self, session_id: &str) {
+        if self.chat.session_id.as_deref() == Some(session_id) {
+            return;
+        }
+        if !self.chat_can_let_go() {
+            return;
+        }
+        let went = self.chat_let_go_words();
+        let Some(row) = self
+            .chat
+            .list
+            .rows
+            .iter()
+            .find(|row| row.session_id == session_id)
+            .cloned()
+        else {
+            self.warn("That conversation is no longer in the list.");
+            return;
+        };
+        if let Some(key) = self.chat.key.take() {
+            self.sessions.dismiss(key);
+        }
+        self.chat.session_id = Some(row.session_id);
+        self.chat.title = Some(row.title.clone());
+        self.chat.pick = Pick {
+            model: row.model,
+            effort: row.effort,
+        };
+        self.chat.picked_up = true;
+        self.chat.error = None;
+        self.chat.reads.clear();
+        self.chat.left_out.clear();
+        self.chat.digest_file = None;
+        self.chat.cache = CommonMarkCache::default();
+        self.notify(format!(
+            "Picked up chat: {}: your next message resumes its session.{went}",
+            row.title
+        ));
     }
 
     /// The Chat tile.
     pub fn chat_pane(&mut self, ui: &mut egui::Ui) {
+        if self.chat.catalog.is_none() {
+            self.chat.catalog = Some(self.read_catalog());
+        }
+        if std::mem::take(&mut self.sessions.conversations_stale) {
+            self.chat.list.stale = true;
+        }
+        let ledger = self.ledger().map(Path::to_owned);
+        self.chat.list.refresh(ledger.as_deref());
+        let preflight = self.sessions.preflight_ready();
         let mut actions = Vec::new();
         // A turn of this conversation on its way; another start's only holds Send back.
         let starting = self.chat.starting;
@@ -337,8 +522,9 @@ impl Board {
             ),
             None => (false, false, None, None, Vec::new(), None, None),
         };
-        // The title, the chip and the buttons on rows of their own, so that a narrow pane
-        // neither squeezes a chip nor gets widened past its edge (EP-13's lesson).
+        let open = self.chat.session_id.is_some();
+        // The title, the chip, the pickers and the buttons on rows of their own, so that a
+        // narrow pane neither squeezes a chip nor gets widened past its edge (EP-13's lesson).
         let title = match &self.chat.title {
             Some(title) => format!("chat: {title}"),
             None => "Chat".to_owned(),
@@ -357,12 +543,56 @@ impl Board {
         } else if starting {
             ui.horizontal(|ui| style::chip(ui, "starting", ui.visuals().weak_text_color()));
         }
+        // The conversation's model and effort (EP-24a): greyed while a turn runs, since the
+        // choice goes with the next message.
+        {
+            let Chat { catalog, pick, .. } = &mut self.chat;
+            let catalog = catalog.as_ref().expect("the catalog is read above");
+            // Each picker on a row of its own beside its label, sized to the row's rest.
+            ui.add_enabled_ui(!running && !starting, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Model").small().weak());
+                    let width = picker_width(ui);
+                    if let Some(model) =
+                        launch::model_picker(ui, "chat-model", catalog, &pick.model, width)
+                    {
+                        pick.model = model;
+                    }
+                });
+                ui.horizontal(|ui| {
+                    ui.label(RichText::new("Effort").small().weak());
+                    let width = picker_width(ui);
+                    let efforts = launch::efforts_of(
+                        catalog,
+                        &launch::cli_efforts(preflight.as_deref()),
+                        &pick.model,
+                    );
+                    if let Some(effort) = launch::effort_picker(
+                        ui,
+                        "chat-effort",
+                        &efforts,
+                        pick.effort.as_deref(),
+                        width,
+                    ) {
+                        pick.effort = effort;
+                    }
+                });
+            })
+            .response
+            .on_hover_text(
+                "The conversation's model and effort: they go with your next message, and the \
+                 ledger's row says the latest turn's",
+            );
+        }
         ui.label(RichText::new(self.chat_reads_line()).weak())
             .on_hover_text(self.chat_reads_hover());
         // Wrapped: a narrow pane puts Stop on the next line rather than past its edge.
         ui.horizontal_wrapped(|ui| {
             if ui
-                .add_enabled(!running && !starting, egui::Button::new("New conversation"))
+                .add_enabled(
+                    !running && !starting && !busy,
+                    egui::Button::new("New conversation"),
+                )
                 .on_hover_text(
                     "Let this conversation go (the ledger keeps its rows) and start the next \
                      Send as a new session",
@@ -383,39 +613,96 @@ impl Board {
         for note in &dropped {
             ui.label(RichText::new(note).small().color(style::amber(ui)));
         }
+        // The ledger's conversations fold under the header while one is open (EP-24a); with
+        // none open they stand in the exchange's place below.
+        if open {
+            let count = self.chat.list.rows.len();
+            let current = self.chat.session_id.clone();
+            let unfold = std::mem::take(&mut self.chat.unfold);
+            egui::CollapsingHeader::new(
+                RichText::new(format!("Conversations · {count}"))
+                    .small()
+                    .weak(),
+            )
+            .id_salt("chat-list")
+            .default_open(false)
+            .open(unfold.then_some(true))
+            .show(ui, |ui| {
+                if let Some(id) = conversation_rows(
+                    ui,
+                    &self.chat.list,
+                    current.as_deref(),
+                    !running && !starting && !busy,
+                ) {
+                    actions.push(Action::ChatPickUp(id));
+                }
+            });
+        }
         ui.separator();
 
         let height = (ui.available_height() - FOOTER).max(80.0);
-        egui::ScrollArea::vertical()
-            .id_salt("chat-exchange")
-            .auto_shrink(false)
-            .stick_to_bottom(true)
-            .max_height(height)
-            .show(ui, |ui| match self.conversation() {
-                Some(live) => {
-                    exchange(ui, &live.transcript);
-                    if live.is_running() && live.transcript.streaming.is_empty() {
-                        ui.horizontal(|ui| {
-                            ui.spinner();
-                            ui.label(RichText::new("Replying…").weak());
-                        });
+        let mut opened = Vec::new();
+        {
+            let chat = &mut self.chat;
+            let sessions = &mut self.sessions;
+            egui::ScrollArea::vertical()
+                .id_salt("chat-exchange")
+                .auto_shrink(false)
+                .stick_to_bottom(true)
+                .max_height(height)
+                .show(ui, |ui| {
+                    let live = chat.key.and_then(|key| sessions.conversation_mut(key));
+                    match live {
+                        Some(live) => {
+                            if chat.picked_up {
+                                picked_up_note(ui);
+                            }
+                            exchange(ui, &live.transcript, &mut chat.cache, live.key);
+                            if live.is_running()
+                                && live.transcript.streaming.is_empty()
+                                && live.waiting.is_empty()
+                            {
+                                ui.horizontal(|ui| {
+                                    ui.spinner();
+                                    ui.label(RichText::new("Replying…").weak());
+                                });
+                            }
+                            questions(ui, live, busy, &mut actions);
+                        }
+                        None if chat.picked_up => picked_up_note(ui),
+                        None => {
+                            ui.add_space(12.0);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(
+                                        "Ask about the portfolio: what a brief plans, what waits \
+                                         on you, how a project stands. The session reads the \
+                                         projects' files and writes nothing; each message is a \
+                                         turn of one Claude Code session, and the ledger keeps \
+                                         the conversation.",
+                                    )
+                                    .weak(),
+                                )
+                                .wrap(),
+                            );
+                            ui.add_space(10.0);
+                            ui.label(RichText::new("Conversations").weak());
+                            ui.add_space(2.0);
+                            if let Some(id) =
+                                conversation_rows(ui, &chat.list, None, !starting && !busy)
+                            {
+                                actions.push(Action::ChatPickUp(id));
+                            }
+                        }
                     }
-                }
-                None => {
-                    ui.add_space(24.0);
-                    ui.vertical_centered(|ui| {
-                        ui.label(
-                            RichText::new(
-                                "Ask about the portfolio: what a brief plans, what waits on you, \
-                                 how a project stands. The session reads the projects' files and \
-                                 writes nothing; each message is a turn of one Claude Code \
-                                 session, and the ledger keeps the conversation.",
-                            )
-                            .weak(),
-                        );
-                    });
-                }
-            });
+                    opened = take_opened(ui);
+                });
+        }
+        // A link's click opens nothing: the window opens no URL, and a reply is a session's
+        // text; the status bar says the target instead.
+        for url in opened {
+            self.notify(format!("The chat opens no link: {url}"));
+        }
         if let Some(Outcome::Failed) = ended
             && let Some(live) = self.conversation()
             && let Some(ended) = &live.ended
@@ -452,6 +739,9 @@ impl Board {
             (_, _) if starting => "starting the session".to_owned(),
             (Some(id), Some(outcome)) => format!("session {id} · ended: {}", outcome.as_str()),
             (Some(id), None) if running => format!("session {id} · replying"),
+            (Some(id), None) if self.chat.key.is_none() => {
+                format!("session {id} · resumed on Send")
+            }
             (Some(id), None) => format!("session {id}"),
             (None, _) => "a new session on Send".to_owned(),
         };
@@ -462,7 +752,7 @@ impl Board {
         self.actions.extend(actions);
     }
 
-    /// The header's line: the model and effort, what the session reads.
+    /// The header's line: what the session reads.
     fn chat_reads_line(&self) -> String {
         let reads = if self.chat.reads.is_empty() {
             let readable = self
@@ -479,11 +769,7 @@ impl Board {
             0 => String::new(),
             n => format!(", {n} left out"),
         };
-        format!(
-            "{} at {} · {reads}{left_out} · read-only",
-            chat::MODEL,
-            chat::EFFORT
-        )
+        format!("{reads}{left_out} · read-only")
     }
 
     /// What the header's line says on hover: the projects read, those left out with why, and
@@ -564,11 +850,174 @@ fn live_colour(live: &Live, ui: &egui::Ui) -> egui::Color32 {
     }
 }
 
-/// The exchange, from the run's transcript: the owner's messages, the replies as plain text,
-/// each tool call in one small line, the refusals, the questions and the notices; the result's
+/// The note over a picked-up conversation's exchange (EP-24a).
+fn picked_up_note(ui: &mut egui::Ui) {
+    ui.add(
+        egui::Label::new(
+            RichText::new(
+                "Picked up from the ledger: its earlier turns are in the session's own record, \
+                 of which the tool keeps no copy; the turns since are below, and your next \
+                 message goes on from them.",
+            )
+            .small()
+            .color(style::amber(ui)),
+        )
+        .wrap(),
+    );
+    ui.add_space(4.0);
+}
+
+/// The ledger's conversations as the list shows them (EP-24a), the latest activity first: the
+/// title, when it was last active, its turns, its model and effort, its cost and its session's
+/// short id; the open one marked. The session id of the row clicked, when `enabled`.
+fn conversation_rows(
+    ui: &mut egui::Ui,
+    list: &Conversations,
+    open: Option<&str>,
+    enabled: bool,
+) -> Option<String> {
+    let mut picked = None;
+    if let Some(problem) = &list.problem {
+        ui.label(RichText::new(problem).small().color(style::red(ui)));
+    }
+    if list.rows.is_empty() {
+        ui.label(
+            RichText::new(
+                "No conversation yet: the first Send starts one, and the ledger keeps it.",
+            )
+            .small()
+            .weak(),
+        );
+        return None;
+    }
+    for row in &list.rows {
+        let is_open = open == Some(row.session_id.as_str());
+        let response = egui::Frame::new()
+            .fill(ui.visuals().faint_bg_color)
+            .corner_radius(6.0)
+            .inner_margin(egui::Margin::symmetric(10, 6))
+            .show(ui, |ui| {
+                ui.set_width(ui.available_width());
+                // The row takes the click over its text, not a selection (EP-15a).
+                style::unselectable(ui);
+                // A title up to the ledger's cap stays on one line, cut; the chip on a row of
+                // its own (EP-13).
+                ui.add(egui::Label::new(RichText::new(&row.title).strong()).truncate());
+                if is_open {
+                    ui.horizontal(|ui| style::chip(ui, "open", style::blue(ui)));
+                }
+                ui.add(egui::Label::new(RichText::new(row_words(row)).small().weak()).wrap());
+            })
+            .response
+            .interact(egui::Sense::click())
+            .on_hover_text(if is_open {
+                "This conversation"
+            } else {
+                "Pick it up: your next message resumes its session"
+            });
+        if enabled && !is_open && response.clicked() {
+            picked = Some(row.session_id.clone());
+        }
+        ui.add_space(2.0);
+    }
+    picked
+}
+
+/// A list row's second line: `last today 19:48 · 3 turns · claude-opus-5-5 at medium · $0.41 ·
+/// 3c9d2e71`.
+fn row_words(row: &ConversationRow) -> String {
+    let when = row
+        .last()
+        .map_or_else(|| row.last_at.clone(), activity_words);
+    let pick = Pick {
+        model: row.model.clone(),
+        effort: row.effort.clone(),
+    };
+    let cost = row
+        .cost_usd
+        .map_or(String::new(), |cost| format!(" · ${cost:.2}"));
+    format!(
+        "last {when} · {} · {}{cost} · {}",
+        count(row.turns as usize, "turn"),
+        pick.words(),
+        crw_core::revert::short(&row.session_id)
+    )
+}
+
+/// When a conversation was last active, in words: `today 19:48`, else `Tue 11 Nov 19:48`.
+fn activity_words(at: DateTime<Utc>) -> String {
+    let local = at.with_timezone(&Local);
+    if local.date_naive() == Local::now().date_naive() {
+        local.format("today %H:%M").to_string()
+    } else {
+        local.format("%a %d %b %H:%M").to_string()
+    }
+}
+
+/// The conversation's questions, answered here with the Decisions form (EP-24a): each request
+/// the running session waits on, and the question an ended run left open (the defer route),
+/// whose answer resumes it. Permission requests never wait: the window refuses them (EP-24).
+fn questions(ui: &mut egui::Ui, live: &mut Live, busy: bool, actions: &mut Vec<Action>) {
+    let (title, key, limit) = (live.title(), live.key, live.launch_timeout());
+    let waiting: Vec<(Request, Instant)> = live
+        .waiting
+        .iter()
+        .map(|waiting| (waiting.request.clone(), waiting.since))
+        .collect();
+    for (request, since) in &waiting {
+        ui.add_space(4.0);
+        let draft = live
+            .drafts
+            .entry(request.id.clone())
+            .or_insert_with(|| Draft::new(request));
+        let wait = Wait::Live {
+            since: *since,
+            limit,
+        };
+        if let Some(response) = decisions::request_card(ui, &title, request, draft, &wait, true) {
+            actions.push(Action::Respond {
+                key,
+                request: request.id.clone(),
+                response,
+            });
+        }
+    }
+    if live.ended.is_some()
+        && let Some(open) = live.open.clone()
+    {
+        ui.add_space(4.0);
+        let draft = live
+            .drafts
+            .entry(open.request.id.clone())
+            .or_insert_with(|| Draft::new(&open.request));
+        let wait = Wait::Deferred {
+            at: open.at,
+            hook: open.deferred.is_some(),
+        };
+        // Greyed while any start is on its way, as the Decisions tile greys it.
+        if let Some(response) =
+            decisions::request_card(ui, &title, &open.request, draft, &wait, !busy)
+        {
+            actions.push(Action::AnswerDeferred { key, response });
+        }
+    }
+}
+
+/// The exchange, from the run's transcript: the owner's messages, the replies as Markdown, each
+/// tool call in one small line, the refusals, the questions and the notices; the result's
 /// errors and its cost, not its text, which the reply holds already.
-fn exchange(ui: &mut egui::Ui, transcript: &Transcript) {
+fn exchange(ui: &mut egui::Ui, transcript: &Transcript, cache: &mut CommonMarkCache, salt: u64) {
     let weak = ui.visuals().weak_text_color();
+    if transcript.dropped > 0 {
+        ui.label(
+            RichText::new(format!(
+                "{} earlier entries were let go to keep the exchange short.",
+                transcript.dropped
+            ))
+            .small()
+            .weak(),
+        );
+    }
     for (index, entry) in transcript.entries.iter().enumerate() {
         match entry {
             Entry::Prompt { text, at, .. } => {
@@ -585,7 +1034,12 @@ fn exchange(ui: &mut egui::Ui, transcript: &Transcript) {
                 ui.add_space(4.0);
             }
             Entry::Text(text) => {
-                ui.label(text);
+                markdown(
+                    ui,
+                    cache,
+                    text,
+                    egui::Id::unique(("chat-reply", salt, index)),
+                );
                 ui.add_space(4.0);
             }
             Entry::Tool { call, result } => {
@@ -610,7 +1064,7 @@ fn exchange(ui: &mut egui::Ui, transcript: &Transcript) {
             Entry::Asked { request, answer } => {
                 let words = match answer {
                     Some(words) => words.clone(),
-                    None => "waiting: the Decisions pane answers it".to_owned(),
+                    None => "waiting: the form below answers it".to_owned(),
                 };
                 ui.horizontal_wrapped(|ui| {
                     ui.label(style::icon(icons::ICON_CHAT, Some(style::amber(ui))));
@@ -643,8 +1097,44 @@ fn exchange(ui: &mut egui::Ui, transcript: &Transcript) {
         ui.add_space(2.0);
     }
     if !transcript.streaming.is_empty() {
-        ui.label(format!("{}…", transcript.streaming));
+        markdown(
+            ui,
+            cache,
+            &transcript.streaming,
+            egui::Id::unique(("chat-streaming", salt)),
+        );
+        ui.label(RichText::new("…").weak());
     }
+}
+
+/// A reply's Markdown drawn through `egui_commonmark` (EP-24a): headings, lists, fenced code,
+/// tables, quotes and links in egui's visuals, a link's text in the violet the notes give a
+/// reference and a link (EP-15a), its target shown on hover. `id` keeps each block's state
+/// apart, in the cache and in egui's own ids: the crate numbers a reply's tables from zero,
+/// so two replies with a table would share a grid under one scope (the review's finding).
+fn markdown(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str, id: egui::Id) {
+    ui.push_id(id, |ui| {
+        let violet = style::reference(ui);
+        ui.visuals_mut().hyperlink_color = violet;
+        ui.style_mut().url_in_tooltip = true;
+        CommonMarkViewer::new().show_with_id(id, ui, cache, text);
+    });
+}
+
+/// The link targets clicked this pass, taken out of egui's output so that nothing opens: the
+/// window opens no URL, and the status bar says the target instead.
+fn take_opened(ui: &egui::Ui) -> Vec<String> {
+    ui.ctx().output_mut(|output| {
+        let mut urls = Vec::new();
+        output.commands.retain(|command| match command {
+            OutputCommand::OpenUrl(open) => {
+                urls.push(open.url.clone());
+                false
+            }
+            _ => true,
+        });
+        urls
+    })
 }
 
 fn first_line(text: &str) -> &str {
@@ -657,11 +1147,13 @@ mod tests {
     use std::path::Path;
 
     use crw_core::registry::{Defaults, Store};
-    use crw_core::session::{Event, Launch, ToolResult, ToolUse};
+    use crw_core::session::{Choice, Event, Launch, Question, Response, ToolResult, ToolUse};
     use eframe::egui;
+    use egui_tiles::Behavior;
 
     use super::*;
     use crate::board::{Places, View};
+    use crate::layout::Pane;
     use crate::portfolio::tests::Scratch;
     use crate::sessions::Live;
     use crate::testing::{self, Screen};
@@ -704,6 +1196,9 @@ mod tests {
         };
         let ctx = egui::Context::default();
         let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        // The built-in catalog, never the profile's cache; the list canned, never the ledger.
+        board.catalog_folder = None;
+        board.chat.list.canned = true;
         // The files read, as a frame would take them in.
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
         while board.portfolio.projects.is_empty() && std::time::Instant::now() < deadline {
@@ -711,6 +1206,20 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(20));
         }
         board
+    }
+
+    /// A press and a release at `at`, after a pass that moves the pointer there; the release
+    /// pass's output, where a click's commands would be.
+    fn click(screen: &mut Screen, board: &mut Board, at: egui::Pos2) -> egui::FullOutput {
+        screen.pass(testing::moved(at), |ui| board.chat_pane(ui));
+        screen.pass(
+            testing::button(at, egui::PointerButton::Primary, true),
+            |ui| board.chat_pane(ui),
+        );
+        screen.pass(
+            testing::button(at, egui::PointerButton::Primary, false),
+            |ui| board.chat_pane(ui),
+        )
     }
 
     /// The digest from a board's readings (EP-24): the readable project with its roadmap and
@@ -744,11 +1253,15 @@ mod tests {
         // The plugin copy's folder may join (its place depends on the environment).
         assert!(folders[0].ends_with("alpha"));
         assert!(folders.iter().all(|folder| !folder.ends_with("beta")));
-        assert!(board.chat_reads_line().contains("reads 1 project on Send"));
+        assert_eq!(
+            board.chat_reads_line(),
+            "reads 1 project on Send · read-only"
+        );
     }
 
     /// The tile draws a canned conversation (EP-24): the exchange, Send disabled while the reply
-    /// streams and enabled once it has ended with a draft typed, New conversation the other way.
+    /// streams and enabled once it has ended with a draft typed, New conversation the other way;
+    /// the pickers say the defaults (EP-24a).
     #[test]
     fn the_tile_draws_the_exchange_and_gates_send() {
         let scratch = Scratch::new("chat-tile");
@@ -784,21 +1297,18 @@ mod tests {
         let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
         assert!(testing::text_at(&output, "chat: What is next in alpha?").is_some());
         assert!(testing::text_at(&output, "EP-2, Lists, is next: an M.").is_some());
-        assert!(testing::text_at(&output, "It plans…").is_some());
+        assert!(testing::text_at(&output, "It plans").is_some());
+        assert!(testing::text_at(&output, "…").is_some());
         // The tool line's galley starts with its icon, so it is not found by its words alone.
         assert!(testing::text_at(&output, "Stop").is_some());
         assert!(testing::text_at(&output, "New conversation").is_some());
+        // The pickers, from the built-in catalog: the defaults, greyed while the reply streams.
+        assert!(testing::text_at(&output, "Opus 5.5").is_some());
+        assert!(testing::text_at(&output, "medium").is_some());
+        assert!(testing::text_at(&output, "Conversations · 0").is_some());
         // Send is drawn disabled while the reply streams: a click reaches nothing.
         let send = testing::text_at(&output, "Send").expect("the Send button");
-        screen.pass(testing::moved(send), |ui| board.chat_pane(ui));
-        screen.pass(
-            testing::button(send, egui::PointerButton::Primary, true),
-            |ui| board.chat_pane(ui),
-        );
-        screen.pass(
-            testing::button(send, egui::PointerButton::Primary, false),
-            |ui| board.chat_pane(ui),
-        );
+        click(&mut screen, &mut board, send);
         assert!(board.actions.is_empty(), "{:?}", board.actions);
         // Ended: Send goes through (a screenshot run's warns rather than starts).
         board.sessions.live[0].end_canned(crw_core::session::Ended {
@@ -810,15 +1320,7 @@ mod tests {
         let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
         assert!(testing::text_at(&output, "ended: completed").is_some());
         let send = testing::text_at(&output, "Send").expect("the Send button");
-        screen.pass(testing::moved(send), |ui| board.chat_pane(ui));
-        screen.pass(
-            testing::button(send, egui::PointerButton::Primary, true),
-            |ui| board.chat_pane(ui),
-        );
-        screen.pass(
-            testing::button(send, egui::PointerButton::Primary, false),
-            |ui| board.chat_pane(ui),
-        );
+        click(&mut screen, &mut board, send);
         assert_eq!(board.actions, [Action::ChatSend]);
         board.actions.clear();
         board.chat_send();
@@ -826,16 +1328,327 @@ mod tests {
             board.chat.draft, "And after that?",
             "a screenshot run starts nothing"
         );
-        // New conversation lets the ended one go.
+        // New conversation lets the ended one go, the pickers back at the defaults.
+        board.chat.pick.model = "fable".to_owned();
         board.chat_new();
         assert!(board.chat.key.is_none());
         assert!(board.chat.title.is_none());
+        assert_eq!(board.chat.pick, Pick::default());
         assert!(
             board.sessions.live.is_empty(),
             "the ended live was dismissed"
         );
         let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
         assert!(testing::text_at(&output, "Chat").is_some());
+        assert!(testing::text_at(&output, "Conversations").is_some());
+    }
+
+    /// A reply draws as Markdown (EP-24a): its heading, list items, code, table cells and link
+    /// are painted as their words, and a link's click opens nothing, the status bar saying the
+    /// target.
+    #[test]
+    fn a_reply_draws_as_markdown_and_a_link_opens_nothing() {
+        let scratch = Scratch::new("chat-markdown");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        let reply = "## What EP-2 plans\n\nLists, an **M**: two parts.\n\n\
+                     - the first part\n- the second part\n\n\
+                     ```toml\nkeep = true\n```\n\n\
+                     | Column | Value |\n|---|---|\n| rows | seven |\n\n\
+                     > A quote from the brief.\n\n\
+                     The brief is [EP-2-lists.md](https://example.org/EP-2-lists.md).";
+        let mut live = Live::canned(
+            951,
+            canned_launch(),
+            chat::EFFORT,
+            vec![Event::Text(reply.to_owned())],
+        );
+        live.project = chat::PROJECT.to_owned();
+        live.end_canned(crw_core::session::Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(951);
+        board.chat.title = Some("What does EP-2 plan?".to_owned());
+        board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        for words in [
+            "What EP-2 plans",
+            "the first part",
+            "the second part",
+            "Column",
+            "seven",
+            "A quote from the brief.",
+            "EP-2-lists.md",
+        ] {
+            assert!(testing::text_at(&output, words).is_some(), "{words}");
+        }
+        assert!(testing::text_containing(&output, "keep = true").is_some());
+        // The source's marks are not painted as written.
+        assert!(testing::text_containing(&output, "**M**").is_none());
+        assert!(testing::text_containing(&output, "## ").is_none());
+        // The link's click: no URL leaves the release's frame, the status bar names the target.
+        let link = testing::text_at(&output, "EP-2-lists.md").unwrap();
+        let released = click(&mut screen, &mut board, link);
+        assert!(
+            !released
+                .platform_output
+                .commands
+                .iter()
+                .any(|command| matches!(command, OutputCommand::OpenUrl(_)))
+        );
+        assert_eq!(
+            board.notice_text(),
+            Some("The chat opens no link: https://example.org/EP-2-lists.md")
+        );
+    }
+
+    fn row(
+        session_id: &str,
+        title: &str,
+        model: &str,
+        effort: Option<&str>,
+        hour: u32,
+    ) -> ConversationRow {
+        ConversationRow {
+            id: 1,
+            session_id: session_id.to_owned(),
+            title: title.to_owned(),
+            model: model.to_owned(),
+            effort: effort.map(str::to_owned),
+            started_at: format!("2026-11-10T{hour:02}:00:00Z"),
+            last_at: format!("2026-11-10T{hour:02}:30:00Z"),
+            turns: 3,
+            cost_usd: Some(0.41),
+        }
+    }
+
+    /// The list (EP-24a): the ledger's conversations drawn with no conversation open, a row's
+    /// click picking one up with its title, id, model and effort, the next Send its resume; the
+    /// fold while one is open; New conversation letting it go.
+    #[test]
+    fn the_list_picks_a_conversation_up() {
+        let scratch = Scratch::new("chat-list");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        board.chat.list.rows = vec![
+            row(
+                "c-1-aaaa",
+                "What waits on me this week?",
+                "claude-fable-5-1",
+                Some("high"),
+                9,
+            ),
+            row(
+                "c-2-bbbb",
+                "Which project is furthest behind?",
+                "claude-opus-5-5",
+                None,
+                8,
+            ),
+        ];
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        let first = testing::text_at(&output, "What waits on me this week?").expect("the row");
+        assert!(testing::text_at(&output, "Which project is furthest behind?").is_some());
+        let words = row_words(&board.chat.list.rows[0]);
+        assert!(words.contains("3 turns · claude-fable-5-1 at high · $0.41 · c-1-aaaa"));
+        assert!(
+            row_words(&board.chat.list.rows[1]).contains("at the CLI's default effort"),
+            "{}",
+            row_words(&board.chat.list.rows[1])
+        );
+        assert!(testing::text_containing(&output, "3 turns").is_some());
+        click(&mut screen, &mut board, first);
+        assert_eq!(board.actions, [Action::ChatPickUp("c-1-aaaa".to_owned())]);
+        board.actions.clear();
+        board.chat_pick_up("c-1-aaaa");
+        assert_eq!(board.chat.session_id.as_deref(), Some("c-1-aaaa"));
+        assert_eq!(
+            board.chat.title.as_deref(),
+            Some("What waits on me this week?")
+        );
+        assert_eq!(
+            board.chat.pick,
+            Pick {
+                model: "claude-fable-5-1".to_owned(),
+                effort: Some("high".to_owned())
+            }
+        );
+        assert!(board.chat.picked_up);
+        assert!(board.chat.key.is_none());
+        assert_eq!(
+            board.notice_text(),
+            Some(
+                "Picked up chat: What waits on me this week?: your next message resumes its \
+                 session."
+            )
+        );
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, "chat: What waits on me this week?").is_some());
+        assert!(testing::text_at(&output, "Conversations · 2").is_some());
+        assert!(testing::text_containing(&output, "Picked up from the ledger").is_some());
+        assert!(testing::text_at(&output, "session c-1-aaaa · resumed on Send").is_some());
+        assert!(testing::text_at(&output, "Fable 5.1").is_some());
+        assert!(testing::text_at(&output, "high").is_some());
+        // The same row again changes nothing; a row that went is said.
+        board.chat_pick_up("c-1-aaaa");
+        board.chat_pick_up("c-9-gone");
+        assert_eq!(
+            board.notice_text(),
+            Some("That conversation is no longer in the list.")
+        );
+        // Send would resume it (a screenshot run warns instead), the draft kept.
+        board.chat.draft = "And next week?".to_owned();
+        board.chat_send();
+        assert_eq!(board.chat.draft, "And next week?");
+        board.chat_new();
+        assert!(board.chat.session_id.is_none());
+        assert!(!board.chat.picked_up);
+        assert_eq!(board.chat.pick, Pick::default());
+    }
+
+    fn asked() -> Request {
+        Request {
+            id: "req-1".to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which project first?".to_owned(),
+            reason: None,
+            questions: vec![Question {
+                text: "Which project first?".to_owned(),
+                header: "Project".to_owned(),
+                options: vec![
+                    Choice {
+                        label: "alpha".to_owned(),
+                        description: Some("The one with the open task".to_owned()),
+                    },
+                    Choice {
+                        label: "beta".to_owned(),
+                        description: None,
+                    },
+                ],
+                multi_select: false,
+            }],
+            input: String::new(),
+        }
+    }
+
+    /// A conversation's question is answered in the tile (EP-24a): the form drawn under the
+    /// exchange, a pick and Send answers reaching the session's respond action; the Decisions
+    /// tile leaves it out, and the Chat tab counts it.
+    #[test]
+    fn a_conversations_question_is_answered_in_the_tile() {
+        let scratch = Scratch::new("chat-question");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        let mut live = Live::canned(
+            952,
+            canned_launch(),
+            chat::EFFORT,
+            vec![
+                Event::Text("Two projects wait; one first.".to_owned()),
+                Event::Request(asked()),
+            ],
+        );
+        live.project = chat::PROJECT.to_owned();
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(952);
+        board.chat.title = Some("What waits?".to_owned());
+        board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+        assert_eq!(board.chat_asks(), 1);
+        assert_eq!(
+            board.decisions_count(),
+            0,
+            "the Decisions tile leaves it out"
+        );
+        assert_eq!(board.sessions.waiting(), 0);
+        assert_eq!(board.tab_title_for_pane(&Pane::Chat).text(), "Chat · 1");
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, "Which project first?").is_some());
+        assert!(testing::text_at(&output, "Send answers").is_some());
+        assert!(testing::text_at(&output, "Decline").is_some());
+        assert!(testing::text_containing(&output, "waiting: the form below answers it").is_some());
+        // A pick, then Send answers.
+        let alpha = testing::text_at(&output, "alpha").expect("the option");
+        click(&mut screen, &mut board, alpha);
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        let send = testing::text_at(&output, "Send answers").unwrap();
+        click(&mut screen, &mut board, send);
+        assert_eq!(
+            board.actions,
+            [Action::Respond {
+                key: 952,
+                request: "req-1".to_owned(),
+                response: Response::Answers(vec!["alpha".to_owned()]),
+            }]
+        );
+        // The Decisions pane draws its placeholder: nothing of the chat's.
+        let output = screen.pass(Vec::new(), |ui| board.decisions_pane(ui));
+        assert!(testing::text_at(&output, "Which project first?").is_none());
+    }
+
+    /// A conversation deferred with a question open (the defer route) shows the question with
+    /// Answer and resume and counts it; letting it go is refused while a start is on its way
+    /// and, once it goes, the notice says the question went with it (the review's findings).
+    #[test]
+    fn a_deferred_question_waits_in_the_tile_and_goes_with_the_conversation() {
+        let scratch = Scratch::new("chat-deferred");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        let mut live = Live::canned(
+            953,
+            canned_launch(),
+            chat::EFFORT,
+            vec![Event::Request(asked()), Event::TimedOut("req-1".to_owned())],
+        );
+        live.project = chat::PROJECT.to_owned();
+        live.end_canned(crw_core::session::Ended {
+            outcome: Outcome::Deferred,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        assert!(live.open.is_some());
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(953);
+        board.chat.title = Some("What waits?".to_owned());
+        board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+        assert_eq!(board.chat_asks(), 1);
+        assert_eq!(
+            board.sessions.deferred(),
+            0,
+            "the Decisions tile leaves it out"
+        );
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, "Answer and resume").is_some());
+        assert!(testing::text_at(&output, "Decline and resume").is_some());
+        assert!(testing::text_at(&output, "ended: deferred").is_some());
+        // While a turn starts, the conversation cannot be let go.
+        board.chat.starting = true;
+        board.chat_new();
+        assert_eq!(board.chat.key, Some(953));
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|words| words.contains("a session is starting"))
+        );
+        board.chat.starting = false;
+        board.chat_new();
+        assert!(board.chat.key.is_none());
+        assert!(board.sessions.live.is_empty());
+        assert_eq!(
+            board.notice_text(),
+            Some(
+                "The conversation was let go. Its open question went with it: picking the \
+                 conversation up again resumes the session, which asks again."
+            )
+        );
     }
 
     fn canned_launch() -> Launch {

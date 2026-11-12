@@ -598,7 +598,9 @@ impl Ledger {
     }
 
     /// Keeps a conversation's row (D-27; EP-24): written at its first run with its title, model
-    /// and effort, its last activity moved to `at` by each later run. `true` when the row is new.
+    /// and effort; each later run moves its last activity to `at` and its model and effort to
+    /// the run's, so the row says the latest turn's (EP-24a's picker). `true` when the row is
+    /// new.
     pub fn touch_conversation(
         &self,
         session_id: &str,
@@ -615,7 +617,8 @@ impl Ledger {
         self.connection.execute(
             "INSERT INTO conversation (session_id, title, model, effort, started_at, last_at) \
              VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
-             ON CONFLICT (session_id) DO UPDATE SET last_at = excluded.last_at",
+             ON CONFLICT (session_id) DO UPDATE SET last_at = excluded.last_at, \
+             model = excluded.model, effort = excluded.effort",
             (
                 session_id,
                 capped(title, TITLE_CAP),
@@ -1389,22 +1392,29 @@ mod tests {
                 },
             )
             .unwrap();
-        // The second turn: a run under the same id, the row touched, not written again.
+        // The second turn: a run under the same id, the row touched, not written again; its
+        // model and effort move to the turn's (EP-24a), its title stays the first prompt's.
         ledger
             .start_session(&NewSession {
                 session_id: Some("c-1"),
                 project: "chat",
                 ep: None,
                 mode: "headless",
-                model: Some("claude-opus-5-5"),
-                effort: Some("medium"),
+                model: Some("claude-fable-5-1"),
+                effort: Some("high"),
                 ultracode: false,
                 started_at: at(10),
             })
             .unwrap();
         assert!(
             !ledger
-                .touch_conversation("c-1", "a title that is not kept", "x", None, at(10))
+                .touch_conversation(
+                    "c-1",
+                    "a title that is not kept",
+                    "claude-fable-5-1",
+                    Some("high"),
+                    at(10)
+                )
                 .unwrap()
         );
         // An older conversation, with no run of its own counted yet.
@@ -1421,7 +1431,8 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].session_id, "c-1");
         assert_eq!(rows[0].title, "What does EP-24 plan?");
-        assert_eq!(rows[0].effort.as_deref(), Some("medium"));
+        assert_eq!(rows[0].model, "claude-fable-5-1");
+        assert_eq!(rows[0].effort.as_deref(), Some("high"));
         assert_eq!(rows[0].started(), Some(at(9)));
         assert_eq!(rows[0].last(), Some(at(10)));
         assert_eq!(rows[0].turns, 2);

@@ -1479,7 +1479,7 @@ fn flags_of(preflight: Option<&Preflight>) -> Option<&session::cli::Flags> {
 }
 
 /// The effort levels the CLI's help lists, ultracode aside.
-fn cli_efforts(preflight: Option<&Preflight>) -> Vec<String> {
+pub(crate) fn cli_efforts(preflight: Option<&Preflight>) -> Vec<String> {
     flags_of(preflight)
         .map(|flags| flags.efforts.clone())
         .unwrap_or_default()
@@ -1490,7 +1490,7 @@ fn cli_efforts(preflight: Option<&Preflight>) -> Vec<String> {
 
 /// The effort levels to offer for `model`: the model's that the CLI lists too (`cli`), in the
 /// CLI's order; the built-in ones when neither says.
-fn efforts_of(catalog: &Catalog, cli: &[String], model: &str) -> Vec<String> {
+pub(crate) fn efforts_of(catalog: &Catalog, cli: &[String], model: &str) -> Vec<String> {
     let model: Vec<String> = catalog
         .model(model)
         .map(|model| model.efforts.clone())
@@ -1504,8 +1504,9 @@ fn efforts_of(catalog: &Catalog, cli: &[String], model: &str) -> Vec<String> {
 }
 
 /// The model picker: the catalog's main models, the rest below a line, and the current value
-/// when the catalog lacks it. The new value, when the owner chose another.
-fn model_picker(
+/// when the catalog lacks it. The new value, when the owner chose another. The Chat tile's
+/// picker too (EP-24a).
+pub(crate) fn model_picker(
     ui: &mut egui::Ui,
     salt: impl std::hash::Hash + std::fmt::Debug,
     catalog: &Catalog,
@@ -1541,8 +1542,8 @@ fn model_picker(
 }
 
 /// The effort picker: `efforts` in the CLI's order, the current level marked when it is not
-/// offered. The new value, when the owner chose another.
-fn effort_picker(
+/// offered. The new value, when the owner chose another. The Chat tile's picker too (EP-24a).
+pub(crate) fn effort_picker(
     ui: &mut egui::Ui,
     salt: impl std::hash::Hash + std::fmt::Debug,
     efforts: &[String],

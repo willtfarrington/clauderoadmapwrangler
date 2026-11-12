@@ -4,7 +4,9 @@
 //! for the owner's own words, with Send answers or Decline. A run deferred at the project's time
 //! limit or by the defer route's hook keeps its open request, answered by resuming the session.
 //! The sessions Claude Code reports waiting elsewhere are listed with Focus for VS Code's, never
-//! answered (D-19), and each session's tool uses refused without asking are listed with it.
+//! answered (D-19), and each session's tool uses refused without asking are listed with it. A
+//! chat conversation's questions are left to the Chat tile, which draws them with the same form
+//! (EP-24a).
 
 use std::collections::BTreeSet;
 use std::time::{Duration, Instant};
@@ -176,7 +178,7 @@ pub fn minutes(span: Duration) -> String {
 }
 
 /// How a request has waited.
-enum Wait {
+pub(crate) enum Wait {
     /// A running session's: since when, and the project's time limit.
     Live {
         since: Instant,
@@ -260,7 +262,8 @@ impl Board {
             .show(ui, |ui| {
                 if self.sessions.waiting() > 0 {
                     heading(ui, "Waiting here: the session holds until you answer");
-                    for live in &mut self.sessions.live {
+                    // A conversation's questions are the Chat tile's (EP-24a).
+                    for live in self.sessions.live.iter_mut().filter(|live| !live.is_chat()) {
                         let (title, limit, key) = (live.title(), live.launch_timeout(), live.key);
                         for waiting in &live.waiting {
                             let id = &waiting.request.id;
@@ -287,7 +290,7 @@ impl Board {
                 }
                 if self.sessions.deferred() > 0 {
                     heading(ui, "Deferred: your answer resumes the session");
-                    for live in &mut self.sessions.live {
+                    for live in self.sessions.live.iter_mut().filter(|live| !live.is_chat()) {
                         let (title, key) = (live.title(), live.key);
                         let Some(open) = live.open.as_ref().filter(|_| live.ended.is_some()) else {
                             continue;
@@ -356,8 +359,9 @@ fn card(ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
 }
 
 /// One request's card with its form; the owner's response when a button was pressed. `enabled`
-/// is false while a resume is on its way.
-fn request_card(
+/// is false while a resume is on its way. The Chat tile draws a conversation's questions with
+/// it (EP-24a).
+pub(crate) fn request_card(
     ui: &mut egui::Ui,
     title: &str,
     request: &Request,

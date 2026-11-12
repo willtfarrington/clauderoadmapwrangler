@@ -63,8 +63,12 @@
 //!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
 //!   harbor's refused edit of a neighbour);
 //! - `chat` (from EP-24: a canned conversation in the Chat pane, in front: two turns over the
-//!   fake portfolio, the second's reply streaming, the header saying what the session reads and
-//!   the data repository it leaves out; its Send starts nothing, as every start is refused);
+//!   fake portfolio, the first's reply holding every block form the Markdown draws (EP-24a),
+//!   the second's reply streaming, the header saying what the session reads and the data
+//!   repository it leaves out, the ledger's conversations canned under its fold; its Send
+//!   starts nothing, as every start is refused); `chat=asks` (the same with the second turn
+//!   waiting on a question, its form drawn in the pane, EP-24a); `chat=list` (the same with
+//!   the conversations' fold open, its rows in view);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
 //!   reasons in the status bar, from EP-37); `newer` (a newer build installed, canned, so that
@@ -356,9 +360,11 @@ impl Run {
                     }
                     layout::show(dashboard.layout_mut(), Pane::Decisions);
                 }
-                // A canned conversation in the Chat pane, in front (EP-24).
+                // A canned conversation in the Chat pane, in front (EP-24); with `asks`, its
+                // second turn waits on a question answered in the pane (EP-24a).
                 "chat" => {
-                    canned_chat(board);
+                    canned_chat(board, value == "asks");
+                    board.chat.unfold = value == "list";
                     layout::show(dashboard.layout_mut(), Pane::Chat);
                 }
                 "quit" => {
@@ -728,10 +734,14 @@ fn canned_sessions(board: &mut Board) {
 }
 
 /// A conversation as the Chat pane shows it (EP-24): two turns over the fake portfolio, the
-/// second's reply streaming in, with the header's reads and a data repository left out.
-/// Synthetic text only.
-fn canned_chat(board: &mut Board) {
+/// first's reply holding every block form the Markdown draws (EP-24a: headings, a list, a
+/// numbered list, fenced code, a table, a quote, inline marks and a link), the second's reply
+/// streaming in, or with `asks` waiting on a question answered in the pane; the header's reads
+/// and a data repository left out; the ledger's conversations canned in the list. Synthetic
+/// text only.
+fn canned_chat(board: &mut Board, asks: bool) {
     use crw_core::chat;
+    use crw_core::ledger::ConversationRow;
 
     let first = "What does harbor's next brief plan, in plain words?";
     let mut launch = Launch::new(chat::PROJECT, Path::new("chat"), chat::MODEL, first);
@@ -765,11 +775,26 @@ fn canned_chat(board: &mut Board) {
         tool("c2", "Read", "Read harbor/roadmap/EP-4-ledger-view.md"),
         result("c2", 23, "---\nep: EP-4"),
         Event::Text(
-            "Harbor's next brief is EP-4, Ledger view, an M. It adds a table of the berths' \
+            "## EP-4, Ledger view\n\n\
+             Harbor's next brief is **EP-4, Ledger view**, an M. It adds a table of the berths' \
              fees by season under the register, with a filter by length band, and keeps the \
-             export EP-3 wrote. The brief note says to test the filter first and to put the \
-             band's default to you before the layout. Nothing waits on you there except the \
-             two open owner tasks, both before EP-5."
+             export EP-3 wrote. In short:\n\n\
+             - a `fees` table under the register, one row per berth and season;\n\
+             - a filter by length band, its default put to you before the layout;\n\
+             - the export EP-3 wrote, kept as it is.\n\n\
+             The brief's acceptance, in order:\n\n\
+             1. the filter tested first (`cargo test -p harbor fees`);\n\
+             2. the table drawn at the default width;\n\
+             3. the export read back unchanged.\n\n\
+             The row's front matter, as the brief file has it:\n\n\
+             ```yaml\nep: EP-4\ntitle: \"Ledger view\"\nsize: M\nstatus: planned\n```\n\n\
+             | Waits on you | Before |\n|---|---|\n| OT-3, the band's default | EP-4 |\n\
+             | OT-4, the season names | EP-5 |\n\n\
+             > The brief note says to test the filter first and to put the band's default to \
+             you before the layout.\n\n\
+             Nothing else waits on you there; the two open owner tasks are both before EP-5. \
+             The brief itself is \
+             [EP-4-ledger-view.md](https://example.org/harbor/roadmap/EP-4-ledger-view.md)."
                 .to_owned(),
         ),
     ];
@@ -781,20 +806,109 @@ fn canned_chat(board: &mut Board) {
         result: None,
         stderr: Vec::new(),
     });
-    // The second turn, its reply streaming in.
+    // The second turn: its reply streaming in, or (with `asks`) a question waiting on the
+    // owner, its form drawn in the pane (EP-24a).
     live.transcript
         .prompt("And which project is furthest behind?", true);
     live.ended = None;
     live.runs = 2;
     live.take(tool("c3", "Grep", "Grep ☐ in */roadmap/README.md"));
     live.take(result("c3", 12, "quarry/roadmap/README.md:31:| EP-2 |"));
-    live.take(Event::TextDelta(
-        "By open rows, quarry: 2 of 7 done, its EP-2 deferred with a question open. By".to_owned(),
-    ));
+    if asks {
+        live.take(Event::Text(
+            "Two readings give different answers: by open rows quarry is furthest behind (2 of \
+             7 done), by the oldest next brief it is orchard (its EP-3 planned in P1). Which \
+             do you mean?"
+                .to_owned(),
+        ));
+        live.take(Event::Request(Request {
+            id: "req-chat-1".to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which reading of \"furthest behind\" do you mean?".to_owned(),
+            reason: None,
+            questions: vec![Question {
+                text: "Which reading of \"furthest behind\" do you mean?".to_owned(),
+                header: "Reading".to_owned(),
+                options: vec![
+                    Choice {
+                        label: "By open rows".to_owned(),
+                        description: Some("The most unchecked briefs left".to_owned()),
+                    },
+                    Choice {
+                        label: "By the oldest next brief".to_owned(),
+                        description: Some("The next brief planned longest ago".to_owned()),
+                    },
+                ],
+                multi_select: false,
+            }],
+            input: String::new(),
+        }));
+    } else {
+        live.take(Event::TextDelta(
+            "By open rows, **quarry**: 2 of 7 done, its EP-2 deferred with a question open. By"
+                .to_owned(),
+        ));
+    }
     board.sessions.live.insert(0, live);
     board.chat.key = Some(950);
     board.chat.title = Some(chat::title_of(first));
     board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+    // The ledger's conversations, canned: this one and two earlier.
+    let row = |id: &str,
+               title: &str,
+               model: &str,
+               effort: &str,
+               started: &str,
+               last: &str,
+               turns: u32,
+               cost: f64| ConversationRow {
+        id: 0,
+        session_id: id.to_owned(),
+        title: title.to_owned(),
+        model: model.to_owned(),
+        effort: Some(effort.to_owned()),
+        started_at: started.to_owned(),
+        last_at: last.to_owned(),
+        turns,
+        cost_usd: Some(cost),
+    };
+    // This conversation's times are set against the run's own clock, so its row reads "today".
+    let ago = |minutes: i64| {
+        (Utc::now() - TimeDelta::minutes(minutes)).to_rfc3339_opts(SecondsFormat::Secs, true)
+    };
+    board.chat.list.canned = true;
+    board.chat.list.rows = vec![
+        row(
+            "3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f",
+            &chat::title_of(first),
+            chat::MODEL,
+            chat::EFFORT,
+            &ago(18),
+            &ago(1),
+            2,
+            0.38,
+        ),
+        row(
+            "7a1f9c02-2d3e-4b5a-8c6d-1e2f3a4b5c6d",
+            "Which owner tasks are gated before a brief?",
+            "claude-fable-5-1",
+            "high",
+            "2026-11-09T18:40:00Z",
+            "2026-11-09T18:52:00Z",
+            3,
+            1.12,
+        ),
+        row(
+            "b4e2d6f8-9a0b-4c1d-8e2f-3a4b5c6d7e8f",
+            "What did the last re-plan change?",
+            chat::MODEL,
+            chat::EFFORT,
+            "2026-11-08T21:05:00Z",
+            "2026-11-08T21:09:00Z",
+            1,
+            0.21,
+        ),
+    ];
     board.chat.reads = [
         "harbor", "lantern", "meadow", "quarry", "compass", "orchard", "atlas", "beacon",
     ]

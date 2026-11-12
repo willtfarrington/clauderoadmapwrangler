@@ -67,6 +67,20 @@ pub fn text_at(output: &egui::FullOutput, text: &str) -> Option<Pos2> {
         })
 }
 
+/// The middle of the first text `output` paints that holds `text`: a reply's code line or a
+/// table cell, whose galley may carry more than the words (EP-24a).
+pub fn text_containing(output: &egui::FullOutput, text: &str) -> Option<Pos2> {
+    output
+        .shapes
+        .iter()
+        .find_map(|clipped| match &clipped.shape {
+            egui::Shape::Text(shape) if shape.galley.text().contains(text) => {
+                Some(shape.pos + shape.galley.rect.center().to_vec2())
+            }
+            _ => None,
+        })
+}
+
 /// The middles of every text `output` paints that reads `text` exactly, in the order painted: the
 /// pins beside the launch dialog's Model, Effort and Permissions pickers (EP-19c).
 pub fn texts_at(output: &egui::FullOutput, text: &str) -> Vec<Pos2> {

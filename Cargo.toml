@@ -21,6 +21,10 @@ crw-core = { path = "crates/core" }
 # (added at EP-6, the research pass's pick) builds on egui and moves with the family; `image` is
 # the version eframe already locks, for the screenshot feature's PNG.
 eframe = { version = "=0.37.0", features = ["persistence"] }
+# The chat's replies drawn as Markdown (D-27; EP-24a): built on egui 0.37, egui_extras 0.37 and
+# the pulldown-cmark pinned below; no syntax highlighting and no image loading (D-15 addendum,
+# 2026-11-11), and it moves with the family.
+egui_commonmark = { version = "=0.26.0", default-features = false, features = ["pulldown_cmark"] }
 egui_extras = "=0.37.0"
 egui_material_icons = "=0.9.0"
 egui_tiles = "=0.18.0"
