@@ -138,3 +138,15 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   `badge · inbox` row, the `popup · urgent` row ("clauderoadmapwrangler: IN-11 is urgent", the
   letter's first words as its gist) and the `ntfy · urgent` row: the first real urgent letter
   reached the popup and the phone.
+- [ ] IN-12 (from the owner, OT-26, 2026-11-11) Three findings from the first real chat. OT-26 is
+  done: the data marks, the digest, the confinement of Read and Glob to the given folders (both
+  refused outside them, the data repositories absent from the list), the `crw` commands, the chips
+  and a mention all held. (1) For a project without `roadmap/owner-tasks.md` the digest says "N
+  open owner tasks" where it counts the older forms, a risks list among them, so the chat's first
+  answer named the project with the most "tasks" when they were tracked risks; a later reply,
+  having run `crw tasks`, said so itself. The digest should name them as items in older forms, as
+  `crw tasks` does. (2) The digest does not say that Compose… creates a missing
+  `roadmap/inbox.md`, so the chat told the owner to formalise a project before writing to it.
+  (3) The chat is launched with `--permission-mode manual`, yet its transcript records
+  `permissionMode: "default"` on every turn; most likely the CLI's internal name for the same
+  mode, worth a line in D-27 once checked.

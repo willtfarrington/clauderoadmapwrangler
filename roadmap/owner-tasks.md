@@ -274,7 +274,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   and its rules in view, and the tab should read busy in the window as soon as you send it.
   `crw signals remove` takes the tool's entries out again. The session ran the relay only on a
   scratch registry (rules 5 and 13). Notes go to `roadmap/inbox.md`
-- [ ] OT-26 (EP-24, 2026-11-11) The first real chat conversation (the first run of a new route). Once
+- [x] OT-26 (EP-24, 2026-11-11) The first real chat conversation (the first run of a new route). Once
   the window runs EP-24's build (the next gate's moment, or File > Install and restart): in a
   terminal in this folder, mark each data repository with `target\release\crw.exe set <project> data
   yes` (it writes `data = true` into your registry; `crw scan` lists the projects), then in the
