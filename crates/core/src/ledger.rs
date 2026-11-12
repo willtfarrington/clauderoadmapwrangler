@@ -11,11 +11,21 @@ use std::{fs, io};
 use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
+use crate::history;
+
+/// A project's done and total rows as they were parsed at `taken_at` (D-26; EP-25).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnapshotRow {
+    pub taken_at: DateTime<Utc>,
+    pub done: usize,
+    pub total: usize,
+}
+
 /// The schema this build writes: the number of migrations.
-pub const SCHEMA_VERSION: u32 = 6;
+pub const SCHEMA_VERSION: u32 = 7;
 
 /// `MIGRATIONS[i]` brings the schema from version `i` to `i + 1`, each in one transaction.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6, V7];
 
 /// The most of a run's final text its row keeps, in characters.
 const RESULT_CAP: usize = 8000;
@@ -134,6 +144,29 @@ CREATE TABLE conversation (
     last_at    TEXT NOT NULL
 );
 CREATE INDEX conversation_by_activity ON conversation (last_at);
+";
+
+const V7: &str = "
+-- A project's history as imported from its git log and its briefs (D-26, EP-25): one row per EP
+-- settled, replaced whole at each import, and one row per project saying what the import read.
+CREATE TABLE completion (
+    project      TEXT NOT NULL,
+    ep           TEXT NOT NULL,
+    completed_on TEXT NOT NULL,
+    git_date     TEXT,
+    note_date    TEXT,
+    record_hash  TEXT,
+    work_hash    TEXT,
+    flag         TEXT NOT NULL CHECK (flag IN ('agreed', 'git', 'note', 'note-wins')),
+    PRIMARY KEY (project, ep)
+);
+CREATE TABLE history_import (
+    project     TEXT PRIMARY KEY,
+    head        TEXT,
+    imported_at TEXT NOT NULL,
+    commits     INTEGER NOT NULL,
+    single      INTEGER NOT NULL DEFAULT 0
+);
 ";
 
 /// The most of a conversation's title its row keeps, in characters.
@@ -961,6 +994,218 @@ impl Ledger {
         Ok(cached)
     }
 
+    /// Keeps a project's history import (D-26; EP-25): its EPs' completions replace the
+    /// project's earlier rows, and the import's own row says what it read, in one transaction.
+    pub fn import_history(
+        &mut self,
+        project: &str,
+        head: Option<&str>,
+        at: DateTime<Utc>,
+        import: &history::Import,
+    ) -> Result<(), Error> {
+        // Immediate, as `migrate` is: a deferred transaction's first write under another
+        // connection's commit gets SQLITE_BUSY at once, past the busy timeout.
+        let transaction = self
+            .connection
+            .transaction_with_behavior(TransactionBehavior::Immediate)?;
+        transaction.execute("DELETE FROM completion WHERE project = ?1", [project])?;
+        for completion in &import.completions {
+            let joined = |hashes: &[String]| (!hashes.is_empty()).then(|| hashes.join(" + "));
+            transaction.execute(
+                "INSERT INTO completion (project, ep, completed_on, git_date, note_date, \
+                 record_hash, work_hash, flag) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                (
+                    project,
+                    completion.ep.to_string(),
+                    completion.completed_on.to_string(),
+                    completion.git_date.map(|d| d.to_string()),
+                    completion.note_date.map(|d| d.to_string()),
+                    joined(&completion.record),
+                    joined(&completion.work),
+                    completion.flag.as_str(),
+                ),
+            )?;
+        }
+        transaction.execute(
+            "INSERT OR REPLACE INTO history_import (project, head, imported_at, commits, single) \
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            (
+                project,
+                head,
+                rfc3339(at),
+                import.commits as i64,
+                import.single,
+            ),
+        )?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// A project's stored import, with its completions by EP; `None` when none ran, and in a
+    /// ledger read at a schema before 7.
+    pub fn history_of(&self, project: &str) -> Result<Option<history::Summary>, Error> {
+        if self.version < 7 {
+            return Ok(None);
+        }
+        let row = self
+            .connection
+            .query_row(
+                "SELECT head, imported_at, commits, single FROM history_import WHERE project = ?1",
+                [project],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, i64>(2)?,
+                        row.get::<_, bool>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let Some((head, imported_at, commits, single)) = row else {
+            return Ok(None);
+        };
+        let Some(imported_at) = parse_time(&imported_at) else {
+            return Ok(None);
+        };
+        let mut statement = self.connection.prepare(
+            "SELECT ep, completed_on, git_date, note_date, record_hash, work_hash, flag \
+             FROM completion WHERE project = ?1",
+        )?;
+        let split = |text: Option<String>| -> Vec<String> {
+            text.map(|text| text.split(" + ").map(str::to_owned).collect())
+                .unwrap_or_default()
+        };
+        let rows = statement.query_map([project], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, Option<String>>(2)?,
+                row.get::<_, Option<String>>(3)?,
+                row.get::<_, Option<String>>(4)?,
+                row.get::<_, Option<String>>(5)?,
+                row.get::<_, String>(6)?,
+            ))
+        })?;
+        let mut completions = Vec::new();
+        for row in rows {
+            let (ep, completed_on, git_date, note_date, record, work, flag) = row?;
+            let (Ok(ep), Ok(completed_on), Some(flag)) = (
+                ep.parse(),
+                completed_on.parse(),
+                history::Flag::parse(&flag),
+            ) else {
+                continue;
+            };
+            completions.push(history::Completion {
+                ep,
+                completed_on,
+                git_date: git_date.and_then(|d| d.parse().ok()),
+                note_date: note_date.and_then(|d| d.parse().ok()),
+                record: split(record),
+                work: split(work),
+                flag,
+            });
+        }
+        completions.sort_by_key(|c| c.ep);
+        Ok(Some(history::Summary {
+            imported_at,
+            head,
+            import: history::Import {
+                completions,
+                commits: usize::try_from(commits).unwrap_or_default(),
+                single,
+            },
+        }))
+    }
+
+    /// The `HEAD` a project's stored import read; `None` without an import.
+    pub fn imported_head(&self, project: &str) -> Result<Option<Option<String>>, Error> {
+        if self.version < 7 {
+            return Ok(None);
+        }
+        Ok(self
+            .connection
+            .query_row(
+                "SELECT head FROM history_import WHERE project = ?1",
+                [project],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .optional()?)
+    }
+
+    /// Keeps a project's done and total rows (D-26; EP-25) when it has no `snapshot` row yet,
+    /// when the counts differ from the latest row's, or when the latest row is from an earlier
+    /// day in `zone`: one row a day while nothing changes, written at each read of the files,
+    /// so a day the window never reads them gets none. `true` when written.
+    pub fn record_counts<Tz: chrono::TimeZone>(
+        &self,
+        project: &str,
+        now: DateTime<Utc>,
+        done: usize,
+        total: usize,
+        zone: &Tz,
+    ) -> Result<bool, Error> {
+        let latest = self
+            .connection
+            .query_row(
+                "SELECT taken_at, done, total FROM snapshot WHERE project = ?1 \
+                 ORDER BY taken_at DESC LIMIT 1",
+                [project],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+            .optional()?;
+        let day = |at: DateTime<Utc>| at.with_timezone(zone).date_naive();
+        let due = match latest {
+            None => true,
+            Some((taken_at, last_done, last_total)) => {
+                last_done != done as i64
+                    || last_total != total as i64
+                    || parse_time(&taken_at).is_none_or(|at| day(at) < day(now))
+            }
+        };
+        if due {
+            self.connection.execute(
+                "INSERT OR REPLACE INTO snapshot (project, taken_at, done, total) \
+                 VALUES (?1, ?2, ?3, ?4)",
+                (project, rfc3339(now), done as i64, total as i64),
+            )?;
+        }
+        Ok(due)
+    }
+
+    /// A project's `snapshot` rows, the oldest first.
+    pub fn snapshots(&self, project: &str) -> Result<Vec<SnapshotRow>, Error> {
+        let mut statement = self.connection.prepare(
+            "SELECT taken_at, done, total FROM snapshot WHERE project = ?1 ORDER BY taken_at",
+        )?;
+        let rows = statement.query_map([project], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })?;
+        let mut snapshots = Vec::new();
+        for row in rows {
+            let (taken_at, done, total) = row?;
+            if let Some(taken_at) = parse_time(&taken_at) {
+                snapshots.push(SnapshotRow {
+                    taken_at,
+                    done: usize::try_from(done).unwrap_or_default(),
+                    total: usize::try_from(total).unwrap_or_default(),
+                });
+            }
+        }
+        Ok(snapshots)
+    }
+
     /// Keeps one line of the `event` table: what happened at `at`, of `kind`, to `project` when it
     /// concerns one, in words kept to [`DETAIL_CAP`] characters.
     pub fn add_event(
@@ -1178,6 +1423,95 @@ mod tests {
             .collect()
     }
 
+    /// An import replaces the project's rows; the snapshot rows come once a day and at a change
+    /// (D-26; EP-25); a ledger read at schema 6 reads none of it.
+    #[test]
+    fn keeps_a_history_import_and_daily_snapshots() {
+        use crate::history::{Completion, Flag, Import};
+        let scratch = Scratch::new("ledger-history");
+        let path = scratch.0.join("local").join("ledger.sqlite");
+        let mut ledger = Ledger::open(&path).unwrap();
+        let at = Utc.with_ymd_and_hms(2026, 11, 11, 22, 30, 0).unwrap();
+        let completion = |ep: &str, on: &str, flag: Flag| Completion {
+            ep: ep.parse().unwrap(),
+            completed_on: on.parse().unwrap(),
+            git_date: Some(on.parse().unwrap()),
+            note_date: None,
+            record: vec!["1111111111111111111111111111111111111111".to_owned()],
+            work: vec!["2222222".to_owned(), "3333333".to_owned()],
+            flag,
+        };
+        assert_eq!(ledger.history_of("alpha").unwrap(), None);
+        assert_eq!(ledger.imported_head("alpha").unwrap(), None);
+        let first = Import {
+            completions: vec![
+                completion("EP-1", "2026-10-31", Flag::Agreed),
+                completion("EP-2", "2026-11-03", Flag::NoteWins),
+            ],
+            commits: 12,
+            single: false,
+        };
+        ledger
+            .import_history("alpha", Some("abc123"), at, &first)
+            .unwrap();
+        let kept = ledger.history_of("alpha").unwrap().unwrap();
+        assert_eq!(kept.imported_at, at);
+        assert_eq!(kept.head.as_deref(), Some("abc123"));
+        assert_eq!(kept.import, first);
+        assert_eq!(
+            ledger.imported_head("alpha").unwrap(),
+            Some(Some("abc123".to_owned()))
+        );
+        // The next import replaces the rows whole: EP-2 gone, EP-3 in.
+        let second = Import {
+            completions: vec![
+                completion("EP-1", "2026-10-31", Flag::Agreed),
+                completion("EP-3", "2026-11-05", Flag::GitOnly),
+            ],
+            commits: 14,
+            single: false,
+        };
+        ledger
+            .import_history("alpha", Some("def456"), at + TimeDelta::hours(1), &second)
+            .unwrap();
+        let kept = ledger.history_of("alpha").unwrap().unwrap();
+        assert_eq!(kept.import, second);
+        assert_eq!(ledger.history_of("beta").unwrap(), None);
+        // Snapshots: the first write, none while nothing changes the same day, one at a change
+        // of the counts, one on the next day.
+        let utc = chrono::FixedOffset::east_opt(0).unwrap();
+        assert!(ledger.record_counts("alpha", at, 3, 8, &utc).unwrap());
+        assert!(
+            !ledger
+                .record_counts("alpha", at + TimeDelta::minutes(5), 3, 8, &utc)
+                .unwrap()
+        );
+        assert!(
+            ledger
+                .record_counts("alpha", at + TimeDelta::minutes(10), 4, 8, &utc)
+                .unwrap()
+        );
+        assert!(
+            ledger
+                .record_counts("alpha", at + TimeDelta::days(1), 4, 8, &utc)
+                .unwrap()
+        );
+        let rows = ledger.snapshots("alpha").unwrap();
+        assert_eq!(
+            rows.iter().map(|r| (r.done, r.total)).collect::<Vec<_>>(),
+            [(3, 8), (4, 8), (4, 8)]
+        );
+        assert_eq!(rows[0].taken_at, at);
+        assert!(ledger.snapshots("beta").unwrap().is_empty());
+        // Read at schema 6, the history is none.
+        let older = scratch.0.join("local").join("older.sqlite");
+        drop(Ledger::open_with(&older, &MIGRATIONS[..6]).unwrap());
+        let read = Ledger::open_read_only(&older).unwrap();
+        assert_eq!(read.version, 6);
+        assert_eq!(read.history_of("alpha").unwrap(), None);
+        assert_eq!(read.imported_head("alpha").unwrap(), None);
+    }
+
     #[test]
     fn creates_the_schema_once() {
         let scratch = Scratch::new("ledger-create");
@@ -1188,8 +1522,10 @@ mod tests {
             tables(&ledger),
             [
                 "badge_cache",
+                "completion",
                 "conversation",
                 "event",
+                "history_import",
                 "schema_version",
                 "session",
                 "snapshot",
@@ -1294,10 +1630,11 @@ mod tests {
             V4,
             V5,
             V6,
+            V7,
             "ALTER TABLE event ADD COLUMN source TEXT;",
         ];
         let ledger = Ledger::open_with(&path, &next).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 7);
+        assert_eq!(ledger.schema_version().unwrap(), 8);
         ledger
             .connection
             .execute(
@@ -1311,24 +1648,24 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 2, "the migrations kept the earlier row");
         drop(ledger);
-        // This build knows up to version 6 and leaves the file at version 7.
+        // This build knows up to version 7 and leaves the file at version 8.
         assert!(matches!(
             Ledger::open(&path),
             Err(Error::Newer {
-                found: 7,
-                supported: 6
+                found: 8,
+                supported: 7
             })
         ));
         assert!(matches!(
             Ledger::open_read_only(&path),
-            Err(Error::Newer { found: 7, .. })
+            Err(Error::Newer { found: 8, .. })
         ));
         assert_eq!(
             Ledger::open_with(&path, &next)
                 .unwrap()
                 .schema_version()
                 .unwrap(),
-            7
+            8
         );
     }
 

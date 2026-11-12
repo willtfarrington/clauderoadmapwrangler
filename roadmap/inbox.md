@@ -138,7 +138,7 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   `badge · inbox` row, the `popup · urgent` row ("clauderoadmapwrangler: IN-11 is urgent", the
   letter's first words as its gist) and the `ntfy · urgent` row: the first real urgent letter
   reached the popup and the phone.
-- [ ] IN-12 (from the owner, OT-26, 2026-11-11) Three findings from the first real chat. OT-26 is
+- [x] IN-12 (from the owner, OT-26, 2026-11-11) Three findings from the first real chat. OT-26 is
   done: the data marks, the digest, the confinement of Read and Glob to the given folders (both
   refused outside them, the data repositories absent from the list), the `crw` commands, the chips
   and a mention all held. (1) For a project without `roadmap/owner-tasks.md` the digest says "N
@@ -149,4 +149,17 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   `roadmap/inbox.md`, so the chat told the owner to formalise a project before writing to it.
   (3) The chat is launched with `--permission-mode manual`, yet its transcript records
   `permissionMode: "default"` on every turn; most likely the CLI's internal name for the same
-  mode, worth a line in D-27 once checked.
+  mode, worth a line in D-27 once checked. **Triaged at EP-25 (2026-11-11):** rolled in on the
+  owner's choice, though outside the brief's subject, the three together being S-sized: (1) the
+  digest says "N open items (no owner-tasks.md: items in older forms, a risks list among them,
+  as crw tasks lists them)" for such a project; (2) the digest says that Compose creates a
+  missing `roadmap/inbox.md`, so a project need not be formalised first; (3) checked against
+  `claude --help` (choices acceptEdits, auto, bypassPermissions, manual, dontAsk, plan): the
+  transcript's `default` is the CLI's own name for `manual`, a line in D-27.
+- [x] IN-13 (from the owner, 2026-11-11) I am deferring decision on position for placement within
+  the pre-existing roadmap on this minor issue: quicker or automated refresh of individual project's
+  status/state after completion of a session or session chain (to update next session, owner tasks,
+  etc); currently it has to recheck every project via a manual hit of the refresh button
+  **Triaged at EP-25 (2026-11-11):** outside a history brief and about an S of window work; on
+  the owner's choice a new S row, EP-25a, right after EP-25 in P4: a project's files and git
+  re-read on their own when its session or its chain's run ends, and from its row's menu.

@@ -2570,6 +2570,7 @@ pub(crate) mod tests {
             git: None,
             badges: Default::default(),
             house: Default::default(),
+            history: None,
         };
         let mut row = ledger_row();
         row.mode = "visual".to_owned();

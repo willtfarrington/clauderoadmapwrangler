@@ -243,6 +243,7 @@ impl Board {
                         title: next.brief.title.clone(),
                     }),
                     open_tasks: row.open_items(),
+                    older_forms: row.snapshot.older_forms_wait(),
                     open_messages,
                     urgent,
                     sessions,

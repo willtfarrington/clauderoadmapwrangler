@@ -311,6 +311,9 @@ pub struct ProjectDigest {
     /// The next brief: its EP, size and title; none when every row is checked or no roadmap.
     pub next: Option<Next>,
     pub open_tasks: usize,
+    /// The project keeps no `roadmap/owner-tasks.md`, so `open_tasks` counts the items of the
+    /// older forms (a README's risks list among them), as `crw tasks` says (IN-12, EP-25).
+    pub older_forms: bool,
     pub open_messages: usize,
     pub urgent: usize,
     /// The sessions at work there, in words.
@@ -366,7 +369,9 @@ pub fn digest_text(digest: &Digest) -> String {
              whether it is a data repository; Formalise previews the house-style files for a \
              registered project; Migrate opens a session that converts an older roadmap to the \
              house tables; Compose opens a message into the project's inbox with the words \
-             typed), and nothing is written until the owner clicks there. Offer an action only \
+             typed, creating roadmap/inbox.md when the project has none, so a project need not \
+             be formalised first to be written to), and nothing is written until the owner \
+             clicks there. Offer an action only \
              when the owner asks for it or it is the plain next step of what they asked, and \
              say in the reply what it does. Starting a session on a project's next brief stays \
              the window's row: name it instead."
@@ -535,7 +540,15 @@ fn project_line(project: &ProjectDigest) -> String {
         }
         (None, _) => line.push_str(" No roadmap the parser reads."),
     }
-    let mut open = vec![count(project.open_tasks, "open owner task")];
+    let mut open = vec![if project.older_forms {
+        format!(
+            "{} (no owner-tasks.md: items in older forms, a risks list among them, as crw \
+             tasks lists them)",
+            count(project.open_tasks, "open item")
+        )
+    } else {
+        count(project.open_tasks, "open owner task")
+    }];
     open.push(match project.urgent {
         0 => count(project.open_messages, "open inbox message"),
         n => format!(
@@ -757,6 +770,7 @@ mod tests {
                 title: "Ledger view".to_owned(),
             }),
             open_tasks: 1,
+            older_forms: false,
             open_messages: 2,
             urgent: 1,
             sessions: vec!["a headless EP-4 started here at 10:02 is running".to_owned()],
@@ -783,6 +797,9 @@ mod tests {
                     name: "tundra".to_owned(),
                     state: "unformalised".to_owned(),
                     folder: PathBuf::from("C:\\Data\\tundra"),
+                    // No owner-tasks.md: its risks list counts as items in older forms (IN-12).
+                    open_tasks: 3,
+                    older_forms: true,
                     ..ProjectDigest::default()
                 },
             ],
@@ -828,11 +845,12 @@ mod tests {
             "- lantern (paused): C:\\Data\\lantern. Roadmap 5 of 5 rows done; every row \
              checked. 0 open owner tasks, 0 open inbox messages."
         ));
-        assert!(
-            text.contains(
-                "- tundra (unformalised): C:\\Data\\tundra. No roadmap the parser reads."
-            )
-        );
+        assert!(text.contains(
+            "- tundra (unformalised): C:\\Data\\tundra. No roadmap the parser reads. 3 open \
+                 items (no owner-tasks.md: items in older forms, a risks list among them, as \
+                 crw tasks lists them), 0 open inbox messages."
+        ));
+        assert!(text.contains("creating roadmap/inbox.md when the project has none"));
         assert!(text.contains(
             "Not readable by this session: quarry (a data repository, marked data = true in \
              the registry)."

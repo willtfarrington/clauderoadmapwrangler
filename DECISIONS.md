@@ -1918,6 +1918,30 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > mode `chat` in the session table's check, which SQLite changes only by rebuilding the table;
 > the conversations in the event log.
 
+> **Addendum (2026-11-11, EP-25).** The backfill as built. `core::history` reads one `git log
+> --format=%H%x09%ct%x09%s` per import and reads each subject for an EP marker: a **record**
+> commit (`record EP-n … commit hash`, with any suffix or a word between, such as `record
+> EP-20c review-fix commit hash`; the packet style's `EP-n: mark done …`), or a **work** commit
+> (a subject ending in a parenthesis that opens with the id, `… (EP-9, D-14)`, or starting with
+> the id before a colon, `EP-15: …`, `EP-20c review fixes: …`); a subject that only mentions an
+> EP (`record EP-8's CI run`, `docs(roadmap): EP-7a, …`) is noise. A row's Done cell's hashes,
+> resolved against the log, are work commits too, so a project whose subjects carry no marker is
+> dated by its cells. An EP's git date is its earliest record commit's local day, else its latest
+> work commit's; the brief's completion-note date cross-checks it: the note wins when both exist
+> and differ by more than a day, flagged for a look, else git's date stands; an EP no commit
+> carries is dated by its note alone, and a history of one commit by the notes alone. Schema 7
+> adds `completion` (one row per EP, replaced whole at each import) and `history_import` (the
+> `HEAD` read, when, how many commits); the window's git pass imports a repository at its first
+> sight and again when `HEAD` differs from the stored import, the Detail pane's History section
+> shows the dates, the flagged EPs and Re-import, and `crw history <project> [--reimport]` prints
+> the same. The `snapshot` table gets its writer: the files pass records each project's done and
+> total once a day and at every change of the counts, so a day the window never reads the files
+> (closed, or idle with no change under the data root) gets no row, and the burn-up steps between
+> the rows it has. Each commit's day is its own local day (`Local` at the commit's instant, so a
+> clock change moves no date). The ledger's rows before EP-13 stay as they are. *Alternatives.* A record commit as the only marker (projects before the house
+> pattern would have no dates); a snapshot row at every parse (one a day suffices for the
+> burn-up); the import at every git pass (one child per repository per pass).
+
 ## Chat, remote access, operations
 
 **D-27 Chat and the method plugin.** One hosted Claude Code session per conversation (`-p` stream-json,
@@ -2120,6 +2144,16 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > path of `crw.exe` in the rules, which would carry the owner's user name into the session's
 > command line; `crw send` admitted to the session; the mention's context in the message
 > itself, which the exchange would show.
+
+> **Addendum (2026-11-11, EP-25).** Three findings of the first real conversation (IN-12).
+> The digest names a project's open items as "items in older forms, a risks list among them"
+> where the project keeps no `roadmap/owner-tasks.md`, as `crw tasks` does, so the session no
+> longer reads tracked risks as tasks; it says that Compose creates a missing
+> `roadmap/inbox.md`, so the session no longer sends the owner to formalise a project before
+> writing to it. The chat is launched with `--permission-mode manual` and its transcript
+> records `permissionMode: "default"` on every turn: `claude --help` (2.1.316, read on
+> 2026-11-11) lists the choices acceptEdits, auto, bypassPermissions, manual, dontAsk and plan,
+> so `default` is the CLI's own name for the mode it takes as `manual`, not another mode.
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

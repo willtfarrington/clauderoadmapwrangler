@@ -25,7 +25,8 @@
 //!
 //! - `root=<folder>` (the data root, as above);
 //! - `light` / `dark` (the theme); `compact` / `comfortable` (the density); `legend` (the key
-//!   to the row's marks open under the list);
+//!   to the row's marks open under the list); `history` (a canned history import on harbor's
+//!   row, the Detail pane's History section with a flagged EP; EP-25);
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
 //! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat` or `usage` to
 //!   the front of its group);
@@ -302,6 +303,9 @@ impl Run {
                     board.view.density.apply(ctx);
                 }
                 "legend" => board.view.legend = true,
+                // A canned history import on harbor's row (EP-25): the Detail pane's History
+                // section with a flagged EP; pair it with `select=harbor`.
+                "history" => board.loader.put_history("harbor", canned_history()),
                 "select" => {
                     // A name the registry lists is a project; anything else is taken for a
                     // folder of the data root (the portfolio is not read yet).
@@ -669,6 +673,34 @@ fn keeprule_action(value: &str) -> Option<Action> {
         key,
         value: Some(kept.to_owned()),
     })
+}
+
+/// A history import as the ledger would keep it for harbor (EP-25): dated EPs, one flagged.
+fn canned_history() -> crw_core::history::Summary {
+    use crw_core::history::{Completion, Flag, Import, Summary};
+    let completion = |ep: &str, git: &str, note: Option<&str>, flag: Flag| Completion {
+        ep: ep.parse().unwrap(),
+        completed_on: note.unwrap_or(git).parse().unwrap(),
+        git_date: Some(git.parse().unwrap()),
+        note_date: note.map(|d| d.parse().unwrap()),
+        record: vec!["1111111111111111111111111111111111111111".to_owned()],
+        work: vec!["2222222222222222222222222222222222222222".to_owned()],
+        flag,
+    };
+    Summary {
+        imported_at: Utc::now() - chrono::TimeDelta::minutes(12),
+        head: Some("3333333333333333333333333333333333333333".to_owned()),
+        import: Import {
+            completions: vec![
+                completion("EP-1", "2026-10-31", Some("2026-10-31"), Flag::Agreed),
+                completion("EP-2", "2026-11-01", Some("2026-11-01"), Flag::Agreed),
+                completion("EP-3", "2026-11-02", Some("2026-11-05"), Flag::NoteWins),
+                completion("EP-4", "2026-11-06", None, Flag::GitOnly),
+            ],
+            commits: 23,
+            single: false,
+        },
+    }
 }
 
 fn canned_sessions(board: &mut Board) {

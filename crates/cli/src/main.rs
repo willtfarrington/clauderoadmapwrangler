@@ -190,6 +190,14 @@ commands:
                                  last active, its session's short id, its title, model and
                                  effort, how many turns and their cost estimate (each turn is a
                                  session row under the project chat); reads only
+  history <project|folder> [--reimport]
+                                 print the project's history as the import settles it from its
+                                 git log and its briefs (D-26): each EP's date, where it came
+                                 from (the record commit, the work commit, the note), its hashes
+                                 and a flag where git and the note disagree; then, for a
+                                 registered project, the ledger's stored import and its daily
+                                 snapshot rows, read only. With --reimport the import is written
+                                 into the ledger, as the Detail pane's Re-import does
   revert <project> [<session id>] [--yes]
                                  preview putting the project back as it was when its latest
                                  session, or the one named (its id or the id's first 8 characters),
@@ -311,6 +319,17 @@ fn main() -> ExitCode {
         ["autopilot", project, "off"] => autopilot_switch(project, false),
         ["sessions", rest @ ..] => sessions(rest),
         ["chats", rest @ ..] => chats(rest),
+        ["history", rest @ ..] if !rest.is_empty() => {
+            let reimport = rest.contains(&"--reimport");
+            match rest
+                .iter()
+                .filter(|arg| **arg != "--reimport")
+                .collect::<Vec<_>>()[..]
+            {
+                [target] => history(target, reimport),
+                _ => usage_error("history takes one project or folder, and --reimport"),
+            }
+        }
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
         ["mail", rest @ ..] => mail(rest),
@@ -2296,6 +2315,157 @@ fn usage() -> ExitCode {
 
 /// How many of the latest sessions `crw sessions` prints without `--all`.
 const SESSIONS_SHOWN: usize = 20;
+
+/// `crw history <project|folder> [--reimport]` (D-26; EP-25): the import computed from the
+/// log and the files and printed; the ledger's stored import and snapshots for a registered
+/// project, read only; with `--reimport`, the import written into the ledger first.
+fn history(target: &str, reimport: bool) -> ExitCode {
+    use crw_core::history::{self, Flag};
+    let registered = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
+        Ok(loaded) => loaded.registry.project(target).map(|project| {
+            (
+                project.name.clone(),
+                project.folder(&loaded.registry.data_root()),
+            )
+        }),
+        Err(_) => None,
+    };
+    let folder = match &registered {
+        Some((_, folder)) => folder.clone(),
+        None if Path::new(target).is_dir() => PathBuf::from(target),
+        None => return failed(format!("{target} is not a folder or a registered project")),
+    };
+    println!("crw {} history", env!("CARGO_PKG_VERSION"));
+    println!("  folder    {}", folder.display());
+    let is_repository = folder.join(".git").exists();
+    let import = {
+        let _turn = crw_core::process::turn();
+        history::read(&folder)
+    };
+    if !is_repository {
+        println!("  reading   not a repository: the briefs' completion notes alone");
+    } else if import.single {
+        println!(
+            "  reading   {} commit: the briefs' completion notes alone (a single-commit history)",
+            import.commits
+        );
+    } else {
+        println!(
+            "  reading   {} commits and the briefs' completion notes",
+            import.commits
+        );
+    }
+    println!(
+        "  settled   {} EP{} dated, {} flagged",
+        import.completions.len(),
+        if import.completions.len() == 1 {
+            ""
+        } else {
+            "s"
+        },
+        import.flagged().count()
+    );
+    let shorts = |hashes: &[String]| {
+        hashes
+            .iter()
+            .map(|h| history::short(h))
+            .collect::<Vec<_>>()
+            .join(" + ")
+    };
+    for completion in &import.completions {
+        let source = match completion.flag {
+            Flag::Agreed => "git, the note agreeing".to_owned(),
+            Flag::GitOnly if completion.record.is_empty() => "the work commit".to_owned(),
+            Flag::GitOnly => "the record commit".to_owned(),
+            Flag::NoteOnly => "the note".to_owned(),
+            Flag::NoteWins => format!(
+                "the note (git says {}): LOOK",
+                completion
+                    .git_date
+                    .map_or("nothing".to_owned(), |d| d.to_string())
+            ),
+        };
+        let hashes = match (completion.record.is_empty(), completion.work.is_empty()) {
+            (true, true) => String::new(),
+            (false, true) => format!("  record {}", shorts(&completion.record)),
+            (true, false) => format!("  work {}", shorts(&completion.work)),
+            (false, false) => format!(
+                "  record {}  work {}",
+                shorts(&completion.record),
+                shorts(&completion.work)
+            ),
+        };
+        println!(
+            "  {:<8} {}  {source}{hashes}",
+            completion.ep.to_string(),
+            completion.completed_on
+        );
+    }
+    let Some((name, _)) = registered else {
+        if reimport {
+            println!("  not a registered project: nothing written into the ledger");
+        }
+        return ExitCode::SUCCESS;
+    };
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if reimport {
+        let written = Ledger::open(&path).and_then(|mut ledger| {
+            let head = {
+                let _turn = crw_core::process::turn();
+                crw_core::git::run(&folder, &["rev-parse", "HEAD"])
+                    .ok()
+                    .map(|text| text.trim().to_owned())
+            };
+            ledger.import_history(&name, head.as_deref(), Utc::now(), &import)
+        });
+        match written {
+            Ok(()) => println!("  written into the ledger as {name}'s import"),
+            Err(e) => return failed(format!("{}: {e}", path.display())),
+        }
+    }
+    if !path.exists() {
+        println!("  no ledger yet at {}", path.display());
+        return ExitCode::SUCCESS;
+    }
+    let read = Ledger::open_read_only(&path)
+        .and_then(|ledger| Ok((ledger.history_of(&name)?, ledger.snapshots(&name)?)));
+    let (stored, snapshots) = match read {
+        Ok(read) => read,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    match stored {
+        Some(summary) => println!(
+            "  ledger    imported {} at HEAD {}: {} EPs from {} commits, {} flagged",
+            summary
+                .imported_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M"),
+            summary.head.as_deref().map_or("-", history::short),
+            summary.import.completions.len(),
+            summary.import.commits,
+            summary.import.flagged().count()
+        ),
+        None => println!("  ledger    no import stored yet (the window's git pass makes it)"),
+    }
+    println!(
+        "  snapshots {} row{} (project, taken, done, total)",
+        snapshots.len(),
+        if snapshots.len() == 1 { "" } else { "s" }
+    );
+    for row in &snapshots {
+        println!(
+            "    {}  {} of {}",
+            row.taken_at
+                .with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M"),
+            row.done,
+            row.total
+        );
+    }
+    ExitCode::SUCCESS
+}
 
 /// `crw chats [--all]`: the ledger's conversations (EP-24), read without a write.
 fn chats(args: &[&str]) -> ExitCode {

@@ -191,6 +191,9 @@ pub enum Action {
         data: bool,
     },
     Refresh,
+    /// The project's history imported again from its log, whatever HEAD says (D-26; EP-25):
+    /// the Detail pane's Re-import.
+    Reimport(String),
     /// The launch dialog on the project's next brief (S, a row's Start button).
     OpenLaunch(String),
     CloseLaunch,
@@ -593,6 +596,9 @@ impl Board {
         if self.loader.receive(&mut self.portfolio) {
             self.settle_until = Some(Instant::now() + SETTLE);
             ctx.request_repaint_after(SETTLE);
+        }
+        if let Some(why) = self.loader.history_problem.take() {
+            self.warn(why);
         }
         match self.sessions.receive(ctx) {
             // A conversation's turn is the Chat tile's (EP-24), the Decisions tile's resume
@@ -1300,6 +1306,27 @@ impl Board {
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
             Action::KeepRunning => self.quit_asked = false,
+            Action::Reimport(name) => {
+                let folder = self
+                    .portfolio
+                    .project(&name)
+                    .and_then(|row| row.folder.as_ref())
+                    .filter(|folder| folder.git)
+                    .map(|folder| folder.path.clone());
+                match folder {
+                    Some(_) if self.fixtures => {
+                        self.warn("A screenshot run's projects are never imported.");
+                    }
+                    Some(folder) => {
+                        self.loader.reimport(name.clone(), folder);
+                        self.notify(format!(
+                            "Importing {name}'s history again from its log; the Detail pane \
+                             shows it once it is read."
+                        ));
+                    }
+                    None => self.warn(format!("{name} is not a repository: nothing to import.")),
+                }
+            }
             Action::OpenRevert { project, session } => self.open_revert(&project, session),
             Action::ConfirmRevert => self.confirm_revert(),
             Action::CloseRevert => self.close_revert(),

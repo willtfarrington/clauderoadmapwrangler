@@ -17,7 +17,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use crw_core::badges::activity::Activity;
 use crw_core::badges::backup::{self, Backup};
 use crw_core::badges::health::{self, Run};
@@ -27,6 +27,7 @@ use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
 use crw_core::formalise::{self, Change};
 use crw_core::git;
+use crw_core::history::{self, Summary};
 use crw_core::inbox::mailman::Mark;
 use crw_core::inbox::{self, Outgoing};
 use crw_core::ledger::Ledger;
@@ -164,6 +165,9 @@ pub struct ProjectRow {
     pub badges: Badges,
     /// What a formalise would write there (EP-21a); empty for a missing folder.
     pub house: House,
+    /// The project's history as the ledger keeps it (D-26; EP-25): imported by the git pass at
+    /// a repository's first sight and when `HEAD` moves, or on Re-import; `None` until then.
+    pub history: Option<Summary>,
 }
 
 /// What the formalise step would write in a project (D-11; EP-21a), from its files as the files
@@ -421,6 +425,7 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         git: None,
         badges,
         house,
+        history: None,
     }
 }
 
@@ -469,6 +474,17 @@ pub enum Message {
     OnlineDone {
         generation: u64,
         problem: Option<String>,
+    },
+    /// A project's history as the ledger holds it after the git pass or a Re-import (EP-25);
+    /// never superseded: the newest import wins.
+    History {
+        project: String,
+        summary: Summary,
+    },
+    /// A Re-import that could not run, in words for the status bar.
+    HistoryFailed {
+        project: String,
+        why: String,
     },
     /// A folder of the data root appeared, went or was renamed.
     Folders,
@@ -523,6 +539,11 @@ pub struct Loader {
     git: Arc<AtomicU64>,
     online: Arc<AtomicU64>,
     readings: HashMap<String, Git>,
+    /// Each project's history as last imported or read from the ledger (EP-25), kept across
+    /// reads of the files.
+    histories: HashMap<String, Summary>,
+    /// A Re-import's failure, read once by the window.
+    pub history_problem: Option<String>,
     backups: Option<(backup::Reading, HashMap<String, Backup>)>,
     fetched: Online,
     /// A read of the files is under way.
@@ -557,6 +578,8 @@ impl Loader {
             git: Arc::new(AtomicU64::new(0)),
             online: Arc::new(AtomicU64::new(0)),
             readings: HashMap::new(),
+            histories: HashMap::new(),
+            history_problem: None,
             backups: None,
             fetched: Online::default(),
             reading_files: false,
@@ -578,8 +601,25 @@ impl Loader {
         let generation = self.files.fetch_add(1, Atomic::SeqCst) + 1;
         self.reading_files = true;
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
+        let ledger = self.ledger.clone();
         thread::spawn(move || {
             let portfolio = read_files(&store);
+            // Each project's counts as read, kept once a day and at every change (D-26; EP-25).
+            if let Some(ledger) = ledger.as_deref().and_then(|path| Ledger::open(path).ok()) {
+                let now = Utc::now();
+                for row in &portfolio.projects {
+                    let counts = row.counts();
+                    if counts.total > 0 {
+                        let _ = ledger.record_counts(
+                            row.name(),
+                            now,
+                            counts.done,
+                            counts.total,
+                            &Local,
+                        );
+                    }
+                }
+            }
             let _ = tx.send(Message::Files {
                 generation,
                 portfolio,
@@ -594,6 +634,7 @@ impl Loader {
         let generation = self.git.fetch_add(1, Atomic::SeqCst) + 1;
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let latest = self.git.clone();
+        let ledger = self.ledger.clone();
         self.git_progress = Some((0, 0));
         thread::spawn(move || {
             let registry = store.load().map(|loaded| loaded.registry).ok();
@@ -633,23 +674,85 @@ impl Loader {
                 .filter(|(_, folder)| folder.join(".git").exists())
                 .collect();
             let of = repositories.len();
+            let mut ledger = ledger.as_deref().and_then(|path| Ledger::open(path).ok());
             for (done, (project, folder)) in repositories.into_iter().enumerate() {
                 if latest.load(Atomic::SeqCst) != generation {
                     return;
                 }
                 let git = read_git(&folder);
+                let head = git
+                    .reading
+                    .worktree
+                    .as_ref()
+                    .and_then(|status| status.oid.clone());
                 let _ = tx.send(Message::Git {
                     generation,
-                    project,
+                    project: project.clone(),
                     git,
                     done: done + 1,
                     of,
                 });
                 ctx.request_repaint();
+                // The history (EP-25): imported at the repository's first sight and when HEAD
+                // moved since the stored import, else read as stored.
+                if let Some(ledger) = ledger.as_mut() {
+                    let stored = ledger.imported_head(&project).ok().flatten();
+                    let summary = if stored.as_ref() != Some(&head) {
+                        import_into(ledger, &project, &folder, head)
+                    } else {
+                        ledger.history_of(&project).ok().flatten()
+                    };
+                    if let Some(summary) = summary {
+                        let _ = tx.send(Message::History { project, summary });
+                        ctx.request_repaint();
+                    }
+                }
             }
             let _ = tx.send(Message::GitDone { generation });
             ctx.request_repaint();
         });
+    }
+
+    /// Imports `project`'s history again from its log, whatever `HEAD` says (EP-25's
+    /// Re-import), on a worker thread; the ledger keeps the result.
+    pub fn reimport(&mut self, project: String, folder: PathBuf) {
+        let (tx, ctx, ledger) = (self.tx.clone(), self.ctx.clone(), self.ledger.clone());
+        thread::spawn(move || {
+            let message = match ledger.as_deref().map(Ledger::open) {
+                Some(Ok(mut ledger)) => {
+                    let head = {
+                        let _turn = process::turn();
+                        git::run(&folder, &["rev-parse", "HEAD"])
+                            .ok()
+                            .map(|text| text.trim().to_owned())
+                    };
+                    match import_into(&mut ledger, &project, &folder, head) {
+                        Some(summary) => Message::History { project, summary },
+                        None => Message::HistoryFailed {
+                            project,
+                            why: "the import could not be written into the ledger".to_owned(),
+                        },
+                    }
+                }
+                Some(Err(e)) => Message::HistoryFailed {
+                    project,
+                    why: format!("the ledger could not be opened: {e}"),
+                },
+                None => Message::HistoryFailed {
+                    project,
+                    why: "no ledger: the profile folder is not set".to_owned(),
+                },
+            };
+            let _ = tx.send(message);
+            ctx.request_repaint();
+        });
+    }
+
+    /// Keeps a history for `project` to put into its row at the next read of the files: a
+    /// screenshot run's canned one.
+    #[cfg(feature = "screenshot")]
+    pub fn put_history(&mut self, project: &str, summary: Summary) {
+        self.histories.insert(key(project), summary);
     }
 
     /// Runs the GitHub pass on a worker thread, after superseding any pass still running: the
@@ -761,6 +864,7 @@ impl Loader {
                         {
                             row.add_git(git.clone());
                         }
+                        row.history = self.histories.get(&key(row.name())).cloned();
                     }
                     *portfolio = read;
                     self.reading_files = false;
@@ -813,6 +917,20 @@ impl Loader {
                 } if generation == self.online.load(Atomic::SeqCst) => {
                     self.online_progress = None;
                     self.online_problem = problem;
+                }
+                Message::History { project, summary } => {
+                    if let Some(row) = portfolio
+                        .projects
+                        .iter_mut()
+                        .find(|row| key(row.name()) == key(&project))
+                    {
+                        row.history = Some(summary.clone());
+                    }
+                    self.histories.insert(key(&project), summary);
+                }
+                Message::HistoryFailed { project, why } => {
+                    self.history_problem =
+                        Some(format!("{project}'s history was not imported: {why}"));
                 }
                 Message::Folders => folders = true,
                 // A superseded read's result.
@@ -915,6 +1033,31 @@ fn online_projects(store: &Store) -> Vec<online::Project> {
             }
         })
         .collect()
+}
+
+/// Imports `project`'s history from `folder` (one `git log` in its turn, then the files; EP-25)
+/// and keeps it in the ledger as read at `head`; the summary kept, or `None` when the ledger
+/// refused the write.
+fn import_into(
+    ledger: &mut Ledger,
+    project: &str,
+    folder: &Path,
+    head: Option<String>,
+) -> Option<Summary> {
+    let import = {
+        let _turn = process::turn();
+        thread::sleep(process::SPACING);
+        history::read(folder)
+    };
+    let imported_at = Utc::now();
+    ledger
+        .import_history(project, head.as_deref(), imported_at, &import)
+        .ok()?;
+    Some(Summary {
+        imported_at,
+        head,
+        import,
+    })
 }
 
 /// An entry of the data root created, removed or renamed; a write inside a project folder only

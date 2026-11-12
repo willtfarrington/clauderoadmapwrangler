@@ -65,7 +65,12 @@ buttons under it that open the window's own dialogs with the project filled in (
 asks first whether the folder is a data repository, Formalise…, Migrate…, Compose… with the
 words typed), nothing written before the owner's click there; the session runs the tool's own
 `crw` reading commands under exact permission rules, and an `@<project>` in a message gives it
-that project's context as the prompt hook gives an interactive session (EP-24b). The roadmap is
+that project's context as the prompt hook gives an interactive session (EP-24b). Each project's
+history is imported from its git log and its briefs' completion notes (EP-25): the commits that
+record an EP date it, the note cross-checks the date and wins when they differ by more than a
+day, flagged; the Detail pane's History section shows the dates, the flagged EPs and Re-import,
+`crw history <project>` prints the same, and the ledger keeps each project's done and total
+counts once a day for the graphs to come. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

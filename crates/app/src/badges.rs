@@ -759,6 +759,7 @@ mod tests {
             git: None,
             badges,
             house: Default::default(),
+            history: None,
         }
     }
 

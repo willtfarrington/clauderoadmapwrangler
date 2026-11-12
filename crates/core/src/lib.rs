@@ -23,6 +23,7 @@ pub mod files;
 pub mod formalise;
 pub mod git;
 pub mod handover;
+pub mod history;
 pub mod inbox;
 pub mod install;
 pub mod ledger;

@@ -187,6 +187,7 @@ fn project(
     in_progress(ui, row, running);
     next_brief(ui, row, actions);
     progress(ui, snapshot);
+    history(ui, row, actions);
     status(ui, row, portfolio, week);
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
@@ -456,6 +457,116 @@ fn progress(ui: &mut egui::Ui, snapshot: &Snapshot) {
                 ui.end_row();
             }
         });
+}
+
+/// The History section (D-26; EP-25): what the import of the project's log and briefs settled,
+/// the EPs whose two dates disagree, when it ran and at which HEAD, and Re-import, which runs
+/// it again whatever HEAD says. Shown for a repository, or for a folder the import has read.
+fn history(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
+    if !row.is_repository() && row.history.is_none() {
+        return;
+    }
+    section(ui, "History");
+    match &row.history {
+        Some(summary) => {
+            let import = &summary.import;
+            let dates = |ui: &mut egui::Ui| {
+                let counted = match import.completions.len() {
+                    1 => "1 EP dated".to_owned(),
+                    n => format!("{n} EPs dated"),
+                };
+                let from = if import.commits == 0 {
+                    "from the briefs' completion notes alone (no git log read)".to_owned()
+                } else if import.single {
+                    "from the briefs' completion notes alone (a single-commit history)".to_owned()
+                } else {
+                    format!(
+                        "from {} commits and the briefs' completion notes",
+                        import.commits
+                    )
+                };
+                let span = import
+                    .span()
+                    .map(|(first, last)| {
+                        if first == last {
+                            format!("; on {first}")
+                        } else {
+                            format!("; the first on {first}, the latest on {last}")
+                        }
+                    })
+                    .unwrap_or_default();
+                ui.add(egui::Label::new(format!("{counted} {from}{span}.")).wrap());
+            };
+            dates(ui);
+            let flagged: Vec<_> = import.flagged().collect();
+            if !flagged.is_empty() {
+                let lines: Vec<String> = flagged
+                    .iter()
+                    .map(|c| {
+                        format!(
+                            "{}: git says {}, the note {} (the note wins)",
+                            c.ep,
+                            c.git_date.map_or("nothing".to_owned(), |d| d.to_string()),
+                            c.note_date.map_or("nothing".to_owned(), |d| d.to_string())
+                        )
+                    })
+                    .collect();
+                ui.add(
+                    egui::Label::new(
+                        RichText::new(format!(
+                            "{} to look at: {}.",
+                            match flagged.len() {
+                                1 => "1 EP".to_owned(),
+                                n => format!("{n} EPs"),
+                            },
+                            lines.join("; ")
+                        ))
+                        .color(style::amber(ui)),
+                    )
+                    .wrap(),
+                );
+            }
+            let head = summary
+                .head
+                .as_deref()
+                .map(|head| format!(" at HEAD {}", crw_core::history::short(head)))
+                .unwrap_or_default();
+            let age = short_age(Utc::now() - summary.imported_at);
+            let when = if age == "now" {
+                "just now".to_owned()
+            } else {
+                format!("{age} ago")
+            };
+            ui.label(
+                RichText::new(format!(
+                    "Imported {when}{head}; the git pass imports again when HEAD moves."
+                ))
+                .weak(),
+            );
+        }
+        None => {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(
+                        "Not imported yet: the git pass imports a repository's log at its first \
+                         sight and when HEAD moves.",
+                    )
+                    .weak(),
+                )
+                .wrap(),
+            );
+        }
+    }
+    let button = ui
+        .add_enabled(row.is_repository(), egui::Button::new("Re-import"))
+        .on_hover_text(
+            "Read the log and the briefs again and replace the ledger's rows for this project \
+             (D-26)",
+        )
+        .on_disabled_hover_text("Not a repository: nothing to import");
+    if button.clicked() {
+        actions.push(Action::Reimport(row.name().to_owned()));
+    }
 }
 
 /// The Status section's subsections, in order.
@@ -1244,6 +1355,86 @@ mod tests {
         assert!(testing::text_at(&output, "Migrate…").is_some());
         assert!(testing::text_at(&output, "Formalise…").is_none());
         assert!(shows(&output, "the five-column tables, read-only (D-9)"));
+    }
+
+    /// The History section (EP-25): a canned import's dates and flagged EPs, Re-import pushing
+    /// its action for a repository, and the section absent for a folder with neither.
+    #[test]
+    fn the_history_section_says_the_import_and_offers_reimport() {
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::history::{Completion, Flag, Import, Summary};
+
+        let scratch = Scratch::new("detail-history");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio.project("harbor").unwrap();
+        assert!(!harbor.is_repository());
+        let mut screen = Screen::new();
+        // Neither a repository nor an import: no section.
+        let output = screen.pass(Vec::new(), |ui| history(ui, harbor, &mut Vec::new()));
+        assert!(testing::text_at(&output, "History").is_none());
+        // An import kept for it: the section, Re-import disabled (no repository).
+        let completion = |ep: &str, git: &str, note: Option<&str>, flag: Flag| Completion {
+            ep: ep.parse().unwrap(),
+            completed_on: note.unwrap_or(git).parse().unwrap(),
+            git_date: Some(git.parse().unwrap()),
+            note_date: note.map(|d| d.parse().unwrap()),
+            record: vec!["1111111".to_owned()],
+            work: vec!["2222222".to_owned()],
+            flag,
+        };
+        let mut imported = harbor.clone();
+        imported.history = Some(Summary {
+            imported_at: Utc::now() - chrono::TimeDelta::minutes(3),
+            head: Some("abcdef0123456789".to_owned()),
+            import: Import {
+                completions: vec![
+                    completion("EP-1", "2026-10-31", Some("2026-10-31"), Flag::Agreed),
+                    completion("EP-2", "2026-11-01", Some("2026-11-04"), Flag::NoteWins),
+                    completion("EP-3", "2026-11-05", None, Flag::GitOnly),
+                ],
+                commits: 12,
+                single: false,
+            },
+        });
+        let mut actions = Vec::new();
+        let output = screen.pass(Vec::new(), |ui| history(ui, &imported, &mut actions));
+        assert!(shows(
+            &output,
+            "3 EPs dated from 12 commits and the briefs' completion notes; the first on \
+             2026-10-31, the latest on 2026-11-05."
+        ));
+        assert!(shows(
+            &output,
+            "1 EP to look at: EP-2: git says 2026-11-01, the note 2026-11-04 (the note wins)."
+        ));
+        assert!(shows(&output, "Imported 3 min ago at HEAD abcdef0"));
+        let at = testing::text_at(&output, "Re-import").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| history(ui, &imported, &mut actions));
+        }
+        assert!(
+            actions.is_empty(),
+            "disabled for a folder that is no repository"
+        );
+        // A repository without an import yet: the section says so, and Re-import acts.
+        let mut repository = harbor.clone();
+        repository.folder.as_mut().unwrap().git = true;
+        let output = screen.pass(Vec::new(), |ui| history(ui, &repository, &mut actions));
+        assert!(shows(&output, "Not imported yet"));
+        let at = testing::text_at(&output, "Re-import").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| history(ui, &repository, &mut actions));
+        }
+        assert_eq!(actions, [Action::Reimport("harbor".to_owned())]);
     }
 
     /// The older forms of a project that keeps owner-tasks.md are listed under a heading of

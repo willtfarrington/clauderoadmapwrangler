@@ -1503,14 +1503,15 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-24 | [Chat, the hosted session: a read-only portfolio session per conversation at the data root, the digest system prompt, conversations kept in the ledger and resumed, a plain tile with streaming replies and an input, Opus default](EP-24-chat-hosted-session.md) (D-27) | L → M (cut beforehand at EP-23) | EP-14, EP-22a | core | ☑ `260cb3e` |
 | EP-24a | [Chat, the replies: Markdown drawn with `egui_commonmark`, the conversation list, the model picker, the session's questions answered in the tile](EP-24a-chat-replies.md) (D-27, D-15) | M | EP-24 | core | ☑ `5745290` |
 | EP-24b | [Chat, the delegated actions: chips for Adopt, Formalise…, Migrate… and Compose… opening the window's own dialogs, the `crw` commands the session may run, the chat's own `@<project>` mentions](EP-24b-chat-actions.md) (D-27, D-11, D-13, D-20) | M | EP-24a, EP-20c, EP-21a, EP-39 | core | ☑ `c75505a` |
-| EP-25 | History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots (D-26) | M | EP-2, EP-4 | core | ☐ |
+| EP-25 | [History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots](EP-25-history-backfill.md) (D-26) | M | EP-2, EP-4 | core | ☐ |
+| EP-25a | Per-project refresh: a project's files and git re-read on their own when its session or its chain's run ends, and from its row's menu (D-9, D-20) | S | EP-12, EP-19 | core | ☐ |
 | EP-26 | Analytics, the graphs: activity heatmap, burn-up per project, velocity and projection in the Detail pane, with `egui_plot` (D-25, D-26) | M | EP-25 | core | ☐ |
 | EP-26a | Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view (D-25) | M | EP-26 | core | ☐ |
 | EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
 | EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
 | EP-28 | Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints (D-29) | M | EP-15, EP-37 | core | ☐ |
 | EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
-| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-26, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
+| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
 backfill feeds the graphs and the exports; operations polish lands before the phone view exposes the tool
@@ -1520,7 +1521,10 @@ phase: the walk's six fixes to the surfaces the owner uses daily come before the
 EP-7a and EP-15a came before their re-plans. The three large rows are cut beforehand, since every
 large row of P3 split at pickup and a chained run can ask that only while its chain waits: EP-24a
 and EP-24b follow EP-24, EP-26a follows EP-26, EP-28a follows EP-28. The plan's order is otherwise
-kept, the start at login included: the window stayed up through P3 without it.
+kept, the start at login included: the window stayed up through P3 without it. *(EP-25,
+2026-11-11, the owner's choice.)* EP-25a, a per-project refresh from IN-13, follows EP-25 and
+precedes the graphs, so the row a session just worked on reads afresh without F5 over every
+project; the totals above are recounted in its brief note.
 
 Standing decisions for phase P4: D-27 (read-only chat session; writes delegated), D-26 (no transcript
 parsing), D-3 (exports into `private/`; the site export names public projects only). *(EP-23,
@@ -1688,6 +1692,23 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   sessions (EP-37), and a chained headless run's record commit comes seconds after its work
   commit. The three retros' tables (the completion notes of EP-8, EP-16 and EP-23) give each
   brief's measured time, and the Done cells its record commit, to check the import against.
+- **EP-25a.** Added at EP-25 (2026-11-11) from IN-13, the owner's choice of placement: a
+  project's state re-read on its own when its session or its chain's run ends, so the row says
+  the next brief, the open tasks and the inbox as they now stand without F5 over every project
+  (`Action::Refresh` runs the files pass, the git pass and the GitHub pass over the whole
+  registry). (1) `portfolio::Loader` gains a one-project read: the files of that project alone
+  (`snapshot::read_tree`, `Badges::read`, `House::read`, as `row()` builds a `ProjectRow`)
+  swapped into the portfolio in place, keeping the other rows' git, backup and GitHub readings,
+  then that repository's git pass (`read_git(folder)`, one turn) and its history check (EP-25's
+  `import_into` when HEAD moved). (2) The moments: a headless run's end in the window
+  (`Live::drain` returning its `Event::Exited`, EP-13), a session's end hook for a visual or
+  manual session (`watch::Watch::receive`'s `Change::Ended`, EP-12), and the gate's moment after
+  a chained run (EP-19's `chain_started`'s counterpart at the run's end), each naming the project;
+  a chat run's end reads nothing. (3) A row's menu gains Refresh this project, and the Detail
+  pane's status bar line says what was re-read. Tests on the fake portfolio: a one-project read
+  leaves the other rows' readings as they were; a canned session end triggers it. **The
+  totals** (EP-23's paragraph above, 61 briefs): with EP-25a v1 is 62 briefs, 15 S · 42 M · 5 L ≈
+  59.5 session-hours, 16 open after EP-25.
 - **EP-26.** `app::analytics` with egui_plot 0.38: a calendar heatmap (sessions and completions per day,
   per project and for the portfolio), a burn-up per project (done and total over time; re-plans visible as
   total jumps), velocity (EPs per week over the last 8 weeks) and projection (remaining session-hours from
