@@ -1504,7 +1504,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-24a | [Chat, the replies: Markdown drawn with `egui_commonmark`, the conversation list, the model picker, the session's questions answered in the tile](EP-24a-chat-replies.md) (D-27, D-15) | M | EP-24 | core | ☑ `5745290` |
 | EP-24b | [Chat, the delegated actions: chips for Adopt, Formalise…, Migrate… and Compose… opening the window's own dialogs, the `crw` commands the session may run, the chat's own `@<project>` mentions](EP-24b-chat-actions.md) (D-27, D-11, D-13, D-20) | M | EP-24a, EP-20c, EP-21a, EP-39 | core | ☑ `c75505a` |
 | EP-25 | [History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots](EP-25-history-backfill.md) (D-26) | M | EP-2, EP-4 | core | ☑ `9bf9d54` |
-| EP-25a | [Per-project refresh: a project's files and git re-read on their own when its session or its chain's run ends, and from its row's menu](EP-25a-per-project-refresh.md) (D-9, D-20) | S | EP-12, EP-19 | core | ☐ |
+| EP-25a | [Per-project refresh: a project's files and git re-read on their own when its session or its chain's run ends, and from its row's menu](EP-25a-per-project-refresh.md) (D-9, D-20) | S | EP-12, EP-19 | core | ☑ `68bf13b` |
 | EP-26 | Analytics, the graphs: activity heatmap, burn-up per project, velocity and projection in the Detail pane, with `egui_plot` (D-25, D-26) | M | EP-25 | core | ☐ |
 | EP-26a | Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view (D-25) | M | EP-26 | core | ☐ |
 | EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
