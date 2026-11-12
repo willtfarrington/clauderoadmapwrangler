@@ -3,7 +3,7 @@
 //! and place; a saved tree gains the panes of a later build beside the Detail pane, so the
 //! owner's arrangement survives an upgrade.
 
-use eframe::egui::{self, RichText};
+use eframe::egui;
 use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
 use serde::{Deserialize, Serialize};
 
@@ -49,18 +49,6 @@ impl Pane {
         Pane::ALL
             .into_iter()
             .find(|p| p.title().eq_ignore_ascii_case(name))
-    }
-
-    /// What a pane that later briefs fill will hold; the Decisions and Sessions tiles are filled
-    /// (EP-13, EP-14).
-    fn placeholder(self) -> Option<&'static str> {
-        match self {
-            Pane::Projects | Pane::Detail | Pane::Decisions | Pane::Sessions | Pane::Usage => None,
-            Pane::Chat => Some(
-                "The chat tile arrives at EP-24: a read-only Claude Code session over the whole \
-                 portfolio, which hands its writes to a session in the project.",
-            ),
-        }
     }
 }
 
@@ -154,11 +142,18 @@ impl egui_tiles::Behavior<Pane> for Board {
             Pane::Decisions if self.decisions_count() > 0 => {
                 format!("Decisions · {}", self.decisions_count()).into()
             }
-            Pane::Sessions
-                if !self.sessions.live.is_empty() || !self.seen_sessions().is_empty() =>
-            {
-                let count = self.sessions.live.len() + self.seen_sessions().len();
-                format!("Sessions · {count}").into()
+            Pane::Sessions => {
+                // A conversation's run is the Chat tile's, not a tab here (EP-24).
+                let runs = self
+                    .sessions
+                    .live
+                    .iter()
+                    .filter(|live| !live.is_chat())
+                    .count();
+                match runs + self.seen_sessions().len() {
+                    0 => "Sessions".into(),
+                    count => format!("Sessions · {count}").into(),
+                }
             }
             pane => pane.title().into(),
         }
@@ -172,8 +167,8 @@ impl egui_tiles::Behavior<Pane> for Board {
                 Pane::Detail => self.detail_pane(ui),
                 Pane::Decisions => self.decisions_pane(ui),
                 Pane::Sessions => self.sessions_pane(ui),
+                Pane::Chat => self.chat_pane(ui),
                 Pane::Usage => self.usage_pane(ui),
-                pane => placeholder(ui, pane.placeholder().unwrap_or_default()),
             });
         UiResponse::None
     }
@@ -185,11 +180,6 @@ impl egui_tiles::Behavior<Pane> for Board {
             ..SimplificationOptions::default()
         }
     }
-}
-
-fn placeholder(ui: &mut egui::Ui, text: &str) {
-    ui.add_space(24.0);
-    ui.vertical_centered(|ui| ui.label(RichText::new(text).weak()));
 }
 
 #[cfg(test)]

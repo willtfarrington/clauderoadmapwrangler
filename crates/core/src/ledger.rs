@@ -12,10 +12,10 @@ use chrono::{DateTime, SecondsFormat, TimeDelta, Utc};
 use rusqlite::{Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 
 /// The schema this build writes: the number of migrations.
-pub const SCHEMA_VERSION: u32 = 5;
+pub const SCHEMA_VERSION: u32 = 6;
 
 /// `MIGRATIONS[i]` brings the schema from version `i` to `i + 1`, each in one transaction.
-const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5];
+const MIGRATIONS: [&str; SCHEMA_VERSION as usize] = [V1, V2, V3, V4, V5, V6];
 
 /// The most of a run's final text its row keeps, in characters.
 const RESULT_CAP: usize = 8000;
@@ -119,6 +119,25 @@ const V5: &str = "
 ALTER TABLE session ADD COLUMN weekly_share REAL;
 ALTER TABLE session ADD COLUMN fable_share REAL;
 ";
+
+const V6: &str = "
+-- One row per chat conversation (D-27, EP-24): its session, whose runs are the session rows of
+-- the same session id under the project 'chat', its title from the first prompt, the model and
+-- effort it started with, and its last activity, moved on by each turn.
+CREATE TABLE conversation (
+    id         INTEGER PRIMARY KEY,
+    session_id TEXT NOT NULL UNIQUE,
+    title      TEXT NOT NULL,
+    model      TEXT NOT NULL,
+    effort     TEXT,
+    started_at TEXT NOT NULL,
+    last_at    TEXT NOT NULL
+);
+CREATE INDEX conversation_by_activity ON conversation (last_at);
+";
+
+/// The most of a conversation's title its row keeps, in characters.
+const TITLE_CAP: usize = 200;
 
 /// The `session` columns a [`SessionRow`] reads, in its order, for a ledger at schema `version`:
 /// a column added later reads as none, in a ledger opened to read at an older schema (EP-13).
@@ -298,6 +317,32 @@ pub enum RowState<'a> {
     Launched,
     /// No end recorded: it runs, or its end was never heard.
     Open,
+}
+
+/// A chat conversation as the ledger holds it (D-27; EP-24), with the sums of its runs.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ConversationRow {
+    pub id: i64,
+    pub session_id: String,
+    pub title: String,
+    pub model: String,
+    pub effort: Option<String>,
+    pub started_at: String,
+    pub last_at: String,
+    /// Its runs: the session rows of its id, one per turn.
+    pub turns: u32,
+    /// The CLI's estimates over its runs; none while no run has one.
+    pub cost_usd: Option<f64>,
+}
+
+impl ConversationRow {
+    pub fn started(&self) -> Option<DateTime<Utc>> {
+        parse_time(&self.started_at)
+    }
+
+    pub fn last(&self) -> Option<DateTime<Utc>> {
+        parse_time(&self.last_at)
+    }
 }
 
 /// A session's latest row, as [`Ledger::latest_of`] reads it (EP-35).
@@ -550,6 +595,64 @@ impl Ledger {
             ),
         )?;
         Ok(())
+    }
+
+    /// Keeps a conversation's row (D-27; EP-24): written at its first run with its title, model
+    /// and effort, its last activity moved to `at` by each later run. `true` when the row is new.
+    pub fn touch_conversation(
+        &self,
+        session_id: &str,
+        title: &str,
+        model: &str,
+        effort: Option<&str>,
+        at: DateTime<Utc>,
+    ) -> Result<bool, Error> {
+        let before: i64 = self.connection.query_row(
+            "SELECT COUNT(*) FROM conversation WHERE session_id = ?1",
+            [session_id],
+            |row| row.get(0),
+        )?;
+        self.connection.execute(
+            "INSERT INTO conversation (session_id, title, model, effort, started_at, last_at) \
+             VALUES (?1, ?2, ?3, ?4, ?5, ?5) \
+             ON CONFLICT (session_id) DO UPDATE SET last_at = excluded.last_at",
+            (
+                session_id,
+                capped(title, TITLE_CAP),
+                model,
+                effort,
+                rfc3339(at),
+            ),
+        )?;
+        Ok(before == 0)
+    }
+
+    /// The latest `limit` conversations by their last activity, the newest first, each with its
+    /// runs counted and their costs summed (EP-24); none in a ledger older than schema 6.
+    pub fn conversations(&self, limit: usize) -> Result<Vec<ConversationRow>, Error> {
+        if self.version < 6 {
+            return Ok(Vec::new());
+        }
+        let mut statement = self.connection.prepare(
+            "SELECT c.id, c.session_id, c.title, c.model, c.effort, c.started_at, c.last_at, \
+             (SELECT COUNT(*) FROM session s WHERE s.session_id = c.session_id), \
+             (SELECT SUM(s.cost_usd) FROM session s WHERE s.session_id = c.session_id) \
+             FROM conversation c ORDER BY c.last_at DESC, c.id DESC LIMIT ?1",
+        )?;
+        let rows = statement.query_map([i64::try_from(limit).unwrap_or(i64::MAX)], |row| {
+            Ok(ConversationRow {
+                id: row.get(0)?,
+                session_id: row.get(1)?,
+                title: row.get(2)?,
+                model: row.get(3)?,
+                effort: row.get(4)?,
+                started_at: row.get(5)?,
+                last_at: row.get(6)?,
+                turns: row.get(7)?,
+                cost_usd: row.get(8)?,
+            })
+        })?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Writes a session's start (`revert::Start`'s JSON) into the row `id` when that row has none
@@ -1055,6 +1158,8 @@ fn migrate(connection: &mut Connection, migrations: &[&str]) -> Result<(), Error
 
 #[cfg(test)]
 mod tests {
+    use chrono::TimeZone;
+
     use super::*;
     use crate::files::tests::Scratch;
 
@@ -1080,6 +1185,7 @@ mod tests {
             tables(&ledger),
             [
                 "badge_cache",
+                "conversation",
                 "event",
                 "schema_version",
                 "session",
@@ -1184,10 +1290,11 @@ mod tests {
             V3,
             V4,
             V5,
+            V6,
             "ALTER TABLE event ADD COLUMN source TEXT;",
         ];
         let ledger = Ledger::open_with(&path, &next).unwrap();
-        assert_eq!(ledger.schema_version().unwrap(), 6);
+        assert_eq!(ledger.schema_version().unwrap(), 7);
         ledger
             .connection
             .execute(
@@ -1201,24 +1308,136 @@ mod tests {
             .unwrap();
         assert_eq!(rows, 2, "the migrations kept the earlier row");
         drop(ledger);
-        // This build knows up to version 5 and leaves the file at version 6.
+        // This build knows up to version 6 and leaves the file at version 7.
         assert!(matches!(
             Ledger::open(&path),
             Err(Error::Newer {
-                found: 6,
-                supported: 5
+                found: 7,
+                supported: 6
             })
         ));
         assert!(matches!(
             Ledger::open_read_only(&path),
-            Err(Error::Newer { found: 6, .. })
+            Err(Error::Newer { found: 7, .. })
         ));
         assert_eq!(
             Ledger::open_with(&path, &next)
                 .unwrap()
                 .schema_version()
                 .unwrap(),
-            6
+            7
+        );
+    }
+
+    /// Schema 6 (EP-24): a schema 5 ledger with session rows migrates with them kept; a
+    /// conversation's row is written at its first run and touched by each later one, its runs
+    /// counted and their costs summed; a ledger read at schema 5 has none.
+    #[test]
+    fn conversations_are_kept_from_schema_6() {
+        let scratch = Scratch::new("ledger-conversations");
+        let path = scratch.0.join("ledger.sqlite");
+        let at = |hour: u32| Utc.with_ymd_and_hms(2026, 11, 11, hour, 0, 0).unwrap();
+        let older = Ledger::open_with(&path, &MIGRATIONS[..5]).unwrap();
+        let first = older
+            .start_session(&NewSession {
+                session_id: Some("c-1"),
+                project: "chat",
+                ep: None,
+                mode: "headless",
+                model: Some("claude-opus-5-5"),
+                effort: Some("medium"),
+                ultracode: false,
+                started_at: at(9),
+            })
+            .unwrap();
+        drop(older);
+        let read = Ledger::open_read_only(&path).unwrap();
+        assert!(
+            read.conversations(10).unwrap().is_empty(),
+            "schema 5 has none"
+        );
+        drop(read);
+
+        let ledger = Ledger::open(&path).unwrap();
+        assert_eq!(ledger.schema_version().unwrap(), SCHEMA_VERSION);
+        assert_eq!(
+            ledger.sessions().unwrap().len(),
+            1,
+            "the row survived the step"
+        );
+        assert!(
+            ledger
+                .touch_conversation(
+                    "c-1",
+                    "What does EP-24 plan?",
+                    "claude-opus-5-5",
+                    Some("medium"),
+                    at(9)
+                )
+                .unwrap()
+        );
+        ledger
+            .finish_session(
+                first,
+                &Finished {
+                    at: at(9) + TimeDelta::minutes(2),
+                    outcome: "completed",
+                    cost_usd: Some(0.25),
+                    questions: 0,
+                    result: Some("It plans the chat."),
+                    answer_latency_s: None,
+                },
+            )
+            .unwrap();
+        // The second turn: a run under the same id, the row touched, not written again.
+        ledger
+            .start_session(&NewSession {
+                session_id: Some("c-1"),
+                project: "chat",
+                ep: None,
+                mode: "headless",
+                model: Some("claude-opus-5-5"),
+                effort: Some("medium"),
+                ultracode: false,
+                started_at: at(10),
+            })
+            .unwrap();
+        assert!(
+            !ledger
+                .touch_conversation("c-1", "a title that is not kept", "x", None, at(10))
+                .unwrap()
+        );
+        // An older conversation, with no run of its own counted yet.
+        ledger
+            .touch_conversation(
+                "c-0",
+                "Which project waits?",
+                "claude-opus-5-5",
+                None,
+                at(8),
+            )
+            .unwrap();
+        let rows = ledger.conversations(10).unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].session_id, "c-1");
+        assert_eq!(rows[0].title, "What does EP-24 plan?");
+        assert_eq!(rows[0].effort.as_deref(), Some("medium"));
+        assert_eq!(rows[0].started(), Some(at(9)));
+        assert_eq!(rows[0].last(), Some(at(10)));
+        assert_eq!(rows[0].turns, 2);
+        assert_eq!(rows[0].cost_usd, Some(0.25));
+        assert_eq!(rows[1].session_id, "c-0");
+        assert_eq!(rows[1].turns, 0);
+        assert_eq!(rows[1].cost_usd, None);
+        assert_eq!(ledger.conversations(1).unwrap().len(), 1);
+        // The title is kept to its cap.
+        let long = "x".repeat(TITLE_CAP + 10);
+        ledger
+            .touch_conversation("c-2", &long, "m", None, at(11))
+            .unwrap();
+        assert_eq!(
+            ledger.conversations(1).unwrap()[0].title.chars().count(),
+            TITLE_CAP
         );
     }
 

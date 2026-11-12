@@ -12,7 +12,7 @@
 
 pub mod cli;
 pub mod defer;
-mod launch;
+pub(crate) mod launch;
 pub mod protocol;
 
 use std::collections::{HashMap, VecDeque};
@@ -34,7 +34,8 @@ use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender, unbounded_channel};
 pub use cli::Preflight;
 pub(crate) use launch::markers;
 pub use launch::{
-    Answered, Launch, NEIGHBOUR_CLAUDE_MD, PUSH_DENY_RULE, Route, STOP_TIMEOUT, edit_deny_rule,
+    Answered, Appended, Launch, NEIGHBOUR_CLAUDE_MD, PUSH_DENY_RULE, Route, STOP_TIMEOUT,
+    edit_deny_rule,
 };
 pub use protocol::{
     Choice, Deferred, Denied, Finish, Init, Question, Request, Response, ToolResult, ToolUse,
@@ -153,10 +154,12 @@ impl Session {
             return Err(refusals.join("; "));
         }
         let flags = preflight.flags.as_ref().map_err(Clone::clone)?;
-        // A resumed run goes on under the session's own id (EP-13).
+        // A resumed run goes on under the session's own id (EP-13); a new one takes the id its
+        // caller chose (EP-24), else a fresh one.
         let session_id = launch
             .resume
             .clone()
+            .or_else(|| launch.session_id.clone())
             .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
         let line = launch::command_line(
             &launch,
@@ -320,6 +323,18 @@ impl Job {
         let launch = &self.launch;
         Ledger::open(path)
             .and_then(|ledger| {
+                // A conversation's row beside its first run's, its last activity moved on by
+                // each later turn (D-27; EP-24); first, so that a failure leaves no run's row
+                // open with no end to come.
+                if let Some(title) = &launch.conversation {
+                    ledger.touch_conversation(
+                        &self.session_id,
+                        title,
+                        &launch.model,
+                        self.line.effort.as_deref(),
+                        started_at,
+                    )?;
+                }
                 ledger.start_session(&NewSession {
                     session_id: Some(&self.session_id),
                     project: &launch.project,

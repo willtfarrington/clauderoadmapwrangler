@@ -302,6 +302,9 @@ impl Board {
                 starts.join(", ")
             ));
         }
+        if !self.chat.draft.trim().is_empty() {
+            no.push("a chat message is being typed".to_owned());
+        }
         let mut typed: Vec<String> = self
             .drafts
             .iter()

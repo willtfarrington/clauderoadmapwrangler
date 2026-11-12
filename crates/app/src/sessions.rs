@@ -22,6 +22,7 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, Utc};
 use crw_core::autopilot::{self, Cap};
+use crw_core::chat;
 use crw_core::ledger::{self, Ledger, RowState, SessionRow};
 use crw_core::roadmap::Size;
 use crw_core::session::{
@@ -198,8 +199,9 @@ impl Live {
         }
     }
 
-    /// A session as a screenshot run shows it: running, its transcript made of `events`.
-    #[cfg(feature = "screenshot")]
+    /// A session as a screenshot run shows it: running, its transcript made of `events`; a
+    /// test's stand-in too (EP-24).
+    #[cfg(any(test, feature = "screenshot"))]
     pub fn canned(key: u64, launch: Launch, effort: &str, events: Vec<Event>) -> Self {
         let mut live = Self {
             key,
@@ -244,9 +246,19 @@ impl Live {
     }
 
     /// A screenshot run's canned session ended: its run deferred at the time limit.
-    #[cfg(feature = "screenshot")]
+    #[cfg(any(test, feature = "screenshot"))]
     pub fn end_canned(&mut self, ended: Ended) {
         self.take(Event::Exited(ended));
+    }
+
+    /// A chat conversation's run (D-27; EP-24): the Chat tile's, not a tab of the Sessions pane.
+    pub fn is_chat(&self) -> bool {
+        self.launch.conversation.is_some()
+    }
+
+    /// The conversation's title, for a chat run.
+    pub fn conversation(&self) -> Option<&str> {
+        self.launch.conversation.as_deref()
     }
 
     /// Takes in one of the runner's events.
@@ -254,6 +266,21 @@ impl Live {
         self.transcript.take(&event);
         match event {
             Event::Init(init) => self.init = Some(init),
+            // A chat session reads and nothing else (D-27): its permission requests are refused
+            // here at once, and only its questions reach the owner (EP-24).
+            Event::Request(request) if self.is_chat() && request.questions.is_empty() => {
+                let sent = self.session.as_ref().is_some_and(|session| {
+                    session.respond(&request.id, Response::Deny(chat::REFUSAL.to_owned()))
+                });
+                let words = if sent {
+                    "refused by the window: the chat session is read-only"
+                } else {
+                    "refused by the window: the chat session is read-only (the session had ended)"
+                };
+                self.transcript.answered(&request.id, words);
+                self.denied += 1;
+                self.last = format!("refused: {}", request.summary);
+            }
             Event::TextDelta(_) => {
                 if let Some(line) = last_line(&self.transcript.streaming) {
                     self.last = line;
@@ -299,7 +326,8 @@ impl Live {
             Event::Handshake(Err(_)) => self.handshake_refused = true,
             Event::Unreadable(_) => self.unreadable += 1,
             Event::Exited(ended) => {
-                if ended.outcome != Outcome::Stopped {
+                // A chat's reply is read in its tile: its end raises no toast (EP-24).
+                if ended.outcome != Outcome::Stopped && !self.is_chat() {
                     let line = ended_line(&ended, self.open.as_ref());
                     self.news.push(News::Ended(ended.outcome, line));
                 }
@@ -345,9 +373,12 @@ impl Live {
                 .is_some_and(|ended| ended.outcome == Outcome::Completed)
     }
 
-    /// `<project> <EP>`, as its tab says it.
+    /// `<project> <EP>`, as its tab says it; a conversation's `chat: <title>`.
     pub fn title(&self) -> String {
-        format!("{} {}", self.project, self.ep)
+        match self.conversation() {
+            Some(title) => format!("chat: {title}"),
+            None => format!("{} {}", self.project, self.ep),
+        }
     }
 
     /// How long its requests may wait before the run is deferred (D-19).
@@ -606,6 +637,9 @@ pub struct Sessions {
     news: Vec<(u64, News)>,
     /// The runs that ended since the autopilot last looked, by key (D-22; EP-19).
     ended: Vec<u64>,
+    /// The start that last came back was a chat conversation's turn (EP-24), whatever asked
+    /// for it: the Chat tile takes its outcome.
+    pub last_chat: bool,
 }
 
 impl Default for Sessions {
@@ -622,6 +656,7 @@ impl Default for Sessions {
             switched: None,
             news: Vec::new(),
             ended: Vec::new(),
+            last_chat: false,
         }
     }
 }
@@ -701,6 +736,36 @@ impl Sessions {
     ) {
         let message = launch.prompt.clone();
         self.begin(preflight, launch, effort, None, message, run, ctx);
+    }
+
+    /// Starts one turn of a chat conversation (D-27; EP-24): `launch` as `chat::launch` built
+    /// it, a new session or the resume of the conversation's, whose live is `resumes`; the
+    /// autopilot asks nothing of it.
+    pub fn chat(
+        &mut self,
+        preflight: Arc<Preflight>,
+        launch: Launch,
+        resumes: Option<u64>,
+        ctx: &egui::Context,
+    ) {
+        let message = launch.prompt.clone();
+        let effort = crw_core::prompt::effort_words(launch.effort.as_deref(), false);
+        self.begin(
+            preflight,
+            launch,
+            effort,
+            resumes,
+            message,
+            Run::default(),
+            ctx,
+        );
+    }
+
+    /// The conversation's live, by its key, when it is a chat's.
+    pub fn conversation(&self, key: u64) -> Option<&Live> {
+        self.live
+            .iter()
+            .find(|live| live.key == key && live.is_chat())
     }
 
     /// Resumes the window's ended session `key` with `message` as its next prompt (EP-13): a new
@@ -969,6 +1034,7 @@ impl Sessions {
             match starting.receiver.try_recv() {
                 Ok(result) => {
                     let starting = self.starting.take().expect("a start was waited on");
+                    self.last_chat = starting.launch.conversation.is_some();
                     started = Some(match result {
                         Ok(session) => self.started(&starting, session),
                         Err(why) => Started::Refused(why),
@@ -1046,6 +1112,13 @@ impl Sessions {
             live.commits |= starting.run.commits;
             let answered = live.open.take().is_some() && starting.launch.answered_after.is_some();
             live.transcript.prompt(&starting.message, true);
+            // A conversation's later turn: the tile goes on, no tab (EP-24).
+            if let Some(title) = &starting.launch.conversation {
+                live.launch.appended = starting.launch.appended.clone();
+                return Started::Running(format!(
+                    "The conversation goes on: chat: {title}, its reply in the Chat pane."
+                ));
+            }
             self.tab = Some(live.key);
             return Started::Running(if answered {
                 format!(
@@ -1061,7 +1134,15 @@ impl Sessions {
         }
         let key = self.next_key;
         self.next_key += 1;
+        let chat = starting.launch.conversation.clone();
         self.live.insert(0, Live::new(key, starting, session));
+        if let Some(title) = chat {
+            return Started::Running(format!(
+                "Started the conversation chat: {title} with {} at {} effort: its reply streams \
+                 in the Chat pane, and quitting the window stops it.",
+                starting.launch.model, starting.effort
+            ));
+        }
         self.tab = Some(key);
         Started::Running(format!(
             "Started {project} {ep} headless with {} at {} effort: the Sessions pane shows it, \
@@ -1075,7 +1156,9 @@ impl Sessions {
         let running: Vec<String> = self
             .live
             .iter()
-            .filter(|live| live.is_running() && live.project.eq_ignore_ascii_case(project))
+            .filter(|live| {
+                live.is_running() && !live.is_chat() && live.project.eq_ignore_ascii_case(project)
+            })
             .map(|live| {
                 format!(
                     "a headless {} started here at {} is {}",
@@ -1123,7 +1206,11 @@ impl Sessions {
             working.push(format!("the window's headless {ep} is {how}"));
         }
         let mut refusals = Vec::new();
-        for live in self.live.iter().filter(|live| here(&live.project)) {
+        for live in self
+            .live
+            .iter()
+            .filter(|live| !live.is_chat() && here(&live.project))
+        {
             if live.is_running() {
                 working.push(format!(
                     "the window's headless {} is {}",
@@ -1279,11 +1366,13 @@ impl Board {
     pub fn sessions_pane(&mut self, ui: &mut egui::Ui) {
         let ledger = self.ledger().map(Path::to_owned);
         self.sessions.history.refresh(ledger.as_deref());
-        if self
-            .sessions
-            .tab
-            .is_some_and(|key| !self.sessions.live.iter().any(|live| live.key == key))
-        {
+        if self.sessions.tab.is_some_and(|key| {
+            !self
+                .sessions
+                .live
+                .iter()
+                .any(|live| live.key == key && !live.is_chat())
+        }) {
             self.sessions.tab = None;
         }
         self.tab_strip(ui);
@@ -1298,7 +1387,8 @@ impl Board {
         let mut tab = self.sessions.tab;
         ui.horizontal_wrapped(|ui| {
             ui.selectable_value(&mut tab, None, "All");
-            for live in &self.sessions.live {
+            // A conversation's run is the Chat pane's (EP-24).
+            for live in self.sessions.live.iter().filter(|live| !live.is_chat()) {
                 let mut job = egui::text::LayoutJob::default();
                 let font = egui::TextStyle::Button.resolve(ui.style());
                 job.append(
@@ -1345,7 +1435,8 @@ impl Board {
             .live
             .iter()
             .filter(|live| {
-                filter.keeps(&live.project, "headless")
+                !live.is_chat()
+                    && filter.keeps(&live.project, "headless")
                     && !(filter.running_only && !live.is_running())
             })
             .collect();
@@ -2164,6 +2255,74 @@ pub(crate) mod tests {
             canned: false,
             news: Vec::new(),
         }
+    }
+
+    /// A chat conversation's run (EP-24): a permission request is refused by the window at
+    /// once and said so in the transcript, a question waits for the owner as any run's, and
+    /// its end raises no toast; its title is the conversation's.
+    #[test]
+    fn a_chat_run_refuses_permissions_itself_and_ends_quietly() {
+        let mut live = live();
+        live.launch.conversation = Some("What does EP-24 plan?".to_owned());
+        live.project = chat::PROJECT.to_owned();
+        live.ep.clear();
+        assert!(live.is_chat());
+        assert_eq!(live.title(), "chat: What does EP-24 plan?");
+        let request = |id: &str, questions: Vec<crw_core::session::Question>| Request {
+            id: id.to_owned(),
+            tool: "Bash".to_owned(),
+            summary: "Bash git log".to_owned(),
+            reason: None,
+            questions,
+            input: String::new(),
+        };
+        live.take(Event::Request(request("req-1", Vec::new())));
+        assert!(live.waiting.is_empty(), "refused, not waiting");
+        assert_eq!(live.denied, 1);
+        assert!(live.last.starts_with("refused: Bash git log"));
+        assert!(live.news.is_empty(), "no toast for a refusal");
+        let answer = live
+            .transcript
+            .entries
+            .iter()
+            .find_map(|entry| match entry {
+                Entry::Asked { request, answer } if request.id == "req-1" => Some(answer.clone()),
+                _ => None,
+            });
+        assert!(
+            answer
+                .flatten()
+                .is_some_and(|words| words.contains("read-only") && words.contains("had ended")),
+            "the session handle is gone in a test, and the transcript says so"
+        );
+        // A question reaches the owner as any run's.
+        let question = crw_core::session::Question {
+            text: "Which project?".to_owned(),
+            header: "Project".to_owned(),
+            options: Vec::new(),
+            multi_select: false,
+        };
+        live.take(Event::Request(request("req-2", vec![question])));
+        assert_eq!(live.waiting.len(), 1);
+        assert_eq!(live.news, [News::Asked("Bash git log".to_owned())]);
+        live.news.clear();
+        live.take(Event::Exited(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        }));
+        assert!(live.news.is_empty(), "a chat's end is read in its tile");
+        assert!(live.ended.is_some());
+        // A brief's run still raises its end.
+        let mut run = self::live();
+        run.take(Event::Exited(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        }));
+        assert_eq!(run.news.len(), 1);
     }
 
     /// A migration's run (EP-21a) offers no Commit, whose message records a brief's hash, and a

@@ -971,6 +971,14 @@ default with the owner in the loop, without the terminal. *Alternatives.* `auto`
 > *Alternatives.* The prompt's "never push" alone; the deny rule for every headless run of the
 > window; a control for the mode in the Autopilot section; allow rules written by the tool.
 
+> **Addendum (2026-11-11, EP-24).** The chat's session (D-27 addendum of this date) runs in
+> `manual`, the CLI's own default for a `-p` run, under `--restricted`, which confines the file
+> tools to its working folders: the read-only boundary is the list of folders it is given, not
+> deny rules, and its permission requests are answered by the window with a refusal at once
+> rather than by the owner. `dontAsk`, which D-27 named, denies `AskUserQuestion` too
+> (Claude Code's permission-modes page), so the mode is kept for nothing. *Alternatives.*
+> `dontAsk`; `--permission-prompts none`, which denies the questions as well.
+
 **D-19 Decision routing.** The **control protocol over stream-json first**: the tile shows each
 `AskUserQuestion` with its options and each permission request; the session blocks until the owner answers
 in the tool or on the phone; an optional timeout (default none) defers the run instead. The documented
@@ -1877,6 +1885,16 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > *Alternatives.* The old row reopened, its end moved to the new run's; no row for a resumed run,
 > as before.
 
+> **Addendum (2026-11-11, EP-24).** Schema 6 adds the `conversation` table (D-27 addendum of
+> this date): one row per chat conversation, its session id, its title from the first prompt,
+> the model and effort it started with, its start and its last activity, written by the runner
+> beside the first run's session row and touched by each later turn. Each turn is a session row
+> under the project `chat`, so `Ledger::conversations` counts a conversation's turns and sums
+> their costs from the rows it has; `crw chats` prints them, and a ledger read at schema 5 has
+> none. A build before EP-24 refuses the migrated ledger, as at every step. *Alternatives.* A
+> mode `chat` in the session table's check, which SQLite changes only by rebuilding the table;
+> the conversations in the event log.
+
 ## Chat, remote access, operations
 
 **D-27 Chat and the method plugin.** One hosted Claude Code session per conversation (`-p` stream-json,
@@ -1956,6 +1974,50 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > owner has barely used the skills yet, so their wording, that sentence included, is carried to
 > EP-29's walk. *Alternatives.* The chat left one L and split at pickup; the skill's sentence
 > added now, a change to the files the build carries.
+
+> **Addendum (2026-11-11, EP-24).** The hosted session is built, with four departures from the
+> plan, each from a fact read that day.
+>
+> - **The cwd is the tool's own folder, not the data root.** `claude --help` (2.1.316) lists
+>   `--restricted`: it "confines the file tools to the working directories (--add-dir
+>   included)", removes Bash, PowerShell and WebFetch unless `--tools` names them, and ignores
+>   the user, project and local settings files. So an allow-list of folders is the boundary: the
+>   session runs in `%LOCALAPPDATA%\clauderoadmapwrangler\chat` (under `CRW_HOME` in a trial)
+>   and is given each registered project not marked `data = true` with `--add-dir`, the plugin
+>   copy's folder too, so that the house-style reference reads, with `--strict-mcp-config` so
+>   that none of the owner's MCP servers load. A data repository is never named to the session,
+>   and a search over the data root cannot reach one; the neighbours' `CLAUDE.md` files are not
+>   loaded. With the data root as cwd, a `Read` deny rule per data repository would have guarded
+>   the Read tool alone, and a Grep over the root would have passed the rule's check on its path.
+>   The registry's `data = true` marks a data repository (`crw set <project> data yes`), written
+>   only as true, so a registry without the mark reads in older builds; the tile's header and the
+>   digest say what the session reads and what it leaves out.
+> - **`manual`, not `dontAsk`.** Claude Code's permission-modes page (read 2026-11-11) says
+>   `dontAsk` denies the built-in `AskUserQuestion` even when an allow rule matches it, which
+>   would leave the session no question. The run starts in `manual` (the CLI's own default for a
+>   `-p` run since 2.1.302; a help that does not list the mode starts the run without the flag
+>   and says so) with `--permission-prompts host` and `--permission-prompt-tool stdio`, and the
+>   window refuses every permission request itself at once ("the chat session is read-only",
+>   `sessions::Live::take`), so only the questions reach the owner, in the Decisions tile until
+>   EP-24a. The tools are `Read,Glob,Grep,Skill,AskUserQuestion` by `--tools`; no shell until
+>   EP-24b admits the tool's own commands. The three boundary flags are required: a claude
+>   without one refuses the chat and says which.
+> - **The digest inline.** The help lists `--append-system-prompt <prompt>` and names the
+>   `-file` form only inside `--bare`'s description, so the digest goes inline (the file flag is
+>   used when a help lists it and the file is there); it is written to `chat\digest-<id>.md` for
+>   the record, and rendered afresh at each turn with `--system-prompt-snapshot off`, so a
+>   resumed conversation reads the portfolio as it stands. The window builds it from its own
+>   readings (each project's state, folder, counts, next brief, open tasks and messages, sessions
+>   at work, last commit, hosting and usage share; the account's figures; what is left out and
+>   why; the reference's path), never from a `crw status` over the registry.
+> - **A conversation's runs are session rows** under the project `chat`, mode `headless`, one
+>   per turn (a `-p` run is one), so the usage split, `crw sessions chat` and the All tab need no
+>   new mode, beside a `conversation` row (schema 6; `crw chats`). Opus 5.5 at medium are
+>   constants until EP-24a's picker; the session is named `chat: <title>`.
+>
+> *Alternatives.* The data root as cwd with `Read` deny rules; `dontAsk`; the digest by file
+> alone; a mode of its own in the ledger; an allow-list mark (`chat = true`) in place of the
+> data mark.
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

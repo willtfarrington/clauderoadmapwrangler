@@ -274,3 +274,17 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   and its rules in view, and the tab should read busy in the window as soon as you send it.
   `crw signals remove` takes the tool's entries out again. The session ran the relay only on a
   scratch registry (rules 5 and 13). Notes go to `roadmap/inbox.md`
+- [ ] OT-26 (EP-24, 2026-11-11) The first real chat conversation (the first run of a new route). Once
+  the window runs EP-24's build (the next gate's moment, or File > Install and restart): in a
+  terminal in this folder, mark each data repository with `target\release\crw.exe set <project> data
+  yes` (it writes `data = true` into your registry; `crw scan` lists the projects), then in the
+  window's Chat pane (the tab beside Sessions on the right) type a question such as "Which project has
+  the most open owner tasks?" and press Send (or Ctrl+Enter). The header should say `claude-opus-5-5
+  at medium · reads N projects, M left out · read-only` with M the data repositories marked (hover it
+  for the names and the digest's file under `%LOCALAPPDATA%\clauderoadmapwrangler\chat`), the
+  reply should stream in within a minute as plain text, and `target\release\crw.exe chats` should
+  list the conversation with 1 turn (`crw sessions chat` its run). Then ask it which folders it can
+  read and whether it can read a data repository by its path: it should name the projects given and
+  nothing else, and a refusal shows in the pane in red. If a reply says a tool is missing (Skill,
+  AskUserQuestion) or the session starts in a mode other than manual, note the Init line the pane
+  shows on hover of the state chip. Notes go to `roadmap/inbox.md`

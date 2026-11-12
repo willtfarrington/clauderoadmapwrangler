@@ -78,6 +78,9 @@ pub struct Launch {
     /// new session (EP-13). A resumed run keeps the session's id (the CLI's `--fork-session` is
     /// what would change it).
     pub resume: Option<String>,
+    /// The id a new session starts with (`--session-id`), when its caller chose one: the chat
+    /// names its digest's file by it before the start (EP-24); a fresh one when none.
+    pub session_id: Option<String>,
     /// How the run's questions reach the owner (D-19).
     pub route: Route,
     /// The `crw.exe` the defer route's hooks run; that route is refused without it.
@@ -97,6 +100,33 @@ pub struct Launch {
     /// The folder of the build's copy of the roadmap-wrangler plugin, loaded for the session
     /// with `--plugin-dir` when the CLI lists it (D-27; EP-22a); none for a run without it.
     pub plugin_dir: Option<PathBuf>,
+    /// A chat conversation's title (D-27; EP-24): set, the session is named `chat: <title>` and
+    /// the ledger keeps a conversation row beside the run's.
+    pub conversation: Option<String>,
+    /// The chat's boundary (EP-24): `--restricted` (the file tools confined to the working
+    /// folders, no shell, no web, no user or project settings) with `--strict-mcp-config` (none
+    /// of the owner's MCP servers), both required.
+    pub restricted: bool,
+    /// `--tools <names>`, the built-in tools the run has; required when set.
+    pub tools: Option<Vec<String>>,
+    /// Text appended to the system prompt (the chat's digest, EP-24): by
+    /// `--append-system-prompt-file` when the CLI lists it and the file is there, else
+    /// `--append-system-prompt` with the text, else dropped and said.
+    pub appended: Option<Appended>,
+    /// Whether the neighbours' `CLAUDE.md` files load ([`NEIGHBOUR_CLAUDE_MD`]); off for a chat,
+    /// whose neighbours are every project.
+    pub neighbour_claude_md: bool,
+    /// `--system-prompt-snapshot off` when the CLI lists it: the appended text rendered afresh
+    /// at each turn of a resumed session, not the first turn's record (EP-24); dropped and said
+    /// otherwise.
+    pub fresh_system_prompt: bool,
+}
+
+/// Text appended to the system prompt, and the file it was written to for the record (EP-24).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Appended {
+    pub file: PathBuf,
+    pub text: String,
 }
 
 /// How a headless run's questions and permission requests reach the owner (D-19; EP-14); the
@@ -150,6 +180,7 @@ impl Launch {
             stop_timeout: STOP_TIMEOUT,
             ledger: None,
             resume: None,
+            session_id: None,
             route: Route::Protocol,
             hooks: None,
             answer_timeout: None,
@@ -157,14 +188,22 @@ impl Launch {
             answered_after: None,
             starts: None,
             plugin_dir: None,
+            conversation: None,
+            restricted: false,
+            tools: None,
+            appended: None,
+            neighbour_claude_md: true,
+            fresh_system_prompt: false,
         }
     }
 
-    /// The name the session goes by in Claude Code's lists: `<project> EP-n` (D-16).
+    /// The name the session goes by in Claude Code's lists: `<project> EP-n` (D-16), or
+    /// `chat: <title>` for a conversation (EP-24).
     pub fn name(&self) -> String {
-        match &self.ep {
-            Some(ep) => format!("{} {ep}", self.project),
-            None => self.project.clone(),
+        match (&self.conversation, &self.ep) {
+            (Some(title), _) => format!("chat: {title}"),
+            (None, Some(ep)) => format!("{} {ep}", self.project),
+            (None, None) => self.project.clone(),
         }
     }
 }
@@ -261,18 +300,24 @@ pub(crate) fn command_line(
     }
 
     let mode = &launch.permission_mode;
-    if !flags.permission_modes.is_empty() && !flags.permission_modes.contains(mode) {
+    let listed = flags.permission_modes.is_empty() || flags.permission_modes.contains(mode);
+    if listed {
+        push(&[os("--permission-mode"), os(mode)]);
+    } else if mode == "manual" {
+        // The CLI's own default for a `-p` run since 2.1.302 (the permission-modes page): a
+        // help that does not list it by name starts the run without the flag (EP-24).
+        dropped.push(
+            "--permission-mode manual: this claude does not list it, so the run starts in its \
+             default mode"
+                .to_owned(),
+        );
+    } else {
         return Err(format!(
             "this claude takes --permission-mode {}, not {mode}",
             flags.permission_modes.join(", ")
         ));
     }
-    push(&[
-        os("--permission-mode"),
-        os(mode),
-        os("--permission-prompts"),
-        os("host"),
-    ]);
+    push(&[os("--permission-prompts"), os("host")]);
     // The stream-json host takes the permission prompts and the questions only once it names
     // itself, as the Agent SDK does: without it a `-p` run denies what would prompt and offers no
     // AskUserQuestion (found by EP-14's supervised probe).
@@ -283,6 +328,26 @@ pub(crate) fn command_line(
             "{PROMPT_TOOL} stdio: this claude does not name it, so the session asks no question \
              and its permission requests are denied, not sent here"
         ));
+    }
+
+    // The chat's boundary (EP-24): a claude without it cannot keep the run to its folders.
+    if launch.restricted {
+        for flag in ["--restricted", "--strict-mcp-config"] {
+            if !flags.has(flag) {
+                return Err(format!(
+                    "this claude has no {flag}, which a read-only chat session needs"
+                ));
+            }
+            push(&[os(flag)]);
+        }
+    }
+    if let Some(tools) = &launch.tools {
+        if !flags.has("--tools") {
+            return Err(
+                "this claude has no --tools, which the session's tool list needs".to_owned(),
+            );
+        }
+        push(&[os("--tools"), os(&tools.join(","))]);
     }
 
     let mut neighbours = Vec::new();
@@ -387,11 +452,38 @@ pub(crate) fn command_line(
         }
     }
 
+    // The appended system prompt (EP-24): by file when the help lists the flag and the file is
+    // there, else inline, else the run goes without it and says so.
+    if let Some(appended) = &launch.appended {
+        if flags.has("--append-system-prompt-file") && appended.file.is_file() {
+            push(&[os("--append-system-prompt-file"), appended.file.as_os_str()]);
+        } else if flags.has("--append-system-prompt") {
+            push(&[os("--append-system-prompt"), os(&appended.text)]);
+        } else {
+            dropped.push(
+                "the digest: this claude lists no --append-system-prompt, so the session knows \
+                 the portfolio from its files alone"
+                    .to_owned(),
+            );
+        }
+        if launch.fresh_system_prompt {
+            if flags.has("--system-prompt-snapshot") {
+                push(&[os("--system-prompt-snapshot"), os("off")]);
+            } else {
+                dropped.push(
+                    "--system-prompt-snapshot off: this claude does not list it, so a resumed \
+                     turn keeps the digest of the first"
+                        .to_owned(),
+                );
+            }
+        }
+    }
+
     let mut env: Vec<(OsString, Option<OsString>)> = markers(inherited)
         .into_iter()
         .map(|name| (name, None))
         .collect();
-    if !neighbours.is_empty() {
+    if !neighbours.is_empty() && launch.neighbour_claude_md {
         env.push((NEIGHBOUR_CLAUDE_MD.into(), Some("1".into())));
     }
     Ok(CommandLine {

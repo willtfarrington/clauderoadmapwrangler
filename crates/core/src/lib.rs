@@ -8,11 +8,13 @@
 //! status-line relays and their installation) and the sessions the tool sees, EP-15 the
 //! notifications' rules, EP-15b a session's start and its revert, EP-17 the usage meter, EP-37
 //! the installed copy of the exes and the window's restart into it, EP-20 the mailman, EP-21 the
-//! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin.
+//! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin,
+//! EP-24 the chat's hosted session and its digest.
 
 pub mod autopilot;
 pub mod badges;
 pub mod catalog;
+pub mod chat;
 pub mod checklist;
 pub mod decisions;
 pub mod discovery;

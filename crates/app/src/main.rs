@@ -14,6 +14,7 @@
 mod autopilot;
 mod badges;
 mod board;
+mod chat;
 mod compose;
 mod crash;
 mod decisions;

@@ -278,7 +278,7 @@ fn entry_ui(ui: &mut egui::Ui, entry: &Entry, id: (u64, usize)) {
 
 /// A tool call in one line: its icon, then what it works on in monospace, cut at the pane's edge.
 /// One label rather than a row of two, whose cut a narrow pane would not make.
-fn tool_line(ui: &mut egui::Ui, tool: &str, summary: &str) {
+pub(crate) fn tool_line(ui: &mut egui::Ui, tool: &str, summary: &str) {
     let icon = tool_icon(tool);
     let size = egui::TextStyle::Body.resolve(ui.style()).size;
     let mut job = egui::text::LayoutJob::default();

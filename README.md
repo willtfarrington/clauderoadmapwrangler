@@ -54,7 +54,11 @@ week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a)
 sum, in points of the weekly limit, is a badge of its row, a line of its Detail pane and a sort
 key (EP-18b). A visual or manual session from the ledger reopens in a Claude Code tab of its
 project's VS Code window from the Sessions pane, and each resumed run gets a ledger row of its own
-(EP-35). The roadmap is
+(EP-35). The Chat pane (EP-24) hosts a read-only Claude Code session over the portfolio: each
+message is a turn of one session, kept in the ledger and listed by `crw chats`, with a digest of
+every project's standing appended to its system prompt; the session is confined to the projects'
+folders by `--restricted`, a project marked as a data repository is never given to it, and it
+writes nothing. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

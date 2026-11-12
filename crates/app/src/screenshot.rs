@@ -62,6 +62,9 @@
 //!   waits on a pair of questions and a `git push`, under a 30-minute limit; a quarry EP-2 run
 //!   was deferred at its limit with a question open; lantern's visual session waits in VS Code;
 //!   harbor's refused edit of a neighbour);
+//! - `chat` (from EP-24: a canned conversation in the Chat pane, in front: two turns over the
+//!   fake portfolio, the second's reply streaming, the header saying what the session reads and
+//!   the data repository it leaves out; its Send starts nothing, as every start is refused);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
 //!   reasons in the status bar, from EP-37); `newer` (a newer build installed, canned, so that
@@ -352,6 +355,11 @@ impl Run {
                         canned_sessions(board);
                     }
                     layout::show(dashboard.layout_mut(), Pane::Decisions);
+                }
+                // A canned conversation in the Chat pane, in front (EP-24).
+                "chat" => {
+                    canned_chat(board);
+                    layout::show(dashboard.layout_mut(), Pane::Chat);
                 }
                 "quit" => {
                     if board.sessions.live.is_empty() {
@@ -717,6 +725,88 @@ fn canned_sessions(board: &mut Board) {
     board.sessions.live.insert(0, canned_transcript());
     board.sessions.history.rows = canned_rows(now);
     board.sessions.history.canned = true;
+}
+
+/// A conversation as the Chat pane shows it (EP-24): two turns over the fake portfolio, the
+/// second's reply streaming in, with the header's reads and a data repository left out.
+/// Synthetic text only.
+fn canned_chat(board: &mut Board) {
+    use crw_core::chat;
+
+    let first = "What does harbor's next brief plan, in plain words?";
+    let mut launch = Launch::new(chat::PROJECT, Path::new("chat"), chat::MODEL, first);
+    launch.effort = Some(chat::EFFORT.to_owned());
+    launch.conversation = Some(chat::title_of(first));
+    let tool = |id: &str, name: &str, summary: &str| {
+        Event::ToolUse(ToolUse {
+            id: id.to_owned(),
+            tool: name.to_owned(),
+            summary: summary.to_owned(),
+        })
+    };
+    let result = |id: &str, lines: usize, excerpt: &str| {
+        Event::ToolResult(ToolResult {
+            tool_use_id: id.to_owned(),
+            is_error: false,
+            lines,
+            excerpt: excerpt.to_owned(),
+        })
+    };
+    let events = vec![
+        Event::Init(Init {
+            version: Some("2.1.316".to_owned()),
+            tools: ["Read", "Glob", "Grep", "Skill", "AskUserQuestion"]
+                .map(str::to_owned)
+                .to_vec(),
+            ..Init::default()
+        }),
+        tool("c1", "Read", "Read harbor/roadmap/README.md"),
+        result("c1", 41, "# harbor — Roadmap"),
+        tool("c2", "Read", "Read harbor/roadmap/EP-4-ledger-view.md"),
+        result("c2", 23, "---\nep: EP-4"),
+        Event::Text(
+            "Harbor's next brief is EP-4, Ledger view, an M. It adds a table of the berths' \
+             fees by season under the register, with a filter by length band, and keeps the \
+             export EP-3 wrote. The brief note says to test the filter first and to put the \
+             band's default to you before the layout. Nothing waits on you there except the \
+             two open owner tasks, both before EP-5."
+                .to_owned(),
+        ),
+    ];
+    let mut live = Live::canned(950, launch, chat::EFFORT, events);
+    live.project = chat::PROJECT.to_owned();
+    live.end_canned(Ended {
+        outcome: Outcome::Completed,
+        exit_code: Some(0),
+        result: None,
+        stderr: Vec::new(),
+    });
+    // The second turn, its reply streaming in.
+    live.transcript
+        .prompt("And which project is furthest behind?", true);
+    live.ended = None;
+    live.runs = 2;
+    live.take(tool("c3", "Grep", "Grep ☐ in */roadmap/README.md"));
+    live.take(result("c3", 12, "quarry/roadmap/README.md:31:| EP-2 |"));
+    live.take(Event::TextDelta(
+        "By open rows, quarry: 2 of 7 done, its EP-2 deferred with a question open. By".to_owned(),
+    ));
+    board.sessions.live.insert(0, live);
+    board.chat.key = Some(950);
+    board.chat.title = Some(chat::title_of(first));
+    board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+    board.chat.reads = [
+        "harbor", "lantern", "meadow", "quarry", "compass", "orchard", "atlas", "beacon",
+    ]
+    .map(str::to_owned)
+    .to_vec();
+    board.chat.left_out = vec![(
+        "tundra".to_owned(),
+        "a data repository, marked data = true in the registry".to_owned(),
+    )];
+    board.chat.digest_file = Some(PathBuf::from(
+        r"C:\Users\Public\AppData\Local\clauderoadmapwrangler\chat\digest-3c9d2e71.md",
+    ));
 }
 
 /// A question pair as harbor's canned session asks it (EP-14): one answer of two, then several

@@ -88,6 +88,8 @@ commands:
   set <project> revert <yes|no>  whether each session's start is recorded there (its HEAD and a
                                  copy of its uncommitted files, in the backups folder) and a
                                  session may be reverted; yes by default
+  set <project> data <yes|no>    mark a data repository: the window's chat session is never
+                                 given its folder, and its digest says so; no by default
   set <project> permission_mode <mode|default>
                                  the permission mode its sessions start in: acceptEdits by
                                  default, which asks at each shell command without an allow rule,
@@ -183,6 +185,11 @@ commands:
                                  short id, the project and EP, the mode, model and effort, how
                                  long, how it ended, the cost estimate and the result's last line;
                                  reads only
+  chats [--all]                  print the ledger's chat conversations, the newest activity first:
+                                 the last 20, or every one with --all: when it started and was
+                                 last active, its session's short id, its title, model and
+                                 effort, how many turns and their cost estimate (each turn is a
+                                 session row under the project chat); reads only
   revert <project> [<session id>] [--yes]
                                  preview putting the project back as it was when its latest
                                  session, or the one named (its id or the id's first 8 characters),
@@ -303,6 +310,7 @@ fn main() -> ExitCode {
         ["autopilot", project, "on"] => autopilot_switch(project, true),
         ["autopilot", project, "off"] => autopilot_switch(project, false),
         ["sessions", rest @ ..] => sessions(rest),
+        ["chats", rest @ ..] => chats(rest),
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
         ["mail", rest @ ..] => mail(rest),
@@ -694,6 +702,11 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
             "no" | "false" => store.change(&today, |c| c.set_revert(project, false)),
             _ => return usage_error(&format!("revert takes yes or no, not {value:?}")),
         },
+        "data" => match value {
+            "yes" | "true" => store.change(&today, |c| c.set_data(project, true)),
+            "no" | "false" => store.change(&today, |c| c.set_data(project, false)),
+            _ => return usage_error(&format!("data takes yes or no, not {value:?}")),
+        },
         "permission_mode" => match permission_mode_word(value) {
             Ok(mode) => store.change(&today, |c| c.set_permission_mode(project, mode)),
             Err(why) => return usage_error(&why),
@@ -715,7 +728,7 @@ fn set(project: &str, field: &str, value: &str) -> ExitCode {
             Some(Err(why)) => return usage_error(&why),
             None => {
                 return usage_error(&format!(
-                    "set changes state, priority, pinned, answer_timeout, revert, \
+                    "set changes state, priority, pinned, answer_timeout, revert, data, \
                      permission_mode, max_size, daily, max_budget_usd, model or effort, not \
                      {field:?}"
                 ));
@@ -2283,6 +2296,91 @@ fn usage() -> ExitCode {
 
 /// How many of the latest sessions `crw sessions` prints without `--all`.
 const SESSIONS_SHOWN: usize = 20;
+
+/// `crw chats [--all]`: the ledger's conversations (EP-24), read without a write.
+fn chats(args: &[&str]) -> ExitCode {
+    let all = args.contains(&"--all");
+    if let Some(flag) = args.iter().find(|arg| **arg != "--all") {
+        return usage_error(&format!("chats takes --all, not {flag}"));
+    }
+    let Some(path) = paths::ledger_file() else {
+        return failed("no profile folder: LOCALAPPDATA is not set");
+    };
+    if !path.exists() {
+        println!(
+            "No ledger yet at {}: the window makes it at its first start.",
+            path.display()
+        );
+        return ExitCode::SUCCESS;
+    }
+    let limit = if all { usize::MAX } else { SESSIONS_SHOWN };
+    let read = Ledger::open_read_only(&path)
+        .and_then(|ledger| Ok((ledger.schema_version()?, ledger.conversations(limit)?)));
+    let (schema, rows) = match read {
+        Ok(read) => read,
+        Err(e) => return failed(format!("{}: {e}", path.display())),
+    };
+    println!(
+        "crw {} chats: {} conversation{}, the latest activity first ({})",
+        env!("CARGO_PKG_VERSION"),
+        rows.len(),
+        if rows.len() == 1 { "" } else { "s" },
+        path.display()
+    );
+    if schema < 6 {
+        println!(
+            "  the ledger is at schema {schema}, before the conversations: the window's first \
+             start with this build brings it up"
+        );
+        return ExitCode::SUCCESS;
+    }
+    let when = |text: &str, at: Option<DateTime<Utc>>| {
+        at.map_or(text.to_owned(), |at| {
+            at.with_timezone(&chrono::Local)
+                .format("%Y-%m-%d %H:%M")
+                .to_string()
+        })
+    };
+    let lines: Vec<[String; 6]> = rows
+        .iter()
+        .map(|row| {
+            let model = match &row.effort {
+                Some(effort) => format!("{}/{effort}", row.model),
+                None => row.model.clone(),
+            };
+            let turns = match row.turns {
+                1 => "1 turn".to_owned(),
+                n => format!("{n} turns"),
+            };
+            [
+                when(&row.started_at, row.started()),
+                format!("last {}", when(&row.last_at, row.last())),
+                revert::short(&row.session_id).to_owned(),
+                row.title.clone(),
+                model,
+                match row.cost_usd {
+                    Some(cost) => format!("{turns}, ${cost:.2}"),
+                    None => turns,
+                },
+            ]
+        })
+        .collect();
+    let mut widths = [0usize; 6];
+    for line in &lines {
+        for (width, cell) in widths.iter_mut().zip(line) {
+            *width = (*width).max(cell.chars().count());
+        }
+    }
+    for line in &lines {
+        let cells: Vec<String> = line
+            .iter()
+            .zip(widths)
+            .map(|(cell, width)| format!("{cell:<width$}"))
+            .collect();
+        println!("  {}", cells.join("  ").trim_end());
+    }
+    ExitCode::SUCCESS
+}
 
 /// Prints the ledger's sessions (D-26; EP-13), the newest first, read without migrating or
 /// writing it: a visual launch past its 30 minutes reads as lapsed before a window closes it.

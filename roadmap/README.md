@@ -1500,7 +1500,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 |---|---|---|---|---|---|
 | EP-38 | [List and Detail fixes from the P3 walk: the Brief's title giving way before the badges at the default width, its floor set from pictures of a real-roadmap copy; Waiting counting tasks and inbox only where a project keeps `owner-tasks.md`, its risks listed uncounted; the House style section only when it matters](EP-38-list-and-detail-fixes.md) (D-25, D-10, D-11) | M | EP-7a, EP-36, EP-21a | core | ☑ `0562cd2` |
 | EP-39 | [Launch dialog and prompt fixes from the P3 walk: the dialog saying a newer build is installed and offering Install and restart, opening again after it; the opener's quoted read-first rule with its lines joined; the prompt hook's context with the next row first and the rules in short](EP-39-launch-dialog-and-prompt-fixes.md) (D-29, D-17, D-20) | M | EP-37a, EP-10, EP-20b | core | ☑ `0abf915` |
-| EP-24 | Chat, the hosted session: a read-only portfolio session per conversation at the data root, the digest system prompt, conversations kept in the ledger and resumed, a plain tile with streaming replies and an input, Opus default (D-27) | L → M (cut beforehand at EP-23) | EP-14, EP-22a | core | ☐ |
+| EP-24 | [Chat, the hosted session: a read-only portfolio session per conversation at the data root, the digest system prompt, conversations kept in the ledger and resumed, a plain tile with streaming replies and an input, Opus default](EP-24-chat-hosted-session.md) (D-27) | L → M (cut beforehand at EP-23) | EP-14, EP-22a | core | ☐ |
 | EP-24a | Chat, the replies: Markdown drawn with `egui_commonmark`, the conversation list, the model picker, the session's questions answered in the tile (D-27, D-15) | M | EP-24 | core | ☐ |
 | EP-24b | Chat, the delegated actions: chips for Adopt, Formalise…, Migrate… and Compose… opening the window's own dialogs, the `crw` commands the session may run, the chat's own `@<project>` mentions (D-27, D-11, D-13, D-20) | M | EP-24a, EP-20c, EP-21a, EP-39 | core | ☐ |
 | EP-25 | History backfill and snapshots: git import per project with Re-import, completion-note cross-check, daily parse snapshots (D-26) | M | EP-2, EP-4 | core | ☐ |
@@ -1657,7 +1657,16 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   out of the reply, or a tool call the host answers) is the brief's design. The chat's mentions:
   an `@<project>` in the owner's prompt gets `signals::mentions::context` in EP-39's order, since
   the prompt hook leaves an SDK's session out (EP-20b's note). A chat run that works refuses a
-  restart as a headless run does (`Board::restart_refusals`).
+  restart as a headless run does (`Board::restart_refusals`). **From EP-24 (2026-11-11):** the
+  session's boundary is the list of folders it is given under `--restricted`, each registered
+  project not marked `data = true` (D-27 addendum), and the brief's Adopt chip should offer the
+  mark for a folder that is a data repository, so that a newly adopted one is never readable by
+  mistake; `crw set <project> data yes` is the only way to set it until then. The session has no
+  shell: the commands this brief admits come with `Bash` in `--tools`, narrowed by
+  `--allowedTools` to the tool's own `crw` reading commands and whichever writing ones the
+  owner's answer admits, and a permission request for anything else is refused by the window as
+  EP-24 refuses every request (`sessions::Live::take`). The conversation's questions are
+  answered in the tile from EP-24a; the actions a reply proposes are read out of it here.
 - **EP-25.** `core::history`: `git log --format=%H%x09%ct%x09%s` per project; EP ids from `record EP-n
   commit hash`, `(EP-n` or `(EP-n,` suffixes, `EP-n:` prefixes; completion dates per EP = the record
   commit's date, else the EP commit's date, cross-checked with the brief's completion-note date (the note

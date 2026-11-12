@@ -351,6 +351,11 @@ pub struct Project {
     /// repositories).
     #[serde(default = "default_revert")]
     pub revert: bool,
+    /// A data repository (D-27 addendum; EP-24): the chat's session is never given its folder,
+    /// and the digest says so. Written only as `data = true`, so a registry without the mark
+    /// reads in the builds before.
+    #[serde(default)]
+    pub data: bool,
 }
 
 fn default_priority() -> u8 {
@@ -659,6 +664,7 @@ impl Project {
             dismissed: Dismissed::default(),
             answer_timeout: None,
             revert: true,
+            data: false,
         }
     }
 
@@ -1035,6 +1041,18 @@ impl Changes<'_> {
             Ok(())
         } else {
             self.set(name, "revert", Value::from(false))
+        }
+    }
+
+    /// Marks a project as a data repository, which the chat's session never reads (D-27
+    /// addendum; EP-24), or takes the mark out: written only as `data = true`, so a registry
+    /// with no project marked reads in the builds before.
+    pub fn set_data(&mut self, name: &str, data: bool) -> Result<(), Error> {
+        if data {
+            self.set(name, "data", Value::from(true))
+        } else {
+            self.project_table(name)?.remove("data");
+            Ok(())
         }
     }
 
@@ -2047,6 +2065,31 @@ state = "paused"
                 .unwrap()
                 .contains("revert =")
         );
+    }
+
+    /// The data mark (EP-24): off without a key, written only as `data = true`, taken out again.
+    #[test]
+    fn a_data_repository_is_marked_and_unmarked() {
+        let scratch = Scratch::new("registry-data");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        let name = store.load().unwrap().registry.projects[0].name.clone();
+        assert!(!store.load().unwrap().registry.project(&name).unwrap().data);
+        let (registry, ()) = store.change(TODAY, |c| c.set_data(&name, true)).unwrap();
+        assert!(registry.project(&name).unwrap().data);
+        assert!(
+            fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("data = true")
+        );
+        let (registry, ()) = store.change(TODAY, |c| c.set_data(&name, false)).unwrap();
+        assert!(!registry.project(&name).unwrap().data);
+        assert!(!fs::read_to_string(&store.path).unwrap().contains("data ="));
+        assert!(matches!(
+            store.change(TODAY, |c| c.set_data("nowhere", true)),
+            Err(Error::UnknownProject(_))
+        ));
     }
 
     #[test]

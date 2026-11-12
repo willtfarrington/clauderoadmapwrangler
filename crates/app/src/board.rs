@@ -174,6 +174,11 @@ pub enum Action {
     /// The dialog's Send: the message written into the project's inbox.
     Send,
     CloseCompose,
+    /// The Chat tile (D-27; EP-24): one turn of the conversation with the message typed, the
+    /// reply's turn interrupted, the conversation let go for a new one.
+    ChatSend,
+    ChatStop,
+    ChatNew,
     Refresh,
     /// The launch dialog on the project's next brief (S, a row's Start button).
     OpenLaunch(String),
@@ -378,6 +383,8 @@ pub struct Board {
     pub mail: crate::mail::Mail,
     /// The compose dialog, while it is open (D-13; EP-20c).
     pub compose: Option<crate::compose::Dialog>,
+    /// The Chat tile's conversation (D-27; EP-24).
+    pub chat: crate::chat::Chat,
     /// A compose dialog to open once the files are read, with its text canned (a screenshot
     /// run's `compose=<project>[:urgent]`).
     pub compose_when_read: Option<(String, bool)>,
@@ -453,6 +460,7 @@ impl Board {
             reopen_launch: None,
             mail: crate::mail::Mail::default(),
             compose: None,
+            chat: crate::chat::Chat::default(),
             compose_when_read: None,
             formalise: None,
             #[cfg(feature = "screenshot")]
@@ -567,6 +575,15 @@ impl Board {
             ctx.request_repaint_after(SETTLE);
         }
         match self.sessions.receive(ctx) {
+            // A conversation's turn is the Chat tile's (EP-24), the Decisions tile's resume
+            // of a deferred chat question included.
+            Some(Started::Running(text)) if self.chat.starting || self.sessions.last_chat => {
+                self.chat_started(Ok(text));
+                self.bring = Some(Pane::Chat);
+            }
+            Some(Started::Refused(why)) if self.chat.starting || self.sessions.last_chat => {
+                self.chat_started(Err(why));
+            }
             // The chain's own start neither closes the dialog nor takes the pane (EP-19).
             Some(started) if self.autopilot.is_starting() => self.chain_started(started),
             Some(Started::Running(text)) => {
@@ -1215,6 +1232,9 @@ impl Board {
                     self.compose = None;
                 }
             }
+            Action::ChatSend => self.chat_send(),
+            Action::ChatStop => self.chat_stop(),
+            Action::ChatNew => self.chat_new(),
             Action::CloseLaunch => {
                 if self.visual.is_opening() {
                     self.visual.cancel();
@@ -1594,7 +1614,7 @@ impl Board {
 
     /// The CLI a launch dialog starts, its effort levels and the route its questions take (D-15,
     /// D-19); the CLI's preflight is asked meanwhile.
-    fn launch_cli(
+    pub(crate) fn launch_cli(
         &mut self,
         registry: &Registry,
     ) -> (PathBuf, Vec<String>, (Route, Option<String>)) {

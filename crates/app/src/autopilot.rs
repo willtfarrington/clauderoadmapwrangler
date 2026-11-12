@@ -266,8 +266,9 @@ impl Board {
         let Some(outcome) = live.ended.as_ref().map(|ended| ended.outcome) else {
             return;
         };
-        // A migration is no brief: no gate follows it, and no chain (EP-21a).
-        if live.migration {
+        // A migration is no brief: no gate follows it, and no chain (EP-21a); nor is a chat
+        // conversation's turn (EP-24).
+        if live.migration || live.is_chat() {
             return;
         }
         let (project, ran, chained) = (live.project.clone(), live.ep.parse().ok(), live.chained);
