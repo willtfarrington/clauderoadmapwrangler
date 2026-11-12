@@ -843,6 +843,23 @@ fn project_row(
                 }
             }
         });
+        // This project alone read again (EP-25a): what F5 does for every project.
+        ui.separator();
+        if ui
+            .add_enabled(
+                row.folder.is_some(),
+                egui::Button::new("Refresh this project"),
+            )
+            .on_hover_text(
+                "Read this project's files again, then git and its history; the other rows \
+                 stay as they are (F5 reads every project)",
+            )
+            .on_disabled_hover_text("The project's folder is missing")
+            .clicked()
+        {
+            actions.push(Action::RefreshProject(name.to_owned()));
+            ui.close();
+        }
         // The bulb's proposals, each dismissed until the fact it rests on changes (D-6).
         for proposal in row.proposals(now).into_iter().filter(|p| !p.dismissed) {
             if ui
@@ -1363,11 +1380,25 @@ mod tests {
             &portfolio,
             press(egui::PointerButton::Secondary, false),
         );
-        harbor_pass(&mut screen, &portfolio, Vec::new());
+        let (.., output) = harbor_pass(&mut screen, &portfolio, Vec::new());
         assert!(
             egui::Popup::is_any_open(&screen.ctx),
             "the row's menu is open"
         );
+        // Its Refresh this project (EP-25a) asks for the row's read on its own.
+        let item = testing::text_at(&output, "Refresh this project").expect("the menu item");
+        harbor_pass(&mut screen, &portfolio, testing::moved(item));
+        harbor_pass(
+            &mut screen,
+            &portfolio,
+            testing::button(item, egui::PointerButton::Primary, true),
+        );
+        let (actions, ..) = harbor_pass(
+            &mut screen,
+            &portfolio,
+            testing::button(item, egui::PointerButton::Primary, false),
+        );
+        assert_eq!(actions, [Action::RefreshProject("harbor".to_owned())]);
     }
 
     /// Every measured column `width` wide, the fixed ones as they are.

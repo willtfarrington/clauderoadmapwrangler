@@ -61,6 +61,10 @@ pub struct Watch {
     pub recorded: bool,
     /// A visual or headless session ended since the usage meter last looked (D-23; EP-17).
     pub launched_ended: bool,
+    /// The projects of the visual and manual sessions that ended since the window last took
+    /// them (EP-25a), each read again on its own; a headless run is the window's, read at its
+    /// drain.
+    ended_projects: Vec<String>,
     /// The status lines heard since the usage meter last took them (EP-17).
     lines: Vec<StatusLine>,
     /// The sessions that worked since the meter's last reading took them (D-23; EP-18a): a turn's
@@ -138,6 +142,12 @@ impl Watch {
     /// steady wait for the owner is no work.
     pub fn take_worked(&mut self) -> HashSet<String> {
         std::mem::take(&mut self.worked)
+    }
+
+    /// The projects of the visual and manual sessions that ended since the last call (EP-25a),
+    /// each once, for the window to read again.
+    pub fn take_ended_projects(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.ended_projects)
     }
 
     /// Reads what Claude Code's user settings hold of the tool's (at the start and on F5).
@@ -352,6 +362,17 @@ impl Watch {
     /// Keeps a start or an end in the ledger, and the mode the ledger gives the session; a session
     /// that earns its row takes its start along (EP-15b).
     fn record(&mut self, change: &Change, ledger: Option<&Path>) {
+        if let Change::Ended { session_id, .. } = change
+            && let Some(seen) = self.model.get(session_id)
+            && matches!(seen.mode, Mode::Visual | Mode::Manual)
+            && let Some(project) = &seen.project
+            && !self
+                .ended_projects
+                .iter()
+                .any(|p| p.eq_ignore_ascii_case(project))
+        {
+            self.ended_projects.push(project.clone());
+        }
         let (Some(path), false) = (ledger, *change == Change::Nothing) else {
             return;
         };
@@ -596,6 +617,63 @@ mod tests {
             entrypoint: Some("claude-vscode".to_owned()),
             ..Hook::default()
         }
+    }
+
+    /// A visual or manual session's end names its project for a read on its own (EP-25a), each
+    /// project once until taken; a headless run's end does not (the window reads it at its
+    /// drain), nor does a session outside the registry.
+    #[test]
+    fn a_sessions_end_names_its_project_to_read_again() {
+        let folder = PathBuf::from(r"C:\Data\alpha");
+        let projects = vec![Registered {
+            name: "alpha".to_owned(),
+            folder: folder.clone(),
+            revert: false,
+        }];
+        let mut watch = Watch::default();
+        for id in ["m1", "m2", "h1"] {
+            watch.take_hook(
+                &hook("SessionStart", id, &folder),
+                &projects,
+                None,
+                Utc::now(),
+            );
+        }
+        watch.model.set_mode("h1", Mode::Headless);
+        watch.take_hook(
+            &hook("SessionEnd", "h1", &folder),
+            &projects,
+            None,
+            Utc::now(),
+        );
+        assert!(
+            watch.take_ended_projects().is_empty(),
+            "a headless run's end"
+        );
+        for id in ["m1", "m2"] {
+            watch.take_hook(
+                &hook("SessionEnd", id, &folder),
+                &projects,
+                None,
+                Utc::now(),
+            );
+        }
+        // Outside the registry: no project to read.
+        let elsewhere = PathBuf::from(r"C:\Elsewhere");
+        watch.take_hook(
+            &hook("SessionStart", "x1", &elsewhere),
+            &projects,
+            None,
+            Utc::now(),
+        );
+        watch.take_hook(
+            &hook("SessionEnd", "x1", &elsewhere),
+            &projects,
+            None,
+            Utc::now(),
+        );
+        assert_eq!(watch.take_ended_projects(), ["alpha"]);
+        assert!(watch.take_ended_projects().is_empty(), "taken once");
     }
 
     /// A session the window first meets through a later hook takes its ledger row's mode

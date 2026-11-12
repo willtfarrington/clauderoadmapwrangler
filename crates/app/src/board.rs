@@ -40,7 +40,7 @@ use crate::crash;
 use crate::launch::{Dialog, Opening};
 use crate::layout::{self, Pane};
 use crate::meter::Meter;
-use crate::portfolio::{Filter, GroupKind, Loader, Portfolio, Selection, SortKey, step};
+use crate::portfolio::{Filter, GroupKind, Loader, Moment, Portfolio, Selection, SortKey, step};
 use crate::restart::Standing;
 use crate::sessions::{News, SessionFilter, Sessions, Started};
 use crate::style::{self, Density, icons};
@@ -191,6 +191,9 @@ pub enum Action {
         data: bool,
     },
     Refresh,
+    /// One project's files, git and history read again, the other rows left as they are
+    /// (EP-25a): a row's Refresh this project.
+    RefreshProject(String),
     /// The project's history imported again from its log, whatever HEAD says (D-26; EP-25):
     /// the Detail pane's Re-import.
     Reimport(String),
@@ -600,6 +603,11 @@ impl Board {
         if let Some(why) = self.loader.history_problem.take() {
             self.warn(why);
         }
+        match self.loader.reread_notice.take() {
+            Some(Ok(text)) => self.notify(text),
+            Some(Err(why)) => self.warn(why),
+            None => {}
+        }
         match self.sessions.receive(ctx) {
             // A conversation's turn is the Chat tile's (EP-24), the Decisions tile's resume
             // of a deferred chat question included.
@@ -686,6 +694,13 @@ impl Board {
         }
         if std::mem::take(&mut self.watch.launched_ended) {
             self.meter.session_ended();
+        }
+        // A visual or manual session's end: its project read again (EP-25a); the window's own
+        // runs are read at their drain, in the autopilot's pass.
+        for project in self.watch.take_ended_projects() {
+            if !self.fixtures {
+                self.loader.read_project(&project, Moment::SessionEnded);
+            }
         }
         // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
         self.autopilot_pass();
@@ -1376,6 +1391,12 @@ impl Board {
                 self.notify(
                     "Reading every project again: the files, the backup job, git, then GitHub.",
                 );
+            }
+            Action::RefreshProject(name) => {
+                self.loader.read_project(&name, Moment::Menu);
+                self.notify(format!(
+                    "Reading {name} again: the files, then git and its history."
+                ));
             }
             Action::Adopt(name) => {
                 if let Some(text) = self.adopt_folder(&name, &today) {

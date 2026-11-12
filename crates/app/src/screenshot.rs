@@ -306,6 +306,16 @@ impl Run {
                 // A canned history import on harbor's row (EP-25): the Detail pane's History
                 // section with a flagged EP; pair it with `select=harbor`.
                 "history" => board.loader.put_history("harbor", canned_history()),
+                // A canned read on its own of harbor's row (EP-25a): the Status section's line
+                // under Activity; pair it with `select=harbor`.
+                "reread" => board.loader.put_reread(
+                    "harbor",
+                    crate::portfolio::Reread {
+                        at: chrono::Utc::now() - chrono::TimeDelta::minutes(2),
+                        moment: crate::portfolio::Moment::RunEnded { chained: true },
+                        what: "the files, git and the history (imported again)".to_owned(),
+                    },
+                ),
                 "select" => {
                     // A name the registry lists is a project; anything else is taken for a
                     // folder of the data root (the portfolio is not read yet).

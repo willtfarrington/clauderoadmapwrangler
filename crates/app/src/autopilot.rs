@@ -246,12 +246,33 @@ impl Board {
             }
         }
         for key in self.sessions.take_ended() {
+            // The project read again first (EP-25a), so the row says the brief the run closed
+            // while the gate is read (which reads the files for itself).
+            self.reread_after_run(key);
             self.weigh_run(key);
         }
         self.take_gates();
         self.read_held();
         self.start_queued();
         self.read_pilot();
+    }
+
+    /// The project of the window's run `key`, which ended, read again on its own (EP-25a): its
+    /// files, git and history, the other rows left as they are. A chat's turn reads nothing
+    /// (D-27: it writes nothing); a screenshot run's canned sessions read nothing.
+    pub(crate) fn reread_after_run(&mut self, key: u64) {
+        if self.fixtures {
+            return;
+        }
+        let Some(live) = self.sessions.live.iter().find(|live| live.key == key) else {
+            return;
+        };
+        if live.is_chat() || live.ended.is_none() {
+            return;
+        }
+        let (project, chained) = (live.project.clone(), live.chained);
+        self.loader
+            .read_project(&project, crate::portfolio::Moment::RunEnded { chained });
     }
 
     /// The gate after the window's run `key` ended, when its project's autopilot is on or the
@@ -1589,6 +1610,76 @@ mod tests {
             .project("harbor")
             .cloned()
             .unwrap()
+    }
+
+    /// A run's end reads its project again on its own (EP-25a): a canned run of harbor that
+    /// ended asks the loader for harbor and the row says so once read; a chat's turn asks for
+    /// nothing, nor does a run still going.
+    #[test]
+    fn a_runs_end_reads_its_project_again() {
+        use crw_core::session::{Ended, Event};
+
+        use crate::portfolio::Moment;
+        use crate::sessions::Live;
+
+        let scratch = Scratch::new("autopilot-reread");
+        let mut board = board(&scratch);
+        // The real path, not a screenshot run's.
+        board.fixtures = false;
+        let ended = |outcome| {
+            Event::Exited(Ended {
+                outcome,
+                exit_code: Some(0),
+                result: None,
+                stderr: Vec::new(),
+            })
+        };
+        let launch = |project: &str, ep: Option<&str>| {
+            let mut launch = Launch::new(project, std::path::Path::new(project), "fable", "go");
+            launch.ep = ep.map(str::to_owned);
+            launch
+        };
+        let mut run = Live::canned(
+            31,
+            launch("harbor", Some("EP-4")),
+            "high",
+            vec![ended(Outcome::Completed)],
+        );
+        run.chained = true;
+        let going = Live::canned(32, launch("lantern", Some("EP-2")), "high", Vec::new());
+        let mut chat_launch = launch("chat", None);
+        chat_launch.conversation = Some("What is next?".to_owned());
+        let chat = Live::canned(33, chat_launch, "high", vec![ended(Outcome::Completed)]);
+        board.sessions.live.extend([run, going, chat]);
+        board.reread_after_run(32);
+        board.reread_after_run(33);
+        assert!(
+            board.loader.rereading.is_empty(),
+            "a chat's turn and a run going on"
+        );
+        board.reread_after_run(31);
+        assert!(board.loader.rereading.contains("harbor"));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while (board.loader.rereading.contains("harbor") || board.loader.reading_files)
+            && std::time::Instant::now() < deadline
+        {
+            board.loader.receive(&mut board.portfolio);
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+        let harbor = board.portfolio.project("harbor").expect("harbor read");
+        let reread = harbor
+            .reread
+            .as_ref()
+            .expect("the row says it was read again");
+        assert_eq!(reread.moment, Moment::RunEnded { chained: true });
+        assert_eq!(reread.what, "the files");
+        assert!(board.portfolio.project("lantern").unwrap().reread.is_none());
+        assert_eq!(
+            board.loader.reread_notice.take(),
+            Some(Ok(
+                "harbor read again after its chained run ended: the files".to_owned()
+            ))
+        );
     }
 
     /// A gate read for harbor after EP-3 with `refusals`, its next brief drafted as the worker

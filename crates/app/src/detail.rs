@@ -675,16 +675,22 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio, week: &Wee
     });
     divider(ui);
 
-    columns.subsection(ui, SUBSECTIONS[1], |ui| match &activity {
-        Some((age, dirty)) => {
-            columns.mark_line(ui, age);
-            match dirty {
-                Some(dirty) => columns.mark_line(ui, dirty),
-                None => columns.weak_line(ui, "A clean working tree"),
+    columns.subsection(ui, SUBSECTIONS[1], |ui| {
+        match &activity {
+            Some((age, dirty)) => {
+                columns.mark_line(ui, age);
+                match dirty {
+                    Some(dirty) => columns.mark_line(ui, dirty),
+                    None => columns.weak_line(ui, "A clean working tree"),
+                }
             }
+            None if row.awaits_git() => columns.weak_line(ui, "Git has not been asked yet"),
+            None => columns.weak_line(ui, "Not a git repository"),
         }
-        None if row.awaits_git() => columns.weak_line(ui, "Git has not been asked yet"),
-        None => columns.weak_line(ui, "Not a git repository"),
+        // The row's latest read on its own (EP-25a), until every project reads again.
+        if let Some(reread) = &row.reread {
+            columns.weak_line(ui, reread.line(now));
+        }
     });
     divider(ui);
 
@@ -1355,6 +1361,38 @@ mod tests {
         assert!(testing::text_at(&output, "Migrate…").is_some());
         assert!(testing::text_at(&output, "Formalise…").is_none());
         assert!(shows(&output, "the five-column tables, read-only (D-9)"));
+    }
+
+    /// The Status section's Activity lines say a row's latest read on its own (EP-25a), and
+    /// nothing of it for a row never read alone.
+    #[test]
+    fn the_status_section_says_the_rows_read_on_its_own() {
+        use crate::meter::Week;
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::portfolio::{Moment, Reread};
+        use crate::testing::{self, Screen};
+
+        let scratch = Scratch::new("detail-reread");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio.project("harbor").unwrap();
+        let week = Week::default();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| status(ui, harbor, &portfolio, &week));
+        assert!(testing::text_containing(&output, "Read again").is_none());
+        let mut reread = harbor.clone();
+        reread.reread = Some(Reread {
+            at: Utc::now() - chrono::TimeDelta::minutes(5),
+            moment: Moment::SessionEnded,
+            what: "the files, git and the history".to_owned(),
+        });
+        let output = screen.pass(Vec::new(), |ui| status(ui, &reread, &portfolio, &week));
+        assert!(
+            testing::text_at(
+                &output,
+                "Read again 5 min ago after a session ended there: the files, git and the history"
+            )
+            .is_some()
+        );
     }
 
     /// The History section (EP-25): a canned import's dates and flagged EPs, Re-import pushing

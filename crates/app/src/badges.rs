@@ -760,6 +760,7 @@ mod tests {
             badges,
             house: Default::default(),
             history: None,
+            reread: None,
         }
     }
 

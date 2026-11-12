@@ -23,6 +23,7 @@ use crw_core::badges::backup::{self, Backup};
 use crw_core::badges::health::{self, Run};
 use crw_core::badges::hosting::{self, Check, Class, Hosting, Listed};
 use crw_core::badges::online::{self, Reading};
+use crw_core::badges::short_age;
 use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
 use crw_core::formalise::{self, Change};
@@ -168,6 +169,63 @@ pub struct ProjectRow {
     /// The project's history as the ledger keeps it (D-26; EP-25): imported by the git pass at
     /// a repository's first sight and when `HEAD` moves, or on Re-import; `None` until then.
     pub history: Option<Summary>,
+    /// The project's latest read on its own (EP-25a): after its session ended, or from its
+    /// row's menu; gone at the next read of every project's files.
+    pub reread: Option<Reread>,
+}
+
+/// Why one project was read on its own (EP-25a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Moment {
+    /// A headless run of the window ended; a chained one's gate follows.
+    RunEnded { chained: bool },
+    /// The hooks or the poll said a visual or manual session ended there.
+    SessionEnded,
+    /// The row's menu.
+    Menu,
+}
+
+impl Moment {
+    pub fn words(self) -> &'static str {
+        match self {
+            Moment::RunEnded { chained: false } => "after its run ended",
+            Moment::RunEnded { chained: true } => "after its chained run ended",
+            Moment::SessionEnded => "after a session ended there",
+            Moment::Menu => "from its row's menu",
+        }
+    }
+}
+
+/// One project read on its own (EP-25a): when, why, and what was read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reread {
+    pub at: DateTime<Utc>,
+    pub moment: Moment,
+    /// `the files`, `the files and git`, `the files, git and the history`, with `(imported
+    /// again)` when `HEAD` had moved.
+    pub what: String,
+}
+
+impl Reread {
+    /// The Detail pane's line: `Read again 2 min ago after its run ended: the files, git and the
+    /// history`.
+    pub fn line(&self, now: DateTime<Utc>) -> String {
+        let age = match short_age(now - self.at).as_str() {
+            "now" => "just now".to_owned(),
+            age => format!("{age} ago"),
+        };
+        format!("Read again {age} {}: {}", self.moment.words(), self.what)
+    }
+
+    /// The status bar's notice: `harbor read again after its run ended: the files, git and the
+    /// history`.
+    pub fn notice(&self, project: &str) -> String {
+        format!(
+            "{project} read again {}: {}",
+            self.moment.words(),
+            self.what
+        )
+    }
 }
 
 /// What the formalise step would write in a project (D-11; EP-21a), from its files as the files
@@ -426,6 +484,62 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         badges,
         house,
         history: None,
+        reread: None,
+    }
+}
+
+/// The files of one registered project, as the files pass reads them (EP-25a): `None` when the
+/// registry does not read or does not list `name`.
+pub fn read_project(store: &Store, name: &str) -> Option<ProjectRow> {
+    let registry = store.load().ok()?.registry;
+    let project = registry.project(name)?.clone();
+    let path = project.folder(&registry.data_root());
+    let registered = Registered {
+        folder: Folder::inspect(&path),
+        project,
+        path,
+    };
+    Some(row(registered, &registry))
+}
+
+/// Each project's counts as read, kept once a day and at every change (D-26; EP-25).
+fn record_counts(ledger: Option<&Path>, rows: &[ProjectRow]) {
+    let Some(ledger) = ledger.and_then(|path| Ledger::open(path).ok()) else {
+        return;
+    };
+    let now = Utc::now();
+    for row in rows {
+        let counts = row.counts();
+        if counts.total > 0 {
+            let _ = ledger.record_counts(row.name(), now, counts.done, counts.total, &Local);
+        }
+    }
+}
+
+/// The history after a git reading (EP-25): imported at the repository's first sight and when
+/// `HEAD` moved since the stored import, else read as stored; whether an import ran, and the
+/// summary.
+fn history_after(
+    ledger: &mut Ledger,
+    project: &str,
+    folder: &Path,
+    head: Option<String>,
+) -> (bool, Option<Summary>) {
+    let stored = ledger.imported_head(project).ok().flatten();
+    if stored.as_ref() != Some(&head) {
+        (true, import_into(ledger, project, folder, head))
+    } else {
+        (false, ledger.history_of(project).ok().flatten())
+    }
+}
+
+impl Git {
+    /// `HEAD`'s commit as the status read it.
+    fn head(&self) -> Option<String> {
+        self.reading
+            .worktree
+            .as_ref()
+            .and_then(|status| status.oid.clone())
     }
 }
 
@@ -486,6 +600,24 @@ pub enum Message {
         project: String,
         why: String,
     },
+    /// One project's files read on their own (EP-25a), under the files generation the read
+    /// started in: a read of every project's files since supersedes it.
+    Project {
+        generation: u64,
+        row: Box<ProjectRow>,
+    },
+    /// One repository's git reading from a read on its own; never superseded.
+    ProjectGit {
+        project: String,
+        git: Git,
+    },
+    /// A read on its own is over: what it read, or why it read nothing; under the files
+    /// generation it started in, so a read of every project's files since drops its note too.
+    Reread {
+        generation: u64,
+        project: String,
+        result: Result<Reread, String>,
+    },
     /// A folder of the data root appeared, went or was renamed.
     Folders,
 }
@@ -544,6 +676,13 @@ pub struct Loader {
     histories: HashMap<String, Summary>,
     /// A Re-import's failure, read once by the window.
     pub history_problem: Option<String>,
+    /// Each project's latest read on its own (EP-25a), put into its row at the next read of the
+    /// files and dropped at a read of every project's files.
+    rereads: HashMap<String, Reread>,
+    /// The projects being read on their own, by key: a second ask while one runs is dropped.
+    pub rereading: BTreeSet<String>,
+    /// What a read on its own said, or why it read nothing, read once by the window.
+    pub reread_notice: Option<Result<String, String>>,
     backups: Option<(backup::Reading, HashMap<String, Backup>)>,
     fetched: Online,
     /// A read of the files is under way.
@@ -580,6 +719,9 @@ impl Loader {
             readings: HashMap::new(),
             histories: HashMap::new(),
             history_problem: None,
+            rereads: HashMap::new(),
+            rereading: BTreeSet::new(),
+            reread_notice: None,
             backups: None,
             fetched: Online::default(),
             reading_files: false,
@@ -596,36 +738,108 @@ impl Loader {
         &self.store
     }
 
-    /// Reads the files again on a worker thread; an older read still running is dropped.
+    /// Reads the files again on a worker thread; an older read still running is dropped, and
+    /// so are the rows' notes of a read on their own: every project reads afresh.
     pub fn read_files(&mut self) {
         let generation = self.files.fetch_add(1, Atomic::SeqCst) + 1;
         self.reading_files = true;
+        self.rereads.clear();
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let ledger = self.ledger.clone();
         thread::spawn(move || {
             let portfolio = read_files(&store);
-            // Each project's counts as read, kept once a day and at every change (D-26; EP-25).
-            if let Some(ledger) = ledger.as_deref().and_then(|path| Ledger::open(path).ok()) {
-                let now = Utc::now();
-                for row in &portfolio.projects {
-                    let counts = row.counts();
-                    if counts.total > 0 {
-                        let _ = ledger.record_counts(
-                            row.name(),
-                            now,
-                            counts.done,
-                            counts.total,
-                            &Local,
-                        );
-                    }
-                }
-            }
+            record_counts(ledger.as_deref(), &portfolio.projects);
             let _ = tx.send(Message::Files {
                 generation,
                 portfolio,
             });
             ctx.request_repaint();
         });
+    }
+
+    /// Reads one project again on a worker thread (EP-25a): its files as the files pass reads
+    /// them, then, for a repository, its git reading in one turn and its history check (an
+    /// import when `HEAD` moved), the other rows left as they are. A read of `name` already
+    /// under way is left to finish; a read of every project's files started after this one
+    /// supersedes its files.
+    pub fn read_project(&mut self, name: &str, moment: Moment) {
+        if !self.rereading.insert(key(name)) {
+            return;
+        }
+        let generation = self.files.load(Atomic::SeqCst);
+        let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
+        let (ledger, name) = (self.ledger.clone(), name.to_owned());
+        thread::spawn(move || {
+            let Some(row) = read_project(&store, &name) else {
+                let _ = tx.send(Message::Reread {
+                    generation,
+                    project: name,
+                    result: Err("the registry does not list it".to_owned()),
+                });
+                ctx.request_repaint();
+                return;
+            };
+            record_counts(ledger.as_deref(), std::slice::from_ref(&row));
+            let project = row.name().to_owned();
+            let folder = row
+                .folder
+                .as_ref()
+                .filter(|folder| folder.git)
+                .map(|folder| folder.path.clone());
+            let _ = tx.send(Message::Project {
+                generation,
+                row: Box::new(row),
+            });
+            ctx.request_repaint();
+            let mut what = "the files".to_owned();
+            if let Some(folder) = folder {
+                let git = read_git(&folder);
+                let head = git.head();
+                let _ = tx.send(Message::ProjectGit {
+                    project: project.clone(),
+                    git,
+                });
+                ctx.request_repaint();
+                let mut ledger = ledger.as_deref().and_then(|path| Ledger::open(path).ok());
+                let history = ledger
+                    .as_mut()
+                    .map(|ledger| history_after(ledger, &project, &folder, head));
+                what = match history {
+                    Some((true, Some(summary))) => {
+                        let _ = tx.send(Message::History {
+                            project: project.clone(),
+                            summary,
+                        });
+                        "the files, git and the history (imported again)".to_owned()
+                    }
+                    Some((false, Some(summary))) => {
+                        let _ = tx.send(Message::History {
+                            project: project.clone(),
+                            summary,
+                        });
+                        "the files, git and the history".to_owned()
+                    }
+                    Some((_, None)) | None => "the files and git".to_owned(),
+                };
+            }
+            let _ = tx.send(Message::Reread {
+                generation,
+                project,
+                result: Ok(Reread {
+                    at: Utc::now(),
+                    moment,
+                    what,
+                }),
+            });
+            ctx.request_repaint();
+        });
+    }
+
+    /// Keeps a note of a read on its own for `project`, put into its row at the next read of the
+    /// files: a screenshot run's canned one.
+    #[cfg(feature = "screenshot")]
+    pub fn put_reread(&mut self, project: &str, reread: Reread) {
+        self.rereads.insert(key(project), reread);
     }
 
     /// Runs the git pass on a worker thread, after superseding any pass still running: the
@@ -680,11 +894,7 @@ impl Loader {
                     return;
                 }
                 let git = read_git(&folder);
-                let head = git
-                    .reading
-                    .worktree
-                    .as_ref()
-                    .and_then(|status| status.oid.clone());
+                let head = git.head();
                 let _ = tx.send(Message::Git {
                     generation,
                     project: project.clone(),
@@ -695,17 +905,11 @@ impl Loader {
                 ctx.request_repaint();
                 // The history (EP-25): imported at the repository's first sight and when HEAD
                 // moved since the stored import, else read as stored.
-                if let Some(ledger) = ledger.as_mut() {
-                    let stored = ledger.imported_head(&project).ok().flatten();
-                    let summary = if stored.as_ref() != Some(&head) {
-                        import_into(ledger, &project, &folder, head)
-                    } else {
-                        ledger.history_of(&project).ok().flatten()
-                    };
-                    if let Some(summary) = summary {
-                        let _ = tx.send(Message::History { project, summary });
-                        ctx.request_repaint();
-                    }
+                if let Some(ledger) = ledger.as_mut()
+                    && let (_, Some(summary)) = history_after(ledger, &project, &folder, head)
+                {
+                    let _ = tx.send(Message::History { project, summary });
+                    ctx.request_repaint();
                 }
             }
             let _ = tx.send(Message::GitDone { generation });
@@ -865,11 +1069,72 @@ impl Loader {
                             row.add_git(git.clone());
                         }
                         row.history = self.histories.get(&key(row.name())).cloned();
+                        row.reread = self.rereads.get(&key(row.name())).cloned();
                     }
                     *portfolio = read;
                     self.reading_files = false;
                     self.watch(&portfolio.data_root);
                     changed = true;
+                }
+                // One project's files read on their own (EP-25a): its row swapped in place with
+                // the kept readings added back, the other rows untouched.
+                Message::Project { generation, row }
+                    if generation == self.files.load(Atomic::SeqCst) =>
+                {
+                    let mut row = *row;
+                    let name = key(row.name());
+                    if let Some(git) = self.readings.get(&name)
+                        && row.is_repository()
+                    {
+                        row.add_git(git.clone());
+                    }
+                    row.history = self.histories.get(&name).cloned();
+                    row.reread = self.rereads.get(&name).cloned();
+                    if let Some(at) = portfolio
+                        .projects
+                        .iter()
+                        .position(|old| key(old.name()) == name)
+                    {
+                        row.mail = std::mem::take(&mut portfolio.projects[at].mail);
+                        portfolio.projects[at] = row;
+                        changed = true;
+                    }
+                }
+                Message::ProjectGit { project, git } => {
+                    if let Some(row) = portfolio
+                        .projects
+                        .iter_mut()
+                        .find(|row| key(row.name()) == key(&project))
+                    {
+                        row.add_git(git.clone());
+                    }
+                    self.readings.insert(key(&project), git);
+                }
+                Message::Reread {
+                    generation,
+                    project,
+                    result,
+                } => {
+                    self.rereading.remove(&key(&project));
+                    // Superseded by a read of every project's files: its note goes unsaid.
+                    if generation != self.files.load(Atomic::SeqCst) {
+                        continue;
+                    }
+                    self.reread_notice = Some(match result {
+                        Ok(reread) => {
+                            if let Some(row) = portfolio
+                                .projects
+                                .iter_mut()
+                                .find(|row| key(row.name()) == key(&project))
+                            {
+                                row.reread = Some(reread.clone());
+                            }
+                            let notice = reread.notice(&project);
+                            self.rereads.insert(key(&project), reread);
+                            Ok(notice)
+                        }
+                        Err(why) => Err(format!("{project} was not read again: {why}")),
+                    });
                 }
                 Message::Backups {
                     generation,
@@ -935,6 +1200,7 @@ impl Loader {
                 Message::Folders => folders = true,
                 // A superseded read's result.
                 Message::Files { .. }
+                | Message::Project { .. }
                 | Message::Backups { .. }
                 | Message::Git { .. }
                 | Message::GitDone { .. }
@@ -1556,6 +1822,170 @@ pub(crate) mod tests {
             portfolio
                 .groups(SortKey::Name, Filter::name("nothing"))
                 .is_empty()
+        );
+    }
+
+    /// A one-project read (EP-25a): the named row swapped in with the kept readings added
+    /// back, the other rows' git, facts, history and mail as they were; a read of every
+    /// project's files started after it supersedes its files; its note on the row and the
+    /// notice; a second ask while one runs is dropped; a name the registry lacks reads nothing.
+    #[test]
+    fn a_project_read_on_its_own_leaves_the_other_rows_as_they_were() {
+        use crw_core::history::{Import, Summary};
+        use crw_core::inbox::mailman::Mark;
+
+        let scratch = Scratch::new("portfolio-reread");
+        let store = fake_store(&scratch);
+        let mut portfolio = read_files(&store);
+        let mut loader = Loader::new(
+            Arc::new(fake_store(&scratch)),
+            None,
+            false,
+            egui::Context::default(),
+        );
+        let now = Utc::now();
+        // Readings the other passes gave lantern, and harbor's own kept git reading.
+        let lantern_git = Git {
+            reading: GitReading::default(),
+            last_commit: Some(now - TimeDelta::days(3)),
+        };
+        loader
+            .readings
+            .insert("lantern".to_owned(), lantern_git.clone());
+        let summary = Summary {
+            imported_at: now,
+            head: Some("abc".to_owned()),
+            import: Import::default(),
+        };
+        loader
+            .histories
+            .insert("lantern".to_owned(), summary.clone());
+        let harbor_git = Git {
+            reading: GitReading::default(),
+            last_commit: Some(now - TimeDelta::days(1)),
+        };
+        loader
+            .readings
+            .insert("harbor".to_owned(), harbor_git.clone());
+        for row in &mut portfolio.projects {
+            if let Some(git) = loader.readings.get(&key(row.name())) {
+                row.add_git(git.clone());
+            }
+            row.history = loader.histories.get(&key(row.name())).cloned();
+        }
+        let mark = Mark {
+            sender: "harbor".to_owned(),
+            path: PathBuf::from("roadmap/EP-1-boot.md"),
+            line: 40,
+            state: crw_core::inbox::mailman::State::Counted,
+        };
+        {
+            let harbor = portfolio
+                .projects
+                .iter_mut()
+                .find(|row| row.name() == "harbor")
+                .unwrap();
+            harbor.mail.push(mark.clone());
+            harbor.snapshot = Snapshot::default();
+        }
+        let lantern_before = portfolio.project("lantern").unwrap().clone();
+        let before: Vec<String> = portfolio
+            .projects
+            .iter()
+            .map(|row| row.name().to_owned())
+            .collect();
+
+        // The read, as the thread sends it.
+        loader.read_project("Harbor", Moment::RunEnded { chained: true });
+        assert!(loader.rereading.contains("harbor"));
+        loader.read_project("harbor", Moment::Menu);
+        assert_eq!(loader.rereading.len(), 1, "a second ask is dropped");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while loader.rereading.contains("harbor") && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(loader.rereading.is_empty(), "the read ended");
+        let harbor = portfolio.project("harbor").unwrap();
+        // Its files read again: the snapshot filled once more, the mail marks kept, and the
+        // note on the row; no repository in the fake portfolio, so the kept git reading stays
+        // in the loader for one (as a read of every project's files keeps it).
+        assert_eq!(harbor.counts().total, 9);
+        assert!(!harbor.is_repository() && harbor.git.is_none());
+        assert_eq!(
+            loader
+                .readings
+                .get("harbor")
+                .and_then(|git| git.last_commit),
+            harbor_git.last_commit
+        );
+        assert_eq!(harbor.mail, [mark]);
+        let reread = harbor.reread.as_ref().expect("the note");
+        assert_eq!(reread.moment, Moment::RunEnded { chained: true });
+        assert_eq!(reread.what, "the files");
+        // Read a moment after `now`: three minutes later is two whole minutes ago.
+        assert_eq!(
+            reread.line(now + TimeDelta::minutes(3)),
+            "Read again 2 min ago after its chained run ended: the files"
+        );
+        assert_eq!(
+            reread.line(now),
+            "Read again just now after its chained run ended: the files"
+        );
+        assert_eq!(
+            loader.reread_notice.take(),
+            Some(Ok(
+                "harbor read again after its chained run ended: the files".to_owned()
+            ))
+        );
+        // The other rows as they were.
+        let lantern = portfolio.project("lantern").unwrap();
+        assert_eq!(lantern.facts.last_commit, lantern_before.facts.last_commit);
+        assert_eq!(lantern.history, Some(summary));
+        assert!(lantern.git.is_some());
+        let after: Vec<String> = portfolio
+            .projects
+            .iter()
+            .map(|row| row.name().to_owned())
+            .collect();
+        assert_eq!(after, before);
+
+        // A read of every project's files started after the one-project read supersedes it: its
+        // row never lands, and the notes go with the full read.
+        loader.read_project("harbor", Moment::SessionEnded);
+        loader.read_files();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while (loader.rereading.contains("harbor") || loader.reading_files)
+            && Instant::now() < deadline
+        {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        let harbor = portfolio.project("harbor").unwrap();
+        assert!(harbor.reread.is_none(), "the full read dropped the note");
+        assert_eq!(
+            loader.reread_notice.take(),
+            None,
+            "and its notice goes unsaid"
+        );
+
+        // A name the registry lacks reads nothing and says so.
+        loader.read_project("nowhere", Moment::Menu);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while loader.rereading.contains("nowhere") && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            loader.reread_notice.take(),
+            Some(Err(
+                "nowhere was not read again: the registry does not list it".to_owned()
+            ))
+        );
+        assert!(read_project(&store, "nowhere").is_none());
+        assert_eq!(
+            read_project(&store, "LANTERN").map(|row| row.name().to_owned()),
+            Some("lantern".to_owned())
         );
     }
 

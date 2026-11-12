@@ -1132,6 +1132,21 @@ tool. *Alternatives.* Polling only; hooks only.
 > The chat's runs marked for the hook, which `--restricted` keeps from loading the owner's
 > settings in any case; the context put into the message, which the exchange would show.
 
+> **Addendum (2026-11-12, EP-25a).** A session's end re-reads its project. The end hook's
+> `Change::Ended` (and the poll's, for a session that left its listing) names the registered
+> project of a visual or manual session, and the window reads that project alone again: its
+> files as the files pass reads them, swapped into its row with the other rows untouched, then
+> its git reading in one turn and its history check (EP-25's import when `HEAD` moved). A
+> headless run of the window is read the same way at its drain, before its gate is weighed
+> (the gate reads the files for itself); a chat's turn reads nothing, since it writes nothing
+> (D-27). The row's menu offers the same as Refresh this project, and the Detail pane's Status
+> section says when the row was last read alone and why, until every project reads again
+> (F5, a folder change). A read of a project already being read is dropped; a read of every
+> project's files started later supersedes a one-project read's files and its note.
+> *Alternatives.* F5 after each session (the owner's ask, IN-13, was to be rid of it); a watcher
+> on every project's `roadmap/` folder, which reads at each write of a session rather than at
+> its end; a re-read at every Stop hook.
+
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
 Quit); the Claude app's own push for the phone; **ntfy over the tailnet** (a topic configured in the

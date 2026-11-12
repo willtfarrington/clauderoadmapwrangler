@@ -2571,6 +2571,7 @@ pub(crate) mod tests {
             badges: Default::default(),
             house: Default::default(),
             history: None,
+            reread: None,
         };
         let mut row = ledger_row();
         row.mode = "visual".to_owned();

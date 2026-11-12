@@ -166,7 +166,9 @@ runnable code in three colours of the window's, a long owner item a sentence to 
 gate as a chip beside its id.
 It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
-answers cached in the ledger, and nothing is ever fetched. The backup badge reads an existing backup
+answers cached in the ledger, and nothing is ever fetched. A project whose session ended, the
+window's own run or one the hooks saw, is read again on its own (its files, git and history), as
+is one whose row's menu says Refresh this project, the other rows left as they are (EP-25a). The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
 only what the tool owns: the registry (Adopt, Ignore, a confirmed or dismissed proposal, pin,
 priority), the workspace files Adopt writes (and a visual launch, when a project's own one is
