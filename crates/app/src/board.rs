@@ -181,6 +181,15 @@ pub enum Action {
     ChatStop,
     ChatNew,
     ChatPickUp(String),
+    /// A chip under a reply (EP-24b): the window's own dialog opened on the action's target,
+    /// or the Adopt confirmation shown; nothing written.
+    ChatAct(crw_core::chat::Proposed),
+    /// The Adopt confirmation's Adopt (EP-24b): the folder adopted as the list's Adopt does,
+    /// and marked a data repository when `data`.
+    ChatAdopt {
+        folder: String,
+        data: bool,
+    },
     Refresh,
     /// The launch dialog on the project's next brief (S, a row's Start button).
     OpenLaunch(String),
@@ -1251,6 +1260,11 @@ impl Board {
             Action::ChatStop => self.chat_stop(),
             Action::ChatNew => self.chat_new(),
             Action::ChatPickUp(session_id) => self.chat_pick_up(&session_id),
+            Action::ChatAct(proposed) => self.chat_act(proposed),
+            Action::ChatAdopt { folder, data } => {
+                self.chat_adopt(&folder, data);
+                return true;
+            }
             Action::CloseLaunch => {
                 if self.visual.is_opening() {
                     self.visual.cancel();
@@ -1337,48 +1351,9 @@ impl Board {
                 );
             }
             Action::Adopt(name) => {
-                // A screenshot run's data root is the tracked fixtures or a copy: no file beside
-                // them.
-                let own_files = if self.fixtures {
-                    OwnFiles::Skip
-                } else {
-                    OwnFiles::Write
-                };
-                match discovery::adopt(self.store(), &[name.as_str()], &today, own_files) {
-                    Ok(adopted) => {
-                        let text = adopted
-                            .iter()
-                            .map(|one| {
-                                let own = match &one.own_file {
-                                    OwnFile::Written(path) => format!("wrote {}", path.display()),
-                                    OwnFile::Kept(path) => {
-                                        format!("kept its own {}", path.display())
-                                    }
-                                    OwnFile::Skipped => {
-                                        "no workspace file of its own in a screenshot run"
-                                            .to_owned()
-                                    }
-                                };
-                                let listing = match &one.workspace {
-                                    Listing::Appended { backup } => format!(
-                                        "added to the workspace file (the old one is kept as {})",
-                                        backup.display()
-                                    ),
-                                    Listing::AlreadyListed => {
-                                        "already in the workspace file".to_owned()
-                                    }
-                                    Listing::NoWorkspaceFile => {
-                                        "no workspace file is set".to_owned()
-                                    }
-                                };
-                                format!("Adopted {} as {}; {own}; {listing}.", one.name, one.state)
-                            })
-                            .collect::<Vec<_>>()
-                            .join(" ");
-                        self.view.selected = Some(Selection::Project(name));
-                        self.notify(text);
-                    }
-                    Err(e) => self.fail(format!("Adopt {name}: {e}")),
+                if let Some(text) = self.adopt_folder(&name, &today) {
+                    self.view.selected = Some(Selection::Project(name));
+                    self.notify(text);
                 }
                 return true;
             }
@@ -2298,6 +2273,50 @@ impl Board {
             });
         });
         ui.add_space(2.0);
+    }
+}
+
+impl Board {
+    /// Adopts an unadopted folder of the data root (D-7): the list's Adopt and the chat's
+    /// confirmation (EP-24b). What was done, in words, or `None` after a failure, said. A
+    /// screenshot run's data root is the tracked fixtures or a copy: no file is written beside
+    /// them.
+    pub(crate) fn adopt_folder(&mut self, name: &str, today: &str) -> Option<String> {
+        let own_files = if self.fixtures {
+            OwnFiles::Skip
+        } else {
+            OwnFiles::Write
+        };
+        match discovery::adopt(self.store(), &[name], today, own_files) {
+            Ok(adopted) => Some(
+                adopted
+                    .iter()
+                    .map(|one| {
+                        let own = match &one.own_file {
+                            OwnFile::Written(path) => format!("wrote {}", path.display()),
+                            OwnFile::Kept(path) => format!("kept its own {}", path.display()),
+                            OwnFile::Skipped => {
+                                "no workspace file of its own in a screenshot run".to_owned()
+                            }
+                        };
+                        let listing = match &one.workspace {
+                            Listing::Appended { backup } => format!(
+                                "added to the workspace file (the old one is kept as {})",
+                                backup.display()
+                            ),
+                            Listing::AlreadyListed => "already in the workspace file".to_owned(),
+                            Listing::NoWorkspaceFile => "no workspace file is set".to_owned(),
+                        };
+                        format!("Adopted {} as {}; {own}; {listing}.", one.name, one.state)
+                    })
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+            Err(e) => {
+                self.fail(format!("Adopt {name}: {e}"));
+                None
+            }
+        }
     }
 }
 

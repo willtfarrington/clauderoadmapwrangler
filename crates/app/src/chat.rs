@@ -9,8 +9,14 @@
 //! window at once (`sessions::Live::take`), and the session's questions are answered here with
 //! the Decisions form (EP-24a). The ledger's conversations are listed, the latest activity
 //! first, and one is picked up again with `--resume`; the model and effort are the
-//! conversation's, picked in the header (EP-24a). A screenshot run cans a conversation
-//! (`chat`, `chat=asks`), and starts nothing.
+//! conversation's, picked in the header (EP-24a). The actions a reply proposes in its
+//! `actions` block are drawn as chips under it, each opening the window's own dialog with the
+//! project filled in (the formalise preview, the launch dialog with the migration prompt, the
+//! compose dialog with the words typed, an Adopt confirmation that asks for the data mark
+//! first), nothing written before the owner's click there; the session runs the tool's own
+//! `crw` reading commands, and an `@<project>` in the owner's message gives the digest that
+//! project's context, the prompt hook's own (EP-24b). A screenshot run cans a conversation
+//! (`chat`, `chat=asks`, `chat=actions`), and starts nothing.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -18,10 +24,12 @@ use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local, Utc};
 use crw_core::catalog::Catalog;
-use crw_core::chat::{self, Digest, Next, Pick, ProjectDigest, Turn};
+use crw_core::chat::{self, Digest, Next, Pick, ProjectDigest, Proposed, Turn};
 use crw_core::files;
 use crw_core::ledger::{self, ConversationRow, Ledger};
 use crw_core::session::{Appended, Outcome, Request};
+use crw_core::sessions::Registered;
+use crw_core::signals::mentions;
 use crw_core::usage;
 use eframe::egui::{self, OutputCommand, RichText};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
@@ -86,17 +94,51 @@ pub struct Chat {
     pub list: Conversations,
     /// Open the list's fold at the next draw (a screenshot run's `chat=list`).
     pub unfold: bool,
+    /// An Adopt chip taken (EP-24b): the confirmation under the exchange, which asks whether
+    /// the folder is a data repository before anything is written.
+    pub adopting: Option<Adopting>,
+    /// The projects the last message mentioned with `@`, whose context the digest carried
+    /// (EP-24b), for the header's hover.
+    pub mentioned: Vec<String>,
     /// Claude Code's model catalog, read once for the picker.
     catalog: Option<Catalog>,
     /// The Markdown viewer's cache, one per conversation.
     cache: CommonMarkCache,
 }
 
-/// A turn handed to the start thread: the session id it starts or resumes under, and the
-/// conversation's title.
+/// The Adopt chip's confirmation (EP-24b): the folder, and whether the owner marks it a data
+/// repository with the adoption (`data = true`, which keeps it out of every chat session).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Adopting {
+    pub folder: String,
+    pub data: bool,
+}
+
+/// What the window knows for the chips (EP-24b): the registered projects' names and the
+/// unadopted folders', so that a chip opens a dialog only on a target the window has.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Known {
+    pub projects: Vec<String>,
+    pub unadopted: Vec<String>,
+}
+
+impl Known {
+    fn project(&self, name: &str) -> bool {
+        self.projects.iter().any(|p| p.eq_ignore_ascii_case(name))
+    }
+
+    fn unadopted(&self, name: &str) -> bool {
+        self.unadopted.iter().any(|f| f.eq_ignore_ascii_case(name))
+    }
+}
+
+/// A turn handed to the start thread: the session id it starts or resumes under, the
+/// conversation's title, and the projects its message mentioned, whose context went with
+/// the digest (EP-24b; taken up only once the start came back, the review's finding).
 pub struct Pending {
     pub session_id: String,
     pub title: String,
+    pub mentioned: Vec<String>,
 }
 
 /// The ledger's conversations as the list shows them (EP-24a), read as the Sessions pane reads
@@ -235,6 +277,138 @@ impl Board {
             left_out,
             usage: figure_words,
             reference: chat::reference(chat::plugin_dir().as_deref()),
+            unadopted: self
+                .portfolio
+                .unadopted
+                .iter()
+                .map(|folder| folder.name.clone())
+                .collect(),
+        }
+    }
+
+    /// The context of the projects `message` mentions with `@` (EP-24b): the prompt hook's
+    /// own (`mentions::context`, EP-39's order), over the readable projects alone, so that a
+    /// data repository's files are never read into the chat; the chat folder is no project's,
+    /// so none is left out as the session's own. With it, the names given, for the header.
+    pub(crate) fn chat_mentions(&self, message: &str, cwd: &Path) -> (Option<String>, Vec<String>) {
+        if !message.contains('@') {
+            return (None, Vec::new());
+        }
+        let registered: Vec<Registered> = self
+            .portfolio
+            .projects
+            .iter()
+            .filter(|row| !row.project.data)
+            .filter_map(|row| {
+                Some(Registered {
+                    name: row.name().to_owned(),
+                    folder: row.folder.as_ref()?.path.clone(),
+                    revert: row.project.revert,
+                })
+            })
+            .collect();
+        let context = mentions::context(message, cwd, &registered);
+        let mentioned = if context.is_some() {
+            mentions::names(message)
+                .iter()
+                .filter_map(|name| {
+                    registered
+                        .iter()
+                        .find(|project| project.name.eq_ignore_ascii_case(name))
+                        .map(|project| project.name.clone())
+                })
+                .take(mentions::LIMIT)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        (context, mentioned)
+    }
+
+    /// What the chips can open (EP-24b).
+    fn chat_known(&self) -> Known {
+        Known {
+            projects: self
+                .portfolio
+                .projects
+                .iter()
+                .map(|row| row.name().to_owned())
+                .collect(),
+            unadopted: self
+                .portfolio
+                .unadopted
+                .iter()
+                .map(|folder| folder.name.clone())
+                .collect(),
+        }
+    }
+
+    /// A chip taken (EP-24b): the window's own dialog opened on the target, or the Adopt
+    /// confirmation shown; nothing is written here.
+    pub(crate) fn chat_act(&mut self, proposed: Proposed) {
+        match proposed {
+            // The preview opens one at a time, silently otherwise (the review's nit).
+            Proposed::Formalise { .. } if self.formalise.is_some() => {
+                self.warn("The formalise preview is open already: close it first.");
+            }
+            Proposed::Formalise { project } => self.open_formalise(&project),
+            Proposed::Migrate { project } => self.open_migration(&project),
+            // A message being written would be replaced (the review's nit).
+            Proposed::Compose { .. }
+                if self
+                    .compose
+                    .as_ref()
+                    .is_some_and(|dialog| !dialog.text.trim().is_empty()) =>
+            {
+                self.warn(
+                    "A message is being written in the compose dialog: send or cancel it first.",
+                );
+            }
+            Proposed::Compose { project, words } => self.open_compose_with(&project, &words),
+            Proposed::Adopt { folder } => {
+                match self
+                    .portfolio
+                    .unadopted
+                    .iter()
+                    .find(|one| one.name.eq_ignore_ascii_case(&folder))
+                {
+                    Some(one) => {
+                        self.chat.adopting = Some(Adopting {
+                            folder: one.name.clone(),
+                            data: false,
+                        });
+                    }
+                    None => self.warn(format!(
+                        "{folder} is not an unadopted folder of the data root: nothing to adopt."
+                    )),
+                }
+            }
+            Proposed::Unknown { line } => {
+                self.warn(format!("Not an action the window knows: {line}"));
+            }
+        }
+    }
+
+    /// The confirmation's Adopt (EP-24b): the folder adopted as the list's Adopt does, then
+    /// marked a data repository when the box was ticked, so that the next Send leaves it out.
+    pub(crate) fn chat_adopt(&mut self, folder: &str, data: bool) {
+        self.chat.adopting = None;
+        let today = files::today();
+        let Some(adopted) = self.adopt_folder(folder, &today) else {
+            return;
+        };
+        if !data {
+            self.notify(adopted);
+            return;
+        }
+        match self.store().change(&today, |c| c.set_data(folder, true)) {
+            Ok(_) => self.notify(format!(
+                "{adopted} Marked a data repository (data = true): the chat never reads it."
+            )),
+            Err(e) => self.fail(format!(
+                "{adopted} Its data mark was not written: {e}. Run crw set {folder} data yes \
+                 before the next Send, or the chat is given its folder."
+            )),
         }
     }
 
@@ -324,7 +498,9 @@ impl Board {
         // the reference (the start writes it again, on its worker).
         let _ = crw_core::plugin::prepare();
         let digest = self.chat_digest();
-        let text = chat::digest_text(&digest);
+        // A mentioned project's context goes with the digest for this turn (EP-24b).
+        let (context, mentioned) = self.chat_mentions(&message, &dir);
+        let text = chat::appended(&chat::digest_text(&digest), context.as_deref());
         let file = chat::digest_file(&dir, turn.session_id());
         if let Err(e) = fs::write(&file, &text) {
             self.warn(format!(
@@ -343,6 +519,10 @@ impl Board {
         let places = chat::Places {
             cwd: dir,
             folders,
+            readable: self.chat.reads.clone(),
+            // The rules name `crw` bare: the child's PATH starts with the folder the window
+            // runs beside, where crw.exe is (EP-24b).
+            bin: crw_exe().and_then(|exe| exe.parent().map(Path::to_owned)),
             digest: Appended { file, text },
             ledger: self.ledger().map(Path::to_owned),
         };
@@ -354,6 +534,7 @@ impl Board {
         self.chat.pending = Some(Pending {
             session_id: turn.session_id().to_owned(),
             title,
+            mentioned,
         });
         self.chat.error = None;
         self.sessions.chat(preflight, launch, resumes, &ctx);
@@ -373,6 +554,7 @@ impl Board {
                 if let Some(pending) = self.chat.pending.take() {
                     self.chat.session_id = Some(pending.session_id);
                     self.chat.title = Some(pending.title);
+                    self.chat.mentioned = pending.mentioned;
                     self.chat.draft.clear();
                 }
                 let wanted = self.chat.session_id.clone();
@@ -446,6 +628,8 @@ impl Board {
         self.chat.digest_file = None;
         self.chat.pick = Pick::default();
         self.chat.picked_up = false;
+        self.chat.adopting = None;
+        self.chat.mentioned.clear();
         self.chat.cache = CommonMarkCache::default();
         if !went.is_empty() {
             self.notify(format!("The conversation was let go.{went}"));
@@ -488,6 +672,8 @@ impl Board {
         self.chat.reads.clear();
         self.chat.left_out.clear();
         self.chat.digest_file = None;
+        self.chat.adopting = None;
+        self.chat.mentioned.clear();
         self.chat.cache = CommonMarkCache::default();
         self.notify(format!(
             "Picked up chat: {}: your next message resumes its session.{went}",
@@ -640,8 +826,19 @@ impl Board {
         }
         ui.separator();
 
+        // The Adopt confirmation is drawn at the exchange's end, inside its scroll area, so
+        // that its wrapped lines never push the footer off the pane (the review's finding).
+        let adopt_state = self.chat.adopting.as_ref().and_then(|adopting| {
+            self.portfolio
+                .unadopted
+                .iter()
+                .find(|one| one.name.eq_ignore_ascii_case(&adopting.folder))
+                .map(|one| one.first_state().to_string())
+        });
         let height = (ui.available_height() - FOOTER).max(80.0);
+        let known = self.chat_known();
         let mut opened = Vec::new();
+        let mut dismiss = false;
         {
             let chat = &mut self.chat;
             let sessions = &mut self.sessions;
@@ -657,7 +854,14 @@ impl Board {
                             if chat.picked_up {
                                 picked_up_note(ui);
                             }
-                            exchange(ui, &live.transcript, &mut chat.cache, live.key);
+                            exchange(
+                                ui,
+                                &live.transcript,
+                                &mut chat.cache,
+                                live.key,
+                                &known,
+                                &mut actions,
+                            );
                             if live.is_running()
                                 && live.transcript.streaming.is_empty()
                                 && live.waiting.is_empty()
@@ -695,8 +899,17 @@ impl Board {
                             }
                         }
                     }
+                    // The Adopt confirmation (EP-24b): the data box, Adopt and Not now.
+                    if let Some(adopting) = &mut chat.adopting {
+                        ui.add_space(4.0);
+                        dismiss =
+                            adopt_confirmation(ui, adopting, adopt_state.as_deref(), &mut actions);
+                    }
                     opened = take_opened(ui);
                 });
+        }
+        if dismiss {
+            self.chat.adopting = None;
         }
         // A link's click opens nothing: the window opens no URL, and a reply is a session's
         // text; the status bar says the target instead.
@@ -782,18 +995,151 @@ impl Board {
         for (name, why) in &self.chat.left_out {
             lines.push(format!("Left out: {name} ({why})."));
         }
+        if !self.chat.mentioned.is_empty() {
+            lines.push(format!(
+                "Mentioned in the last message, their context given with the digest: {}.",
+                self.chat
+                    .mentioned
+                    .iter()
+                    .map(|name| format!("@{name}"))
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
+        }
         if let Some(file) = &self.chat.digest_file {
             lines.push(format!("The digest it was given: {}.", file.display()));
         }
         if lines.is_empty() {
             lines.push(
                 "Every registered project not marked data = true, read-only, with the \
-                 house-style reference; the digest is written at each Send."
+                 house-style reference; the digest is written at each Send, and an @<project> \
+                 in your message adds that project's context to it."
                     .to_owned(),
             );
         }
         lines.join("\n")
     }
+}
+
+/// The Adopt chip's confirmation (EP-24b): what the adoption writes, the data box, Adopt and
+/// Not now; `true` when Not now was clicked.
+fn adopt_confirmation(
+    ui: &mut egui::Ui,
+    adopting: &mut Adopting,
+    state: Option<&str>,
+    actions: &mut Vec<Action>,
+) -> bool {
+    let mut dismiss = false;
+    egui::Frame::new()
+        .fill(ui.visuals().faint_bg_color)
+        .corner_radius(6.0)
+        .inner_margin(egui::Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            ui.label(RichText::new(format!("Adopt {}", adopting.folder)).strong());
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!(
+                        "Registers it as {}, writes {}.code-workspace beside it unless one is \
+                         there, and adds it to the workspace file (D-7); nothing else is \
+                         written.",
+                        state.unwrap_or("a project"),
+                        adopting.folder
+                    ))
+                    .small()
+                    .weak(),
+                )
+                .wrap(),
+            );
+            ui.checkbox(
+                &mut adopting.data,
+                "A data repository: the chat never reads it",
+            )
+            .on_hover_text(
+                "Writes data = true with the adoption (crw set <project> data yes), which keeps \
+                 the folder out of every chat session; crw set <project> data no takes it off",
+            );
+            ui.horizontal_wrapped(|ui| {
+                if ui
+                    .button("Adopt")
+                    .on_hover_text("Adopt it now, as the list's Adopt does")
+                    .clicked()
+                {
+                    actions.push(Action::ChatAdopt {
+                        folder: adopting.folder.clone(),
+                        data: adopting.data,
+                    });
+                }
+                if ui
+                    .button("Not now")
+                    .on_hover_text("Nothing is written; the chip stays under the reply")
+                    .clicked()
+                {
+                    dismiss = true;
+                }
+            });
+        });
+    dismiss
+}
+
+/// The chips under a reply (EP-24b): one button per action proposed, enabled when the window
+/// has its target, its hover saying what the click opens; an unknown line is drawn disabled.
+fn chips(ui: &mut egui::Ui, proposed: &[Proposed], known: &Known, actions: &mut Vec<Action>) {
+    ui.add_space(2.0);
+    ui.horizontal_wrapped(|ui| {
+        for action in proposed {
+            let (enabled, hover) = match action {
+                Proposed::Adopt { folder } if known.unadopted(folder) => (
+                    true,
+                    "Opens the confirmation below, which asks first whether it is a data \
+                     repository; nothing is written before its Adopt"
+                        .to_owned(),
+                ),
+                Proposed::Adopt { folder } if known.project(folder) => {
+                    (false, format!("{folder} is registered already"))
+                }
+                Proposed::Adopt { folder } => (
+                    false,
+                    format!("{folder} is not an unadopted folder of the data root"),
+                ),
+                Proposed::Formalise { project } if known.project(project) => (
+                    true,
+                    "Opens the formalise preview on it: the files it would write, and its Write"
+                        .to_owned(),
+                ),
+                Proposed::Migrate { project } if known.project(project) => (
+                    true,
+                    "Opens the launch dialog with the migration prompt for it; nothing starts \
+                     before its Start"
+                        .to_owned(),
+                ),
+                Proposed::Compose { project, .. } if known.project(project) => (
+                    true,
+                    "Opens the compose dialog on its inbox with the words typed in; nothing is \
+                     written before its Send"
+                        .to_owned(),
+                ),
+                Proposed::Unknown { .. } => (
+                    false,
+                    "Not an action the window knows: the reply's own line".to_owned(),
+                ),
+                other => (
+                    false,
+                    format!(
+                        "{} is not a registered project",
+                        other.target().unwrap_or_default()
+                    ),
+                ),
+            };
+            let button = ui
+                .add_enabled(enabled, egui::Button::new(action.label()))
+                .on_hover_text(hover.clone())
+                .on_disabled_hover_text(hover);
+            if button.clicked() {
+                actions.push(Action::ChatAct(action.clone()));
+            }
+        }
+    });
 }
 
 /// A project's share of the week, in words (EP-18b's figures).
@@ -1003,10 +1349,18 @@ fn questions(ui: &mut egui::Ui, live: &mut Live, busy: bool, actions: &mut Vec<A
     }
 }
 
-/// The exchange, from the run's transcript: the owner's messages, the replies as Markdown, each
-/// tool call in one small line, the refusals, the questions and the notices; the result's
-/// errors and its cost, not its text, which the reply holds already.
-fn exchange(ui: &mut egui::Ui, transcript: &Transcript, cache: &mut CommonMarkCache, salt: u64) {
+/// The exchange, from the run's transcript: the owner's messages, the replies as Markdown with
+/// the chips of the actions they propose under them (EP-24b), each tool call in one small line,
+/// the refusals, the questions and the notices; the result's errors and its cost, not its
+/// text, which the reply holds already.
+fn exchange(
+    ui: &mut egui::Ui,
+    transcript: &Transcript,
+    cache: &mut CommonMarkCache,
+    salt: u64,
+    known: &Known,
+    actions: &mut Vec<Action>,
+) {
     let weak = ui.visuals().weak_text_color();
     if transcript.dropped > 0 {
         ui.label(
@@ -1034,12 +1388,19 @@ fn exchange(ui: &mut egui::Ui, transcript: &Transcript, cache: &mut CommonMarkCa
                 ui.add_space(4.0);
             }
             Entry::Text(text) => {
+                // The actions block is read out of the reply and drawn as chips, not as code.
+                let (text, proposed) = chat::proposals(text);
                 markdown(
                     ui,
                     cache,
-                    text,
+                    &text,
                     egui::Id::unique(("chat-reply", salt, index)),
                 );
+                if !proposed.is_empty() {
+                    ui.push_id(("chat-chips", salt, index), |ui| {
+                        chips(ui, &proposed, known, actions);
+                    });
+                }
                 ui.add_space(4.0);
             }
             Entry::Tool { call, result } => {
@@ -1169,6 +1530,8 @@ mod tests {
         )
         .unwrap();
         fs::create_dir_all(root.join("beta")).unwrap();
+        // An unadopted folder of the data root, for the Adopt chip (EP-24b).
+        fs::create_dir_all(root.join("gamma")).unwrap();
         let registry = scratch.0.join("registry.toml");
         fs::write(
             &registry,
@@ -1246,6 +1609,7 @@ mod tests {
         assert_eq!(digest.left_out.len(), 1);
         assert_eq!(digest.left_out[0].0, "beta");
         assert!(digest.left_out[0].1.contains("data = true"));
+        assert_eq!(digest.unadopted, ["gamma"]);
         let text = chat::digest_text(&digest);
         assert!(text.contains("- alpha (active)"));
         assert!(text.contains("Not readable by this session: beta"));
@@ -1661,5 +2025,224 @@ mod tests {
         launch.effort = Some(chat::EFFORT.to_owned());
         launch.conversation = Some("What is next in alpha?".to_owned());
         launch
+    }
+
+    /// An ended conversation whose reply is `text`, in the tile.
+    fn ended_with(board: &mut Board, key: u64, text: &str) {
+        let mut live = Live::canned(
+            key,
+            canned_launch(),
+            chat::EFFORT,
+            vec![Event::Text(text.to_owned())],
+        );
+        live.project = chat::PROJECT.to_owned();
+        live.end_canned(crw_core::session::Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(key);
+        board.chat.title = Some("What is next in alpha?".to_owned());
+        board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+    }
+
+    /// A reply's actions draw as chips under it, not as a code block (EP-24b): a chip on a
+    /// registered project or an unadopted folder is enabled and its click queues the action,
+    /// which opens the window's own dialog; one on an unknown name, or an unknown line, is
+    /// drawn disabled and queues nothing.
+    #[test]
+    fn a_replys_actions_draw_as_chips_that_open_the_windows_dialogs() {
+        let scratch = Scratch::new("chat-chips");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        ended_with(
+            &mut board,
+            954,
+            "alpha's EP-2 is next; gamma is not registered.\n\n\
+             ```actions\nformalise alpha\nmigrate alpha\ncompose alpha: the season names\n\
+             adopt gamma\nformalise delta\nadopt beta\nstart alpha\n```",
+        );
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        for label in [
+            "Formalise alpha…",
+            "Migrate alpha…",
+            "Compose to alpha…",
+            "Adopt gamma…",
+            "Formalise delta…",
+            "Adopt beta…",
+            "start alpha",
+        ] {
+            assert!(testing::text_at(&output, label).is_some(), "{label}");
+        }
+        assert!(testing::text_containing(&output, "```").is_none());
+        assert!(testing::text_containing(&output, "formalise alpha").is_none());
+        // A disabled chip's click reaches nothing.
+        let delta = testing::text_at(&output, "Formalise delta…").unwrap();
+        click(&mut screen, &mut board, delta);
+        let unknown = testing::text_at(&output, "start alpha").unwrap();
+        click(&mut screen, &mut board, unknown);
+        assert!(board.actions.is_empty(), "{:?}", board.actions);
+        // Compose: the dialog opens on alpha with the words typed in.
+        let compose = testing::text_at(&output, "Compose to alpha…").unwrap();
+        click(&mut screen, &mut board, compose);
+        let proposed = Proposed::Compose {
+            project: "alpha".to_owned(),
+            words: "the season names".to_owned(),
+        };
+        assert_eq!(board.actions, [Action::ChatAct(proposed.clone())]);
+        board.actions.clear();
+        board.chat_act(proposed);
+        let dialog = board.compose.as_ref().expect("the compose dialog");
+        assert_eq!(dialog.project, "alpha");
+        assert_eq!(dialog.text, "the season names");
+        board.compose = None;
+        // Formalise: the preview opens on alpha (a screenshot run reads the plan at once).
+        board.chat_act(Proposed::Formalise {
+            project: "alpha".to_owned(),
+        });
+        assert!(board.formalise.is_some(), "{:?}", board.notice_text());
+        board.formalise = None;
+        // An unknown line, taken by hand, is said.
+        board.chat_act(Proposed::Unknown {
+            line: "start alpha".to_owned(),
+        });
+        assert_eq!(
+            board.notice_text(),
+            Some("Not an action the window knows: start alpha")
+        );
+    }
+
+    /// The Adopt chip asks for the data mark before anything is written (EP-24b): the
+    /// confirmation under the exchange with its box, Not now putting it away, Adopt queuing the
+    /// adoption, which registers the folder and writes `data = true` when the box was ticked.
+    #[test]
+    fn the_adopt_chip_asks_for_the_data_mark_before_writing() {
+        let scratch = Scratch::new("chat-adopt");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        ended_with(
+            &mut board,
+            955,
+            "gamma is not registered.\n\n```actions\nadopt gamma\n```",
+        );
+        board.chat_act(Proposed::Adopt {
+            folder: "nowhere".to_owned(),
+        });
+        assert!(board.chat.adopting.is_none());
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|words| words.contains("not an unadopted folder"))
+        );
+        board.chat_act(Proposed::Adopt {
+            folder: "Gamma".to_owned(),
+        });
+        assert_eq!(
+            board.chat.adopting,
+            Some(Adopting {
+                folder: "gamma".to_owned(),
+                data: false
+            })
+        );
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, "Adopt gamma").is_some());
+        assert!(testing::text_containing(&output, "writes gamma.code-workspace").is_some());
+        let not_now = testing::text_at(&output, "Not now").unwrap();
+        click(&mut screen, &mut board, not_now);
+        assert!(board.chat.adopting.is_none());
+        assert!(board.actions.is_empty());
+        // Again, the box ticked, then Adopt.
+        board.chat_act(Proposed::Adopt {
+            folder: "gamma".to_owned(),
+        });
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        let data = testing::text_at(&output, "A data repository: the chat never reads it").unwrap();
+        click(&mut screen, &mut board, data);
+        assert!(board.chat.adopting.as_ref().is_some_and(|a| a.data));
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        let adopt = testing::text_at(&output, "Adopt").unwrap();
+        click(&mut screen, &mut board, adopt);
+        assert_eq!(
+            board.actions,
+            [Action::ChatAdopt {
+                folder: "gamma".to_owned(),
+                data: true
+            }]
+        );
+        board.actions.clear();
+        board.chat_adopt("gamma", true);
+        assert!(board.chat.adopting.is_none());
+        // The status bar cuts a long notice with an ellipsis: the start and the mark's words.
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|words| words.starts_with("Adopted gamma as unformalised")
+                    && words.contains("Marked a data repository (data = true)")),
+            "{:?}",
+            board.notice_text()
+        );
+        let registry = fs::read_to_string(scratch.0.join("registry.toml")).unwrap();
+        let gamma = registry.find("name = \"gamma\"").expect("gamma registered");
+        assert!(registry[gamma..].contains("data = true"));
+    }
+
+    /// An `@<project>` in the message gives the digest that project's context (EP-24b): the
+    /// prompt hook's own, for a readable project; nothing for a data repository, nothing
+    /// without an `@`.
+    #[test]
+    fn a_mention_gives_the_digest_a_readable_projects_context() {
+        let scratch = Scratch::new("chat-mentions");
+        let board = board(&scratch);
+        let cwd = Path::new("C:\\chat");
+        let (context, mentioned) = board.chat_mentions("@alpha what is next, and @beta too?", cwd);
+        let context = context.expect("alpha's context");
+        assert!(context.contains("The prompt mentions @alpha"), "{context}");
+        assert!(context.contains("alpha's next brief"), "{context}");
+        assert!(context.contains("EP-2"), "{context}");
+        assert!(!context.contains("@beta"), "{context}");
+        assert_eq!(mentioned, ["alpha"]);
+        assert_eq!(board.chat_mentions("@beta alone", cwd), (None, Vec::new()));
+        assert_eq!(board.chat_mentions("no mention", cwd), (None, Vec::new()));
+        let text = chat::appended("The digest.", Some(&context));
+        assert!(text.starts_with("The digest.\n\nThe owner's message names a project with @."));
+        assert!(text.contains("alpha's next brief"));
+    }
+
+    /// A running chat refuses the window's restart as a headless run does (EP-24b).
+    #[test]
+    fn a_running_chat_refuses_a_restart() {
+        let scratch = Scratch::new("chat-restart");
+        let mut board = board(&scratch);
+        let mut live = Live::canned(
+            956,
+            canned_launch(),
+            chat::EFFORT,
+            vec![Event::TextDelta("It plans".to_owned())],
+        );
+        live.project = chat::PROJECT.to_owned();
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(956);
+        let refusals = board.restart_refusals();
+        assert!(
+            refusals
+                .iter()
+                .any(|why| why.contains("chat: What is next in alpha?")),
+            "{refusals:?}"
+        );
+        board.sessions.live[0].end_canned(crw_core::session::Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        let refusals = board.restart_refusals();
+        assert!(
+            !refusals.iter().any(|why| why.contains("chat:")),
+            "{refusals:?}"
+        );
     }
 }

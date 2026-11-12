@@ -109,6 +109,13 @@ pub struct Launch {
     pub restricted: bool,
     /// `--tools <names>`, the built-in tools the run has; required when set.
     pub tools: Option<Vec<String>>,
+    /// `--allowedTools`, one argument per permission rule (`Bash(crw roadmap alpha)`): what the
+    /// run may do without a prompt (the chat's `crw` reading commands, EP-24b); a claude
+    /// without the flag runs without them, said, and every such call then prompts.
+    pub allowed_tools: Vec<String>,
+    /// A folder put at the front of the child's `PATH`, so that a command the rules name by
+    /// its bare name is found there (the chat's `crw`, beside the window; EP-24b).
+    pub path_prepend: Option<PathBuf>,
     /// Text appended to the system prompt (the chat's digest, EP-24): by
     /// `--append-system-prompt-file` when the CLI lists it and the file is there, else
     /// `--append-system-prompt` with the text, else dropped and said.
@@ -191,6 +198,8 @@ impl Launch {
             conversation: None,
             restricted: false,
             tools: None,
+            allowed_tools: Vec::new(),
+            path_prepend: None,
             appended: None,
             neighbour_claude_md: true,
             fresh_system_prompt: false,
@@ -349,6 +358,22 @@ pub(crate) fn command_line(
         }
         push(&[os("--tools"), os(&tools.join(","))]);
     }
+    // The rules of what runs without a prompt (EP-24b), one argument each as the CLI
+    // reference writes them (`--allowedTools "Bash(git log:*)" "Read"`), so that a rule's own
+    // spaces are never a separator; the next argument is a flag, which ends the list.
+    if !launch.allowed_tools.is_empty() {
+        if flags.has("--allowedTools") {
+            let mut values: Vec<&OsStr> = vec![os("--allowedTools")];
+            values.extend(launch.allowed_tools.iter().map(|rule| os(rule)));
+            push(&values);
+        } else {
+            dropped.push(format!(
+                "--allowedTools: this claude does not list it, so each of the {} commands the \
+                 rules admit prompts instead",
+                launch.allowed_tools.len()
+            ));
+        }
+    }
 
     let mut neighbours = Vec::new();
     let mut rules = Vec::new();
@@ -486,12 +511,28 @@ pub(crate) fn command_line(
     if !neighbours.is_empty() && launch.neighbour_claude_md {
         env.push((NEIGHBOUR_CLAUDE_MD.into(), Some("1".into())));
     }
+    if let Some(folder) = &launch.path_prepend {
+        env.push((
+            "PATH".into(),
+            Some(path_with(folder, std::env::var_os("PATH"))),
+        ));
+    }
     Ok(CommandLine {
         args,
         env,
         effort: effort.map(str::to_owned),
         dropped,
     })
+}
+
+/// `PATH` with `folder` at its front, the rest as inherited (EP-24b).
+fn path_with(folder: &Path, inherited: Option<OsString>) -> OsString {
+    let mut path = folder.as_os_str().to_os_string();
+    if let Some(rest) = inherited.filter(|rest| !rest.is_empty()) {
+        path.push(if cfg!(windows) { ";" } else { ":" });
+        path.push(rest);
+    }
+    path
 }
 
 /// The `PreToolUse` hooks a run's questions take (D-19; EP-14): a deferred call's resume answers

@@ -289,4 +289,10 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   read and whether it can read a data repository by its path: it should name the projects given and
   nothing else, and a refusal shows in the pane in red. If a reply says a tool is missing (Skill,
   AskUserQuestion) or the session starts in a mode other than manual, note the Init line the pane
-  shows on hover of the state chip. Notes go to `roadmap/inbox.md`
+  shows on hover of the state chip. From EP-24b's build the session also runs the tool's own
+  reading commands (ask it what waits on you in a project: a `crw tasks <project>` line should
+  show in the exchange, and a refused command shows in red), a reply may end in buttons under it
+  (ask it to formalise a project or to compose a message into one: the button should open the
+  window's own dialog with the project filled in, writing nothing until you confirm there), and
+  `@<project>` in a message should give it that project's next row and rules (hover the header's
+  "reads" line to see the mention named). Notes go to `roadmap/inbox.md`

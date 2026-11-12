@@ -1122,6 +1122,16 @@ tool. *Alternatives.* Polling only; hooks only.
 > sentence of unnumbered bullets too, which the formalise block's bullets would want but a plain
 > list of reminders would not.
 
+> **Addendum (2026-11-11, EP-24b).** The chat's own mentions. The prompt hook leaves an SDK's
+> session out (the EP-20b addendum), and a chat turn is one although the owner types its
+> prompt: the Chat tile therefore gives its session a mention's context itself, by
+> `mentions::context` over the readable projects (those not marked `data = true`, so a data
+> repository's files are never read into the chat), appended to the digest for that turn under
+> a line saying whose it is; the chat folder is no project's, so none is left out as the
+> session's own, and the limit of three projects and the budget are the hook's. *Alternatives.*
+> The chat's runs marked for the hook, which `--restricted` keeps from loading the owner's
+> settings in any case; the context put into the message, which the exchange would show.
+
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
 Quit); the Claude app's own push for the phone; **ntfy over the tailnet** (a topic configured in the
@@ -2069,6 +2079,47 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > against it, EP-24a's question 1); a renderer of the tool's own on pulldown-cmark; the
 > questions kept in the Decisions tile beside the runs'; the list in a pane of its own; the
 > conversation's earlier turns read back from Claude Code's transcripts (D-26).
+
+> **Addendum (2026-11-11, EP-24b).** The delegated actions, the commands and the mentions.
+>
+> - **A reply proposes an action in a fenced block tagged `actions`**, one per line (`adopt
+>   <folder>`, `formalise <project>`, `migrate <project>`, `compose <project>: <words>`), which
+>   the digest asks for; the tile reads the block out of the reply (`chat::proposals`) and
+>   draws each line as a chip under it, the block itself never drawn. A chip opens the window's
+>   own surface with the project filled in: Formalise… the preview (EP-21a), Migrate… the launch
+>   dialog with the migration prompt, Compose… the compose dialog with the words typed
+>   (EP-20c), Adopt… a confirmation in the tile that asks first whether the folder is a data
+>   repository, the mark written with the adoption (`data = true`, the EP-24 addendum), so that
+>   a newly adopted one is never given to the next turn. Nothing is written before the owner's
+>   click in that surface; a chip on a name the window does not have, or a line it does not
+>   know, is drawn disabled and says so. The channel is the reply's text, not a tool call: the
+>   session has no MCP server (`--strict-mcp-config`), and a line form needs no protocol.
+> - **The session runs the tool's own reading commands**: `Bash` joins its tools, and
+>   `--allowedTools` names, one argument per rule, `crw roadmap`, `crw tasks` and `crw sessions`
+>   on each readable project by name as an exact rule (`Bash(crw roadmap alpha)`), and `crw
+>   sessions`, `crw mail`, `crw notifications`, `crw usage`, `crw autopilot` bare, so that a
+>   data repository's name, a path, a pipe or a redirect matches no rule; every other request is
+>   refused by the window as before, the refusal now saying to offer a write as an action. The
+>   child's `PATH` starts with the folder the window runs beside, where `crw.exe` is, so the
+>   rules and the digest say `crw` and never a path; a name holding a space is spelled in
+>   double quotes in the rule and the digest alike. The bare commands print the owner's own
+>   ledger records, in which a data repository's sessions, chain states, deliveries and
+>   notifications appear by name and title: metadata the digest names already, never the
+>   repository's files. **No writing command is admitted** (the owner's answer at pickup):
+>   `crw send`, `crw formalise --yes` and `crw adopt` stay chips, every write the owner's
+>   click.
+> - **An `@<project>` in the owner's message** gives the digest that project's context for the
+>   turn, the prompt hook's own (`signals::mentions::context`, EP-39's order; the D-20 addendum
+>   of this date), over the readable projects alone, since the hook leaves an SDK's session out
+>   (EP-20b); the header's hover names the projects given.
+> - A running chat refuses the window's restart as a headless run does (`Sessions::stoppable`
+>   lists it), which EP-24b's test holds.
+>
+> *Alternatives.* A tool call the host answers (an MCP server of the tool's own) as the
+> proposal's channel; prefix rules (`Bash(crw roadmap:*)`), which a path would pass; the full
+> path of `crw.exe` in the rules, which would carry the owner's user name into the session's
+> command line; `crw send` admitted to the session; the mention's context in the message
+> itself, which the exchange would show.
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

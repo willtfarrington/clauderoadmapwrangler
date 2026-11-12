@@ -60,7 +60,12 @@ every project's standing appended to its system prompt; the session is confined 
 folders by `--restricted`, a project marked as a data repository is never given to it, and it
 writes nothing. Its replies draw as Markdown, the ledger's conversations are listed in the pane
 and picked up again, each conversation has its own model and effort, and the session's questions
-are answered in the pane with the Decisions form (EP-24a). The roadmap is
+are answered in the pane with the Decisions form (EP-24a). A reply may offer actions, drawn as
+buttons under it that open the window's own dialogs with the project filled in (Adopt, which
+asks first whether the folder is a data repository, Formalise…, Migrate…, Compose… with the
+words typed), nothing written before the owner's click there; the session runs the tool's own
+`crw` reading commands under exact permission rules, and an `@<project>` in a message gives it
+that project's context as the prompt hook gives an interactive session (EP-24b). The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

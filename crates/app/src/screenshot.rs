@@ -68,7 +68,10 @@
 //!   repository it leaves out, the ledger's conversations canned under its fold; its Send
 //!   starts nothing, as every start is refused); `chat=asks` (the same with the second turn
 //!   waiting on a question, its form drawn in the pane, EP-24a); `chat=list` (the same with
-//!   the conversations' fold open, its rows in view);
+//!   the conversations' fold open, its rows in view); `chat=actions` (the same with the
+//!   second turn ended on a reply that ran `crw tasks` and proposes every action form, its
+//!   chips under it, EP-24b); `chat=adopt` (the same with the Adopt chip taken, its
+//!   confirmation at the exchange's end with the data box ticked);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
 //!   reasons in the status bar, from EP-37); `newer` (a newer build installed, canned, so that
@@ -361,9 +364,10 @@ impl Run {
                     layout::show(dashboard.layout_mut(), Pane::Decisions);
                 }
                 // A canned conversation in the Chat pane, in front (EP-24); with `asks`, its
-                // second turn waits on a question answered in the pane (EP-24a).
+                // second turn waits on a question answered in the pane (EP-24a); with
+                // `actions`, its second reply proposes actions, drawn as chips (EP-24b).
                 "chat" => {
-                    canned_chat(board, value == "asks");
+                    canned_chat(board, value);
                     board.chat.unfold = value == "list";
                     layout::show(dashboard.layout_mut(), Pane::Chat);
                 }
@@ -736,13 +740,16 @@ fn canned_sessions(board: &mut Board) {
 /// A conversation as the Chat pane shows it (EP-24): two turns over the fake portfolio, the
 /// first's reply holding every block form the Markdown draws (EP-24a: headings, a list, a
 /// numbered list, fenced code, a table, a quote, inline marks and a link), the second's reply
-/// streaming in, or with `asks` waiting on a question answered in the pane; the header's reads
-/// and a data repository left out; the ledger's conversations canned in the list. Synthetic
-/// text only.
-fn canned_chat(board: &mut Board, asks: bool) {
+/// streaming in, or with `asks` waiting on a question answered in the pane, or with `actions`
+/// ended on a reply that ran `crw tasks` and proposes every action form, drawn as chips
+/// (EP-24b); the header's reads and a data repository left out; the ledger's conversations
+/// canned in the list. Synthetic text only.
+fn canned_chat(board: &mut Board, form: &str) {
     use crw_core::chat;
     use crw_core::ledger::ConversationRow;
 
+    let asks = form == "asks";
+    let actions = form == "actions" || form == "adopt";
     let first = "What does harbor's next brief plan, in plain words?";
     let mut launch = Launch::new(chat::PROJECT, Path::new("chat"), chat::MODEL, first);
     launch.effort = Some(chat::EFFORT.to_owned());
@@ -765,9 +772,7 @@ fn canned_chat(board: &mut Board, asks: bool) {
     let events = vec![
         Event::Init(Init {
             version: Some("2.1.316".to_owned()),
-            tools: ["Read", "Glob", "Grep", "Skill", "AskUserQuestion"]
-                .map(str::to_owned)
-                .to_vec(),
+            tools: chat::TOOLS.map(str::to_owned).to_vec(),
             ..Init::default()
         }),
         tool("c1", "Read", "Read harbor/roadmap/README.md"),
@@ -843,6 +848,29 @@ fn canned_chat(board: &mut Board, asks: bool) {
             }],
             input: String::new(),
         }));
+    } else if actions {
+        // The reply ran one of the tool's own reading commands and proposes the four action
+        // forms and one the window does not know (EP-24b).
+        live.take(tool("c4", "Bash", "crw tasks quarry"));
+        live.take(result("c4", 6, "crw 0.1.0 tasks"));
+        live.take(Event::Text(
+            "By open rows, **quarry**: 2 of 7 done, its EP-2 deferred with a question open, \
+             and `crw tasks quarry` lists one open owner task and one unread inbox message. \
+             Two things would help it along: quarry has no house-style files beyond its \
+             roadmap, and its question waits on you in the Decisions pane. The folder \
+             `sketchbook` of the data root is not registered yet, and orchard's roadmap is \
+             still in the work-packet form.\n\n\
+             ```actions\nformalise quarry\ncompose quarry: EP-2 waits on your answer in the \
+             Decisions pane before it can go on\nadopt sketchbook\nmigrate orchard\nstart \
+             quarry\n```"
+                .to_owned(),
+        ));
+        live.end_canned(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
     } else {
         live.take(Event::TextDelta(
             "By open rows, **quarry**: 2 of 7 done, its EP-2 deferred with a question open. By"
@@ -853,6 +881,13 @@ fn canned_chat(board: &mut Board, asks: bool) {
     board.chat.key = Some(950);
     board.chat.title = Some(chat::title_of(first));
     board.chat.session_id = Some("3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f".to_owned());
+    // The Adopt chip taken (EP-24b): its confirmation at the exchange's end, the box ticked.
+    if form == "adopt" {
+        board.chat.adopting = Some(crate::chat::Adopting {
+            folder: "sketchbook".to_owned(),
+            data: true,
+        });
+    }
     // The ledger's conversations, canned: this one and two earlier.
     let row = |id: &str,
                title: &str,

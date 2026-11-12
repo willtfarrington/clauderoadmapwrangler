@@ -296,6 +296,18 @@ impl Board {
         self.compose = Some(Dialog::new(&name, folder, next_id, busy));
     }
 
+    /// The same with `words` typed in, from a chat reply's Compose chip (EP-24b): the owner
+    /// reads them in the dialog, and only its Send writes.
+    pub fn open_compose_with(&mut self, project: &str, words: &str) {
+        self.open_compose(project);
+        if let Some(dialog) = &mut self.compose
+            && dialog.project.eq_ignore_ascii_case(project)
+            && dialog.text.is_empty()
+        {
+            dialog.text = words.to_owned();
+        }
+    }
+
     /// The dialog's Send: the write starts on its thread; a screenshot run refuses it.
     pub fn send_message(&mut self) {
         let fixtures = self.fixtures;
