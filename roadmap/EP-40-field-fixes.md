@@ -176,3 +176,8 @@ next chain's.
 > five-hour gate from the ledger's attribution, the first real hold's reading, five-hour
 > notifications. **Next: EP-26a** (analytics in the list), chained by the autopilot when its
 > gate allows (now under rule 1, Opus 5.5 at max), else from the window.
+>
+> **The guard's live check (2026-11-13, after the install's restart).** The owner started the
+> shortcut a second time while the window ran: the running window came to the front and no
+> second one opened (their report); the process list read after it showed the one window, the
+> port holder started at the restart. The work commit is `1eac82a`; the record commit follows.
