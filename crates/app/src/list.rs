@@ -1,21 +1,26 @@
 //! The Projects pane (D-25): a toolbar (the name filter, the sort key, the stack and hosting
-//! filters, the legend's switch), a header row that names the columns, then the groups by state,
-//! each with a header that folds it, and one dense row per project: its next brief, its progress,
-//! what waits on the owner, its badges (EP-7) with this week's usage share (EP-18b), whether a
-//! session is in progress, and the switches
-//! later briefs bring to life. Each column is as wide as the widest value the portfolio holds
-//! (EP-7a); a wide window shares its spare width between the title and the gaps, a narrow one
-//! drops the optional columns in D-25's order. A row expands inline; a right click pins it or
-//! sets its priority or its state; an unadopted folder offers Adopt and Ignore. The legend, a key
-//! to every mark of the row, opens at the foot of the pane.
+//! filters, the legend's switch, Expand all and Collapse all, the Cards switch), a header row
+//! that names the columns, then the groups by state, each with a header that folds it, and one
+//! dense row per project: its next brief, its progress, what waits on the owner, its badges
+//! (EP-7) with this week's usage share (EP-18b), whether a session is in progress, and the
+//! switches. Each column is as wide as the widest value the portfolio holds (EP-7a); a wide
+//! window shares its spare width between the title and the gaps, a narrow one drops the optional
+//! columns in D-25's order. A row expands inline to its phases and the burn-up sparkline
+//! (EP-26a); a right click pins it or sets its priority or its state; an unadopted folder offers
+//! Adopt and Ignore. The cards view (EP-26a) draws the same groups as cards, as many to a line as
+//! fit, each with the name, the state chip, the next brief, the progress pill, the badges and the
+//! sparkline; the whole card takes the click as the row does. The legend, a key to every mark of
+//! the row, opens at the foot of the pane.
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use crw_core::badges::hosting::Class;
 use crw_core::badges::stack::Kind;
+use crw_core::history::Completion;
 use crw_core::registry::State;
 use crw_core::roadmap::table::{Counts, Row};
-use eframe::egui::{self, Align, Checkbox, Layout, Rect, RichText, Sense, UiBuilder, vec2};
+use eframe::egui::{self, Align, Checkbox, Layout, Rect, RichText, Sense, Stroke, UiBuilder, vec2};
 
+use crate::analytics::{self, Loaded};
 use crate::badges::{
     self, FOLDER, GIT_PENDING, MESSAGES, OWNER_ITEMS, PINNED, PROPOSAL, SESSION, URGENT,
 };
@@ -55,6 +60,21 @@ const FOLDER_BUTTONS: f32 = 150.0;
 /// The most of the pane's height the legend takes before it scrolls, and the room above it.
 const LEGEND_AT_MOST: f32 = 0.45;
 const LEGEND_TOP: i8 = 8;
+/// The sparkline's width in the expanded row, and the room beside the phases it asks for.
+const SPARK_WIDTH: f32 = 220.0;
+/// The phases' least width beside the sparkline, so that the sparklines line up.
+const PHASES_AT_LEAST: f32 = 360.0;
+/// Under this width a phase's line wraps as a whole: its id, bar and counts take about 190.
+const PHASE_LINE_AT_LEAST: f32 = 300.0;
+/// A card's width when the pane fits several to a line (EP-26a); a narrower pane gives one card
+/// its whole width. The gap between two cards, a card's inner margin and its stroke, which the
+/// frame adds outside the margin.
+const CARD_WIDTH: f32 = 280.0;
+const CARD_GAP: f32 = 8.0;
+const CARD_PAD: i8 = 8;
+const CARD_STROKE: f32 = 1.0;
+/// The lines a card gives the next brief's title before an ellipsis.
+const TITLE_ROWS: usize = 2;
 
 /// The columns of a row, left to right; the title takes what the others leave.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -444,16 +464,34 @@ impl Board {
             return;
         }
         let now = chrono::Utc::now();
-        let widths = Widths::measure(ui, &self.portfolio, now);
-        let plan = Plan::new(&widths, ui.available_width());
-        header_row(ui, &plan);
-        ui.separator();
+        // The sparklines' read of the ledger (EP-26a), when a row is expanded or the cards show.
+        if self.view.cards || !self.view.expanded.is_empty() {
+            let ledger = self.ledger().map(std::path::Path::to_path_buf);
+            self.analytics
+                .refresh(ledger.as_deref(), std::time::Instant::now());
+        }
+        let drawing = Drawing {
+            view: &self.view,
+            scroll: self.scroll_to_selected,
+            now,
+            today: Local::now().date_naive(),
+            loaded: self.analytics.loaded.as_ref(),
+        };
+        let plan = (!self.view.cards).then(|| {
+            let widths = Widths::measure(ui, &self.portfolio, now);
+            Plan::new(&widths, ui.available_width())
+        });
+        if let Some(plan) = &plan {
+            header_row(ui, plan);
+            ui.separator();
+        }
         let mut actions = Vec::new();
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
                 // Once for the list, so that every cell shares the style (EP-15a).
                 style::unselectable(ui);
+                let (per_line, width) = cards_per_line(ui.available_width());
                 for group in &groups {
                     let folded = self.view.is_folded(group.kind);
                     if group_header(ui, group.kind, group.members.len(), folded, &self.view) {
@@ -462,32 +500,50 @@ impl Board {
                     if folded {
                         continue;
                     }
-                    for &member in &group.members {
-                        match member {
-                            Member::Project(i) => {
-                                let row = &self.portfolio.projects[i];
-                                let live = self.session_summary(row.name());
-                                actions.extend(project_row(
-                                    ui,
-                                    row,
-                                    &self.view,
-                                    &plan,
-                                    self.scroll_to_selected,
-                                    live.as_deref(),
-                                    now,
-                                ));
+                    match &plan {
+                        Some(plan) => {
+                            for &member in &group.members {
+                                actions.extend(self.member_row(ui, member, plan, &drawing));
                             }
-                            Member::Folder(i) => {
-                                let folder = &self.portfolio.unadopted[i];
-                                actions.extend(folder_row(
-                                    ui,
-                                    &folder.name,
-                                    folder.git,
-                                    folder.roadmap,
-                                    &self.view,
-                                    &plan,
-                                    self.scroll_to_selected,
-                                ));
+                        }
+                        None => {
+                            for line in group.members.chunks(per_line) {
+                                // The cards of a line as tall as its tallest: each card's own
+                                // height is kept from the pass before, so a line settles in a
+                                // pass and each card is drawn once.
+                                let keys: Vec<egui::Id> = line
+                                    .iter()
+                                    .map(|&member| {
+                                        ui.scope_id()
+                                            .with(("card height", self.member_name(member)))
+                                    })
+                                    .collect();
+                                let height = keys
+                                    .iter()
+                                    .filter_map(|key| ui.data(|data| data.get_temp::<f32>(*key)))
+                                    .fold(0.0, f32::max);
+                                let size = vec2(width, height);
+                                let mut heights = Vec::with_capacity(line.len());
+                                ui.horizontal_top(|ui| {
+                                    ui.spacing_mut().item_spacing.x = CARD_GAP;
+                                    for &member in line {
+                                        let (more, own) =
+                                            self.member_card(ui, member, size, &drawing);
+                                        actions.extend(more);
+                                        heights.push(own);
+                                    }
+                                });
+                                for (key, own) in keys.into_iter().zip(heights) {
+                                    let kept = ui.data(|data| data.get_temp::<f32>(key));
+                                    // A height that moved (a first pass, a re-read, a wider
+                                    // pane) asks for this pass again, so that no frame shows
+                                    // the line unequal and an idle window needs no input.
+                                    if kept.is_none_or(|kept| (kept - own).abs() > 0.5) {
+                                        ui.ctx().request_discard("a card's height changed");
+                                    }
+                                    ui.data_mut(|data| data.insert_temp(key, own));
+                                }
+                                ui.add_space(CARD_GAP - ui.spacing().item_spacing.y);
                             }
                         }
                     }
@@ -498,8 +554,84 @@ impl Board {
         self.actions.extend(actions);
     }
 
+    /// One member of a group as a row of the list.
+    fn member_row(
+        &self,
+        ui: &mut egui::Ui,
+        member: Member,
+        plan: &Plan,
+        drawing: &Drawing<'_>,
+    ) -> Vec<Action> {
+        match member {
+            Member::Project(i) => {
+                let row = &self.portfolio.projects[i];
+                let live = self.session_summary(row.name());
+                project_row(ui, row, plan, live.as_deref(), drawing)
+            }
+            Member::Folder(i) => {
+                let folder = &self.portfolio.unadopted[i];
+                folder_row(ui, &folder.name, folder.git, folder.roadmap, plan, drawing)
+            }
+        }
+    }
+
+    /// A member's name: the project's or the unadopted folder's.
+    fn member_name(&self, member: Member) -> &str {
+        match member {
+            Member::Project(i) => self.portfolio.projects[i].name(),
+            Member::Folder(i) => &self.portfolio.unadopted[i].name,
+        }
+    }
+
+    /// One member of a group as a card of `size`, its content at least as tall (EP-26a): its
+    /// actions and its content's own height.
+    fn member_card(
+        &self,
+        ui: &mut egui::Ui,
+        member: Member,
+        size: egui::Vec2,
+        drawing: &Drawing<'_>,
+    ) -> (Vec<Action>, f32) {
+        let (selection, row) = match member {
+            Member::Project(i) => {
+                let row = &self.portfolio.projects[i];
+                (Selection::Project(row.name().to_owned()), Some(row))
+            }
+            Member::Folder(i) => (
+                Selection::Folder(self.portfolio.unadopted[i].name.clone()),
+                None,
+            ),
+        };
+        card(ui, selection, row, size, drawing, |ui| {
+            self.card_content(ui, member, drawing)
+        })
+    }
+
+    /// What a member's card holds (EP-26a), with the actions of its buttons.
+    fn card_content(
+        &self,
+        ui: &mut egui::Ui,
+        member: Member,
+        drawing: &Drawing<'_>,
+    ) -> Vec<Action> {
+        match member {
+            Member::Project(i) => {
+                let row = &self.portfolio.projects[i];
+                let live = self.session_summary(row.name());
+                project_card(ui, row, live.as_deref(), drawing);
+                Vec::new()
+            }
+            Member::Folder(i) => {
+                let folder = &self.portfolio.unadopted[i];
+                folder_card(ui, &folder.name, folder.git, folder.roadmap)
+            }
+        }
+    }
+
     fn list_toolbar(&mut self, ui: &mut egui::Ui) {
-        ui.horizontal(|ui| {
+        // Wrapped, so that a narrow pane takes the switches on a second line rather than
+        // widening the pane past its edge (EP-13's trap; EP-26a).
+        ui.horizontal_wrapped(|ui| {
             ui.label(style::icon(icons::ICON_SEARCH, None));
             ui.add(
                 egui::TextEdit::singleline(&mut self.view.filter)
@@ -575,8 +707,75 @@ impl Board {
                 format!("{} Legend", icons::ICON_LEGEND_TOGGLE.codepoint),
             )
             .on_hover_text("Show or hide the key to every mark of the rows");
+            ui.separator();
+            // Expand all, Collapse all and the Cards switch (D-25; EP-26a).
+            if ui
+                .add_enabled(
+                    !self.view.cards && self.view.can_expand_all(&self.portfolio),
+                    egui::Button::new(style::icon(icons::ICON_UNFOLD_MORE, None)),
+                )
+                .on_hover_text("Expand all: every row the list shows, to its phases and sparkline")
+                .on_disabled_hover_text(if self.view.cards {
+                    "The cards show every project's sparkline already"
+                } else {
+                    "Every shown row is expanded"
+                })
+                .clicked()
+            {
+                self.view.expand_all(&self.portfolio);
+            }
+            if ui
+                .add_enabled(
+                    !self.view.cards && !self.view.expanded.is_empty(),
+                    egui::Button::new(style::icon(icons::ICON_UNFOLD_LESS, None)),
+                )
+                .on_hover_text("Collapse all: fold every expanded row")
+                .on_disabled_hover_text(if self.view.cards {
+                    "The rows are not shown"
+                } else {
+                    "No row is expanded"
+                })
+                .clicked()
+            {
+                self.view.collapse_all();
+            }
+            ui.toggle_value(
+                &mut self.view.cards,
+                format!("{} Cards", icons::ICON_GRID_VIEW.codepoint),
+            )
+            .on_hover_text(
+                "One card per project in place of the rows, in the same groups and order: the \
+                 name, the state, the next brief, the progress, the badges and the burn-up \
+                 sparkline (D-25)",
+            );
         });
     }
+}
+
+/// How many cards fit on a line of `available` points and how wide each is: as many as fit at
+/// [`CARD_WIDTH`], the line's spare width shared; one as wide as the line when it is narrower.
+fn cards_per_line(available: f32) -> (usize, f32) {
+    let count = ((available + CARD_GAP) / (CARD_WIDTH + CARD_GAP))
+        .floor()
+        .max(1.0) as usize;
+    let width = ((available - CARD_GAP * (count - 1) as f32) / count as f32).floor();
+    (count, width.max(1.0))
+}
+
+/// The width a card's content takes inside its margins and its stroke.
+fn card_inner(width: f32) -> f32 {
+    (width - 2.0 * (f32::from(CARD_PAD) + CARD_STROKE)).max(1.0)
+}
+
+/// What every row and card of one pass draws with (EP-26a): the list's view, whether the
+/// selection is brought into view, the clock and the local day, and the ledger's read the
+/// sparklines draw from.
+struct Drawing<'a> {
+    view: &'a View,
+    scroll: bool,
+    now: DateTime<Utc>,
+    today: NaiveDate,
+    loaded: Option<&'a Loaded>,
 }
 
 /// The header row (EP-7a): each shown column's name over it, small and weak, with what the
@@ -648,29 +847,36 @@ fn heading(kind: GroupKind) -> &'static str {
     }
 }
 
-/// The row's background: the selection's tint, or the hover's.
-fn background(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) {
+/// The tint of a row or a card: the selection's, or the hover's, or none.
+fn tint(ui: &egui::Ui, selected: bool, hovered: bool) -> Option<egui::Color32> {
     let visuals = ui.visuals();
     if selected {
-        ui.painter()
-            .rect_filled(rect, 4.0, visuals.selection.bg_fill.gamma_multiply(0.55));
+        Some(visuals.selection.bg_fill.gamma_multiply(0.55))
     } else if hovered {
-        ui.painter()
-            .rect_filled(rect, 4.0, visuals.widgets.hovered.weak_bg_fill);
+        Some(visuals.widgets.hovered.weak_bg_fill)
+    } else {
+        None
     }
 }
 
-/// One project's row, and below it the inline expansion when it is open; `scroll` brings it
-/// into view, and `live` is what the window's own sessions say of the project.
+/// The row's background: the selection's tint, or the hover's.
+fn background(ui: &egui::Ui, rect: Rect, selected: bool, hovered: bool) {
+    if let Some(fill) = tint(ui, selected, hovered) {
+        ui.painter().rect_filled(rect, 4.0, fill);
+    }
+}
+
+/// One project's row, and below it the inline expansion when it is open (EP-26a: its phases and
+/// the burn-up sparkline), which answers the pointer as the row does, the two under one tint;
+/// `live` is what the window's own sessions say of the project.
 fn project_row(
     ui: &mut egui::Ui,
     row: &ProjectRow,
-    view: &View,
     plan: &Plan,
-    scroll: bool,
     live: Option<&str>,
-    now: DateTime<Utc>,
+    drawing: &Drawing<'_>,
 ) -> Vec<Action> {
+    let Drawing { view, now, .. } = *drawing;
     let mut actions = Vec::new();
     let name = row.name();
     let selection = Selection::Project(name.to_owned());
@@ -680,8 +886,9 @@ fn project_row(
         vec2(ui.available_width(), view.density.row_height()),
         Sense::click(),
     );
-    background(ui, rect, selected, response.hovered());
-    if selected && scroll {
+    // The tint is painted once the expansion's hover is known, under everything drawn after.
+    let backdrop = ui.painter().add(egui::Shape::Noop);
+    if selected && drawing.scroll {
         response.scroll_to_me(Some(Align::Center));
     }
     let weak = ui.visuals().weak_text_color();
@@ -808,11 +1015,51 @@ fn project_row(
         }
     });
 
-    if response.double_clicked() {
-        actions.push(Action::Open(selection.clone()));
-    } else if response.clicked() {
-        actions.push(Action::Select(selection.clone()));
+    // The expansion senses the click as a whole, under its labels, which sense hover only
+    // (EP-15a), so that it answers over its text as the row does.
+    let below = expanded.then(|| {
+        let indent = plan.span(Column::Name).map_or(0.0, |(x, _)| x);
+        ui.scope_builder(
+            UiBuilder::new()
+                .id_salt(("expansion", name))
+                .sense(Sense::click()),
+            |ui| {
+                style::unselectable(ui);
+                // As wide as the row, so that it answers and tints across it (the review's).
+                ui.set_min_width(ui.available_width());
+                expansion(ui, row, indent, drawing);
+            },
+        )
+        .response
+    });
+    let hovered = response.hovered() || below.as_ref().is_some_and(egui::Response::hovered);
+    if let Some(fill) = tint(ui, selected, hovered) {
+        let area = below.as_ref().map_or(rect, |below| rect.union(below.rect));
+        ui.painter()
+            .set(backdrop, egui::Shape::rect_filled(area, 4.0, fill));
     }
+    for response in std::iter::once(&response).chain(below.as_ref()) {
+        if response.double_clicked() {
+            actions.push(Action::Open(selection.clone()));
+        } else if response.clicked() {
+            actions.push(Action::Select(selection.clone()));
+        }
+        row_menu(response, row, now, &mut actions);
+    }
+    actions
+}
+
+/// The row's menu on a right click, shared by the row and the card (EP-26a): pin, priority and
+/// state (D-6's "by hand"), Refresh this project (EP-25a), the proposals' dismissals (D-6),
+/// Send a message… (D-13), Formalise… and Migrate the roadmap… (D-11), Revert the latest
+/// session… (EP-15c).
+fn row_menu(
+    response: &egui::Response,
+    row: &ProjectRow,
+    now: DateTime<Utc>,
+    actions: &mut Vec<Action>,
+) {
+    let name = row.name();
     response.context_menu(|ui| {
         let pinned = row.project.pinned;
         if ui.button(if pinned { "Unpin" } else { "Pin" }).clicked() {
@@ -941,12 +1188,6 @@ fn project_row(
             }
         }
     });
-
-    if expanded {
-        let indent = plan.span(Column::Name).map_or(0.0, |(x, _)| x);
-        expansion(ui, row, indent);
-    }
-    actions
 }
 
 /// What Formalise… would do, on hover (EP-21a).
@@ -1138,58 +1379,316 @@ fn size_hint(size: crw_core::roadmap::Size) -> &'static str {
     }
 }
 
-/// The inline expansion under the name: each phase's progress, with the graphs' placeholder
-/// (EP-26).
-fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32) {
-    ui.horizontal(|ui| {
+/// The inline expansion under the name: each phase's progress, and the burn-up sparkline beside
+/// them when the row is wide enough, else under them (EP-26a); the phase names wrap in a narrow
+/// pane.
+fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32, drawing: &Drawing<'_>) {
+    let beside = ui.available_width() - indent >= 2.0 * SPARK_WIDTH + GAP;
+    ui.horizontal_top(|ui| {
         ui.add_space(indent);
+        let phases_width = if beside {
+            ui.available_width() - SPARK_WIDTH - GAP
+        } else {
+            ui.available_width()
+        };
         ui.vertical(|ui| {
-            match row.snapshot.current() {
-                Some(roadmap) if !roadmap.phases.is_empty() => {
-                    for phase in &roadmap.phases {
-                        let heading = &phase.heading;
-                        let counts = phase.counts();
-                        let id = heading.id.as_deref().unwrap_or("-");
-                        let status = heading
-                            .status
-                            .as_deref()
-                            .map(|s| format!(" ({s})"))
-                            .unwrap_or_default();
-                        let progress = match counts.total {
-                            0 => "no rows".to_owned(),
-                            total => format!("{} of {total}", counts.done),
-                        };
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(id).monospace());
-                            let fraction = if counts.total > 0 {
-                                counts.done as f32 / counts.total as f32
-                            } else {
-                                0.0
-                            };
-                            ui.add(
-                                egui::ProgressBar::new(fraction)
-                                    .desired_width(90.0)
-                                    .desired_height(8.0),
-                            );
-                            ui.label(RichText::new(progress).weak());
-                            ui.label(format!("{}{status}", heading.name));
-                        });
-                    }
-                }
-                _ => {
-                    ui.label(RichText::new("No phases to show.").weak());
-                }
+            ui.set_max_width(phases_width);
+            // So that the sparklines of the rows below one another start at one place.
+            ui.set_min_width(phases_width.min(PHASES_AT_LEAST));
+            phases(ui, row);
+            if !beside {
+                ui.add_space(2.0);
+                spark_block(ui, row, SPARK_WIDTH.min(ui.available_width()), drawing);
             }
-            ui.label(
-                RichText::new(
-                    "The burn-up sparkline arrives at EP-26a; the graphs are in the Detail pane.",
-                )
-                .small()
-                .weak(),
-            );
         });
+        if beside {
+            ui.vertical(|ui| {
+                ui.set_width(SPARK_WIDTH);
+                spark_block(ui, row, SPARK_WIDTH, drawing);
+            });
+        }
     });
     ui.add_space(4.0);
+}
+
+/// Each phase of the roadmap on a line: its id, a bar, its counts and its name, which wraps.
+fn phases(ui: &mut egui::Ui, row: &ProjectRow) {
+    match row.snapshot.current() {
+        Some(roadmap) if !roadmap.phases.is_empty() => {
+            for phase in &roadmap.phases {
+                let heading = &phase.heading;
+                let counts = phase.counts();
+                let id = heading.id.as_deref().unwrap_or("-");
+                let status = heading
+                    .status
+                    .as_deref()
+                    .map(|s| format!(" ({s})"))
+                    .unwrap_or_default();
+                let progress = match counts.total {
+                    0 => "no rows".to_owned(),
+                    total => format!("{} of {total}", counts.done),
+                };
+                let line = |ui: &mut egui::Ui| {
+                    ui.label(RichText::new(id).monospace());
+                    let fraction = if counts.total > 0 {
+                        counts.done as f32 / counts.total as f32
+                    } else {
+                        0.0
+                    };
+                    ui.add(
+                        egui::ProgressBar::new(fraction)
+                            .desired_width(90.0)
+                            .desired_height(8.0),
+                    );
+                    ui.label(RichText::new(progress.as_str()).weak());
+                    ui.add(egui::Label::new(format!("{}{status}", heading.name)).wrap());
+                };
+                // The name wraps under itself; a pane too narrow for the id, the bar and the
+                // counts beside a name lets the line itself wrap rather than run past its edge.
+                if ui.available_width() >= PHASE_LINE_AT_LEAST {
+                    ui.horizontal_top(line);
+                } else {
+                    ui.horizontal_wrapped(line);
+                }
+            }
+        }
+        _ => {
+            ui.label(RichText::new("No phases to show.").weak());
+        }
+    }
+}
+
+/// The project's completions as the history imported them (EP-25); none before the import.
+fn completions_of(row: &ProjectRow) -> &[Completion] {
+    row.history
+        .as_ref()
+        .map_or(&[], |summary| summary.import.completions.as_slice())
+}
+
+/// The burn-up sparkline `width` wide under a small caption, or one weak line when there is
+/// nothing to draw (EP-26a).
+fn spark_block(ui: &mut egui::Ui, row: &ProjectRow, width: f32, drawing: &Drawing<'_>) {
+    let today = drawing.today;
+    let series = drawing.loaded.and_then(|loaded| {
+        analytics::burn_up(completions_of(row), loaded.snapshots_of(row.name()), today)
+    });
+    let why = match series {
+        Some(series) => {
+            ui.label(
+                RichText::new("Burn-up: done and total by day")
+                    .small()
+                    .weak(),
+            );
+            analytics::sparkline(ui, &series, width, today);
+            return;
+        }
+        None if drawing.loaded.is_none() => "No ledger: no burn-up to draw.",
+        // The Detail pane's Analytics section says why the read failed.
+        None if drawing
+            .loaded
+            .is_some_and(|loaded| loaded.problem.is_some()) =>
+        {
+            "The ledger did not read: no burn-up to draw."
+        }
+        None => "No burn-up yet: no EP dated by the history, no daily count kept.",
+    };
+    ui.add(egui::Label::new(RichText::new(why).small().weak()).wrap());
+}
+
+/// A card of `size` around what `add` draws, with `add`'s actions and the content's own height:
+/// a click selects, a double click opens, and a project's card (`row`) opens the row's menu on a
+/// right click, as a row does (EP-26a).
+fn card(
+    ui: &mut egui::Ui,
+    selection: Selection,
+    row: Option<&ProjectRow>,
+    size: egui::Vec2,
+    drawing: &Drawing<'_>,
+    add: impl FnOnce(&mut egui::Ui) -> Vec<Action>,
+) -> (Vec<Action>, f32) {
+    let selected = drawing.view.selected.as_ref() == Some(&selection);
+    let name = match &selection {
+        Selection::Project(name) | Selection::Folder(name) => name.clone(),
+    };
+    let mut actions = Vec::new();
+    let (response, own) = card_frame(ui, &name, size, selected, |ui| actions.extend(add(ui)));
+    if selected && drawing.scroll {
+        response.scroll_to_me(Some(Align::Center));
+    }
+    if response.double_clicked() {
+        actions.push(Action::Open(selection));
+    } else if response.clicked() {
+        actions.push(Action::Select(selection));
+    }
+    if let Some(row) = row {
+        row_menu(&response, row, drawing.now, &mut actions);
+    }
+    (actions, own)
+}
+
+/// A card's frame `size.x` wide, its content at least `size.y` tall: the selection's tint or the
+/// hover's over the faint fill, a thin stroke; the whole card senses the click under its labels,
+/// which sense hover only (EP-15a), so the card answers over its text as the row does (EP-26a).
+/// Returns the card's response and its content's own height.
+fn card_frame(
+    ui: &mut egui::Ui,
+    name: &str,
+    size: egui::Vec2,
+    selected: bool,
+    add: impl FnOnce(&mut egui::Ui),
+) -> (egui::Response, f32) {
+    let (width, height) = (size.x, size.y);
+    let mut own = 0.0;
+    let response = ui
+        .scope_builder(
+            // Top to bottom, whatever the line of cards around it lays out (EP-26a).
+            UiBuilder::new()
+                .id_salt(("card", name))
+                .layout(Layout::top_down(Align::Min))
+                .sense(Sense::click()),
+            |ui| {
+                ui.set_width(width);
+                style::unselectable(ui);
+                // The card's response from the last pass: whether the pointer is over it.
+                let hovered = ui.response().hovered();
+                let visuals = ui.visuals();
+                let fill = tint(ui, selected, hovered).unwrap_or(visuals.faint_bg_color);
+                egui::Frame::new()
+                    .fill(fill)
+                    .stroke(Stroke::new(
+                        CARD_STROKE,
+                        visuals.widgets.noninteractive.bg_stroke.color,
+                    ))
+                    .corner_radius(6.0)
+                    .inner_margin(egui::Margin::same(CARD_PAD))
+                    .show(ui, |ui| {
+                        ui.set_width(card_inner(width));
+                        // Before the content: egui measures a minimum height from the cursor.
+                        ui.set_min_height(height);
+                        own = ui.scope(add).response.rect.height();
+                    });
+            },
+        )
+        .response;
+    (response, own)
+}
+
+/// One project's card (D-25; EP-26a): the pin and the name; the state chip, the next EP and its
+/// size; the next brief's title on two lines at most, whole on hover; the progress pill; what
+/// waits, the badges and the session mark on a wrapping line; the sparkline. The card's frame
+/// takes the click, the double click and the right click ([`Board::member_card`]).
+fn project_card(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>, drawing: &Drawing<'_>) {
+    let now = drawing.now;
+    let name = row.name();
+    ui.horizontal(|ui| {
+        if row.project.pinned {
+            PINNED.show(ui, "Pinned: first in its group");
+        }
+        name_label(ui, name);
+    });
+    ui.horizontal_wrapped(|ui| {
+        state_cell(ui, row, now);
+        if let (Some(_), Some(next)) = (&row.folder, row.next()) {
+            next_cell(ui, next);
+        }
+    });
+    let counts = row.counts();
+    match (&row.folder, row.next()) {
+        (None, _) => {
+            ui.add(
+                egui::Label::new(
+                    RichText::new(format!("Folder missing: {}", row.path.display()))
+                        .color(style::red(ui)),
+                )
+                .wrap(),
+            );
+        }
+        (Some(_), Some(next)) => {
+            let mut title = markup::job(ui, &next.brief.title, Look::default());
+            title.wrap.max_rows = TITLE_ROWS;
+            title.wrap.overflow_character = Some('…');
+            ui.add(egui::Label::new(title).wrap());
+        }
+        (Some(_), None) => {
+            let text = if counts.all_checked() {
+                "Every row is checked"
+            } else if row.snapshot.current().is_none() {
+                "No roadmap/README.md"
+            } else {
+                "No phase table read"
+            };
+            ui.label(RichText::new(text).weak());
+        }
+    }
+    if counts.total > 0 {
+        let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 22.0), Sense::hover());
+        progress_cell(ui, rect, counts);
+    }
+    ui.horizontal_wrapped(|ui| {
+        // Straight into the wrapped line, the spacing put back after each cell (some set their
+        // own): a child Ui per cell would advance the line even when its cell draws nothing,
+        // and each mark after it would sit lower.
+        let spacing = ui.spacing().item_spacing;
+        let put = |ui: &mut egui::Ui, draw: &dyn Fn(&mut egui::Ui)| {
+            let before = ui.cursor().min;
+            draw(ui);
+            // egui spaced the cell's last mark by the cell's own spacing: the line's gap after it.
+            if ui.cursor().min != before {
+                ui.add_space((spacing.x - ui.spacing().item_spacing.x).max(0.0));
+            }
+            ui.spacing_mut().item_spacing = spacing;
+        };
+        put(ui, &|ui| counts_cell(ui, row));
+        if row.folder.is_some() {
+            put(ui, &|ui| stack_cell(ui, row));
+            put(ui, &|ui| hosting_cell(ui, row, now));
+            put(ui, &|ui| sync_cell(ui, row, now));
+            put(ui, &|ui| age_cell(ui, row, now));
+            put(ui, &|ui| health_cell(ui, row, now));
+            put(ui, &|ui| backup_cell(ui, row, now));
+        }
+        put(ui, &|ui| usage_cell(ui, row));
+        put(ui, &|ui| session_cell(ui, row, live));
+    });
+    spark_block(ui, row, ui.available_width(), drawing);
+}
+
+/// An unadopted folder's card (D-7; EP-26a): the folder mark and the name, the chip, what it
+/// holds, Adopt and Ignore, whose clicks it returns.
+fn folder_card(ui: &mut egui::Ui, name: &str, git: bool, roadmap: bool) -> Vec<Action> {
+    let mut actions = Vec::new();
+    ui.horizontal(|ui| {
+        FOLDER.show(ui, "A folder of the data root, not adopted yet");
+        name_label(ui, name);
+    });
+    unadopted_chip(ui);
+    ui.add(egui::Label::new(RichText::new(folder_words(git, roadmap)).weak()).wrap());
+    ui.horizontal_wrapped(|ui| {
+        if ui
+            .button("Adopt")
+            .on_hover_text("Register it and add it to the workspace file")
+            .clicked()
+        {
+            actions.push(Action::Adopt(name.to_owned()));
+        }
+        if ui
+            .button("Ignore")
+            .on_hover_text("Leave it out of this group; the registry remembers")
+            .clicked()
+        {
+            actions.push(Action::Ignore(name.to_owned()));
+        }
+    });
+    actions
+}
+
+/// What an unadopted folder holds, in words.
+fn folder_words(git: bool, roadmap: bool) -> &'static str {
+    match (git, roadmap) {
+        (true, true) => "A git repository with a roadmap",
+        (true, false) => "A git repository without a roadmap",
+        (false, _) => "A folder, not a repository",
+    }
 }
 
 /// An unadopted folder's row: what it holds, Adopt and Ignore (D-7).
@@ -1198,10 +1697,10 @@ fn folder_row(
     name: &str,
     git: bool,
     roadmap: bool,
-    view: &View,
     plan: &Plan,
-    scroll: bool,
+    drawing: &Drawing<'_>,
 ) -> Vec<Action> {
+    let view = drawing.view;
     let mut actions = Vec::new();
     let selection = Selection::Folder(name.to_owned());
     let selected = view.selected.as_ref() == Some(&selection);
@@ -1210,7 +1709,7 @@ fn folder_row(
         Sense::click(),
     );
     background(ui, rect, selected, response.hovered());
-    if selected && scroll {
+    if selected && drawing.scroll {
         response.scroll_to_me(Some(Align::Center));
     }
     plan.draw(ui, rect, Column::Pin, |ui| {
@@ -1231,12 +1730,7 @@ fn folder_row(
         egui::pos2(buttons.left() - GAP, rect.bottom()),
     );
     cell(ui, what, |ui| {
-        let text = match (git, roadmap) {
-            (true, true) => "A git repository with a roadmap",
-            (true, false) => "A git repository without a roadmap",
-            (false, _) => "A folder, not a repository",
-        };
-        ui.add(egui::Label::new(RichText::new(text).weak()).truncate());
+        ui.add(egui::Label::new(RichText::new(folder_words(git, roadmap)).weak()).truncate());
     });
     cell(ui, buttons, |ui| {
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -1298,10 +1792,236 @@ mod tests {
                 vec2(ui.available_width(), view.density.row_height()),
             );
             let row = portfolio.project("harbor").unwrap();
-            let actions = project_row(ui, row, &view, &plan, false, None, now);
+            let drawing = drawing(&view, None);
+            let actions = project_row(ui, row, &plan, None, &drawing);
             found = (actions, rect, plan.rect(column, rect).unwrap());
         });
         (found.0, found.1, found.2, output)
+    }
+
+    /// A pass's drawing context over `view` and `loaded`, now.
+    fn drawing<'a>(view: &'a View, loaded: Option<&'a Loaded>) -> Drawing<'a> {
+        Drawing {
+            view,
+            scroll: false,
+            now: Utc::now(),
+            today: Local::now().date_naive(),
+            loaded,
+        }
+    }
+
+    /// harbor's card drawn at the top of a pass of `screen` with `events`, `CARD_WIDTH` wide:
+    /// its actions and what the pass painted.
+    fn harbor_card_pass(
+        screen: &mut Screen,
+        portfolio: &Portfolio,
+        loaded: Option<&Loaded>,
+        events: Vec<egui::Event>,
+    ) -> (Vec<Action>, egui::FullOutput) {
+        let view = View::default();
+        let mut actions = Vec::new();
+        let output = screen.pass(events, |ui| {
+            let row = portfolio.project("harbor").unwrap();
+            let drawing = drawing(&view, loaded);
+            let selection = Selection::Project("harbor".to_owned());
+            actions = card(
+                ui,
+                selection,
+                Some(row),
+                vec2(CARD_WIDTH, 0.0),
+                &drawing,
+                |ui| {
+                    project_card(ui, row, None, &drawing);
+                    Vec::new()
+                },
+            )
+            .0;
+        });
+        (actions, output)
+    }
+
+    /// The ledger's rows a sparkline test draws from: harbor's counts over two weeks.
+    fn canned_loaded() -> Loaded {
+        let now = Utc::now();
+        let snapshot = |days_ago: i64, done, total| crw_core::ledger::SnapshotRow {
+            taken_at: now - chrono::TimeDelta::days(days_ago),
+            done,
+            total,
+        };
+        Loaded {
+            snapshots: [(
+                "harbor".to_owned(),
+                vec![snapshot(14, 2, 8), snapshot(7, 3, 11), snapshot(0, 4, 11)],
+            )]
+            .into(),
+            ..Loaded::default()
+        }
+    }
+
+    /// Whether `output` paints a line in `colour`: the sparkline's done series.
+    /// A line of two points at least (an empty one is a path too).
+    fn strokes(output: &egui::FullOutput, colour: egui::Color32) -> bool {
+        output.shapes.iter().any(|clipped| match &clipped.shape {
+            egui::Shape::Path(path) => {
+                path.points.len() >= 2
+                    && path.stroke.color == egui::epaint::ColorMode::Solid(colour)
+            }
+            _ => false,
+        })
+    }
+
+    #[test]
+    fn a_card_answers_over_its_name_and_opens_its_menu() {
+        use crate::analytics::tests::completion;
+        use crw_core::history::{Import, Summary};
+
+        let scratch = Scratch::new("list-card-clicks");
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        // Two EPs dated in the last fortnight: the done series the sparkline draws in green.
+        let today = Local::now().date_naive();
+        let day = |ago: u64| (today - chrono::Days::new(ago)).to_string();
+        let harbor = portfolio
+            .projects
+            .iter_mut()
+            .find(|row| row.name() == "harbor")
+            .unwrap();
+        harbor.history = Some(Summary {
+            imported_at: Utc::now(),
+            head: None,
+            import: Import {
+                completions: vec![completion("EP-1", &day(12)), completion("EP-2", &day(5))],
+                commits: 4,
+                single: false,
+            },
+        });
+        let loaded = canned_loaded();
+        let mut screen = Screen::new();
+        let (_, output) = harbor_card_pass(&mut screen, &portfolio, Some(&loaded), Vec::new());
+        let name = testing::text_at(&output, "harbor").expect("the card's name");
+        assert!(
+            testing::text_containing(&output, "Burn-up").is_some(),
+            "the sparkline's caption"
+        );
+        let green = {
+            let mut colour = egui::Color32::TRANSPARENT;
+            screen.pass(Vec::new(), |ui| colour = style::green(ui));
+            colour
+        };
+        assert!(strokes(&output, green), "the done series is drawn");
+        // Over the name's first letters, which a selectable label would take.
+        let at = name + vec2(-10.0, 0.0);
+        let press = |button, pressed| testing::button(at, button, pressed);
+        harbor_card_pass(&mut screen, &portfolio, Some(&loaded), testing::moved(at));
+        harbor_card_pass(
+            &mut screen,
+            &portfolio,
+            Some(&loaded),
+            press(egui::PointerButton::Primary, true),
+        );
+        let (actions, _) = harbor_card_pass(
+            &mut screen,
+            &portfolio,
+            Some(&loaded),
+            press(egui::PointerButton::Primary, false),
+        );
+        assert_eq!(
+            actions,
+            [Action::Select(Selection::Project("harbor".to_owned()))]
+        );
+        // A right click over the name opens the row's menu, the card's own.
+        harbor_card_pass(
+            &mut screen,
+            &portfolio,
+            Some(&loaded),
+            press(egui::PointerButton::Secondary, true),
+        );
+        harbor_card_pass(
+            &mut screen,
+            &portfolio,
+            Some(&loaded),
+            press(egui::PointerButton::Secondary, false),
+        );
+        let (_, output) = harbor_card_pass(&mut screen, &portfolio, Some(&loaded), Vec::new());
+        assert!(
+            egui::Popup::is_any_open(&screen.ctx),
+            "the row's menu is open"
+        );
+        assert!(testing::text_at(&output, "Refresh this project").is_some());
+    }
+
+    #[test]
+    fn an_expanded_row_draws_the_sparkline_or_says_why_not() {
+        let scratch = Scratch::new("list-row-sparkline");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let loaded = canned_loaded();
+        let mut screen = Screen::new();
+        let view = View {
+            expanded: ["harbor".to_owned()].into(),
+            ..View::default()
+        };
+        let pass = |screen: &mut Screen, loaded: Option<&Loaded>, events| {
+            let mut actions = Vec::new();
+            let output = screen.pass(events, |ui| {
+                let widths = Widths::measure(ui, &portfolio, Utc::now());
+                let plan = Plan::new(&widths, ui.available_width());
+                let row = portfolio.project("harbor").unwrap();
+                actions = project_row(ui, row, &plan, None, &drawing(&view, loaded));
+            });
+            (actions, output)
+        };
+        let (_, output) = pass(&mut screen, Some(&loaded), Vec::new());
+        assert!(testing::text_containing(&output, "Burn-up").is_some());
+        let (_, output) = pass(&mut screen, None, Vec::new());
+        assert!(testing::text_containing(&output, "No ledger").is_some());
+        let empty = Loaded::default();
+        let (_, output) = pass(&mut screen, Some(&empty), Vec::new());
+        assert!(testing::text_containing(&output, "No burn-up yet").is_some());
+
+        // The expansion answers over its text as the row does: a click over its caption
+        // selects the project, a right click opens the row's menu.
+        let at = testing::text_containing(&output, "No burn-up yet").unwrap();
+        let press = |button, pressed| testing::button(at, button, pressed);
+        pass(&mut screen, Some(&empty), testing::moved(at));
+        pass(
+            &mut screen,
+            Some(&empty),
+            press(egui::PointerButton::Primary, true),
+        );
+        let (actions, _) = pass(
+            &mut screen,
+            Some(&empty),
+            press(egui::PointerButton::Primary, false),
+        );
+        assert_eq!(
+            actions,
+            [Action::Select(Selection::Project("harbor".to_owned()))]
+        );
+        pass(
+            &mut screen,
+            Some(&empty),
+            press(egui::PointerButton::Secondary, true),
+        );
+        pass(
+            &mut screen,
+            Some(&empty),
+            press(egui::PointerButton::Secondary, false),
+        );
+        let (_, output) = pass(&mut screen, Some(&empty), Vec::new());
+        assert!(
+            egui::Popup::is_any_open(&screen.ctx),
+            "the row's menu is open over the expansion"
+        );
+        assert!(testing::text_at(&output, "Refresh this project").is_some());
+    }
+
+    #[test]
+    fn the_cards_fill_the_line_and_a_narrow_pane_gets_one() {
+        let (count, width) = cards_per_line(1000.0);
+        assert_eq!(count, 3, "three at 280 with two gaps fit in 1000");
+        assert!((width - 328.0).abs() < 0.01, "{width}");
+        assert_eq!(cards_per_line(200.0), (1, 200.0));
+        let (count, width) = cards_per_line(CARD_WIDTH * 2.0 + CARD_GAP);
+        assert_eq!((count, width), (2, CARD_WIDTH));
     }
 
     #[test]

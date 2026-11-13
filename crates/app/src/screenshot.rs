@@ -25,9 +25,15 @@
 //!
 //! - `root=<folder>` (the data root, as above);
 //! - `light` / `dark` (the theme); `compact` / `comfortable` (the density); `legend` (the key
-//!   to the row's marks open under the list); `history` (a canned history import on harbor's
-//!   row, the Detail pane's History section with a flagged EP; EP-25);
+//!   to the row's marks open under the list); `cards` (the cards view, EP-26a); `history` (a
+//!   canned history import on harbor's row, the Detail pane's History section with a flagged
+//!   EP; EP-25); `analytics` (canned session rows and daily counts of harbor's and lantern's
+//!   for the Analytics section and the list's sparklines; EP-26, EP-26a); `analytics=all`
+//!   (the same, and a synthetic history and daily counts for every registered project the canned
+//!   rows leave out, so that a copy of the real roadmaps, which has no git and no ledger, draws
+//!   sparklines);
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
+//!   `expand=all` (every registered project's row expanded, EP-26a);
 //! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat` or `usage` to
 //!   the front of its group);
 //! - `keys=<chord>;<chord>…` (key presses such as `Down`, `Enter` or `ctrl+F`, key names as
@@ -305,13 +311,32 @@ impl Run {
                     board.view.density.apply(ctx);
                 }
                 "legend" => board.view.legend = true,
+                // The cards view (EP-26a); pair it with `analytics` for the sparklines.
+                "cards" => board.view.cards = true,
                 // A canned history import on harbor's row (EP-25): the Detail pane's History
                 // section with a flagged EP; pair it with `select=harbor`.
                 "history" => board.loader.put_history("harbor", canned_history()),
                 // Canned session rows and daily counts for the Analytics section (EP-26): the
                 // heatmap, the burn-up, the velocity and the projection; pair it with
-                // `select=harbor,history`.
-                "analytics" => board.analytics.put(canned_analytics()),
+                // `select=harbor,history`. `analytics=all` (EP-26a) also cans a history and
+                // daily counts for every registered project, so that the list's sparklines
+                // draw over a copy of the real roadmaps, which has no git and no ledger.
+                "analytics" => {
+                    let mut loaded = canned_analytics();
+                    if value == "all" {
+                        for (i, name) in registered_names(board).iter().enumerate() {
+                            // harbor's and lantern's canned counts stay as they are.
+                            if loaded.snapshots.contains_key(name) {
+                                continue;
+                            }
+                            board.loader.put_history(name, synthetic_history(i));
+                            loaded
+                                .snapshots
+                                .insert(name.clone(), synthetic_snapshots(i));
+                        }
+                    }
+                    board.analytics.put(loaded);
+                }
                 // A canned read on its own of harbor's row (EP-25a): the Status section's line
                 // under Activity; pair it with `select=harbor`.
                 "reread" => board.loader.put_reread(
@@ -338,7 +363,14 @@ impl Run {
                     board.scroll_to_selected = true;
                 }
                 "expand" => {
-                    board.view.expanded.insert(value.to_owned());
+                    // `expand=all` (EP-26a): every registered project's row, as Expand all
+                    // does once the list shows them.
+                    if value == "all" {
+                        let names = registered_names(board);
+                        board.view.expanded.extend(names);
+                    } else {
+                        board.view.expanded.insert(value.to_owned());
+                    }
                 }
                 "launch" => {
                     // `launch=harbor:headless` opens the dialog on Headless, where the chain
@@ -695,6 +727,70 @@ fn keeprule_action(value: &str) -> Option<Action> {
     })
 }
 
+/// The names the run's registry lists, in its order; none when it does not read.
+fn registered_names(board: &Board) -> Vec<String> {
+    board
+        .store()
+        .load()
+        .map(|loaded| {
+            loaded
+                .registry
+                .projects
+                .iter()
+                .map(|project| project.name.clone())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// A history import for the `i`th registered project under `analytics=all` (EP-26a): three to
+/// seven EPs dated over the last seven weeks, the later ones closer together.
+fn synthetic_history(i: usize) -> crw_core::history::Summary {
+    use crw_core::history::{Completion, Flag, Import, Summary};
+    let today = chrono::Local::now().date_naive();
+    let count = 3 + i % 5;
+    let completions = (0..count)
+        .map(|n| {
+            let days_ago = 49 - (n * 42 / count) as u64 - (i % 3) as u64;
+            let on = today - chrono::Days::new(days_ago);
+            Completion {
+                ep: format!("EP-{}", n + 1).parse().unwrap(),
+                completed_on: on,
+                git_date: Some(on),
+                note_date: None,
+                record: vec!["1111111111111111111111111111111111111111".to_owned()],
+                work: Vec::new(),
+                flag: Flag::GitOnly,
+            }
+        })
+        .collect();
+    Summary {
+        imported_at: Utc::now() - chrono::TimeDelta::minutes(12),
+        head: Some("3333333333333333333333333333333333333333".to_owned()),
+        import: Import {
+            completions,
+            commits: 10 + i,
+            single: false,
+        },
+    }
+}
+
+/// Daily counts for the `i`th registered project under `analytics=all` (EP-26a): a total that
+/// jumps at a re-plan ten days ago, the done its history's.
+fn synthetic_snapshots(i: usize) -> Vec<crw_core::ledger::SnapshotRow> {
+    let now = Utc::now();
+    let count = 3 + i % 5;
+    let total = count + 3 + i % 4;
+    [(20, total), (10, total + 2 + i % 3), (0, total + 2 + i % 3)]
+        .into_iter()
+        .map(|(days_ago, total)| crw_core::ledger::SnapshotRow {
+            taken_at: now - TimeDelta::days(days_ago),
+            done: count,
+            total,
+        })
+        .collect()
+}
+
 /// A history import as the ledger would keep it for harbor (EP-25): dated EPs, one flagged.
 fn canned_history() -> crw_core::history::Summary {
     use crw_core::history::{Completion, Flag, Import, Summary};
@@ -781,16 +877,29 @@ fn canned_analytics() -> crate::analytics::Loaded {
         done,
         total,
     };
+    // harbor's counts over two weeks, and lantern's (EP-26a), so that a second card and a second
+    // expanded row draw a sparkline.
     crate::analytics::Loaded {
-        project: "harbor".to_owned(),
         sessions,
-        snapshots: vec![
-            snapshot(14, 2, 8),
-            snapshot(10, 3, 8),
-            snapshot(7, 3, 11),
-            snapshot(3, 4, 11),
-            snapshot(0, 4, 11),
-        ],
+        snapshots: [
+            (
+                "harbor",
+                vec![
+                    snapshot(14, 2, 8),
+                    snapshot(10, 3, 8),
+                    snapshot(7, 3, 11),
+                    snapshot(3, 4, 11),
+                    snapshot(0, 4, 11),
+                ],
+            ),
+            (
+                "lantern",
+                vec![snapshot(30, 1, 6), snapshot(16, 2, 6), snapshot(3, 3, 7)],
+            ),
+        ]
+        .into_iter()
+        .map(|(project, rows)| (project.to_owned(), rows))
+        .collect(),
         reverted: Default::default(),
         problem: None,
     }
@@ -1949,11 +2058,13 @@ mod tests {
         );
         let run = Run {
             home: PathBuf::from("home"),
-            flags: flags("size=1200x800,expand=harbor"),
+            flags: flags("size=1200x800,expand=harbor,cards"),
             root: None,
         };
         assert_eq!(run.size(), [1200.0, 800.0]);
         assert_eq!(run.value("expand"), Some("harbor"));
+        assert_eq!(run.value("cards"), None, "a bare flag has no value");
+        assert!(run.flags.iter().any(|flag| flag == "cards"));
         let default = Run {
             flags: flags("size=wide"),
             ..run

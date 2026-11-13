@@ -93,6 +93,8 @@ pub struct View {
     pub legend: bool,
     /// What the Sessions pane's All tab lists (EP-13).
     pub sessions: SessionFilter,
+    /// The cards view in place of the rows (D-25; EP-26a).
+    pub cards: bool,
 }
 
 impl Default for View {
@@ -109,6 +111,7 @@ impl Default for View {
             hosting: BTreeSet::new(),
             legend: false,
             sessions: SessionFilter::default(),
+            cards: false,
         }
     }
 }
@@ -116,6 +119,42 @@ impl Default for View {
 impl View {
     pub fn is_folded(&self, kind: GroupKind) -> bool {
         self.folded.contains(kind.name())
+    }
+
+    /// The projects the list shows (the groups the filters leave, folded or not), as Expand all
+    /// and Collapse all see them (EP-26a).
+    pub fn shown<'a>(&self, portfolio: &'a Portfolio) -> Vec<&'a str> {
+        portfolio
+            .groups(self.sort, self.list_filter())
+            .iter()
+            .flat_map(|group| group.members.iter())
+            .filter_map(|member| match member {
+                crate::portfolio::Member::Project(i) => Some(portfolio.projects[*i].name()),
+                crate::portfolio::Member::Folder(_) => None,
+            })
+            .collect()
+    }
+
+    /// Whether Expand all would change anything: a shown project is not expanded.
+    pub fn can_expand_all(&self, portfolio: &Portfolio) -> bool {
+        self.shown(portfolio)
+            .into_iter()
+            .any(|name| !self.expanded.contains(name))
+    }
+
+    /// Expands every project the list shows; the rows of filtered-out projects stay as they are.
+    pub fn expand_all(&mut self, portfolio: &Portfolio) {
+        let names: Vec<String> = self
+            .shown(portfolio)
+            .into_iter()
+            .map(str::to_owned)
+            .collect();
+        self.expanded.extend(names);
+    }
+
+    /// Folds every row.
+    pub fn collapse_all(&mut self) {
+        self.expanded.clear();
     }
 
     /// The name, stack and hosting filters as the list applies them.
@@ -1225,7 +1264,10 @@ impl Board {
                 }
             }
         }
-        if let Some(Selection::Project(name)) = self.view.selected.clone() {
+        // A card has no expansion, so → and ← leave the cards view alone (EP-26a's review).
+        if !self.view.cards
+            && let Some(Selection::Project(name)) = self.view.selected.clone()
+        {
             if pressed(Key::ArrowRight) {
                 self.view.expanded.insert(name.clone());
             }
@@ -2548,18 +2590,27 @@ impl Dashboard {
                     self.board.view.density.apply(ui.ctx());
                 }
                 ui.separator();
-                if ui.button("Expand every row").clicked() {
-                    let names = self
-                        .board
-                        .portfolio
-                        .projects
-                        .iter()
-                        .map(|row| row.name().to_owned());
-                    self.board.view.expanded.extend(names);
+                // The same two as the Projects toolbar's (EP-26a).
+                if ui
+                    .add_enabled(
+                        self.board.view.can_expand_all(&self.board.portfolio),
+                        egui::Button::new("Expand all"),
+                    )
+                    .clicked()
+                {
+                    self.board.view.expand_all(&self.board.portfolio);
                 }
-                if ui.button("Fold every row").clicked() {
-                    self.board.view.expanded.clear();
+                if ui
+                    .add_enabled(
+                        !self.board.view.expanded.is_empty(),
+                        egui::Button::new("Collapse all"),
+                    )
+                    .clicked()
+                {
+                    self.board.view.collapse_all();
                 }
+                ui.toggle_value(&mut self.board.view.cards, "Cards")
+                    .on_hover_text("One card per project in place of the rows (D-25)");
                 ui.separator();
                 if ui
                     .button("Reset layout")
@@ -2738,5 +2789,46 @@ mod tests {
         storage.set_string(VIEW_KEY, saved.replace(",legend:true", ""));
         let older: View = stored(Some(&storage), VIEW_KEY).unwrap();
         assert_eq!(older, View::default());
+        // A view saved before EP-26a reads with the cards off.
+        let cards = View {
+            cards: true,
+            ..View::default()
+        };
+        eframe::set_value(&mut storage, VIEW_KEY, &cards);
+        let saved = storage.get_string(VIEW_KEY).unwrap();
+        assert!(saved.contains("cards:true"), "{saved}");
+        storage.set_string(VIEW_KEY, saved.replace(",cards:true", ""));
+        let older: View = stored(Some(&storage), VIEW_KEY).unwrap();
+        assert!(!older.cards);
+    }
+
+    /// Expand all adds the projects the list shows and leaves a filtered-out one alone; Collapse
+    /// all clears (EP-26a).
+    #[test]
+    fn expand_all_takes_the_shown_projects_and_collapse_all_clears() {
+        use crate::portfolio::tests::{Scratch, fake_store};
+
+        let scratch = Scratch::new("board-expand-all");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        // "harb", since "har" is in orchard's name too.
+        let mut view = View {
+            filter: "harb".to_owned(),
+            ..View::default()
+        };
+        assert!(view.can_expand_all(&portfolio));
+        view.expand_all(&portfolio);
+        assert_eq!(
+            view.expanded.iter().collect::<Vec<_>>(),
+            ["harbor"],
+            "the filter keeps harbor alone"
+        );
+        assert!(!view.can_expand_all(&portfolio), "nothing more to expand");
+        view.filter.clear();
+        assert!(view.can_expand_all(&portfolio));
+        view.expand_all(&portfolio);
+        assert!(view.expanded.len() > 1, "{:?}", view.expanded);
+        assert!(view.expanded.contains("lantern"));
+        view.collapse_all();
+        assert!(view.expanded.is_empty());
     }
 }

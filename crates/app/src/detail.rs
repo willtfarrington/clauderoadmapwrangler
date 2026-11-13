@@ -35,10 +35,10 @@ impl Board {
             _ => Vec::new(),
         };
         // The graphs' read of the ledger (EP-26), when due.
-        if let Some(Selection::Project(name)) = &self.view.selected {
+        if let Some(Selection::Project(_)) = &self.view.selected {
             let ledger = self.ledger().map(std::path::Path::to_path_buf);
             self.analytics
-                .refresh(ledger.as_deref(), name, std::time::Instant::now());
+                .refresh(ledger.as_deref(), std::time::Instant::now());
         }
         egui::ScrollArea::vertical()
             .auto_shrink(false)
@@ -1633,7 +1633,6 @@ mod tests {
         let start = Utc::now() - chrono::TimeDelta::days(9);
         let mut analytics = Analytics::default();
         analytics.put(Loaded {
-            project: "harbor".to_owned(),
             sessions: vec![session(
                 1,
                 Some("aaaa"),
@@ -1643,7 +1642,7 @@ mod tests {
                 start,
                 Some((19, "completed")),
             )],
-            snapshots: Vec::new(),
+            snapshots: Default::default(),
             reverted: Default::default(),
             problem: None,
         });

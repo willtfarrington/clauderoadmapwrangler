@@ -5,7 +5,8 @@
 //! week over the last eight weeks) drawn with `egui_plot`; the measure of a brief's time from the
 //! session rows, the median per size, and the projection (the remaining session-hours from the
 //! open rows' size mix, the finish at the measured pace as a range). The ledger is read on the UI
-//! thread as the meter's week is, when the selection changes, a minute later, or after a read.
+//! thread as the meter's week is, a minute apart or after a read of the files, once for the
+//! Detail pane's section and the list's sparklines together (EP-26a): every project's rows.
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::Path;
@@ -47,14 +48,14 @@ pub fn planned(size: Size) -> f64 {
 
 // --- What the ledger gives ------------------------------------------------------------------
 
-/// The ledger's rows for one project's graphs, read at once.
+/// The ledger's rows for the graphs, read at once: the same read serves the Detail pane's section
+/// and the list's sparklines (EP-26a), so it holds every project's rows.
 #[derive(Debug, Clone, Default)]
 pub struct Loaded {
-    pub project: String,
     /// Every project's session rows: the portfolio's heatmap and medians need them all.
     pub sessions: Vec<SessionRow>,
-    /// The project's daily counts.
-    pub snapshots: Vec<SnapshotRow>,
+    /// Every project's daily counts, by project, each the oldest first.
+    pub snapshots: BTreeMap<String, Vec<SnapshotRow>>,
     /// The sessions a revert undid, as `(project, short id)` (EP-15b's events).
     pub reverted: HashSet<(String, String)>,
     /// Why the read failed, when it did.
@@ -62,15 +63,12 @@ pub struct Loaded {
 }
 
 impl Loaded {
-    /// Reads the ledger at `path` for `project`.
-    pub fn read(path: &Path, project: &str) -> Loaded {
-        let mut loaded = Loaded {
-            project: project.to_owned(),
-            ..Loaded::default()
-        };
+    /// Reads the ledger at `path`.
+    pub fn read(path: &Path) -> Loaded {
+        let mut loaded = Loaded::default();
         let read = Ledger::open_read_only(path).and_then(|ledger| {
             loaded.sessions = ledger.sessions()?;
-            loaded.snapshots = ledger.snapshots(project)?;
+            loaded.snapshots = ledger.snapshots_all()?;
             for event in ledger.events(revert::EVENT_KIND, None)? {
                 if let (Some(project), Some(id)) = (event.project, reverted_id(&event.detail)) {
                     loaded.reverted.insert((project, id.to_owned()));
@@ -82,6 +80,11 @@ impl Loaded {
             loaded.problem = Some(format!("The ledger did not read for the graphs: {e}"));
         }
         loaded
+    }
+
+    /// `project`'s daily counts, the oldest first; none without a row.
+    pub fn snapshots_of(&self, project: &str) -> &[SnapshotRow] {
+        self.snapshots.get(project).map_or(&[], Vec::as_slice)
     }
 
     /// Whether `row`'s session was reverted.
@@ -116,25 +119,21 @@ pub struct Analytics {
 }
 
 impl Analytics {
-    /// Reads the ledger for `project` when due: the first time, when the project changed, when
-    /// marked stale, or a minute after the last read.
-    pub fn refresh(&mut self, ledger: Option<&Path>, project: &str, now: Instant) {
+    /// Reads the ledger when due: the first time, when marked stale, or a minute after the last
+    /// read; the Detail pane asks for its section, the list for an expanded row or the cards.
+    pub fn refresh(&mut self, ledger: Option<&Path>, now: Instant) {
         if self.canned {
             return;
         }
-        let same = self
-            .loaded
-            .as_ref()
-            .is_some_and(|loaded| loaded.project == project);
         let fresh = self
             .read_at
             .is_some_and(|at| now.duration_since(at) < FRESH_FOR);
-        if same && fresh && !self.stale {
+        if fresh && !self.stale {
             return;
         }
         self.stale = false;
         self.read_at = Some(now);
-        self.loaded = ledger.map(|path| Loaded::read(path, project));
+        self.loaded = ledger.map(Loaded::read);
         self.measured = None;
     }
 
@@ -760,7 +759,7 @@ pub fn section(
     heatmap(ui, &days);
 
     // The burn-up.
-    match burn_up(&own, &loaded.snapshots, today) {
+    match burn_up(&own, loaded.snapshots_of(row.name()), today) {
         Some(series) => {
             ui.label(
                 RichText::new("Burn-up: done and total by day; a re-plan is a jump in the total.")
@@ -953,6 +952,107 @@ fn burn_up_plot(ui: &mut egui::Ui, project: &str, series: &BurnUp) {
             plot.line(total);
             plot.line(done);
         });
+}
+
+/// The sparkline's height in the expanded row and on a card (EP-26a).
+pub const SPARK_HEIGHT: f32 = 28.0;
+
+/// The burn-up's two series mapped into `rect` as stepped polylines (the done, then the total):
+/// the x axis from the series' first day to `today`, the y axis from zero at the bottom to the
+/// most of either series at the top; a step adds a point at the count before, and the last point
+/// is carried to the right edge.
+pub fn sparkline_points(series: &BurnUp, rect: &Rect, today: NaiveDate) -> (Vec<Pos2>, Vec<Pos2>) {
+    let first = series.first().unwrap_or(today);
+    let span = (today - first).num_days().max(1) as f32;
+    let most = series
+        .total
+        .iter()
+        .chain(&series.done)
+        .map(|(_, n)| *n)
+        .max()
+        .unwrap_or(0)
+        .max(1) as f32;
+    let steps = |points: &[(NaiveDate, usize)]| -> Vec<Pos2> {
+        let mut out: Vec<Pos2> = Vec::new();
+        for &(date, n) in points {
+            let share = ((date - first).num_days() as f32 / span).clamp(0.0, 1.0);
+            let x = rect.left() + rect.width() * share;
+            let y = rect.bottom() - rect.height() * (n as f32 / most);
+            if let Some(last) = out.last().copied()
+                && last.y != y
+            {
+                out.push(Pos2::new(x, last.y));
+            }
+            out.push(Pos2::new(x, y));
+        }
+        if let Some(last) = out.last().copied()
+            && last.x < rect.right()
+        {
+            out.push(Pos2::new(rect.right(), last.y));
+        }
+        out
+    };
+    (steps(&series.done), steps(&series.total))
+}
+
+/// The burn-up as a sparkline `width` wide (EP-26a): the total in the text colour, the done in
+/// green over a tint of its area, on the panel's darker fill; the hover text says done of total
+/// today, the first day drawn and the total's last change.
+pub fn sparkline(
+    ui: &mut egui::Ui,
+    series: &BurnUp,
+    width: f32,
+    today: NaiveDate,
+) -> egui::Response {
+    let (rect, response) = ui.allocate_exact_size(vec2(width, SPARK_HEIGHT), Sense::hover());
+    let painter = ui.painter_at(rect);
+    let visuals = ui.visuals();
+    painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);
+    let inner = rect.shrink2(vec2(2.0, 3.0));
+    let (done, total) = sparkline_points(series, &inner, today);
+    let green = style::green(ui);
+    for pair in done.windows(2) {
+        if pair[0].y == pair[1].y {
+            painter.rect_filled(
+                Rect::from_min_max(
+                    Pos2::new(pair[0].x, pair[0].y),
+                    Pos2::new(pair[1].x, inner.bottom()),
+                ),
+                0.0,
+                green.gamma_multiply(0.18),
+            );
+        }
+    }
+    painter.add(egui::Shape::line(
+        total,
+        Stroke::new(1.0, visuals.text_color().gamma_multiply(0.7)),
+    ));
+    painter.add(egui::Shape::line(done, Stroke::new(1.5, green)));
+    response.on_hover_text(sparkline_words(series))
+}
+
+/// The sparkline's hover text: done of total, the first day drawn, the total's last change; a
+/// series without daily counts says so rather than "of 0".
+fn sparkline_words(series: &BurnUp) -> String {
+    let done_now = series.done.last().map_or(0, |(_, n)| *n);
+    let mut words = match series.total.last() {
+        Some((_, total)) => format!("Burn-up: {done_now} of {total} done"),
+        None => format!("Burn-up: {done_now} done"),
+    };
+    if let Some(first) = series.first() {
+        words.push_str(&format!(", drawn from {first}"));
+    }
+    let jump = series
+        .total
+        .windows(2)
+        .rfind(|pair| pair[0].1 != pair[1].1)
+        .map(|pair| pair[1]);
+    match jump {
+        _ if series.total.is_empty() => words.push_str("; no daily count kept yet"),
+        Some((date, n)) => words.push_str(&format!("; the total last changed on {date}, to {n}")),
+        None => words.push_str("; the total has not changed"),
+    }
+    words
 }
 
 /// The velocity plot: a bar per week.
@@ -1303,11 +1403,10 @@ pub(crate) mod tests {
             Some((30, "completed")),
         );
         let loaded = Loaded {
-            project: "harbor".to_owned(),
             sessions: vec![
                 headless, visual, launch, long, reverted, stopped, open, no_ep,
             ],
-            snapshots: Vec::new(),
+            snapshots: BTreeMap::new(),
             reverted: HashSet::from([("harbor".to_owned(), "dddd1234".to_owned())]),
             problem: None,
         };
@@ -1448,36 +1547,87 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_read_stands_a_minute_and_is_due_again_when_invalidated_or_the_project_changes() {
+    fn the_read_stands_a_minute_and_is_due_again_when_invalidated() {
         let mut analytics = Analytics::default();
         let now = Instant::now();
-        analytics.refresh(None, "harbor", now);
+        analytics.refresh(None, now);
         assert!(analytics.loaded.is_none(), "no ledger");
-        analytics.put(Loaded {
-            project: "harbor".to_owned(),
+        let canned = Loaded {
+            snapshots: BTreeMap::from([(
+                "harbor".to_owned(),
+                vec![SnapshotRow {
+                    taken_at: at("2026-11-10", 12),
+                    done: 1,
+                    total: 4,
+                }],
+            )]),
             ..Loaded::default()
-        });
-        analytics.refresh(None, "lantern", now + Duration::from_secs(120));
+        };
+        analytics.put(canned);
+        analytics.refresh(None, now + Duration::from_secs(120));
+        let loaded = analytics.loaded.as_ref().unwrap();
         assert_eq!(
-            analytics.loaded.as_ref().unwrap().project,
-            "harbor",
+            loaded.snapshots_of("harbor").len(),
+            1,
             "canned rows are never read over"
         );
+        assert!(loaded.snapshots_of("lantern").is_empty());
         let mut live = Analytics {
-            loaded: Some(Loaded {
-                project: "harbor".to_owned(),
-                ..Loaded::default()
-            }),
+            loaded: Some(Loaded::default()),
             read_at: Some(now),
             ..Analytics::default()
         };
-        live.refresh(None, "harbor", now + Duration::from_secs(10));
+        live.refresh(None, now + Duration::from_secs(10));
         assert!(live.loaded.is_some(), "fresh: not read again");
         live.invalidate();
-        live.refresh(None, "harbor", now + Duration::from_secs(10));
+        live.refresh(None, now + Duration::from_secs(10));
         assert!(
             live.loaded.is_none(),
             "stale: read again, and there is no ledger"
         );
+    }
+
+    #[test]
+    fn the_sparkline_maps_the_series_into_its_rect() {
+        let today: NaiveDate = "2026-11-12".parse().unwrap();
+        let series = BurnUp {
+            done: vec![
+                ("2026-11-02".parse().unwrap(), 1),
+                ("2026-11-07".parse().unwrap(), 2),
+                (today, 2),
+            ],
+            total: vec![
+                ("2026-11-02".parse().unwrap(), 4),
+                ("2026-11-07".parse().unwrap(), 8),
+                (today, 8),
+            ],
+        };
+        let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), vec2(100.0, 40.0));
+        let (done, total) = sparkline_points(&series, &rect, today);
+        // Stepped: a point at the count before each change, the last carried to the right edge.
+        assert_eq!(done.len(), 4);
+        assert_eq!(total.len(), 4);
+        assert_eq!(done.first().unwrap().x, rect.left());
+        assert_eq!(done.last().unwrap().x, rect.right());
+        assert_eq!(total.last().unwrap().x, rect.right());
+        // The y axis runs from zero at the bottom to the total's most at the top.
+        assert!((total.last().unwrap().y - rect.top()).abs() < 0.01);
+        assert!((done.last().unwrap().y - (rect.bottom() - rect.height() / 4.0)).abs() < 0.01);
+        assert!((done.first().unwrap().y - (rect.bottom() - rect.height() / 8.0)).abs() < 0.01);
+        // The change day sits at its share of the width.
+        assert!((done[1].x - (rect.left() + rect.width() / 2.0)).abs() < 0.01);
+        assert_eq!(
+            done[1].y, done[0].y,
+            "the step's first point keeps the count before"
+        );
+        // A series of one day stretches nothing and stays inside the rect.
+        let flat = BurnUp {
+            done: vec![(today, 1)],
+            total: vec![(today, 1)],
+        };
+        let (done, total) = sparkline_points(&flat, &rect, today);
+        assert_eq!(done.len(), 2);
+        assert_eq!((done[0].x, done[1].x), (rect.left(), rect.right()));
+        assert_eq!(total[0].y, rect.top());
     }
 }

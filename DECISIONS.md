@@ -1892,6 +1892,31 @@ state; graphs only in the detail tile or a separate window.
 > badges kept down to a row of 825, the title as short as 60); the Projects pane's default
 > share widened, which a saved layout would not take up.
 
+> **Addendum (2026-11-13, EP-26a).** The graphs in the list, as built. An expanded row shows each
+> phase on a line (its id, a bar, its counts and its name, which wraps under itself) and the
+> burn-up as a **sparkline** painted with egui's painter (done in green over a tint, total in the
+> text's colour, from the series' first day to today; the hover text says done of total, the
+> first day and the total's last change) beside the phases when the row has room for both, else
+> under them, or one weak line saying why there is none. The expansion answers the pointer as
+> its row does (a click selects, a double click opens, a right click opens the row's menu) under
+> one tint with the row. **Expand all** and **Collapse all** are icon buttons in the toolbar and
+> items of the View menu: Expand all opens the projects the list shows through its filters,
+> Collapse all folds every row; the toolbar wraps in a narrow pane. The **Cards** switch, saved
+> with the view, draws the same groups in the same order as cards, as many to a line as fit at
+> 280 points with the spare width shared, one as wide as the pane when it is narrower, the cards
+> of a line as tall as the tallest; a card holds the pin and the name, the state chip with the
+> bulb, the next EP and its size, the next brief's title on two lines at most (whole on hover),
+> the progress pill, what waits, the badges and the session mark on a wrapping line, and the
+> sparkline; an unadopted folder's card keeps Adopt and Ignore. A card takes the click, the
+> double click and the right click over its text as a row does, its labels sensing hover only
+> (EP-15a); the autopilot box and Start stay the row's, the keys A and S acting on the selected
+> card. The graphs' one read of the ledger now holds every project's daily counts, so the Detail
+> pane and the list share it, read a minute apart or when the files are read again. The heatmap
+> stays in the Detail pane. *Alternatives.* An `egui_plot` plot per row, which takes the row's
+> pointer; the heatmap in the expanded row as D-25 first said; Expand all over every project,
+> the filtered ones included; cards of a fixed height, which clip a long title or a second line
+> of badges; the autopilot box and Start on each card.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates

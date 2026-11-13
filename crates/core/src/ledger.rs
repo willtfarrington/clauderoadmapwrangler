@@ -4,6 +4,7 @@
 //! adds its queries (EP-9 the sessions', EP-15 the events'), and a numbered migration when it
 //! needs a new table or column. Times are RFC 3339 text in UTC.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::{fs, io};
@@ -1180,6 +1181,34 @@ impl Ledger {
         Ok(due)
     }
 
+    /// Every project's `snapshot` rows by project, each the oldest first (EP-26a: the list's
+    /// sparklines need them all in one read).
+    pub fn snapshots_all(&self) -> Result<BTreeMap<String, Vec<SnapshotRow>>, Error> {
+        let mut statement = self.connection.prepare(
+            "SELECT project, taken_at, done, total FROM snapshot ORDER BY project, taken_at",
+        )?;
+        let rows = statement.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, i64>(2)?,
+                row.get::<_, i64>(3)?,
+            ))
+        })?;
+        let mut all: BTreeMap<String, Vec<SnapshotRow>> = BTreeMap::new();
+        for row in rows {
+            let (project, taken_at, done, total) = row?;
+            if let Some(taken_at) = parse_time(&taken_at) {
+                all.entry(project).or_default().push(SnapshotRow {
+                    taken_at,
+                    done: usize::try_from(done).unwrap_or_default(),
+                    total: usize::try_from(total).unwrap_or_default(),
+                });
+            }
+        }
+        Ok(all)
+    }
+
     /// A project's `snapshot` rows, the oldest first.
     pub fn snapshots(&self, project: &str) -> Result<Vec<SnapshotRow>, Error> {
         let mut statement = self.connection.prepare(
@@ -1503,6 +1532,12 @@ mod tests {
         );
         assert_eq!(rows[0].taken_at, at);
         assert!(ledger.snapshots("beta").unwrap().is_empty());
+        // Every project's in one read (EP-26a): alpha's three rows, beta's none.
+        ledger.record_counts("gamma", at, 1, 2, &utc).unwrap();
+        let all = ledger.snapshots_all().unwrap();
+        assert_eq!(all.keys().collect::<Vec<_>>(), ["alpha", "gamma"]);
+        assert_eq!(all["alpha"], rows);
+        assert_eq!(all["gamma"].len(), 1);
         // Read at schema 6, the history is none.
         let older = scratch.0.join("local").join("older.sqlite");
         drop(Ledger::open_with(&older, &MIGRATIONS[..6]).unwrap());

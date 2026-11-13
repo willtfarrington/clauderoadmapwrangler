@@ -169,7 +169,10 @@ older forms), its badges (this
 week's share of the usage among them) and whether a session is in progress, in columns as wide as
 their widest value under a header row, the brief's title giving way before a badge column does; the
 Legend switch shows a key to every mark; a click anywhere on a row selects it and a right click opens
-its menu. The detail pane shows the selected project's brief notes, status, owner items, inbox,
+its menu. A row expands inline to its phases and a burn-up sparkline of done and total by day, and
+the toolbar's Expand all and Collapse all open or fold every row it shows; the Cards switch shows
+the same groups as cards, as many to a line as fit, each with the name, state, next brief, progress,
+badges and sparkline, and answering a click as a row does (EP-26a). The detail pane shows the selected project's brief notes, status, owner items, inbox,
 handed-on mail, the risks and older forms of a project with a tasks file (read-only, counted
 nowhere) and problems, the notes set for reading: each `From …:` segment under its label,
 numbered parts as a list, lines of about a hundred characters, and labels, references, gates and
