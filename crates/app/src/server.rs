@@ -46,7 +46,9 @@ type Wake = Arc<dyn Fn() + Send + Sync>;
 pub enum Listening {
     Starting(u16),
     On(u16),
-    /// The port is taken (another window?) or the socket could not be made.
+    /// The port is taken: another window, or something else (EP-40's guard asks).
+    Taken(u16, String),
+    /// The socket could not be made, in words.
     Failed(String),
 }
 
@@ -54,7 +56,7 @@ pub enum Listening {
 pub struct Server {
     signals: Receiver<Signal>,
     restarts: Receiver<RestartRequest>,
-    bound: Receiver<Result<u16, String>>,
+    bound: Receiver<Result<u16, Listening>>,
     pub listening: Listening,
 }
 
@@ -82,7 +84,8 @@ impl Server {
                 {
                     Ok(runtime) => runtime,
                     Err(e) => {
-                        let _ = bound_sender.send(Err(format!("no runtime: {e}")));
+                        let _ =
+                            bound_sender.send(Err(Listening::Failed(format!("no runtime: {e}"))));
                         wake();
                         return;
                     }
@@ -92,7 +95,13 @@ impl Server {
                         match tokio::net::TcpListener::bind((Ipv4Addr::LOCALHOST, port)).await {
                             Ok(listener) => listener,
                             Err(e) => {
-                                let _ = bound_sender.send(Err(format!("127.0.0.1:{port}: {e}")));
+                                let why = format!("127.0.0.1:{port}: {e}");
+                                let state = if e.kind() == std::io::ErrorKind::AddrInUse {
+                                    Listening::Taken(port, why)
+                                } else {
+                                    Listening::Failed(why)
+                                };
+                                let _ = bound_sender.send(Err(state));
                                 wake();
                                 return;
                             }
@@ -127,7 +136,7 @@ impl Server {
         if let Ok(bound) = self.bound.try_recv() {
             self.listening = match bound {
                 Ok(port) => Listening::On(port),
-                Err(why) => Listening::Failed(why),
+                Err(state) => state,
             };
         }
         self.signals.try_iter().collect()
@@ -145,8 +154,15 @@ fn router(shared: Arc<Shared>) -> Router {
         .route(signals::STATUS_ROUTE, post(status_line))
         .route(signals::HEALTH_ROUTE, get(health))
         .route(signals::RESTART_ROUTE, post(restart))
+        .route(signals::SHOW_ROUTE, post(show))
         .layer(DefaultBodyLimit::max(BODY_LIMIT))
         .with_state(shared)
+}
+
+/// A second window's request that this one show itself (EP-40): handed to the window, which
+/// takes it as its tray's Show.
+async fn show(State(shared): State<Arc<Shared>>, headers: HeaderMap) -> StatusCode {
+    shared.hand(&headers, Signal::Show)
 }
 
 /// `crw install`'s request (EP-37): handed to the window, whose answer goes back; none within
@@ -205,7 +221,7 @@ async fn health(
         return Err(StatusCode::FORBIDDEN);
     }
     Ok(Json(Health {
-        app: "clauderoadmapwrangler",
+        app: signals::APP_NAME,
         version: env!("CARGO_PKG_VERSION"),
     }))
 }
@@ -264,7 +280,7 @@ mod tests {
                     let port = *port;
                     return (server, port, woken);
                 }
-                Listening::Failed(why) => panic!("{why}"),
+                Listening::Taken(_, why) | Listening::Failed(why) => panic!("{why}"),
                 Listening::Starting(_) if Instant::now() > deadline => panic!("never listened"),
                 Listening::Starting(_) => std::thread::sleep(Duration::from_millis(10)),
             }
@@ -402,7 +418,7 @@ mod tests {
             403
         );
         assert_eq!(heard(&mut server, 2).len(), 2, "the two local posts only");
-        // Another server on the same port is told so.
+        // Another server on the same port is told the port is taken (EP-40's guard asks whose).
         let mut second = Server::start(port, || {});
         let deadline = Instant::now() + Duration::from_secs(5);
         while matches!(second.listening, Listening::Starting(_)) && Instant::now() < deadline {
@@ -410,10 +426,37 @@ mod tests {
             std::thread::sleep(Duration::from_millis(10));
         }
         assert!(
-            matches!(&second.listening, Listening::Failed(why) if why.contains(&local)),
+            matches!(&second.listening, Listening::Taken(taken, why) if *taken == port && why.contains(&local)),
             "{:?}",
             second.listening
         );
+    }
+
+    /// A second window's yield (EP-40): `/health` names the app, `POST /show` reaches the window
+    /// as a signal, and a page's request is refused.
+    #[test]
+    fn a_second_window_asks_the_first_to_show_itself() {
+        let (mut server, port, _) = listening();
+        assert_eq!(signals::ask_show(port), signals::Yield::Shown);
+        assert_eq!(heard(&mut server, 1), vec![Signal::Show]);
+        let local = format!("127.0.0.1:{port}");
+        assert_eq!(
+            raw(
+                port,
+                &format!(
+                    "POST /show HTTP/1.1\r\nHost: {local}\r\nOrigin: http://example.test\r\n\
+                     Content-Length: 0\r\nConnection: close\r\n\r\n"
+                )
+            ),
+            403
+        );
+        // A port nothing listens on, or something that is not a window, is no window.
+        drop(server);
+        let free = {
+            let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            probe.local_addr().unwrap().port()
+        };
+        assert_eq!(signals::ask_show(free), signals::Yield::NoWindow);
     }
 
     /// `crw install`'s request (EP-37) reaches the window, and the window's answer goes back; a

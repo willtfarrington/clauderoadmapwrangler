@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::mpsc::{self, Receiver, Sender};
+use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -23,7 +23,7 @@ use crw_core::process;
 use crw_core::revert::{self, Start};
 use crw_core::sessions::agents::{self, Agent};
 use crw_core::sessions::{self, Change, Mode, Registered, Seen, Sessions, Status, VISUAL_CLAIM};
-use crw_core::signals::{Hook, Signal, StatusLine, install};
+use crw_core::signals::{self, Hook, Signal, StatusLine, Yield, install};
 use eframe::egui;
 
 use crate::server::{Listening, Server};
@@ -31,6 +31,10 @@ use crate::server::{Listening, Server};
 /// How often the live sessions are asked for while the window has the focus, and while it has not.
 const POLL_FOCUSED: Duration = Duration::from_secs(5);
 const POLL_UNFOCUSED: Duration = Duration::from_secs(30);
+
+/// How long a window whose port is taken waits before it tries to bind again (EP-40): the
+/// other holder may quit.
+const RETRY_BIND: Duration = Duration::from_secs(30);
 
 /// How often the poll's thread looks at the clock and the focus.
 const STEP: Duration = Duration::from_millis(250);
@@ -74,6 +78,18 @@ pub struct Watch {
     starts: Starts,
     /// The sessions whose mode was looked up in the ledger (EP-37a), each once.
     moded: HashSet<String>,
+    /// The single-instance guard (EP-40): the port asked for, whether this window may yield to
+    /// another (never one started by a restart), the probe in flight, its outcome in words once
+    /// it answered without a yield, and when the bind is tried again.
+    port: u16,
+    guard: bool,
+    probe: Option<Receiver<Yield>>,
+    guard_words: Option<String>,
+    retry_at: Option<Instant>,
+    /// The other window took the request to show itself: this one quits.
+    pub yielded: bool,
+    /// A second window asked this one to show itself.
+    show_asked: bool,
 }
 
 /// The starts of the sessions the hooks see begin (EP-15b): read on a worker thread, one git child
@@ -113,16 +129,115 @@ struct Worker {
 
 impl Watch {
     /// Starts the server on `port` and the poll of `program`'s live sessions; reads the entries.
-    /// The sessions' starts are copied into `backups` (EP-15b).
-    pub fn start(&mut self, port: u16, program: PathBuf, backups: PathBuf, ctx: &egui::Context) {
-        let wake = ctx.clone();
-        let server = Server::start(port, move || wake.request_repaint());
-        self.listening = Some(server.listening.clone());
-        self.server = Some(server);
+    /// The sessions' starts are copied into `backups` (EP-15b). With `guard`, a port another
+    /// Roadmap Wrangler window holds makes this window ask that one to show itself and yield
+    /// (EP-40); a window started by a restart passes `false`, since it holds the handover.
+    pub fn start(
+        &mut self,
+        port: u16,
+        program: PathBuf,
+        backups: PathBuf,
+        ctx: &egui::Context,
+        guard: bool,
+    ) {
+        self.port = port;
+        self.guard = guard;
+        self.bind(ctx);
         self.poller = poll(program, ctx.clone());
         self.starts.backups = Some(backups);
         self.starts.ctx = Some(ctx.clone());
         self.read_entries();
+    }
+
+    /// Starts the server on the port asked for; a port found taken again is probed afresh
+    /// (the review's finding: the holder may have changed since the last probe).
+    fn bind(&mut self, ctx: &egui::Context) {
+        let wake = ctx.clone();
+        let server = Server::start(self.port, move || wake.request_repaint());
+        self.listening = Some(server.listening.clone());
+        self.server = Some(server);
+        self.probe = None;
+        self.guard_words = None;
+        self.retry_at = None;
+    }
+
+    /// The single-instance guard (EP-40), at each pass while the port is not this window's:
+    /// taken for the first time, the holder is asked over `/health` and `/show` on a thread;
+    /// a Roadmap Wrangler window that took the request makes this window yield; otherwise the
+    /// bind is tried again every [`RETRY_BIND`], the words saying what was found.
+    fn guard_port(&mut self) {
+        let taken = match self.listening.as_ref() {
+            Some(Listening::Taken(port, _)) => Some(*port),
+            Some(Listening::Failed(_)) => None,
+            _ => return,
+        };
+        if let Some(probe) = &self.probe {
+            match probe.try_recv() {
+                Ok(Yield::Shown) => {
+                    self.probe = None;
+                    self.yielded = true;
+                    self.guard_words = Some("another window holds it and was shown".to_owned());
+                }
+                Ok(Yield::NoWindow) => {
+                    self.probe = None;
+                    self.guard_words =
+                        Some("something else holds it, not a Roadmap Wrangler window".to_owned());
+                    self.retry_at = Some(Instant::now() + RETRY_BIND);
+                }
+                Ok(Yield::Failed(why)) => {
+                    self.probe = None;
+                    self.guard_words = Some(format!(
+                        "another Roadmap Wrangler window holds it and could not be asked to show \
+                         itself: {why}"
+                    ));
+                    self.retry_at = Some(Instant::now() + RETRY_BIND);
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    self.probe = None;
+                    self.retry_at = Some(Instant::now() + RETRY_BIND);
+                }
+            }
+            return;
+        }
+        if self.yielded {
+            return;
+        }
+        if let Some(port) = taken
+            && self.guard
+            && self.guard_words.is_none()
+            && self.retry_at.is_none()
+        {
+            let (sender, receiver) = mpsc::channel();
+            let ctx = self.starts.ctx.clone();
+            let spawned = thread::Builder::new()
+                .name("single instance".to_owned())
+                .spawn(move || {
+                    let _ = sender.send(signals::ask_show(port));
+                    if let Some(ctx) = ctx {
+                        ctx.request_repaint();
+                    }
+                });
+            if spawned.is_ok() {
+                self.probe = Some(receiver);
+                return;
+            }
+        }
+        match self.retry_at {
+            None => self.retry_at = Some(Instant::now() + RETRY_BIND),
+            Some(at) if Instant::now() >= at => {
+                self.retry_at = None;
+                if let Some(ctx) = self.starts.ctx.clone() {
+                    self.bind(&ctx);
+                }
+            }
+            Some(_) => {}
+        }
+    }
+
+    /// Whether a second window asked this one to show itself since the last call (EP-40).
+    pub fn take_show_asked(&mut self) -> bool {
+        std::mem::take(&mut self.show_asked)
     }
 
     /// The loopback's restart requests since the last call (EP-37), for the window to answer.
@@ -181,6 +296,16 @@ impl Watch {
             signals = server.receive();
             self.listening = Some(server.listening.clone());
         }
+        self.guard_port();
+        // A second window's request to show this one (EP-40) is no session's news.
+        signals.retain(|signal| {
+            if *signal == Signal::Show {
+                self.show_asked = true;
+                false
+            } else {
+                true
+            }
+        });
         let mut listings = Vec::new();
         if let Some(poller) = &self.poller {
             poller.focused.store(focused, Ordering::Relaxed);
@@ -195,6 +320,8 @@ impl Watch {
                         self.model.status_line(&line, &projects, now);
                         self.lines.push(*line);
                     }
+                    // Taken out above.
+                    Signal::Show => {}
                 }
             }
             for listing in listings {
@@ -525,10 +652,27 @@ impl Watch {
                     false,
                 ))
             }
+            Listening::Taken(port, _) => {
+                let found = match &self.guard_words {
+                    Some(words) => words.clone(),
+                    None if self.probe.is_some() => {
+                        "asking the window that holds it to show itself".to_owned()
+                    }
+                    None => "another window may hold it".to_owned(),
+                };
+                Some((
+                    format!(
+                        "Signals: not listening (port {port} is taken: {found}); the bind is \
+                         tried again every 30 s, and the sessions started elsewhere are seen \
+                         through the poll only"
+                    ),
+                    true,
+                ))
+            }
             Listening::Failed(why) => Some((
                 format!(
-                    "Signals: not listening ({why}): another window may hold the port; the \
-                     sessions started elsewhere are seen through the poll only"
+                    "Signals: not listening ({why}); the bind is tried again every 30 s, and \
+                     the sessions started elsewhere are seen through the poll only"
                 ),
                 true,
             )),

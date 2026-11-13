@@ -1516,6 +1516,30 @@ committing and recording hashes; one model and effort per project; usage thresho
 > *Alternatives.* A supervised probe of the push guard in a scratch repository; a Diagnostics
 > check that the window's autopilot runs hold the rule.
 
+> **Addendum (2026-11-13, EP-40).** **The session (five-hour) window in the gate.** Anthropic
+> brought the account's five-hour limit back (the endpoint's `limits[]` kind `session`, D-23
+> addendum), and EP-26a's chained run, the third Fable brief of one window, hit it after 19
+> minutes while the weekly figure stood at 9 %; the owner reverted the run. The gate now weighs
+> the session figure at `settings.autopilot_five_hour_percent` (1 to 100, or `default`: 50;
+> `crw setting`), as it weighs the weekly and Fable figures at the pause percent: at or over the
+> mark the chain holds until the window resets, which lifts the hold within five hours; no
+> figure passes (no window open, or an account without the limit), a window that has ended
+> passes, and an old figure under the mark is not held on its age, since the weekly figure of
+> the same reading already is. The Autopilot section's "held by usage", `crw autopilot`'s first
+> line, the chain log and the launch dialog (a notice under the model's reason while the figure
+> is at or over the mark) say it. A run whose result names a hit limit ("hit your 5-hour
+> limit", "hit your weekly limit", "usage limit reached") is named so in its ended line (the
+> failed toast, the Sessions pane, the ledger's result line) and beside the outcome in the chain
+> log, with the reset words the message gives (`usage::limit_hit`, `Refusal::LimitHit`). The
+> mark is a reading of the first chains (an M brief on Fable took 30 to 45 % of a window); a
+> predictive gate from the ledger's attribution is EP-29's question. **The policy as rules.**
+> The owner's registry carries two `[[rule]]`s written at EP-40 on their word (the hand-written
+> table above): size S or M → `claude-opus-5-5` at `max`, size L → `fable` at `high`; the tool's
+> defaults stay fable at xhigh with the built-in step, which the registry's table stands over.
+> *Alternatives.* A predictive gate now (it needs the five-hour rise split per session, a ledger
+> column); the mark at 30 or 70; no five-hour gate, the wording alone; the policy as the tool's
+> defaults in code, or both.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1651,6 +1675,26 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > *Alternatives.* The part of all that was attributed as the figure, which sums to 100 % but
 > moves whenever any project works; both figures in the cell; a read every half minute, like
 > the Sessions pane's.
+
+> **Addendum (2026-11-13, EP-40).** **The `session` kind.** On 2026-11-13 the endpoint's
+> `limits[]` carried the kinds `session`, `weekly_all` and `weekly_scoped`, the first the
+> five-hour window under the name Claude's own usage page gives it, beside the older top-level
+> `five_hour` object (utilization 0, no reset), both given while no window was open; the parser
+> kept the unknown kind under its name (EP-17's rule), so the pane drew the one limit twice,
+> each at 0 % with "no reset time given". `usage::parse` now reads the `session` entry as the
+> five-hour window: its percent, reset, `is_active` and severity win, the object fills what the
+> entry lacks, and either alone reads as before (`SESSION_KIND`, `five_hour_of`). The pane
+> draws one row, "Session (five-hour window)", while a window is open (the bar, the percent, the
+> reset countdown, "5 h" in the strip), and while none is open one small weak line, "Session
+> (five-hour window): no window open" (`Reading::session_closed`: the endpoint called it
+> inactive, or its reset has passed), no bar and nothing in the strip; `crw usage` prints one
+> `session (five-hour)` line with "no window open". The 80 % and 95 % notifications stay the
+> weekly and Fable limits'. **The downshift for every size** (the owner's choice, the
+> alternative named above): any brief whose model so far is Fable is proposed `claude-opus-5-5`
+> at the same effort while Fable's weekly share is above the mark, since the policy (D-22
+> addendum) keeps Fable for L briefs, the ones to protect; the words say "a brief on Fable".
+> *Alternatives.* The merged row hidden while closed, or always a bar at 0 %; the downshift
+> kept to S briefs.
 
 ## Hosting, views, history
 
@@ -2433,6 +2477,22 @@ an opt-in live smoke test; documented AV exclusions.
 > gone. A screenshot run cans the line (`newer`). *Alternatives.* A restart by itself when the
 > dialog opens; the dialog's edits carried across the restart; the status bar's chip alone, as
 > before, which a run started from the dialog never met.
+
+> **Addendum (2026-11-13, EP-40).** **Single instance, pulled forward from EP-28a.** Two
+> installed windows ran at once on 2026-11-13: the one the chain's restart had started the
+> evening before (holding the port, hidden in the tray) and one the owner started by hand,
+> whose status bar said the port was taken; both polled the endpoint, so each session's share
+> was split twice. A window whose bind fails with the address in use (`Listening::Taken`) now
+> asks `GET /health` on the port and, when a Roadmap Wrangler window answers
+> (`signals::APP_NAME`), sends `POST /show` (`signals::SHOW_ROUTE`; `Signal::Show`, taken as
+> the tray's Show) and quits at once, before its meter polls or its mailman runs
+> (`signals::ask_show`, `Watch::guard_port`); when something else holds the port, or the window
+> answers and the request fails (a build from before EP-40 has no show route), the status words
+> say what was found and the bind is tried again every 30 s, as it is after any failed bind. A
+> window started by a restart never yields: it binds once the old window ended, and it holds the
+> handover. EP-28a keeps the start at login, the reconciliation, `crw` on PATH and the icon.
+> *Alternatives.* A named mutex (it says nothing of which window holds the port and cannot ask
+> it to show itself); the guard left for EP-28a with the retry alone.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

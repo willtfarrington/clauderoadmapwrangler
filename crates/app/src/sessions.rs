@@ -465,8 +465,11 @@ fn ended_line(ended: &Ended, open: Option<&Open>) -> String {
             .unwrap_or_default(),
         Outcome::Failed | Outcome::Stopped => {
             let result = ended.result.as_ref();
+            // A usage limit that cut the run short, as its result says it (EP-40).
             result
-                .and_then(|finish| finish.errors.first().cloned())
+                .and_then(|finish| finish.text.as_deref())
+                .and_then(crw_core::usage::limit_hit)
+                .or_else(|| result.and_then(|finish| finish.errors.first().cloned()))
                 .or_else(|| {
                     result
                         .filter(|finish| finish.subtype != "success")

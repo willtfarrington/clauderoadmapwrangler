@@ -682,6 +682,14 @@ impl Board {
         let focused = ctx.input(|i| i.focused);
         self.watch
             .receive(registered, self.ledger.as_deref(), focused);
+        // The single-instance guard (EP-40): a second window's request that this one show
+        // itself; or this window is the second one, and the first took the request: it quits.
+        if self.watch.take_show_asked() {
+            self.show();
+        }
+        if self.watch.yielded && !self.quitting {
+            self.quit();
+        }
         if std::mem::take(&mut self.watch.recorded) {
             self.sessions.history.stale = true;
             // A session started or ended: its brief may hand mail on, or its receiver be free.
@@ -984,6 +992,7 @@ impl Board {
         let held = crw_core::autopilot::usage_pause(
             &self.meter.gauge.figures(now),
             self.autopilot.mark.max(1),
+            self.autopilot.five_hour_mark.max(1),
             now,
         )
         .iter()
@@ -2122,6 +2131,13 @@ impl Board {
         } else {
             None
         };
+        // The session (five-hour) window at or over the autopilot's mark (EP-40), as the meter
+        // last read it.
+        dialog.session_notice = crw_core::autopilot::session_notice(
+            &self.meter.gauge.figures(chrono::Utc::now()),
+            self.autopilot.five_hour_mark.max(1),
+            chrono::Utc::now(),
+        );
         if dialog.readiness_due() {
             let readiness = self
                 .visual

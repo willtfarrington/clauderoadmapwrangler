@@ -234,6 +234,53 @@ impl StatusLine {
 pub enum Signal {
     Hook(Hook),
     StatusLine(Box<StatusLine>),
+    /// A second window's request that this one show itself (EP-40).
+    Show,
+}
+
+/// The app's name, as `/health` answers it.
+pub const APP_NAME: &str = "clauderoadmapwrangler";
+
+/// A second window's request that the window holding the port show itself (EP-40; EP-28a's
+/// single instance), which that window takes as its tray's Show.
+pub const SHOW_ROUTE: &str = "/show";
+
+/// What came of a second window's yield to the one that holds the port (EP-40).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Yield {
+    /// A Roadmap Wrangler window answered `/health` and took the request to show itself.
+    Shown,
+    /// Something else holds the port, or nothing answers there.
+    NoWindow,
+    /// A Roadmap Wrangler window answered, and the request to show itself failed, in words.
+    Failed(String),
+}
+
+/// Asks the window on `port` to show itself, when a Roadmap Wrangler window answers `/health`
+/// there (EP-40): the second start's yield, after which it quits.
+pub fn ask_show(port: u16) -> Yield {
+    let Ok(health) = relay::request(port, "GET", HEALTH_ROUTE, None, BUDGET) else {
+        return Yield::NoWindow;
+    };
+    if health.status != 200 || !is_this_app(&health.body) {
+        return Yield::NoWindow;
+    }
+    match relay::request(port, "POST", SHOW_ROUTE, None, BUDGET) {
+        Ok(answer) if answer.status == 204 => Yield::Shown,
+        Ok(answer) if answer.status == 404 || answer.status == 405 => {
+            Yield::Failed("it has no show route: a build from before EP-40".to_owned())
+        }
+        Ok(answer) => Yield::Failed(format!("it answered {}", answer.status)),
+        Err(e) => Yield::Failed(e),
+    }
+}
+
+/// Whether a `/health` answer names this app.
+fn is_this_app(body: &[u8]) -> bool {
+    serde_json::from_slice::<serde_json::Value>(body)
+        .ok()
+        .and_then(|value| value.get("app")?.as_str().map(|app| app == APP_NAME))
+        .unwrap_or(false)
 }
 
 /// The port the window listens on: the registry's `port` (`CRW_HOME`'s registry in a trial),

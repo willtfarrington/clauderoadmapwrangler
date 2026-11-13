@@ -8,9 +8,10 @@
 //! the earliest that sets a key wins and a step moves from what the later rules and the layers
 //! below gave. While the registry lists no global rule, the built-in table stands in for it: an S
 //! brief one effort step lower. The permission mode is the project's, else `acceptEdits` (D-18),
-//! and so is the launch mode, else the tool's (EP-11). Last comes the downshift (D-23; EP-18): an
-//! S brief that would run on Fable is proposed [`DOWNSHIFT_MODEL`] at the same effort while the
-//! meter's Fable figure is above the registry's mark. The window's Keep menus and `crw set` write
+//! and so is the launch mode, else the tool's (EP-11). Last comes the downshift (D-23; EP-18): a
+//! brief of any size (S alone until EP-40) that would run on Fable is proposed [`DOWNSHIFT_MODEL`]
+//! at the same effort while the meter's Fable figure is above the registry's mark. The window's
+//! Keep menus and `crw set` write
 //! the project's every-brief and phase rules through `registry::Changes::keep` (EP-19c), which
 //! finds them by their match ([`Scope`]); the owner writes the rest by hand (rule 13).
 
@@ -46,7 +47,8 @@ pub const PERMISSION_MODES: [&str; 6] = [
 /// questions and trials suit a VS Code tab. The autopilot runs headless whatever it is (EP-19).
 pub const DEFAULT_LAUNCH_MODE: LaunchMode = LaunchMode::Visual;
 
-/// The model the downshift proposes for an S brief while Fable's weekly share is high (D-23).
+/// The model the downshift proposes for a brief on Fable while Fable's weekly share is high
+/// (D-23).
 pub const DOWNSHIFT_MODEL: &str = "claude-opus-5-5";
 /// The Fable share above which it does, unless the registry sets another mark (D-23).
 pub const DEFAULT_DOWNSHIFT_PERCENT: u8 = 60;
@@ -325,7 +327,8 @@ impl Usage {
     }
 }
 
-/// How the downshift judged a brief it weighs: an S brief whose model so far is a Fable model.
+/// How the downshift judged a brief it weighs: one whose model so far is a Fable model (an S
+/// brief alone until EP-40, every size since).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Downshift {
     /// Whether it proposed [`DOWNSHIFT_MODEL`].
@@ -539,12 +542,13 @@ impl Resolution {
         self.ultracode = Choice::new(picked.ultracode, Source::Owner);
     }
 
-    /// The last layer (D-23): an S brief whose model so far is a Fable model is proposed
+    /// The last layer (D-23): a brief whose model so far is a Fable model is proposed
     /// [`DOWNSHIFT_MODEL`] at the same effort while the Fable figure is above `mark` percent. A
     /// figure above the mark counts whatever its age, since a window's share only grows; one
-    /// whose window has reset since says nothing. M and L briefs are not weighed.
-    fn downshift(&mut self, brief: &Brief<'_>, usage: &Usage, mark: u8) {
-        if brief.size != Some(Size::S) || !is_fable(&self.model.value) {
+    /// whose window has reset since says nothing. Every size is weighed (S alone until EP-40,
+    /// the owner's choice: with Fable kept for L briefs, those are the ones to protect).
+    fn downshift(&mut self, _brief: &Brief<'_>, usage: &Usage, mark: u8) {
+        if !is_fable(&self.model.value) {
             return;
         }
         let judged = match &usage.fable {
@@ -839,7 +843,12 @@ mod tests {
         assert!(!m.ultracode.value);
         assert_eq!(m.mode.value, DEFAULT_LAUNCH_MODE);
         assert_eq!(m.mode.reason(), "the tool's default");
-        assert_eq!(m.downshift, None, "an M brief is not weighed");
+        // Weighed since EP-40, like every brief on Fable; nothing read yet.
+        assert_eq!(
+            m.downshift.map(|judged| judged.applied),
+            Some(false),
+            "an M brief is weighed too"
+        );
         // An S brief, with no global rule written: the built-in table steps one lower.
         let s = resolve(
             &registry,
@@ -928,7 +937,7 @@ mod tests {
              ended"
         );
 
-        // M and L keep Fable, unweighed.
+        // M and L briefs are weighed too since EP-40 (S alone before), at their own effort.
         for size in [Size::M, Size::L] {
             let big = resolve(
                 &registry,
@@ -937,9 +946,11 @@ mod tests {
                 &[],
                 &fable(95.0, 1),
             );
-            assert_eq!(big.model.value, "fable");
-            assert_eq!(big.downshift, None);
+            assert_eq!(big.model.value, DOWNSHIFT_MODEL, "{size}");
+            assert_eq!(big.effort.value.as_deref(), Some("xhigh"));
+            assert!(big.downshift.is_some_and(|judged| judged.applied));
         }
+        // A brief whose model is not Fable is never weighed: the next test's launch defaults.
     }
 
     #[test]

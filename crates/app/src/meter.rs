@@ -441,6 +441,14 @@ impl Meter {
                     limit_block(ui, &name, &figure, now);
                     ui.add_space(4.0);
                 }
+                if session_closed(&figures, self.gauge.fetched.as_ref(), now) {
+                    ui.label(
+                        RichText::new(format!("{SESSION_ROW}: no window open"))
+                            .small()
+                            .weak(),
+                    );
+                    ui.add_space(4.0);
+                }
                 if let Some(fetched) = &self.gauge.fetched {
                     surfaces(ui, fetched, now);
                     if let Some(extra) = &fetched.reading.extra {
@@ -556,7 +564,7 @@ fn hover(name: &str, figure: &Figure, figures: &Figures, now: DateTime<Utc>) -> 
     let name = match name {
         "Week" => "The weekly limit, all models",
         "Fable" => "The Fable-scoped weekly limit",
-        _ => "The five-hour window",
+        _ => "The session (five-hour) window",
     };
     let mut text = format!(
         "{name}: {} used, {}\nRead {}",
@@ -570,8 +578,11 @@ fn hover(name: &str, figure: &Figure, figures: &Figures, now: DateTime<Utc>) -> 
     text
 }
 
+/// The session (five-hour) window's row in the pane; its quiet line while none is open (EP-40).
+const SESSION_ROW: &str = "Session (five-hour window)";
+
 /// The pane's limits: weekly, Fable, the other scoped limits of the endpoint's reading and those
-/// of a kind it does not know, and the five-hour window while one is open.
+/// of a kind it does not know, and the session (five-hour) window while one is open.
 fn limits(figures: &Figures, fetched: Option<&Fetched>) -> Vec<(String, Figure)> {
     let mut limits = Vec::new();
     if let Some(weekly) = &figures.weekly {
@@ -605,9 +616,16 @@ fn limits(figures: &Figures, fetched: Option<&Fetched>) -> Vec<(String, Figure)>
         }
     }
     if let Some(five_hour) = &figures.five_hour {
-        limits.push(("Five-hour window".to_owned(), five_hour.clone()));
+        limits.push((SESSION_ROW.to_owned(), five_hour.clone()));
     }
     limits
+}
+
+/// Whether the pane says the session (five-hour) window is closed (EP-40): the reading gives
+/// the limit with no window open, and no status line shows a figure for it.
+fn session_closed(figures: &Figures, fetched: Option<&Fetched>, now: DateTime<Utc>) -> bool {
+    figures.five_hour.is_none()
+        && fetched.is_some_and(|fetched| fetched.reading.session_closed(now))
 }
 
 /// One limit of the pane: its name and percent, a bar the pane's width, its reset and source.
@@ -822,9 +840,10 @@ fn draw_run(painter: &egui::Painter, run: Vec<Pos2>, ink: Color32) {
 /// A screenshot run's meter (rule 5): an endpoint's reading two minutes old with Fable past its
 /// 80 % mark, a status line, a week of hourly samples across the weekly reset, and the week's
 /// shares of four fake projects; `degraded` adds the endpoint's failure a minute ago and a newer
-/// status line.
+/// status line; `closed` gives the session (five-hour) window inactive with no reset, as the
+/// endpoint gives it while none is open (EP-40), and no status line with a figure for it.
 #[cfg(feature = "screenshot")]
-pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
+pub fn canned(now: DateTime<Utc>, degraded: bool, closed: bool) -> Meter {
     use crw_core::usage::{Limit, Scoped, Surface};
 
     let resets = now + TimeDelta::hours(3 * 24 + 7);
@@ -835,13 +854,25 @@ pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
         severity: None,
     };
     let five_hour_resets = now + TimeDelta::minutes(130);
+    let five_hour = || {
+        if closed {
+            Limit {
+                percent: 0.0,
+                resets_at: None,
+                active: Some(false),
+                severity: Some("normal".to_owned()),
+            }
+        } else {
+            limit(23.0, five_hour_resets)
+        }
+    };
     let reading = Reading {
         weekly: Some(limit(41.0, resets)),
         scoped: vec![Scoped {
             name: "Fable".to_owned(),
             limit: limit(82.0, resets),
         }],
-        five_hour: Some(limit(23.0, five_hour_resets)),
+        five_hour: Some(five_hour()),
         surfaces: [
             ("Claude Code", 35.0),
             ("Chats", 4.0),
@@ -895,7 +926,7 @@ pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
         let line = Line {
             at: now - TimeDelta::minutes(minutes),
             weekly: Some(limit(41.0 - minutes as f64 / 120.0, resets)),
-            five_hour: Some(limit(23.0, five_hour_resets)),
+            five_hour: (!closed).then(|| limit(23.0, five_hour_resets)),
         };
         samples.push(usage::line_sample("canned-session", &line));
         gauge.line("canned-session", line);
@@ -912,7 +943,7 @@ pub fn canned(now: DateTime<Utc>, degraded: bool) -> Meter {
             Line {
                 at: now - TimeDelta::seconds(20),
                 weekly: Some(limit(43.0, resets)),
-                five_hour: Some(limit(26.0, five_hour_resets)),
+                five_hour: (!closed).then(|| limit(26.0, five_hour_resets)),
             },
         );
     }

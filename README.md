@@ -47,8 +47,10 @@ previews the same revert in a dialog, from an ended session's tab, a ledger row 
 pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The P2 re-plan
 (EP-16) measured the phase and made the switch planned from the start: from EP-17 on, this
 project's own briefs are started from the tool, as visual launches by default. The usage meter
-(EP-17) shows the account's weekly, Fable and five-hour usage in the status bar and a pane of its
-own, with notifications at 80 % and 95 %. Each poll's rise is split among the sessions the
+(EP-17) shows the account's weekly, Fable and session (five-hour) usage in the status bar and a
+pane of its own, with notifications at 80 % and 95 %; the endpoint's `session` kind and its older
+`five_hour` object read as one window, shown while it is open and said closed in a line while it
+is not (EP-40). Each poll's rise is split among the sessions the
 window saw work since the poll before, so each session's row in the ledger keeps its share of the
 week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). Each project's
 sum, in points of the weekly limit, is a badge of its row, a line of its Detail pane and a sort
@@ -150,7 +152,9 @@ it would run in the older window, and its own Install and restart closes the dia
 window and opens the dialog again there. Between two runs of a chain the autopilot takes a newer installed build itself, at the gate's
 moment: the held chains and the chain plans cross the restart in a handover file, and the next
 brief starts in the new window once its first poll of live sessions has answered. A chain that ends
-leaves the window as it is. The status bar says when a newer build waits. The registry lists the folders of one data root (by default the folder
+leaves the window as it is. The status bar says when a newer build waits. A second window started
+by hand finds the first over the loopback port, asks it to show itself and quits, so one window
+holds the port, the hooks and the meter (EP-40). The registry lists the folders of one data root (by default the folder
 that holds this repository); `crw adopt` registers a folder, writes its own single-folder
 `<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
 file; `crw ignore` hides one, `crw set` changes a project's state, priority, pin or time limit for
@@ -192,8 +196,10 @@ every brief of the project, or for the brief's phase, as a rule the tool writes 
 it back to the rules; `crw set <project> model|effort <value|default>` keeps one for every brief,
 and a chain plan's rows the owner left alone follow at once. Last comes the Fable
 downshift: while the meter's Fable-scoped figure is above `fable_downshift_percent` (60 % by
-default), an S brief that would run on Fable is proposed Opus 5.5 at the same effort, and the
-dialog says how it judged the figure. Open in VS Code, for
+default), a brief of any size that would run on Fable is proposed Opus 5.5 at the same effort
+(S briefs alone until EP-40), and the dialog says how it judged the figure; while the session
+(five-hour) figure is at or over the autopilot's mark, the dialog says a run started now may hit
+that limit. Open in VS Code, for
 Visual (the default), opens the project's own workspace file, which brings its window to the front
 or opens it, and fills the prompt into a new Claude Code tab there, where the owner chooses the
 model and effort and sends it: the link carries the prompt alone, so in Visual the dialog's model,
@@ -217,6 +223,8 @@ run of a project with the autopilot on completes, a gate reads the project afres
 condition that fails: the brief's completion note and its checked row, the next brief not a
 re-plan and no larger than M, no owner task due before it, a clean tree, the day's caps (2 chained
 runs a project, 4 in all), the weekly and Fable figures under 90 % (and recent enough to trust),
+the session (five-hour) figure under 50 % while a window is open (`autopilot_five_hour_percent`;
+a run cut short by a limit is named so in the log and its notification, EP-40),
 no other session working or waiting there (an idle tab is named, not counted), and runs that
 would not wait at every shell command (a permission mode of `auto`, or allow rules). Ticking the
 box of a project whose runs would wait offers `auto` first, with what it means; the launch
@@ -322,7 +330,9 @@ backoff from 1 to 30 minutes while it fails. Each poll reads the OAuth token fro
 HTTP stack; the token is never written, logged or shown. The status bar shows the weekly limit, the
 Fable-scoped one and the five-hour window while it is open, each a small bar with its percent
 (amber from 80 %, red from 95 %). The Usage pane shows each limit with its reset countdown, the
-week's use by surface, extra usage and a sparkline of the last seven days. The status lines' rate
+week's use by surface, extra usage and a sparkline of the last seven days; the session (five-hour)
+window is one row, read from the endpoint's `session` entry and its older `five_hour` object
+together, with a quiet line while no window is open (EP-40). The status lines' rate
 limits are the meter's second series: when the endpoint fails, it shows the newest figures it has,
 marked degraded with the reason. A notification comes when the weekly or the Fable limit passes
 80 % and 95 %, once per mark in each limit window. Each reading is a sample in the ledger, which

@@ -37,6 +37,12 @@ pub const DEFAULT_DAILY: u32 = 2;
 pub const DEFAULT_DAILY_TOTAL: u32 = 4;
 /// The share of the weekly or the Fable limit at which chains hold until the reset (D-22).
 pub const DEFAULT_PAUSE_PERCENT: u8 = 90;
+/// The share of the session (five-hour) window at which chains hold until it resets (D-22;
+/// EP-40): an M brief on Fable took 30 to 45 % of a window in P4's first chains, and a hold is
+/// short, since the window resets within five hours.
+pub const DEFAULT_FIVE_HOUR_PERCENT: u8 = 50;
+/// The gate's name for the session (five-hour) figure.
+pub const FIVE_HOUR: &str = "the session (five-hour) window";
 /// How long a figure under the mark is trusted after its reading: the meter's own freshness.
 pub const TRUSTED_FOR: TimeDelta = usage::FRESH_FOR;
 
@@ -167,6 +173,11 @@ pub struct Facts {
     pub weekly: Option<Figure>,
     pub fable: Option<Figure>,
     pub pause_percent: u8,
+    /// The session (five-hour) figure while a window is open (EP-40), and its mark.
+    pub five_hour: Option<Figure>,
+    pub five_hour_percent: u8,
+    /// What the run's result said when a usage limit cut it short (`usage::limit_hit`; EP-40).
+    pub limit_hit: Option<String>,
     /// The working tree's changes, by path, or why git could not say.
     pub tree: Result<Vec<String>, String>,
     /// The tool wrote into the project since the run started, by the ledger's tick rows (a
@@ -205,6 +216,9 @@ pub enum Refusal {
     Off,
     Paused,
     Outcome(Outcome),
+    /// The run's result named a usage limit that cut it short (EP-40), in `usage::limit_hit`'s
+    /// words; beside [`Refusal::Outcome`], which ends the chain.
+    LimitHit(String),
     NoEp,
     NoCompletionNote(EpId),
     /// The run's row is still the next one: its hash was not recorded.
@@ -269,6 +283,7 @@ impl Refusal {
             Refusal::Outcome(outcome) => {
                 format!("the run ended {} rather than completed", outcome.as_str())
             }
+            Refusal::LimitHit(words) => format!("the run {words}"),
             Refusal::NoEp => "the run named no EP".to_owned(),
             Refusal::NoCompletionNote(ep) => format!("{ep}'s brief has no completion note"),
             Refusal::RowOpen(ep) => {
@@ -427,6 +442,9 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     }
     if facts.outcome != Outcome::Completed {
         no.push(Refusal::Outcome(facts.outcome));
+        if let Some(words) = &facts.limit_hit {
+            no.push(Refusal::LimitHit(words.clone()));
+        }
     }
     match facts.ran {
         None => no.push(Refusal::NoEp),
@@ -461,6 +479,11 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     for (which, figure) in [("weekly", &facts.weekly), ("Fable", &facts.fable)] {
         no.extend(weigh(which, figure.as_ref(), facts.pause_percent, now));
     }
+    no.extend(weigh_five_hour(
+        facts.five_hour.as_ref(),
+        facts.five_hour_percent,
+        now,
+    ));
     // The inbox is left out (EP-20) when a message was delivered or written into it since the
     // run started (EP-20c): it waits for the next brief's triage (D-13) and ends no chain. With
     // no such message, a changed inbox is the run's own triage left uncommitted.
@@ -539,11 +562,49 @@ fn weigh(
     })
 }
 
-/// The automatic pause as it stands: each limit at or over the mark until its reset.
-pub fn usage_pause(figures: &Figures, mark: u8, now: DateTime<Utc>) -> Vec<Refusal> {
+/// The session (five-hour) figure against its mark (EP-40): at or over it, the chain holds
+/// until the window resets; no figure passes (no window is open, or the account has no such
+/// limit), as does one whose window has ended, and an old figure under the mark is not held on
+/// its age, since the weekly figure of the same reading already is.
+fn weigh_five_hour(figure: Option<&Figure>, mark: u8, now: DateTime<Utc>) -> Option<Refusal> {
+    let figure = figure?;
+    if !figure.limit.before_reset(now) {
+        return None;
+    }
+    (figure.limit.percent >= f64::from(mark)).then_some(Refusal::Usage {
+        which: FIVE_HOUR,
+        percent: figure.limit.percent,
+        mark,
+        until: figure.limit.resets_at,
+    })
+}
+
+/// The launch dialog's notice on the session (five-hour) window (EP-40): its figure at or over
+/// the mark while a window is open, with its reset; none otherwise.
+pub fn session_notice(figures: &Figures, mark: u8, now: DateTime<Utc>) -> Option<String> {
+    let refusal = weigh_five_hour(figures.five_hour.as_ref(), mark, now)?;
+    Some(format!(
+        "A run started now may hit the five-hour limit: {}",
+        refusal.words()
+    ))
+}
+
+/// The automatic pause as it stands: each limit at or over its mark until its reset, the
+/// session (five-hour) window at `five_hour_mark` (EP-40).
+pub fn usage_pause(
+    figures: &Figures,
+    mark: u8,
+    five_hour_mark: u8,
+    now: DateTime<Utc>,
+) -> Vec<Refusal> {
     [("weekly", &figures.weekly), ("Fable", &figures.fable)]
         .into_iter()
         .filter_map(|(which, figure)| weigh(which, figure.as_ref(), mark, now))
+        .chain(weigh_five_hour(
+            figures.five_hour.as_ref(),
+            five_hour_mark,
+            now,
+        ))
         .filter(|refusal| matches!(refusal, Refusal::Usage { .. }))
         .collect()
 }
@@ -899,6 +960,8 @@ pub struct Ask<'a> {
     pub folder: &'a Path,
     pub ran: Option<EpId>,
     pub outcome: Outcome,
+    /// What the run's result said when a usage limit cut it short (EP-40).
+    pub limit_hit: Option<String>,
     pub figures: &'a Figures,
     /// The CLI's effort levels in order, for the rule table's steps.
     pub levels: &'a [String],
@@ -989,6 +1052,9 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         weekly: ask.figures.weekly.clone(),
         fable: ask.figures.fable.clone(),
         pause_percent: settings.autopilot_pause_percent(),
+        five_hour: ask.figures.five_hour.clone(),
+        five_hour_percent: settings.autopilot_five_hour_percent(),
+        limit_hit: ask.limit_hit.clone(),
         tree,
         mail_since_run,
         chained_today,
@@ -1128,6 +1194,9 @@ mod tests {
             weekly: Some(figure(40.0, 3, 48)),
             fable: Some(figure(30.0, 3, 48)),
             pause_percent: 90,
+            five_hour: None,
+            five_hour_percent: 50,
+            limit_hit: None,
             tree: Ok(Vec::new()),
             mail_since_run: false,
             chained_today: 1,
@@ -1273,6 +1342,78 @@ mod tests {
     }
 
     #[test]
+    fn the_session_window_holds_at_its_mark_and_passes_when_none_is_open() {
+        let weigh = |figure: Option<Figure>| {
+            let mut facts = passing();
+            facts.five_hour = figure;
+            gate(&facts, now())
+        };
+        // No window open, or no such limit: the gate passes.
+        assert!(weigh(None).is_empty());
+        // At the mark: held until the window resets, whatever the figure's age.
+        let held = weigh(Some(figure(50.0, 40, 3)));
+        assert!(matches!(
+            held.as_slice(),
+            [Refusal::Usage {
+                which: FIVE_HOUR,
+                mark: 50,
+                ..
+            }]
+        ));
+        assert!(holds(&held));
+        assert!(
+            held[0]
+                .words()
+                .starts_with("the session (five-hour) window is at 50 %, at or over the pause at 50 % until its reset"),
+            "{}",
+            held[0].words()
+        );
+        // Under it: passes, old or fresh; a window that has ended passes too.
+        assert!(weigh(Some(figure(49.0, 1, 3))).is_empty());
+        assert!(weigh(Some(figure(49.0, 200, 3))).is_empty());
+        assert!(weigh(Some(figure(95.0, 10, -1))).is_empty());
+        // The mark is the registry's.
+        let mut facts = passing();
+        facts.five_hour = Some(figure(31.0, 1, 3));
+        facts.five_hour_percent = 30;
+        assert!(holds(&gate(&facts, now())));
+        // The window's own state and the dialog's notice say it too.
+        let figures = Figures {
+            weekly: Some(figure(40.0, 1, 48)),
+            five_hour: Some(figure(62.0, 1, 2)),
+            ..Figures::default()
+        };
+        let pause = usage_pause(&figures, 90, 50, now());
+        assert_eq!(pause.len(), 1);
+        assert!(matches!(&pause[0], Refusal::Usage { which, .. } if *which == FIVE_HOUR));
+        assert!(
+            session_notice(&figures, 50, now())
+                .unwrap()
+                .starts_with("A run started now may hit the five-hour limit: the session"),
+        );
+        assert_eq!(session_notice(&figures, 70, now()), None);
+        assert_eq!(session_notice(&Figures::default(), 50, now()), None);
+        // A run cut short by a limit is named beside its outcome, and the chain ends.
+        let mut facts = passing();
+        facts.outcome = Outcome::Failed;
+        facts.limit_hit = Some("hit the 5-hour limit, resets 11:30pm".to_owned());
+        let refusals = gate(&facts, now());
+        assert_eq!(
+            refusals,
+            vec![
+                Refusal::Outcome(Outcome::Failed),
+                Refusal::LimitHit("hit the 5-hour limit, resets 11:30pm".to_owned())
+            ]
+        );
+        assert!(!holds(&refusals));
+        assert_eq!(
+            refused_words(Some(ep("EP-4")), &refusals),
+            "the chain ends after EP-4: the run ended failed rather than completed; the run hit \
+             the 5-hour limit, resets 11:30pm"
+        );
+    }
+
+    #[test]
     fn a_figure_at_the_mark_pauses_until_its_reset_and_an_old_one_under_it_holds() {
         let weigh_fable = |figure: Option<Figure>| {
             let mut facts = passing();
@@ -1329,7 +1470,7 @@ mod tests {
             fable: Some(figure(40.0, 30, 5)),
             ..Figures::default()
         };
-        let pause = usage_pause(&figures, 90, now());
+        let pause = usage_pause(&figures, 90, 50, now());
         assert!(matches!(
             pause.as_slice(),
             [Refusal::Usage {
@@ -1337,7 +1478,7 @@ mod tests {
                 ..
             }]
         ));
-        assert!(usage_pause(&Figures::default(), 90, now()).is_empty());
+        assert!(usage_pause(&Figures::default(), 90, 50, now()).is_empty());
     }
 
     #[test]

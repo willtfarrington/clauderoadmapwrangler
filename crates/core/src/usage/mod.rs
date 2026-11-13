@@ -403,6 +403,11 @@ pub struct Reading {
     pub shape: String,
 }
 
+/// The `limits[]` kind of the five-hour window (EP-40): the name Claude's own usage page gives
+/// it. The endpoint brought the limit back under it on 2026-11-13, beside the older top-level
+/// `five_hour` object, so the two are read as one.
+pub const SESSION_KIND: &str = "session";
+
 impl Reading {
     /// The Fable-scoped weekly limit.
     pub fn fable(&self) -> Option<&Limit> {
@@ -412,12 +417,24 @@ impl Reading {
             .map(|scoped| &scoped.limit)
     }
 
+    /// The five-hour window is given but no window is open (EP-40): the endpoint called it
+    /// inactive, or its reset has passed. The pane says so in a line instead of a bar.
+    pub fn session_closed(&self, now: DateTime<Utc>) -> bool {
+        self.five_hour
+            .as_ref()
+            .is_some_and(|limit| !limit.is_current(now))
+    }
+
     pub fn to_json(&self) -> String {
         serde_json::to_string(self).unwrap_or_default()
     }
 
     pub fn from_json(text: &str) -> Option<Reading> {
-        serde_json::from_str(text).ok()
+        let mut reading: Reading = serde_json::from_str(text).ok()?;
+        // A reading cached by a build before EP-40 kept the `session` kind under its name; the
+        // five-hour figure beside it stands until the next poll merges the two.
+        reading.other.retain(|other| other.name != SESSION_KIND);
+        Some(reading)
     }
 }
 
@@ -439,6 +456,7 @@ pub fn parse(body: &[u8]) -> Result<Reading, Problem> {
     let mut weekly = None;
     let mut scoped = Vec::new();
     let mut other = Vec::new();
+    let mut session = None;
     let mut kinds = Vec::new();
     for entry in object
         .get("limits")
@@ -464,6 +482,8 @@ pub fn parse(body: &[u8]) -> Result<Reading, Problem> {
                     limit,
                 });
             }
+            // The five-hour window under the usage page's name (EP-40).
+            Some(SESSION_KIND) if session.is_none() => session = Some(limit),
             Some(kind) if !kind.is_empty() => other.push(Scoped {
                 name: kind.to_owned(),
                 limit,
@@ -516,13 +536,72 @@ pub fn parse(body: &[u8]) -> Result<Reading, Problem> {
     Ok(Reading {
         weekly,
         scoped,
-        five_hour: object.get("five_hour").and_then(limit_of),
+        five_hour: five_hour_of(session, object.get("five_hour").and_then(limit_of)),
         surfaces,
         extra,
         other,
         shape: outline,
     })
 }
+
+/// The five-hour window from its `limits[]` entry and the older top-level object (EP-40): the
+/// entry's figures win, since it carries `is_active` and the severity, and the object fills what
+/// the entry lacks; either alone reads as before.
+fn five_hour_of(session: Option<Limit>, object: Option<Limit>) -> Option<Limit> {
+    match (session, object) {
+        (Some(session), Some(object)) => Some(Limit {
+            percent: session.percent,
+            resets_at: session.resets_at.or(object.resets_at),
+            active: session.active.or(object.active),
+            severity: session.severity.or(object.severity),
+        }),
+        (session, object) => session.or(object),
+    }
+}
+
+/// What a run's result says when a usage limit cut it short (EP-40): the limit as the message
+/// names it (`hit the 5-hour limit`, `hit the weekly limit`, `hit the usage limit`) and the
+/// reset words it gives, for the ended line and the chain log; none for any other result.
+pub fn limit_hit(text: &str) -> Option<String> {
+    // ASCII lowering keeps every byte offset a char boundary of `text`.
+    let lower = text.to_ascii_lowercase();
+    let (limit, after) = if let Some(start) = lower.find("hit your ") {
+        let from = start + "hit your ".len();
+        // The limit's name is a few words at most ("5-hour limit", "weekly limit", "limit"),
+        // and it names a window or the usage: "hit your head on the limit" is no limit.
+        let reach = lower[from..]
+            .char_indices()
+            .nth(LIMIT_REACH)
+            .map_or(lower.len(), |(offset, _)| from + offset);
+        let end = from + lower[from..reach].find("limit")? + "limit".len();
+        let kind = lower[from..end - "limit".len()].trim();
+        let named = kind.is_empty()
+            || ["hour", "week", "day", "usage", "session", "month"]
+                .iter()
+                .any(|word| kind.contains(word));
+        if !named {
+            return None;
+        }
+        (text[from..end].trim().to_owned(), end)
+    } else {
+        let at = lower.find("usage limit reached")?;
+        ("usage limit".to_owned(), at + "usage limit reached".len())
+    };
+    let mut words = format!("hit the {limit}");
+    if let Some(at) = lower[after..].find("reset") {
+        let reset: String = text[after + at..].chars().take(48).collect();
+        let reset = reset
+            .trim_end_matches(|c: char| c == '·' || c == '.' || c.is_whitespace())
+            .trim();
+        if !reset.is_empty() {
+            words.push_str(&format!(", {reset}"));
+        }
+    }
+    Some(words)
+}
+
+/// How far past "hit your" the limit's name may reach, in characters.
+const LIMIT_REACH: usize = 40;
 
 /// A limit's share and reset from one entry: `percent`, else `utilization` or `used_percentage`.
 fn limit_of(value: &Value) -> Option<Limit> {
@@ -1091,6 +1170,8 @@ mod tests {
         "five_hour": {"utilization": 23.0, "resets_at": "2026-11-05T03:00:00.000000+00:00"},
         "seven_day": {"utilization": 41.0, "resets_at": "2026-11-07T19:00:00+00:00"},
         "limits": [
+            {"kind": "session", "percent": 23.0, "severity": "normal",
+             "resets_at": "2026-11-05T03:00:00.000000+00:00", "scope": null, "is_active": true},
             {"kind": "weekly_all", "percent": 41.0, "severity": "normal",
              "resets_at": "2026-11-07T19:00:00+00:00", "scope": null, "is_active": true},
             {"kind": "weekly_scoped", "percent": 63.5, "severity": "warning",
@@ -1184,8 +1265,8 @@ mod tests {
         );
         let five = reading.five_hour.as_ref().unwrap();
         assert_eq!(
-            (five.percent, five.resets_at),
-            (23.0, Some(at("2026-11-05T03:00:00Z")))
+            (five.percent, five.resets_at, five.active),
+            (23.0, Some(at("2026-11-05T03:00:00Z")), Some(true))
         );
         let surfaces: Vec<(&str, f64)> = reading
             .surfaces
@@ -1214,7 +1295,7 @@ mod tests {
         // The shape names keys, kinds and the limits' kinds, never a number or a text.
         assert!(
             reading.shape.starts_with(
-                "the limits' kinds: weekly_all, weekly_scoped, something_new; \
+                "the limits' kinds: session, weekly_all, weekly_scoped, something_new; \
                  {five_hour: {utilization: a number, resets_at: a string}, "
             ),
             "{}",
@@ -1268,6 +1349,105 @@ mod tests {
         // A reading cached by a build without the shape still reads.
         let older = r#"{"weekly": {"percent": 12.5}, "five_hour": null, "extra": null}"#;
         assert_eq!(Reading::from_json(older).unwrap().shape, "");
+        // One cached by a build before EP-40 drops the `session` kind it kept under its name.
+        let cached = r#"{"weekly": {"percent": 12.5}, "five_hour": {"percent": 30.0},
+                         "other": [{"name": "session", "limit": {"percent": 30.0}},
+                                   {"name": "something_new", "limit": {"percent": 3.0}}]}"#;
+        let reading = Reading::from_json(cached).unwrap();
+        assert_eq!(reading.other.len(), 1);
+        assert_eq!(reading.other[0].name, "something_new");
+        assert_eq!(reading.five_hour.as_ref().map(|l| l.percent), Some(30.0));
+    }
+
+    #[test]
+    fn the_session_kind_is_the_five_hour_window_and_a_closed_one_says_so() {
+        // The answer of 2026-11-13 (EP-40): the limit back as a `session` entry, inactive with
+        // no reset, beside the older object at 0 %.
+        let reading = parse(
+            br#"{"five_hour": {"utilization": 0.0, "resets_at": null},
+                 "seven_day": {"utilization": 9.0, "resets_at": "2026-11-14T17:00:00+00:00"},
+                 "limits": [
+                   {"kind": "session", "percent": 0.0, "severity": "normal", "resets_at": null,
+                    "scope": null, "is_active": false},
+                   {"kind": "weekly_all", "percent": 9.0, "severity": "normal",
+                    "resets_at": "2026-11-14T17:00:00+00:00", "scope": null, "is_active": true}
+                 ]}"#,
+        )
+        .unwrap();
+        assert!(reading.other.is_empty(), "{:?}", reading.other);
+        let five = reading.five_hour.as_ref().unwrap();
+        assert_eq!(
+            (five.percent, five.resets_at, five.active),
+            (0.0, None, Some(false))
+        );
+        let now = at("2026-11-13T17:00:00Z");
+        assert!(!five.is_current(now));
+        assert!(reading.session_closed(now));
+        assert!(
+            reading
+                .shape
+                .starts_with("the limits' kinds: session, weekly_all;"),
+            "{}",
+            reading.shape
+        );
+        // An open window: the entry's figures win, the object fills what the entry lacks.
+        let reading = parse(
+            br#"{"five_hour": {"utilization": 30.0, "resets_at": "2026-11-13T21:00:00+00:00"},
+                 "seven_day": {"utilization": 9.0},
+                 "limits": [{"kind": "session", "percent": 31.0, "severity": "warning",
+                             "is_active": true}]}"#,
+        )
+        .unwrap();
+        let five = reading.five_hour.as_ref().unwrap();
+        assert_eq!(five.percent, 31.0);
+        assert_eq!(five.resets_at, Some(at("2026-11-13T21:00:00Z")));
+        assert_eq!(
+            (five.active, five.severity.as_deref()),
+            (Some(true), Some("warning"))
+        );
+        assert!(five.is_current(now) && !reading.session_closed(now));
+        // The entry alone reads too, and no window at all is not a closed one.
+        let reading = parse(
+            br#"{"seven_day": {"utilization": 9.0},
+                 "limits": [{"kind": "session", "percent": 12.0, "is_active": true,
+                             "resets_at": "2026-11-13T21:00:00+00:00"}]}"#,
+        )
+        .unwrap();
+        assert_eq!(reading.five_hour.as_ref().map(|l| l.percent), Some(12.0));
+        let none = parse(br#"{"seven_day": {"utilization": 9.0}}"#).unwrap();
+        assert_eq!(none.five_hour, None);
+        assert!(!none.session_closed(now));
+    }
+
+    #[test]
+    fn a_result_that_hit_a_limit_is_named_with_its_reset() {
+        assert_eq!(
+            limit_hit("You've hit your 5-hour limit · resets 11:30pm (Somewhere/City)").as_deref(),
+            Some("hit the 5-hour limit, resets 11:30pm (Somewhere/City)")
+        );
+        assert_eq!(
+            limit_hit("You've hit your weekly limit.").as_deref(),
+            Some("hit the weekly limit")
+        );
+        assert_eq!(
+            limit_hit("Claude usage limit reached. Your limit will reset at 11pm.").as_deref(),
+            Some("hit the usage limit, reset at 11pm")
+        );
+        assert_eq!(limit_hit("EP-26 is complete and installed."), None);
+        // Not a limit's name; a "limit" too far off; a "reset" before the limit is not its own.
+        assert_eq!(limit_hit("hit your head on the limit"), None);
+        assert_eq!(
+            limit_hit(&format!("hit your {} limit", "x".repeat(60))),
+            None
+        );
+        assert_eq!(
+            limit_hit("Preset lost. You've hit your weekly limit · resets Fri 17:00").as_deref(),
+            Some("hit the weekly limit, resets Fri 17:00")
+        );
+        assert_eq!(
+            limit_hit("hit your limit · résumé resets at 9").as_deref(),
+            Some("hit the limit, resets at 9")
+        );
     }
 
     #[test]

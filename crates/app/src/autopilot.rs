@@ -139,9 +139,11 @@ pub struct Pilot {
     read_at: Option<Instant>,
     /// The log or the registry's pause changed: read them again.
     pub stale: bool,
-    /// The owner's Pause and the mark, as the registry last said them.
+    /// The owner's Pause and the marks, as the registry last said them: the weekly and Fable
+    /// limits' and the session (five-hour) window's (EP-40).
     pub paused: bool,
     pub mark: u8,
+    pub five_hour_mark: u8,
     /// A screenshot run's log: nothing is read or written.
     pub canned: bool,
     /// The chain plans (EP-19a), by project in lower case: each kept from Start headless until
@@ -172,6 +174,7 @@ impl Default for Pilot {
             stale: false,
             paused: false,
             mark: autopilot::DEFAULT_PAUSE_PERCENT,
+            five_hour_mark: autopilot::DEFAULT_FIVE_HOUR_PERCENT,
             canned: false,
             plans: BTreeMap::new(),
             moments: Vec::new(),
@@ -293,6 +296,13 @@ impl Board {
             return;
         }
         let (project, ran, chained) = (live.project.clone(), live.ep.parse().ok(), live.chained);
+        // A usage limit that cut the run short is named in the chain log (EP-40).
+        let limit_hit = live
+            .ended
+            .as_ref()
+            .and_then(|ended| ended.result.as_ref())
+            .and_then(|finish| finish.text.as_deref())
+            .and_then(crw_core::usage::limit_hit);
         let registry = match self.store().load() {
             Ok(loaded) => loaded.registry,
             Err(e) => {
@@ -306,7 +316,7 @@ impl Board {
         if !entry.autopilot.enabled && !chained {
             return;
         }
-        self.read_gate(registry, entry, ran, outcome);
+        self.read_gate(registry, entry, ran, outcome, limit_hit);
     }
 
     /// Reads the gate of `entry` after its run of `after` on a worker thread.
@@ -316,6 +326,7 @@ impl Board {
         entry: Project,
         after: Option<EpId>,
         outcome: Outcome,
+        limit_hit: Option<String>,
     ) {
         let Some(folder) = self
             .portfolio
@@ -367,6 +378,7 @@ impl Board {
                         folder: &folder,
                         ran: after,
                         outcome,
+                        limit_hit,
                         figures: &figures,
                         levels: &levels,
                         now,
@@ -593,6 +605,7 @@ impl Board {
                         entry,
                         held.after,
                         Outcome::Completed,
+                        None,
                     );
                 }
                 None => self
@@ -777,6 +790,7 @@ impl Board {
             let settings = &loaded.registry.settings;
             self.autopilot.paused = settings.autopilot_paused();
             self.autopilot.mark = settings.autopilot_pause_percent();
+            self.autopilot.five_hour_mark = settings.autopilot_five_hour_percent();
         }
         if let Some(ledger) = self.ledger().map(PathBuf::from) {
             match autopilot::recent(&ledger, LOG_LINES) {
@@ -1171,6 +1185,7 @@ impl Board {
         let usage = autopilot::usage_pause(
             &self.meter.gauge.figures(now),
             self.autopilot.mark.max(1),
+            self.autopilot.five_hour_mark.max(1),
             now,
         );
         let mut actions = Vec::new();

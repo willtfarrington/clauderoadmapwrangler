@@ -196,6 +196,10 @@ pub struct Settings {
     /// its chains until the limit resets (D-22; EP-19); by default
     /// `autopilot::DEFAULT_PAUSE_PERCENT`.
     pub autopilot_pause_percent: Option<u8>,
+    /// The share of the session (five-hour) window, a whole percent, at which the autopilot
+    /// holds its chains until the window resets (D-22; EP-40); by default
+    /// `autopilot::DEFAULT_FIVE_HOUR_PERCENT`.
+    pub autopilot_five_hour_percent: Option<u8>,
     /// The chained runs a day across the projects (D-22; EP-19); by default
     /// `autopilot::DEFAULT_DAILY_TOTAL`.
     pub autopilot_daily_total: Option<u32>,
@@ -211,7 +215,7 @@ pub struct Settings {
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 16] = [
+    pub const KEYS: [&str; 17] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -224,6 +228,7 @@ impl Settings {
         "usage_endpoint",
         "fable_downshift_percent",
         "autopilot_pause_percent",
+        "autopilot_five_hour_percent",
         "autopilot_daily_total",
         "autopilot_paused",
         "ntfy_host",
@@ -242,6 +247,7 @@ impl Settings {
                 | "usage_endpoint"
                 | "fable_downshift_percent"
                 | "autopilot_pause_percent"
+                | "autopilot_five_hour_percent"
                 | "autopilot_daily_total"
                 | "autopilot_paused"
                 | "ntfy_host"
@@ -262,6 +268,13 @@ impl Settings {
     pub fn autopilot_pause_percent(&self) -> u8 {
         self.autopilot_pause_percent
             .unwrap_or(crate::autopilot::DEFAULT_PAUSE_PERCENT)
+    }
+
+    /// The share of the session (five-hour) window at which the autopilot holds its chains
+    /// (D-22; EP-40).
+    pub fn autopilot_five_hour_percent(&self) -> u8 {
+        self.autopilot_five_hour_percent
+            .unwrap_or(crate::autopilot::DEFAULT_FIVE_HOUR_PERCENT)
     }
 
     /// The chained runs a day across the projects (D-22).
@@ -304,6 +317,9 @@ impl Settings {
                 .map(|on| if on { "on" } else { "off" }.to_owned()),
             "fable_downshift_percent" => self.fable_downshift_percent.map(|p| p.to_string()),
             "autopilot_pause_percent" => self.autopilot_pause_percent.map(|p| p.to_string()),
+            "autopilot_five_hour_percent" => {
+                self.autopilot_five_hour_percent.map(|p| p.to_string())
+            }
             "autopilot_daily_total" => self.autopilot_daily_total.map(|n| n.to_string()),
             "autopilot_paused" => self
                 .autopilot_paused
@@ -535,6 +551,14 @@ impl Registry {
         {
             return invalid(format!(
                 "settings.autopilot_pause_percent must be a percent from 1 to 100, not {percent}"
+            ));
+        }
+        if let Some(percent) = self.settings.autopilot_five_hour_percent
+            && !(1..=100).contains(&percent)
+        {
+            return invalid(format!(
+                "settings.autopilot_five_hour_percent must be a percent from 1 to 100, not \
+                 {percent}"
             ));
         }
         if let Some(total) = self.settings.autopilot_daily_total
@@ -1249,9 +1273,10 @@ impl Changes<'_> {
                     )));
                 }
             },
-            "fable_downshift_percent" | "autopilot_pause_percent" | "autopilot_daily_total" => {
-                value.trim() == "default"
-            }
+            "fable_downshift_percent"
+            | "autopilot_pause_percent"
+            | "autopilot_five_hour_percent"
+            | "autopilot_daily_total" => value.trim() == "default",
             "autopilot_paused" => match value.trim() {
                 "on" => false,
                 "off" => true,
@@ -1295,7 +1320,9 @@ impl Changes<'_> {
                 Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             "usage_endpoint" => Value::from(false),
-            "fable_downshift_percent" | "autopilot_pause_percent" => {
+            "fable_downshift_percent"
+            | "autopilot_pause_percent"
+            | "autopilot_five_hour_percent" => {
                 match value.trim().trim_end_matches('%').trim().parse() {
                     Ok(percent @ 1..=100u8) => Value::from(i64::from(percent)),
                     _ => {
@@ -2519,12 +2546,14 @@ state = "paused"
         let settings = store.load().unwrap().registry.settings;
         assert!(!settings.autopilot_paused());
         assert_eq!(settings.autopilot_pause_percent(), 90);
+        assert_eq!(settings.autopilot_five_hour_percent(), 50);
         assert_eq!(settings.autopilot_daily_total(), 4);
 
         let (registry, ()) = store
             .change(TODAY, |c| {
                 c.set_setting("autopilot_paused", "on")?;
                 c.set_setting("autopilot_pause_percent", "85 %")?;
+                c.set_setting("autopilot_five_hour_percent", "40")?;
                 c.set_setting("autopilot_daily_total", "6")
             })
             .unwrap();
@@ -2532,14 +2561,22 @@ state = "paused"
         assert!(settings.autopilot_paused());
         assert_eq!(settings.get("autopilot_paused").as_deref(), Some("on"));
         assert_eq!(settings.autopilot_pause_percent(), 85);
+        assert_eq!(settings.autopilot_five_hour_percent(), 40);
+        assert_eq!(
+            settings.get("autopilot_five_hour_percent").as_deref(),
+            Some("40")
+        );
         assert_eq!(settings.autopilot_daily_total(), 6);
         let text = fs::read_to_string(&store.path).unwrap();
         assert!(text.contains("autopilot_paused = true"), "{text}");
+        assert!(text.contains("autopilot_five_hour_percent = 40"), "{text}");
 
         for (key, wrong) in [
             ("autopilot_paused", "maybe"),
             ("autopilot_pause_percent", "0"),
             ("autopilot_pause_percent", "101"),
+            ("autopilot_five_hour_percent", "0"),
+            ("autopilot_five_hour_percent", "101"),
             ("autopilot_daily_total", "-1"),
             ("autopilot_daily_total", "1000"),
         ] {
@@ -2553,11 +2590,13 @@ state = "paused"
             .change(TODAY, |c| {
                 c.set_setting("autopilot_paused", "off")?;
                 c.set_setting("autopilot_pause_percent", "default")?;
+                c.set_setting("autopilot_five_hour_percent", "default")?;
                 c.set_setting("autopilot_daily_total", "default")
             })
             .unwrap();
         assert_eq!(registry.settings.autopilot_paused, None);
         assert_eq!(registry.settings.autopilot_pause_percent, None);
+        assert_eq!(registry.settings.autopilot_five_hour_percent, None);
         assert_eq!(registry.settings.autopilot_daily_total, None);
         assert!(
             !fs::read_to_string(&store.path)
@@ -2567,6 +2606,7 @@ state = "paused"
         for key in [
             "autopilot_paused",
             "autopilot_pause_percent",
+            "autopilot_five_hour_percent",
             "autopilot_daily_total",
         ] {
             assert!(!Settings::is_path(key), "{key}");

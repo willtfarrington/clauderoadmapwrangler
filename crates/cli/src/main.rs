@@ -155,10 +155,13 @@ commands:
                                  as 22:00-07:00, when the window holds its notifications back;
                                  none for notifications at any hour), usage_endpoint (on, the
                                  default, or off: the window's meter keeps to the status lines),
-                                 fable_downshift_percent (1 to 100, or default: 60; above it an S
+                                 fable_downshift_percent (1 to 100, or default: 60; above it a
                                  brief that would run on Fable is proposed Opus 5.5),
                                  autopilot_pause_percent (1 to 100, or default: 90; at it the
                                  weekly or Fable figure holds every chain until its reset),
+                                 autopilot_five_hour_percent (1 to 100, or default: 50; at it
+                                 the session (five-hour) figure holds every chain until the
+                                 window resets; none open passes),
                                  autopilot_daily_total (chained runs a day in all projects, or
                                  default: 4), autopilot_paused (on or off: your Pause),
                                  ntfy_host and ntfy_topic (your ntfy server, https:// unless
@@ -1827,13 +1830,15 @@ fn autopilot_state() -> ExitCode {
     let settings = &registry.settings;
     println!(
         "autopilot: {}; it holds every chain at {} % of the weekly or the Fable limit until the \
-         reset; {} chained runs a day in all projects",
+         reset, and at {} % of the session (five-hour) window until it resets; {} chained runs \
+         a day in all projects",
         if settings.autopilot_paused() {
             "paused by you (crw autopilot resume)"
         } else {
             "not paused"
         },
         settings.autopilot_pause_percent(),
+        settings.autopilot_five_hour_percent(),
         settings.autopilot_daily_total()
     );
     let on: Vec<_> = registry
@@ -2222,8 +2227,10 @@ fn usage() -> ExitCode {
             for other in &reading.other {
                 limits.push((other.name.clone(), other.limit.clone()));
             }
+            // The session (five-hour) window, once: the `session` kind and the older object
+            // read as one (EP-40).
             if let Some(five_hour) = &reading.five_hour {
-                limits.push(("five-hour".to_owned(), five_hour.clone()));
+                limits.push(("session (five-hour)".to_owned(), five_hour.clone()));
             }
             let width = limits
                 .iter()
@@ -2232,7 +2239,13 @@ fn usage() -> ExitCode {
                 .unwrap_or(0);
             for (name, limit) in &limits {
                 let resets = limit.resets_at.map_or_else(
-                    || "no reset given".to_owned(),
+                    || {
+                        if name.starts_with("session") && !limit.is_current(now) {
+                            "no window open".to_owned()
+                        } else {
+                            "no reset given".to_owned()
+                        }
+                    },
                     |at| format!("resets {} (in {})", local(at), usage::countdown(at, now)),
                 );
                 println!(

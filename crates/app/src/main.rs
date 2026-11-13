@@ -123,7 +123,11 @@ fn main() -> eframe::Result {
                 restart::Restart::new(running, install::bin_dir(), install::build_dir());
             board.restart.local = paths::local_dir();
             let backups = board.store().backups.clone();
-            board.watch.start(port, program, backups, &cc.egui_ctx);
+            // A window started by a restart never yields to another (EP-40): it binds once the
+            // old one ended, and it holds the handover.
+            board
+                .watch
+                .start(port, program, backups, &cc.egui_ctx, restarted.is_none());
             // The usage meter (D-23; EP-17): the cached reading first, then the endpoint's polls
             // on a thread of their own, the token read from Claude Code's file at each one.
             board.meter.start(

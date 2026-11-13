@@ -88,7 +88,9 @@
 //!   week of samples across the weekly reset; from EP-18b also the week's shares of harbor,
 //!   lantern, quarry and orchard, orchard's `+0 %`, in the list's Usage column and the Detail
 //!   pane); `usage=degraded` (the same with the endpoint's last poll failed and a newer status
-//!   line); `tile=usage` brings its pane forward; `sort=usage-share` orders by the shares;
+//!   line); `usage=closed` (the same with the session (five-hour) window closed, as the
+//!   endpoint gives it while none is open, so the pane shows its quiet line, EP-40);
+//!   `tile=usage` brings its pane forward; `sort=usage-share` orders by the shares;
 //! - `autopilot` (from EP-19: the canned sessions, the Sessions pane's All tab in front with the
 //!   Autopilot section: harbor's autopilot turned on in the run's registry, a chain held by the
 //!   Fable figure, and a canned log of a chained run, a cap, a re-plan and a project whose runs
@@ -416,7 +418,11 @@ impl Run {
                     }
                 }
                 "usage" => {
-                    board.meter = crate::meter::canned(chrono::Utc::now(), value == "degraded");
+                    board.meter = crate::meter::canned(
+                        chrono::Utc::now(),
+                        value == "degraded",
+                        value == "closed",
+                    );
                 }
                 "autopilot" => {
                     if board.sessions.live.is_empty() {

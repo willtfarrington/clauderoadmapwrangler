@@ -133,6 +133,9 @@ pub struct Dialog {
     /// here would run in the older window, and Install and restart beside it opens the new one
     /// with the dialog again. The board keeps it current.
     pub newer_build: Option<String>,
+    /// The notice that a run started now may hit the five-hour limit (EP-40): the session
+    /// figure at or over the autopilot's mark, with its reset. The board keeps it current.
+    pub session_notice: Option<String>,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -197,6 +200,7 @@ impl Dialog {
             kept_model: opening.kept_model,
             kept_effort: opening.kept_effort,
             newer_build: None,
+            session_notice: None,
         }
     }
 
@@ -248,6 +252,7 @@ impl Dialog {
             kept_model: opening.kept_model,
             kept_effort: opening.kept_effort,
             newer_build: None,
+            session_notice: None,
         };
         dialog.set_mode(LaunchMode::Headless);
         dialog
@@ -1039,7 +1044,7 @@ impl Dialog {
     fn model_reason(&self) -> String {
         let model = &self.resolution.model;
         let reason = picker_reason(self.visual(), model.reason());
-        match &self.resolution.downshift {
+        let mut reason = match &self.resolution.downshift {
             Some(judged) if model.source != Source::Downshift => {
                 let words = if judged.applied {
                     format!(
@@ -1053,7 +1058,13 @@ impl Dialog {
                 format!("{reason}\n{words}")
             }
             _ => reason,
+        };
+        // The session (five-hour) window at or over the autopilot's mark (EP-40).
+        if let Some(notice) = &self.session_notice {
+            reason.push('\n');
+            reason.push_str(notice);
         }
+        reason
     }
 
     /// What a visual launch meets: VS Code, the extension, the project's own workspace file and
