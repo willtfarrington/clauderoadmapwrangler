@@ -27,7 +27,6 @@ use crw_core::badges::short_age;
 use crw_core::badges::stack::{self, Chip, Kind};
 use crw_core::discovery::{self, Folder, Registered};
 use crw_core::formalise::{self, Change};
-use crw_core::git;
 use crw_core::history::{self, Summary};
 use crw_core::inbox::mailman::Mark;
 use crw_core::inbox::{self, Outgoing};
@@ -37,6 +36,7 @@ use crw_core::proposal::{self, Facts, Proposal};
 use crw_core::registry::{Project, Registry, State, Store};
 use crw_core::roadmap::snapshot::{self, GitReading, InProgress, Snapshot};
 use crw_core::roadmap::table::{Counts, Profile, Row};
+use crw_core::{export, git, paths};
 use eframe::egui;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde::{Deserialize, Serialize};
@@ -516,6 +516,27 @@ fn record_counts(ledger: Option<&Path>, rows: &[ProjectRow]) {
     }
 }
 
+/// The daily export (D-8; EP-27): the registry and the ledger into today's folder of
+/// `export::folder()`, at the first files pass of a day whose folder holds no `ledger.json`; a
+/// failure leaves it to the next pass, and `crw export daily` says why.
+fn daily_export(ledger: Option<&Path>) {
+    let folder = export::folder();
+    let today = Local::now().date_naive();
+    if export::written(&folder, today) {
+        return;
+    }
+    let Some(ledger) = ledger.and_then(|path| Ledger::open_read_only(path).ok()) else {
+        return;
+    };
+    let _ = export::daily(
+        paths::registry_file().as_deref(),
+        &ledger,
+        &folder,
+        today,
+        Utc::now(),
+    );
+}
+
 /// The history after a git reading (EP-25): imported at the repository's first sight and when
 /// `HEAD` moved since the stored import, else read as stored; whether an import ran, and the
 /// summary.
@@ -746,9 +767,14 @@ impl Loader {
         self.rereads.clear();
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let ledger = self.ledger.clone();
+        // A screenshot run (offline) and the tests write no export.
+        let export = self.online_allowed && !cfg!(test);
         thread::spawn(move || {
             let portfolio = read_files(&store);
             record_counts(ledger.as_deref(), &portfolio.projects);
+            if export {
+                daily_export(ledger.as_deref());
+            }
             let _ = tx.send(Message::Files {
                 generation,
                 portfolio,

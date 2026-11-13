@@ -296,3 +296,12 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   window's own dialog with the project filled in, writing nothing until you confirm there), and
   `@<project>` in a message should give it that project's next row and rules (hover the header's
   "reads" line to see the mention named). Notes go to `roadmap/inbox.md`
+- [ ] OT-27 (EP-27, 2026-11-13) The first site export (a write into another project). In a
+  terminal in this repository, once EP-27's build is installed: `target\release\crw.exe setting
+  site prime` names the site's registered project; `target\release\crw.exe export site` then
+  previews the cards, each public project with its done of total, its next rows and its stack
+  badge, and why every other project is left out (check that no private project is listed and
+  that the GitHub line names a list the window cached today; F5 in the window refreshes it).
+  `target\release\crw.exe export site --yes` writes `assets\data\projects.json` and
+  `assets\data\projects-cards.html` into the site's folder and nothing else there; the site's
+  next session wires them into its page (EP-27's message in its inbox), and the push is yours.

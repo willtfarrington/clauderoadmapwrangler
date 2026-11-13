@@ -19,6 +19,7 @@ pub mod checklist;
 pub mod decisions;
 pub mod discovery;
 pub mod doctor;
+pub mod export;
 pub mod files;
 pub mod formalise;
 pub mod git;

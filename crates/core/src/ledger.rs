@@ -1235,6 +1235,49 @@ impl Ledger {
         Ok(snapshots)
     }
 
+    /// Every table at the schema the ledger holds, by name, each row an object keyed by its
+    /// columns (D-8; EP-27: the daily export reads whatever schema it meets). Text, numbers and
+    /// nulls as they are; a blob as lowercase hex.
+    pub fn dump(&self) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+        use serde_json::Value;
+        let tables: Vec<String> = {
+            let mut statement = self.connection.prepare(
+                "SELECT name FROM sqlite_master WHERE type = 'table' \
+                 AND name NOT LIKE 'sqlite_%' ORDER BY name",
+            )?;
+            statement
+                .query_map([], |row| row.get::<_, String>(0))?
+                .collect::<Result<_, _>>()?
+        };
+        let mut all = serde_json::Map::new();
+        for table in tables {
+            let mut statement = self
+                .connection
+                .prepare(&format!("SELECT * FROM \"{}\"", table.replace('"', "\"\"")))?;
+            let columns: Vec<String> = statement.column_names().map(str::to_owned).collect();
+            let rows = statement.query_map([], |row| {
+                let mut object = serde_json::Map::new();
+                for (index, column) in columns.iter().enumerate() {
+                    let value = match row.get_ref(index)? {
+                        rusqlite::types::ValueRef::Null => Value::Null,
+                        rusqlite::types::ValueRef::Integer(n) => Value::from(n),
+                        rusqlite::types::ValueRef::Real(x) => Value::from(x),
+                        rusqlite::types::ValueRef::Text(text) => {
+                            Value::from(String::from_utf8_lossy(text).into_owned())
+                        }
+                        rusqlite::types::ValueRef::Blob(bytes) => Value::from(
+                            bytes.iter().map(|b| format!("{b:02x}")).collect::<String>(),
+                        ),
+                    };
+                    object.insert(column.clone(), value);
+                }
+                Ok(Value::Object(object))
+            })?;
+            all.insert(table, Value::Array(rows.collect::<Result<Vec<_>, _>>()?));
+        }
+        Ok(all)
+    }
+
     /// Keeps one line of the `event` table: what happened at `at`, of `kind`, to `project` when it
     /// concerns one, in words kept to [`DETAIL_CAP`] characters.
     pub fn add_event(

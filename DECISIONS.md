@@ -200,6 +200,22 @@ config with dated backups; `%LOCALAPPDATA%` is not in the backup job's scope, `p
 *Alternatives.* One SQLite database for everything; TOML plus JSONL ledgers; a single JSON document; the
 database stored in `private/` directly; a one-year retention.
 
+> **Addendum (2026-11-13, EP-27).** The exports as built (`core::export`). The **daily export**
+> is a folder `private/export/<YYYY-MM-DD>/` of the repository the build comes from
+> (`CRW_HOME\export` in a trial) holding `registry.toml`, the file as it is, and `ledger.json`,
+> every table at the schema the ledger holds (`Ledger::dump`: each row an object keyed by its
+> columns, a blob as hex) with the schema and the export's time. The window writes it at the
+> first files pass of a day whose folder holds no `ledger.json`, reading the ledger without a
+> write; a screenshot run writes none, and `crw export daily` writes it at once, replacing the
+> day's. Every day's folder is kept, each a whole copy (about the ledger's size); a retention
+> rule is left to EP-29. The **CSV** is `crw export csv <project>`: `<project>-sessions.csv`
+> (the session id, EP, mode, model, effort, ultracode, start, end, minutes, outcome, cost,
+> questions, answer latency, context, weekly and Fable shares; the run's text and its start's
+> record stay in the JSON) and `<project>-snapshots.csv` (when, done, total), RFC 4180 with CRLF,
+> into the day's folder; the window's menus offer neither export yet. *Alternatives.* A JSON
+> file per table; the ledger's file copied as is (a copy of an open SQLite file may tear); only
+> the tables of this build's schema; a CSV item in the row's menu now.
+
 ## Conventions
 
 **D-9 Convention model and format profiles.** The house style is the schema: `# | Brief | Size | Depends
@@ -1737,6 +1753,23 @@ archive mechanism; editing `index.html`.
 > exports and before operations: one confirmation dialog that names the command and repeats `gh`'s
 > warning, one child at a time, each action an `event` row of the ledger; until then the owner uses
 > `gh` and the job by hand. *Alternatives.* An M row early in P2; v2.
+
+> **Addendum (2026-11-13, EP-27).** The site export as built. The registry's `site` setting
+> names the registered project that receives it (`crw setting site <project|none>`, kept in
+> the registry's spelling, refused for a name it does not hold). `crw export site` previews and
+> `--yes` writes `assets/data/projects.json` and `assets/data/projects-cards.html` there and
+> nothing else, each replaced whole: `as_of` (the local day) and per project its name, the stack
+> badge's chips joined, done, total, the percent rounded down and the first two undone rows in
+> table order (id, title without link markup or decisions, size); the snippet is one `<article
+> class="project-card">` per project with a `<progress>` bar, every text escaped, for the
+> site's page to include and style. A project is public when the account's list the window
+> cached says so (`Hosting::class() == Class::Public`, EP-7); nothing is asked of GitHub, a data
+> repository is left out unread, and the preview says why each project is left out. The write
+> is refused while no site is set, while no list is cached (nothing would read as public), and
+> when no public project has a phase table, so a stale state never blanks the site's cards. The
+> first write is the owner's (an owner task); the site's own session wires the snippet in,
+> told by a `Handed on` block, and the push stays the owner's. *Alternatives.* The site found by
+> a fixed folder name; asking `gh` at the export; the window's File menu first.
 
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a

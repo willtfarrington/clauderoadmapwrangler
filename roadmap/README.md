@@ -1509,7 +1509,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-26 | [Analytics, the graphs: activity heatmap, burn-up per project, velocity and projection in the Detail pane, with `egui_plot`](EP-26-analytics-graphs.md) (D-25, D-26) | M | EP-25 | core | ☑ `0f57459` |
 | EP-40 | [Field fixes from P4's first chains: the five-hour limit back in the meter (the endpoint's `session` kind merged, one row) and in the autopilot gate; the downshift for every size; the single-instance guard; the model policy as registry rules](EP-40-field-fixes.md) (D-22, D-23, D-29) | M | EP-17, EP-18, EP-19, EP-37a | core | ☑ `1eac82a` |
 | EP-26a | [Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view](EP-26a-analytics-in-the-list.md) (D-25) | M | EP-26 | core | ☑ `7f1778b` |
-| EP-27 | Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project (D-8, D-24) | S | EP-25 | core | ☐ |
+| EP-27 | [Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project](EP-27-exports.md) (D-8, D-24) | S | EP-25 | core | ☐ |
 | EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
 | EP-28 | Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints (D-29) | M | EP-15, EP-37 | core | ☐ |
 | EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
@@ -1903,7 +1903,14 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   records first, and
   `/roadmap-wrangler:formalise` writing from a session in the project (EP-22); a headless run
   that loads the `--plugin-dir` copy (EP-22a; the chat's runs do). The pins are looked at again
-  (D-15 addendum: the protocol crate at 2.1.316 against 2.1.323), and egui#8470.
+  (D-15 addendum: the protocol crate at 2.1.316 against 2.1.323), and egui#8470. **From EP-27
+  (2026-11-13):** the window's menus offer neither export yet (a File item for the site export,
+  a row-menu item for a project's CSV): the walk asks whether they are wanted or the CLI serves;
+  each day's `private/export/<date>/` holds a whole copy of the ledger (1.0 MB of JSON on
+  2026-11-13 for a 0.6 MB ledger), zipped by the Documents backup daily, so the walk weighs a
+  retention rule (the last N days, or the first of each month kept); and OT-27's first site
+  export with the site session's wiring. The first real five-hour hold (EP-40's parked reading)
+  held EP-27's chain three times at 57 % until the window's reset, then chained it at 17:04.
 
 ## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
 

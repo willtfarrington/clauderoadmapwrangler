@@ -20,14 +20,16 @@
 //! `formalise`, a project's house-style files previewed and written and the migration prompt of
 //! an older roadmap, from EP-21; `send`, the owner's message into a project's inbox, from
 //! EP-20c; the prompt hook, `hook` on a `UserPromptSubmit` giving a prompt's `@<project>`
-//! mentions their context and `signals install` adding the event, from EP-20b.
+//! mentions their context and `signals install` adding the event, from EP-20b; `export`, the
+//! site's cards, the daily export of the registry and the ledger and a project's CSV, with the
+//! `site` setting, from EP-27.
 
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Local, Utc};
 use crw_core::badges::activity::Activity;
 use crw_core::badges::backup::{self, Backup, State as BackupState};
 use crw_core::badges::health::{self, Run};
@@ -54,7 +56,7 @@ use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{
-    files, formalise, git, notify, paths, plugin, process, prompt, proposal, rules, usage,
+    export, files, formalise, git, notify, paths, plugin, process, prompt, proposal, rules, usage,
     workspace,
 };
 
@@ -166,7 +168,19 @@ commands:
                                  default: 4), autopilot_paused (on or off: your Pause),
                                  ntfy_host and ntfy_topic (your ntfy server, https:// unless
                                  written http://, and its topic: each notification the popup
-                                 shows is pushed there too; none takes one out)
+                                 shows is pushed there too; none takes one out), site (the
+                                 registered project that receives the site export, or none)
+  export site [--yes]            preview the site export: projects.json and projects-cards.html
+                                 for the projects whose remote is public in the account's list
+                                 the window cached (name, stack badge, done of total, the next
+                                 two undone rows, the day); with --yes, write them into the
+                                 site's assets/data and nothing else there; never pushes
+  export daily                   write today's export now: the registry and every table of the
+                                 ledger into private/export/<date>/ of the repository crw was
+                                 built in (CRW_HOME\\export in a trial), as the window does once
+                                 a day
+  export csv <project>           write the project's sessions and daily counts as CSV into
+                                 today's export folder
   autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
                                  the projects with it on, their limits and permission modes and
                                  whether their runs would wait at each shell command, and the
@@ -341,6 +355,11 @@ fn main() -> ExitCode {
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
         ["install", flags @ ..] => install_build(flags),
+        ["export", "site"] => export_site(false),
+        ["export", "site", "--yes"] => export_site(true),
+        ["export", "daily"] => export_daily(),
+        ["export", "csv", target] => export_csv(target),
+        ["export", ..] => usage_error("export takes site [--yes], daily, or csv <project>"),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -2015,6 +2034,17 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 }
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "site" => {
+                match registry.settings.get(key) {
+                    Some(site) => println!(
+                        "site = {site}\nnote: crw export site previews what --yes writes into \
+                         its {}",
+                        export::SITE_DATA
+                    ),
+                    None => println!("site: none, no site export"),
+                }
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) if key == "usage_endpoint" => {
                 if registry.settings.usage_endpoint_on() {
                     println!("usage_endpoint = on (the default)");
@@ -2070,6 +2100,7 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "ntfy_host" | "ntfy_topic") => {
                 "none (the default: nothing is pushed to a phone)".to_owned()
             }
+            (None, "site") => "none (the default: no site export)".to_owned(),
             (None, "fable_downshift_percent") => format!(
                 "{} (the default: above it an S brief on Fable is proposed Opus 5.5)",
                 rules::DEFAULT_DOWNSHIFT_PERCENT
@@ -2079,6 +2110,216 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
         println!("  {name:<23} {value}");
     }
     ExitCode::SUCCESS
+}
+
+/// The site export (D-24; EP-27): the public projects' cards, previewed, and written into the
+/// site's `assets/data` with `--yes`. Public is read from the account's list the window cached
+/// (EP-7); nothing is asked of GitHub here, and a data repository is left out unread.
+fn export_site(write: bool) -> ExitCode {
+    println!("crw {} export site", env!("CARGO_PKG_VERSION"));
+    let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let root = registry.data_root();
+    let site_folder = registry
+        .settings
+        .site
+        .as_deref()
+        .and_then(|name| registry.project(name))
+        .map(|project| project.folder(&root));
+    match &site_folder {
+        Some(folder) => println!("  into      {}", export::site_data(folder).display()),
+        None => println!("  into      no site set (crw setting site <project>)"),
+    }
+    let cached = paths::ledger_file()
+        .and_then(|path| Ledger::open_read_only(&path).ok())
+        .and_then(|ledger| ledger.cached_one("", online::ACCOUNT).ok().flatten());
+    let account = cached.as_ref().and_then(|row| {
+        match Reading::from_cache(&row.project, &row.source, &row.data) {
+            Some(Reading::Account(Ok(list))) => Some((list, row.fetched_at)),
+            _ => None,
+        }
+    });
+    match &account {
+        Some((list, at)) => println!(
+            "  github    {} repositories, the window's list of {} ago",
+            list.len(),
+            short_age(Utc::now() - *at)
+        ),
+        None => println!("  github    no list cached: the window's GitHub pass keeps one (F5)"),
+    }
+    let list = account.as_ref().map(|(list, _)| list.as_slice());
+    let mut site = export::Site {
+        as_of: Local::now().format("%Y-%m-%d").to_string(),
+        projects: Vec::new(),
+    };
+    println!();
+    for project in &registry.projects {
+        let folder = project.folder(&root);
+        let left_out = if project.data {
+            Some("a data repository".to_owned())
+        } else if !folder.is_dir() {
+            Some("missing".to_owned())
+        } else {
+            let remote = git::remote_url(&folder, "origin");
+            let hosting = hosting::classify(
+                &[&project.name, &folder_name(&folder)],
+                remote.as_deref(),
+                list,
+            );
+            if !export::public(&hosting) {
+                Some(format!("not public ({})", hosting.label()))
+            } else {
+                let snapshot = snapshot::read_tree(&folder);
+                let chips = stack::read(&folder);
+                match snapshot
+                    .current()
+                    .and_then(|roadmap| export::site_project(&project.name, &chips, roadmap))
+                {
+                    Some(card) => {
+                        let next = card
+                            .next
+                            .iter()
+                            .map(|row| row.id.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        println!(
+                            "  {:<22} {} of {} ({} %), next {}{}",
+                            card.name,
+                            card.done,
+                            card.total,
+                            card.percent,
+                            if next.is_empty() { "none" } else { &next },
+                            if card.badge.is_empty() {
+                                String::new()
+                            } else {
+                                format!(" · {}", card.badge)
+                            }
+                        );
+                        site.projects.push(card);
+                        None
+                    }
+                    None => Some("no phase table".to_owned()),
+                }
+            }
+        };
+        if let Some(why) = left_out {
+            println!("  {:<22} left out: {why}", project.name);
+        }
+    }
+    site.projects
+        .sort_by_key(|project| project.name.to_lowercase());
+    println!();
+    if !write {
+        println!(
+            "a preview: crw export site --yes writes {} and {} there",
+            export::SITE_JSON,
+            export::SITE_HTML
+        );
+        return ExitCode::SUCCESS;
+    }
+    let Some(folder) = site_folder else {
+        return failed(
+            "no site set: crw setting site <project> names the project that receives it",
+        );
+    };
+    if account.is_none() {
+        return failed(
+            "no account list cached, so no project reads as public: press F5 in the window",
+        );
+    }
+    if site.projects.is_empty() {
+        return failed("no public project with a phase table: nothing written");
+    }
+    match export::write_site(&folder, &site) {
+        Ok(paths) => {
+            for path in paths {
+                println!("wrote {}", path.display());
+            }
+            println!("note: the site's own session wires them into its page; nothing is pushed");
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// The ledger opened to read for an export, a missing file said plainly (never created here).
+fn ledger_to_read() -> Result<Ledger, String> {
+    let path = paths::ledger_file().ok_or("no profile folder for the ledger")?;
+    if !path.is_file() {
+        return Err(format!(
+            "no ledger at {} yet: the window and the hooks create it",
+            path.display()
+        ));
+    }
+    Ledger::open_read_only(&path).map_err(|e| e.to_string())
+}
+
+/// The daily export (D-8; EP-27), written now: the registry and every table of the ledger into
+/// today's folder, replacing what the window wrote there today.
+fn export_daily() -> ExitCode {
+    let ledger = match ledger_to_read() {
+        Ok(ledger) => ledger,
+        Err(e) => return failed(e),
+    };
+    let registry = paths::registry_file();
+    match export::daily(
+        registry.as_deref(),
+        &ledger,
+        &export::folder(),
+        Local::now().date_naive(),
+        Utc::now(),
+    ) {
+        Ok(paths) => {
+            for path in paths {
+                println!("wrote {}", path.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// A project's sessions and daily counts as CSV (D-8; EP-27), into today's export folder.
+fn export_csv(target: &str) -> ExitCode {
+    let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let Some(project) = registry.project(target) else {
+        return failed(format!("{target} is not a registered project"));
+    };
+    let ledger = match ledger_to_read() {
+        Ok(ledger) => ledger,
+        Err(e) => return failed(e),
+    };
+    let sessions: Vec<SessionRow> = match ledger.sessions() {
+        Ok(rows) => rows
+            .into_iter()
+            .filter(|row| row.project.eq_ignore_ascii_case(&project.name))
+            .collect(),
+        Err(e) => return failed(e),
+    };
+    let snapshots = match ledger.snapshots(&project.name) {
+        Ok(rows) => rows,
+        Err(e) => return failed(e),
+    };
+    match export::write_csv(
+        &project.name,
+        &sessions,
+        &snapshots,
+        &export::folder(),
+        Local::now().date_naive(),
+    ) {
+        Ok(paths) => {
+            for (path, rows) in paths.iter().zip([sessions.len(), snapshots.len()]) {
+                println!("wrote {} ({rows} rows)", path.display());
+            }
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
 }
 
 /// How many of the latest notifications `crw notifications` prints without `--all`.

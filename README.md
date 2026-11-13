@@ -79,7 +79,15 @@ EPs completed per week over the last 8, and a projection: the open rows by size 
 median per size (a brief's time is its headless run less the owner's waits, or a visual session
 under 3 h as wall time; a reverted session is left out), and the finish as a range from the
 measured pace. The History section folds a list of the dated EPs with each completion note's
-model, effort and duration and the ledger's time. The roadmap is
+model, effort and duration and the ledger's time. The exports (EP-27): `crw export site`
+previews `projects.json` and `projects-cards.html` for the projects whose remote is public in
+the account's list the window cached (name, stack badge, done of total, the next two undone
+rows, the day), and `--yes` writes them into the `assets/data` folder of the project the `site`
+setting names, for a session of the site to wire into its page (the tool never edits the page
+and never pushes); the window writes the daily export once a day, the registry and every table
+of the ledger as JSON into the git-ignored `private/export/<date>/` (`crw export daily` writes
+it at once); `crw export csv <project>` writes a project's sessions and daily counts as CSV
+there. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

@@ -211,11 +211,14 @@ pub struct Settings {
     pub ntfy_host: Option<String>,
     /// The ntfy topic the pushes go to (letters, digits, `-` and `_`).
     pub ntfy_topic: Option<String>,
+    /// The registered project that receives the site export, `projects.json` and the cards'
+    /// snippet in its `assets/data` (D-24; EP-27); none, the default, until the owner names it.
+    pub site: Option<String>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 17] = [
+    pub const KEYS: [&str; 18] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -233,11 +236,12 @@ impl Settings {
         "autopilot_paused",
         "ntfy_host",
         "ntfy_topic",
+        "site",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
     /// two times, `usage_endpoint` and `autopilot_paused` on or off, the percents and the
-    /// day's total numbers, `ntfy_host` a server and `ntfy_topic` a word.
+    /// day's total numbers, `ntfy_host` a server, `ntfy_topic` a word and `site` a project.
     pub fn is_path(key: &str) -> bool {
         !matches!(
             key,
@@ -252,6 +256,7 @@ impl Settings {
                 | "autopilot_paused"
                 | "ntfy_host"
                 | "ntfy_topic"
+                | "site"
         )
     }
 
@@ -326,6 +331,7 @@ impl Settings {
                 .map(|on| if on { "on" } else { "off" }.to_owned()),
             "ntfy_host" => self.ntfy_host.clone(),
             "ntfy_topic" => self.ntfy_topic.clone(),
+            "site" => self.site.clone(),
             _ => None,
         }
     }
@@ -1263,7 +1269,9 @@ impl Changes<'_> {
             )));
         }
         let default = match key {
-            "quiet_hours" | "ntfy_host" | "ntfy_topic" => value.trim().eq_ignore_ascii_case("none"),
+            "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" => {
+                value.trim().eq_ignore_ascii_case("none")
+            }
             "usage_endpoint" => match value.trim() {
                 "on" => true,
                 "off" => false,
@@ -1354,6 +1362,11 @@ impl Changes<'_> {
                 Err(why) => {
                     return Err(Error::Invalid(format!("{why}, or none, not {value:?}")));
                 }
+            },
+            // The registry's own spelling of the name, so the export finds it in any case.
+            "site" => match self.registry.project(value.trim()) {
+                Some(project) => Value::from(project.name.as_str()),
+                None => return Err(Error::UnknownProject(value.trim().to_owned())),
             },
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
@@ -2211,6 +2224,31 @@ state = "paused"
             .unwrap();
         assert_eq!(registry.settings.ntfy_host, None);
         assert!(!Settings::is_path("ntfy_host") && !Settings::is_path("ntfy_topic"));
+    }
+
+    #[test]
+    fn the_site_names_a_registered_project_in_its_own_spelling() {
+        let scratch = Scratch::new("registry-site");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        assert_eq!(store.load().unwrap().registry.settings.site, None);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("site", " ALPHA "))
+            .unwrap();
+        assert_eq!(registry.settings.get("site").as_deref(), Some("alpha"));
+        let text = fs::read_to_string(&store.path).unwrap();
+        let refused = store.change(TODAY, |c| c.set_setting("site", "gamma"));
+        assert!(
+            matches!(refused, Err(Error::UnknownProject(_))),
+            "{refused:?}"
+        );
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("site", "none"))
+            .unwrap();
+        assert_eq!(registry.settings.site, None);
+        assert!(!Settings::is_path("site"));
     }
 
     #[test]
