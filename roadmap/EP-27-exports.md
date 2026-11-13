@@ -173,7 +173,8 @@ the ledger), which the Documents backup zips every day; EP-29 weighs a retention
 >    root, the real preview's output.
 >
 > **Owner task:** OT-27, the first site export. **Next: EP-34** (hosting and backup actions),
-> chained by the autopilot when its gate allows, else from the window.
+> chained by the autopilot when its gate allows, else from the window. The work commit is
+> `53c474b`; the record commit follows.
 
 > **Handed on (to prime).** From clauderoadmapwrangler's EP-27 (2026-11-13): Roadmap Wrangler's
 > site export writes `assets/data/projects.json` and `assets/data/projects-cards.html` into this
