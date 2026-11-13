@@ -249,4 +249,5 @@ the minute's read (a few rows a project a day), which the session expects to sta
 >    pictures, the commit messages.
 >
 > **Owner task:** none. No message for another project. **Next: EP-27** (exports), chained by
-> the autopilot when its gate allows, else from the window.
+> the autopilot when its gate allows, else from the window. The work commit is `7f1778b`; the
+> record commit follows.
