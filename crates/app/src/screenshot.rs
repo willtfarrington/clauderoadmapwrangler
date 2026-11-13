@@ -306,6 +306,10 @@ impl Run {
                 // A canned history import on harbor's row (EP-25): the Detail pane's History
                 // section with a flagged EP; pair it with `select=harbor`.
                 "history" => board.loader.put_history("harbor", canned_history()),
+                // Canned session rows and daily counts for the Analytics section (EP-26): the
+                // heatmap, the burn-up, the velocity and the projection; pair it with
+                // `select=harbor,history`.
+                "analytics" => board.analytics.put(canned_analytics()),
                 // A canned read on its own of harbor's row (EP-25a): the Status section's line
                 // under Activity; pair it with `select=harbor`.
                 "reread" => board.loader.put_reread(
@@ -710,6 +714,79 @@ fn canned_history() -> crw_core::history::Summary {
             commits: 23,
             single: false,
         },
+    }
+}
+
+/// Session rows and daily counts for harbor's Analytics section (EP-26): sessions spread over
+/// the last six weeks, a few of lantern's for the portfolio switch, and counts that jump at a
+/// re-plan; the completions come with `history`.
+fn canned_analytics() -> crate::analytics::Loaded {
+    use crw_core::ledger::{RowUsage, SessionRow, SnapshotRow};
+    let now = Utc::now();
+    let row =
+        |id: i64, project: &str, ep: &str, mode: &str, days_ago: i64, minutes: i64| SessionRow {
+            id,
+            session_id: Some(format!("{id:08x}-canned")),
+            project: project.to_owned(),
+            ep: Some(ep.to_owned()),
+            mode: mode.to_owned(),
+            model: Some("fable".to_owned()),
+            effort: Some("high".to_owned()),
+            ultracode: false,
+            started_at: (now - TimeDelta::days(days_ago) - TimeDelta::hours(3)).to_rfc3339(),
+            ended_at: Some(
+                (now - TimeDelta::days(days_ago) - TimeDelta::hours(3)
+                    + TimeDelta::minutes(minutes))
+                .to_rfc3339(),
+            ),
+            outcome: Some("completed".to_owned()),
+            cost_usd: None,
+            questions: 0,
+            result: None,
+            context_percent: None,
+            answer_latency_s: None,
+            start: None,
+            usage: RowUsage::default(),
+        };
+    let mut sessions = Vec::new();
+    let mut id = 1;
+    for (days_ago, n, ep, minutes) in [
+        (40, 1, "EP-1", 28),
+        (33, 2, "EP-2", 44),
+        (26, 1, "EP-2", 51),
+        (19, 3, "EP-3", 39),
+        (12, 2, "EP-3", 47),
+        (9, 1, "EP-4", 55),
+        (5, 2, "EP-4", 61),
+        (2, 3, "EP-4", 42),
+        (0, 1, "EP-5", 36),
+    ] {
+        for _ in 0..n {
+            sessions.push(row(id, "harbor", ep, "headless", days_ago, minutes));
+            id += 1;
+        }
+    }
+    for days_ago in [30, 16, 3] {
+        sessions.push(row(id, "lantern", "EP-6", "visual", days_ago, 70));
+        id += 1;
+    }
+    let snapshot = |days_ago: i64, done, total| SnapshotRow {
+        taken_at: now - TimeDelta::days(days_ago),
+        done,
+        total,
+    };
+    crate::analytics::Loaded {
+        project: "harbor".to_owned(),
+        sessions,
+        snapshots: vec![
+            snapshot(14, 2, 8),
+            snapshot(10, 3, 8),
+            snapshot(7, 3, 11),
+            snapshot(3, 4, 11),
+            snapshot(0, 4, 11),
+        ],
+        reverted: Default::default(),
+        problem: None,
     }
 }
 

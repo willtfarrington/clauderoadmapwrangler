@@ -23,6 +23,8 @@ eframe.workspace = true
 # The chat's replies as Markdown (D-27; EP-24a).
 egui_commonmark.workspace = true
 egui_material_icons.workspace = true
+# The Detail pane's burn-up and velocity plots (D-26; EP-26).
+egui_plot.workspace = true
 egui_tiles.workspace = true
 image = { workspace = true, optional = true }
 # The data root's top level, watched for folders that appear or go (D-7).

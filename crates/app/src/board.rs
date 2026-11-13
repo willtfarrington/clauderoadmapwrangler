@@ -377,6 +377,8 @@ pub struct Board {
     /// The usage meter (D-23; EP-17); started by `main`, canned in a screenshot run, off in a
     /// test.
     pub meter: Meter,
+    /// The Detail pane's graphs and their latest read of the ledger (D-26; EP-26).
+    pub analytics: crate::analytics::Analytics,
     /// The autopilot's chains, held chains and log (D-22; EP-19).
     pub autopilot: crate::autopilot::Pilot,
     /// The offer of `auto` while it is open (EP-19b): a project whose autopilot is being turned
@@ -467,6 +469,7 @@ impl Board {
             toasts: Toasts::default(),
             tray: None,
             meter: Meter::default(),
+            analytics: crate::analytics::Analytics::default(),
             autopilot: crate::autopilot::Pilot::default(),
             offer: None,
             hidden: false,
@@ -604,7 +607,10 @@ impl Board {
             self.warn(why);
         }
         match self.loader.reread_notice.take() {
-            Some(Ok(text)) => self.notify(text),
+            Some(Ok(text)) => {
+                self.analytics.invalidate();
+                self.notify(text);
+            }
             Some(Err(why)) => self.warn(why),
             None => {}
         }
@@ -1382,6 +1388,7 @@ impl Board {
                 }
             }
             Action::Refresh => {
+                self.analytics.invalidate();
                 self.loader.read_files();
                 self.loader.read_git();
                 self.loader.read_online(true);

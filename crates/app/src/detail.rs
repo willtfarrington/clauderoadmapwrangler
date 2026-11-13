@@ -12,11 +12,13 @@ use chrono::{Local, Utc};
 use crw_core::badges::short_age;
 use crw_core::inbox::Recipient;
 use crw_core::inbox::mailman::State;
+use crw_core::roadmap::brief::Kind;
 use crw_core::roadmap::snapshot::{InProgress, Snapshot};
 use crw_core::roadmap::table::Done;
 use crw_core::tasks::{self, Form, Gate, OwnerItem};
 use eframe::egui::{self, RichText};
 
+use crate::analytics::{self, Analytics, Measured};
 use crate::badges::{self, Mark};
 use crate::board::{Action, Board};
 use crate::markup::{self, Look};
@@ -32,6 +34,12 @@ impl Board {
             Some(Selection::Project(name)) => self.session_reasons(name),
             _ => Vec::new(),
         };
+        // The graphs' read of the ledger (EP-26), when due.
+        if let Some(Selection::Project(name)) = &self.view.selected {
+            let ledger = self.ledger().map(std::path::Path::to_path_buf);
+            self.analytics
+                .refresh(ledger.as_deref(), name, std::time::Instant::now());
+        }
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| match self.view.selected.clone() {
@@ -41,7 +49,10 @@ impl Board {
                         row,
                         &running,
                         &self.portfolio,
-                        &self.meter.week,
+                        Figures {
+                            week: &self.meter.week,
+                            analytics: &mut self.analytics,
+                        },
                         &mut self.drafts,
                         &mut actions,
                     ),
@@ -101,15 +112,23 @@ fn section(ui: &mut egui::Ui, title: &str) {
     ui.add_space(2.0);
 }
 
+/// What the ledger gives the pane beyond the files (EP-18b, EP-26): the week's usage shares and
+/// the graphs' latest read.
+struct Figures<'a> {
+    week: &'a Week,
+    analytics: &'a mut Analytics,
+}
+
 fn project(
     ui: &mut egui::Ui,
     row: &ProjectRow,
     running: &[InProgress],
     portfolio: &Portfolio,
-    week: &Week,
+    figures: Figures<'_>,
     drafts: &mut std::collections::HashMap<(String, String), String>,
     actions: &mut Vec<Action>,
 ) {
+    let Figures { week, analytics } = figures;
     let name = row.name();
     let snapshot = &row.snapshot;
     ui.horizontal(|ui| {
@@ -187,7 +206,9 @@ fn project(
     in_progress(ui, row, running);
     next_brief(ui, row, actions);
     progress(ui, snapshot);
-    history(ui, row, actions);
+    let measured = analytics::measured(analytics, portfolio);
+    history(ui, row, &measured, actions);
+    analytics::section(ui, row, portfolio, analytics, &measured);
     status(ui, row, portfolio, week);
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
@@ -436,33 +457,64 @@ fn progress(ui: &mut egui::Ui, snapshot: &Snapshot) {
             }
         ),
     );
-    egui::Grid::new("phases")
-        .num_columns(3)
-        .spacing([10.0, 3.0])
-        .show(ui, |ui| {
-            for phase in &roadmap.phases {
-                let heading = &phase.heading;
-                let counts = phase.counts();
+    // Three columns laid out by hand rather than a `Grid`, whose cells do not wrap: the phase's
+    // id, its counts, and its name wrapping under itself in a narrow pane (EP-26).
+    let id_width = roadmap
+        .phases
+        .iter()
+        .map(|phase| {
+            style::width_of(ui, |ui| {
+                ui.label(RichText::new(phase.heading.id.as_deref().unwrap_or("-")).monospace());
+            })
+        })
+        .fold(0.0_f32, f32::max)
+        + NAME_GAP;
+    let counts_width = roadmap
+        .phases
+        .iter()
+        .map(|phase| {
+            style::width_of(ui, |ui| {
+                ui.label(phase_counts(phase));
+            })
+        })
+        .fold(0.0_f32, f32::max)
+        + NAME_GAP;
+    for phase in &roadmap.phases {
+        let heading = &phase.heading;
+        ui.horizontal_top(|ui| {
+            style::padded(ui, id_width, |ui| {
                 ui.label(RichText::new(heading.id.as_deref().unwrap_or("-")).monospace());
-                ui.label(match counts.total {
-                    0 => "no rows".to_owned(),
-                    total => format!("{} of {total}", counts.done),
-                });
-                let status = heading
-                    .status
-                    .as_deref()
-                    .map(|s| format!(" ({s})"))
-                    .unwrap_or_default();
-                ui.label(RichText::new(format!("{}{status}", heading.name)).weak());
-                ui.end_row();
-            }
+            });
+            style::padded(ui, counts_width, |ui| {
+                ui.label(phase_counts(phase));
+            });
+            let status = heading
+                .status
+                .as_deref()
+                .map(|s| format!(" ({s})"))
+                .unwrap_or_default();
+            ui.add(
+                egui::Label::new(RichText::new(format!("{}{status}", heading.name)).weak()).wrap(),
+            );
         });
+    }
+}
+
+/// A phase's counts: `3 of 8`, or `no rows`.
+fn phase_counts(phase: &crw_core::roadmap::table::Phase) -> String {
+    let counts = phase.counts();
+    match counts.total {
+        0 => "no rows".to_owned(),
+        total => format!("{} of {total}", counts.done),
+    }
 }
 
 /// The History section (D-26; EP-25): what the import of the project's log and briefs settled,
 /// the EPs whose two dates disagree, when it ran and at which HEAD, and Re-import, which runs
 /// it again whatever HEAD says. Shown for a repository, or for a folder the import has read.
-fn history(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
+/// From EP-26 a folded list of the dated EPs, each with its completion note's model, effort and
+/// duration where the new form gives them, and the ledger's measured time where a row gives it.
+fn history(ui: &mut egui::Ui, row: &ProjectRow, measured: &[Measured], actions: &mut Vec<Action>) {
     if !row.is_repository() && row.history.is_none() {
         return;
     }
@@ -543,6 +595,7 @@ fn history(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
                 ))
                 .weak(),
             );
+            eps_list(ui, row, import, measured);
         }
         None => {
             ui.add(
@@ -567,6 +620,79 @@ fn history(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
     if button.clicked() {
         actions.push(Action::Reimport(row.name().to_owned()));
     }
+}
+
+/// The dated EPs, the newest first, folded under the History section's lines (EP-26): each with
+/// its date, the completion note's model, effort and duration in the new form, and the ledger's
+/// measured time (`19 min (the ledger)`, or `wall time` for a visual or manual session).
+fn eps_list(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    import: &crw_core::history::Import,
+    measured: &[Measured],
+) {
+    if import.completions.is_empty() {
+        return;
+    }
+    let mut completions: Vec<_> = import.completions.iter().collect();
+    completions.sort_by(|a, b| {
+        b.completed_on
+            .cmp(&a.completed_on)
+            .then_with(|| b.ep.cmp(&a.ep))
+    });
+    egui::CollapsingHeader::new(RichText::new("The EPs, the newest first").weak())
+        .id_salt(("eps", row.name()))
+        .show(ui, |ui| {
+            for completion in completions {
+                // The note with the figures: a later note appended by another brief carries
+                // none, so the last note that gives a model or a duration wins, else the last.
+                let note = row
+                    .snapshot
+                    .briefs
+                    .iter()
+                    .find(|entry| entry.file.id == completion.ep)
+                    .and_then(|entry| {
+                        let notes: Vec<_> = entry
+                            .brief
+                            .completion_notes()
+                            .filter_map(|quote| match &quote.kind {
+                                Kind::Completion(note) => Some(note.clone()),
+                                _ => None,
+                            })
+                            .collect();
+                        notes
+                            .iter()
+                            .rev()
+                            .find(|note| note.model.is_some() || note.duration.is_some())
+                            .or(notes.last())
+                            .cloned()
+                    });
+                let mut parts = vec![format!("{} · {}", completion.ep, completion.completed_on)];
+                if let Some(note) = &note {
+                    if let (Some(model), Some(effort)) = (&note.model, &note.effort) {
+                        parts.push(format!("{model}/{effort}"));
+                    }
+                    if let Some(duration) = &note.duration {
+                        parts.push(format!("{duration} (the note)"));
+                    }
+                }
+                if let Some(measure) = measured
+                    .iter()
+                    .find(|m| m.project == row.name() && m.ep == completion.ep)
+                {
+                    parts.push(format!(
+                        "{} ({})",
+                        analytics::minutes(measure.minutes),
+                        if measure.wall {
+                            "the ledger, wall time"
+                        } else {
+                            "the ledger"
+                        }
+                    ));
+                }
+                ui.add(egui::Label::new(RichText::new(parts.join(" · ")).weak()).wrap());
+            }
+        });
 }
 
 /// The Status section's subsections, in order.
@@ -1409,7 +1535,7 @@ mod tests {
         assert!(!harbor.is_repository());
         let mut screen = Screen::new();
         // Neither a repository nor an import: no section.
-        let output = screen.pass(Vec::new(), |ui| history(ui, harbor, &mut Vec::new()));
+        let output = screen.pass(Vec::new(), |ui| history(ui, harbor, &[], &mut Vec::new()));
         assert!(testing::text_at(&output, "History").is_none());
         // An import kept for it: the section, Re-import disabled (no repository).
         let completion = |ep: &str, git: &str, note: Option<&str>, flag: Flag| Completion {
@@ -1436,7 +1562,7 @@ mod tests {
             },
         });
         let mut actions = Vec::new();
-        let output = screen.pass(Vec::new(), |ui| history(ui, &imported, &mut actions));
+        let output = screen.pass(Vec::new(), |ui| history(ui, &imported, &[], &mut actions));
         assert!(shows(
             &output,
             "3 EPs dated from 12 commits and the briefs' completion notes; the first on \
@@ -1453,7 +1579,7 @@ mod tests {
             testing::button(at, egui::PointerButton::Primary, true),
             testing::button(at, egui::PointerButton::Primary, false),
         ] {
-            screen.pass(events, |ui| history(ui, &imported, &mut actions));
+            screen.pass(events, |ui| history(ui, &imported, &[], &mut actions));
         }
         assert!(
             actions.is_empty(),
@@ -1462,7 +1588,7 @@ mod tests {
         // A repository without an import yet: the section says so, and Re-import acts.
         let mut repository = harbor.clone();
         repository.folder.as_mut().unwrap().git = true;
-        let output = screen.pass(Vec::new(), |ui| history(ui, &repository, &mut actions));
+        let output = screen.pass(Vec::new(), |ui| history(ui, &repository, &[], &mut actions));
         assert!(shows(&output, "Not imported yet"));
         let at = testing::text_at(&output, "Re-import").expect("its button");
         for events in [
@@ -1470,9 +1596,92 @@ mod tests {
             testing::button(at, egui::PointerButton::Primary, true),
             testing::button(at, egui::PointerButton::Primary, false),
         ] {
-            screen.pass(events, |ui| history(ui, &repository, &mut actions));
+            screen.pass(events, |ui| history(ui, &repository, &[], &mut actions));
         }
         assert_eq!(actions, [Action::Reimport("harbor".to_owned())]);
+    }
+
+    /// The Analytics section (EP-26) draws from canned rows: the projection's words, the
+    /// medians with their source, and the History section's EPs list with a note's model and
+    /// effort and the ledger's measured time.
+    #[test]
+    fn the_analytics_section_projects_and_the_eps_list_says_model_effort_and_time() {
+        use crate::analytics::tests::{completion, session};
+        use crate::analytics::{Analytics, Loaded};
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::history::{Import, Summary};
+
+        let scratch = Scratch::new("detail-analytics");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let mut harbor = portfolio.project("harbor").unwrap().clone();
+        let today = chrono::Local::now().date_naive();
+        let days_ago = |n: u64| today - chrono::Days::new(n);
+        // EP-1 is a brief of the fixture with a completion note in the new form.
+        harbor.history = Some(Summary {
+            imported_at: Utc::now(),
+            head: None,
+            import: Import {
+                completions: vec![
+                    completion("EP-1", &days_ago(9).to_string()),
+                    completion("EP-2", &days_ago(2).to_string()),
+                ],
+                commits: 5,
+                single: false,
+            },
+        });
+        let start = Utc::now() - chrono::TimeDelta::days(9);
+        let mut analytics = Analytics::default();
+        analytics.put(Loaded {
+            project: "harbor".to_owned(),
+            sessions: vec![session(
+                1,
+                Some("aaaa"),
+                "harbor",
+                Some("EP-1"),
+                "headless",
+                start,
+                Some((19, "completed")),
+            )],
+            snapshots: Vec::new(),
+            reverted: Default::default(),
+            problem: None,
+        });
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            let measured = analytics::measured(&mut analytics, &portfolio);
+            history(ui, &harbor, &measured, &mut Vec::new());
+            analytics::section(ui, &harbor, &portfolio, &mut analytics, &measured);
+        });
+        assert!(shows(&output, "Analytics"));
+        assert!(shows(&output, "Burn-up: done and total by day"));
+        assert!(
+            testing::text_containing(&output, "open rows (").is_some(),
+            "the remaining work from the mix"
+        );
+        assert!(
+            testing::text_containing(&output, "the finish is").is_some(),
+            "a finish range from two completions in the window"
+        );
+        assert!(
+            testing::text_containing(&output, "(the portfolio's 1)").is_some(),
+            "one measured row of harbor's: the portfolio's median"
+        );
+        // The EPs list opens on a click and says the note's model and effort and the time.
+        let at = testing::text_at(&output, "The EPs, the newest first").expect("its header");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| history(ui, &harbor, &[], &mut Vec::new()));
+        }
+        let measured = analytics::measured(&mut analytics, &portfolio);
+        let output = screen.pass(Vec::new(), |ui| {
+            history(ui, &harbor, &measured, &mut Vec::new());
+        });
+        let line = testing::text_containing(&output, "19 min (the ledger)");
+        assert!(line.is_some(), "the measured time of EP-1's headless row");
     }
 
     /// The older forms of a project that keeps owner-tasks.md are listed under a heading of

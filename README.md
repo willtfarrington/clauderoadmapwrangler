@@ -70,7 +70,14 @@ history is imported from its git log and its briefs' completion notes (EP-25): t
 record an EP date it, the note cross-checks the date and wins when they differ by more than a
 day, flagged; the Detail pane's History section shows the dates, the flagged EPs and Re-import,
 `crw history <project>` prints the same, and the ledger keeps each project's done and total
-counts once a day for the graphs to come. The roadmap is
+counts once a day. The Detail pane's Analytics section draws the graphs (EP-26): a calendar
+heatmap of the last 16 weeks (sessions per day, a dot for a day with a completion, for the
+project or the portfolio), a burn-up of done and total by day in which a re-plan is a jump, the
+EPs completed per week over the last 8, and a projection: the open rows by size at the measured
+median per size (a brief's time is its headless run less the owner's waits, or a visual session
+under 3 h as wall time; a reverted session is left out), and the finish as a range from the
+measured pace. The History section folds a list of the dated EPs with each completion note's
+model, effort and duration and the ledger's time. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

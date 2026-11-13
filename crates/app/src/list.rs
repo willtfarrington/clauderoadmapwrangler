@@ -1181,9 +1181,11 @@ fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32) {
                 }
             }
             ui.label(
-                RichText::new("The heatmap and the burn-up sparkline arrive at EP-26.")
-                    .small()
-                    .weak(),
+                RichText::new(
+                    "The burn-up sparkline arrives at EP-26a; the graphs are in the Detail pane.",
+                )
+                .small()
+                .weak(),
             );
         });
     });

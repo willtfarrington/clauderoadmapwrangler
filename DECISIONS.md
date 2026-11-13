@@ -761,6 +761,10 @@ everything.
 > of the tool's own on pulldown-cmark, one look for notes and replies at about a brief's cost;
 > replies shown as source text.
 
+> **Addendum (2026-11-12, EP-26).** `egui_plot` 0.38.0 pinned exactly in the workspace, used by
+> the app crate for the Detail pane's burn-up and velocity plots; the lock gained the one crate
+> (its ahash and nohash-hasher were locked already). It moves with the family.
+
 > **Addendum (2026-11-11, EP-24a).** `egui_commonmark` is pinned at `=0.26.0` in the workspace
 > with its default features off and only its `pulldown_cmark` backend on: no `load-images` (no
 > image loader, so a reply's image reads as its alt text), no `better_syntax_highlighting` (a
@@ -1956,6 +1960,35 @@ no backfill; transcript copies; a usage-over-time graph (parked).
 > clock change moves no date). The ledger's rows before EP-13 stay as they are. *Alternatives.* A record commit as the only marker (projects before the house
 > pattern would have no dates); a snapshot row at every parse (one a day suffices for the
 > burn-up); the import at every git pass (one child per repository per pass).
+
+> **Addendum (2026-11-12, EP-26).** The graphs as built, in the Detail pane's Analytics section
+> (`app::analytics`, `egui_plot` 0.38.0 pinned). The **heatmap** is painted: the last 16 weeks
+> from Monday, a column per week, a cell's fill by its sessions that day (the rows grouped by
+> session id, so a launch's row, the session's own and a resume's count once; the chat's turns
+> and a visual launch no session took up count nowhere) and a dot for a day with a completion,
+> each cell's hover text naming the day; a switch shows the portfolio. The **burn-up** steps
+> done from the completions' cumulative count and total from the `snapshot` rows, flat before
+> the first row and carried to today, so a re-plan is a jump; the **velocity** is a bar per week
+> over the last 8. **The measure of a brief's time** (the brief's decision, from EP-16's and
+> EP-23's notes): one sample per session id, from its earliest row's start to its latest row's
+> end, when an EP is named, every row has ended, the latest ended `completed` and no `revert`
+> event names the session; a headless session's waits on the owner are taken off as its rows'
+> `questions × answer_latency_s` (about, since the row keeps a mean, and a resume's wait is in
+> that mean); a session with a visual or manual row counts as wall time and only under 3 hours,
+> since a tab left open runs its row for a day. The waits of a visual session (the watch's busy
+> and idle) are not counted: the ledger keeps none; a later brief may add them. The **median per
+> size** is the project's own with three measured sessions of the size, else the portfolio's,
+> else the plan's 30, 60 and 120 minutes, and the words say which. The **projection** sums the
+> open rows (`☐` and `[~]`; `◐` is done) by size at the medians, and the finish is a range: the
+> pace over the 8 weeks' active weeks (the early bound) to the pace over all 8 (the late bound).
+> The History section folds a list of the dated EPs with the completion note's model, effort and
+> duration (the last note that gives them, since an appended note carries none) and the
+> measured time. The ledger is read on the UI thread when the selection changes, a minute
+> later, or after a read of the files, as the meter's week is. *Alternatives.* The heatmap as
+> `egui_plot`'s `Heatmap` item (its hover gives the value alone, not the day); the measure from
+> the EP's record commit (the `completion` table keeps dates, not instants); one sample per row
+> (a brief run once gave two or three); the waits of visual sessions from the watch (nothing
+> persisted).
 
 ## Chat, remote access, operations
 
