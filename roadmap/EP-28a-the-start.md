@@ -341,4 +341,4 @@ not arise here. The working tree was clean.
 > - the start at login, at the next sign-in.
 >
 > **Next: EP-29** (the P4 re-plan, opening with the P4 walk), from the window. The work commit
-> and the record commit follow.
+> is `09756e9`; the record commit follows.
