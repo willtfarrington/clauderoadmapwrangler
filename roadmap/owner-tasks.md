@@ -305,3 +305,14 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   `target\release\crw.exe export site --yes` writes `assets\data\projects.json` and
   `assets\data\projects-cards.html` into the site's folder and nothing else there; the site's
   next session wires them into its page (EP-27's message in its inbox), and the push is yours.
+- [ ] OT-28 (EP-34, 2026-11-13) The first real hosting or backup action (the first run of a new
+  route; nothing else waits on it). Once EP-34's build is installed, the gentlest one is File >
+  Back up now… in the window: the dialog names `pwsh … -File <the job's script> -Mode Run -Force`;
+  press Back up now and the dialog shows a spinner for a minute or two, then "the backup job:
+  backed up" (or the job's warning), and the Backup lines of a project's Detail pane read the new
+  run. When you next want a hosting change, take it from a row's right-click menu or the Detail
+  pane's Hosting subsection instead of `gh` by hand: check that the dialog names the command you
+  expect, that the row's hosting badge changes after it (the window asks GitHub again for that
+  project), and that `target\release\crw.exe act <project> <action>` previews the same plan.
+  The orphan's Delete stays refused until you run `gh auth refresh -s delete_repo` in a terminal
+  (it opens a browser). Anything odd goes to `roadmap/inbox.md`.

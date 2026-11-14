@@ -87,7 +87,19 @@ setting names, for a session of the site to wire into its page (the tool never e
 and never pushes); the window writes the daily export once a day, the registry and every table
 of the ledger as JSON into the git-ignored `private/export/<date>/` (`crw export daily` writes
 it at once); `crw export csv <project>` writes a project's sessions and daily counts as CSV
-there. The roadmap is
+there. The hosting and backup actions (EP-34): a row's menu and its Detail pane offer what its
+hosting allows (Create a private remote, which runs `gh repo create … --private --source …
+--push`; Make public or Make private, `gh repo edit --visibility …`, the dialog repeating `gh`'s
+consequences paragraph and, for Make public, what a push to a public remote means; Remove the
+remote, `git remote remove origin`, GitHub left alone; Archive and Delete for an orphan, Delete
+refused until the token has the `delete_repo` scope), and the Detail pane's Backup subsection and
+File offer Back up now (the backup job's script run with `-Force`). Each opens a dialog that names
+the command, reads the plan again at the press and runs it only if it is the plan shown, never
+while a session works or waits in the project, never for a project marked a data repository
+where it would put it on GitHub or make it public; each run is an `event` row of the ledger, a
+failure is shown in the tool's own words and never retried, and the project's readings are asked
+again after it. `crw act <project> <action>` and `crw act backup` preview the same plans and run
+nothing. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

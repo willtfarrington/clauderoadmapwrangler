@@ -325,6 +325,15 @@ impl Board {
             // A message being written would be lost (EP-21a's finding: EP-20c left it out).
             (self.compose.is_some(), "the compose dialog is open"),
             (self.formalise.is_some(), "the formalise preview is open"),
+            // A run cut short would leave GitHub or the backup half done, unlogged (EP-34).
+            (
+                self.act.is_some(),
+                "the dialog of a hosting or backup action is open",
+            ),
+            (
+                self.act_detached.is_some(),
+                "a backup the window started is still running, its end to be logged",
+            ),
             (self.quit_asked, "the question before Quit is open"),
         ] {
             if open {

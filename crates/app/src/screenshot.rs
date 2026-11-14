@@ -55,6 +55,11 @@
 //!   `formalise=<project>:busy` (the same plan refused by a canned session at work there, an
 //!   idle tab named); `formalise=<project>:migrate` (the launch dialog's migration, a canned
 //!   work-packet form for a fixture in the house form, its prompt naming a neutral `crw.exe`);
+//! - `act=<project>:<verb>` (the confirmation of a hosting action once the project is read, its
+//!   plan from the canned readings with a canned `gh` whose token lacks `delete_repo`:
+//!   `lantern:make-public`, `harbor:make-private`, `quarry:create-private`, `compass:delete`,
+//!   `compass:archive`, `harbor:remove-remote`); `act=backup` (Back up now with a neutral script);
+//!   each action button refused, as every write is (EP-34);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
 //!   permission prompt, orchard's manual one busy with its status line's figures though every
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,
@@ -389,6 +394,17 @@ impl Run {
                     // `formalise=harbor[:busy|:migrate]`, once the project is read (EP-21a).
                     let (project, flag) = value.split_once(':').unwrap_or((value, ""));
                     board.formalise_when_read = Some((project.to_owned(), flag.to_owned()));
+                }
+                "act" => {
+                    // `act=lantern:make-public` or `act=backup`, once the files are read (EP-34).
+                    let (project, verb) = match value.split_once(':') {
+                        Some((project, verb)) => (Some(project.to_owned()), verb),
+                        None => (None, value),
+                    };
+                    match crw_core::actions::Verb::parse(verb) {
+                        Some(verb) => board.act_when_read = Some((project, verb)),
+                        None => eprintln!("screenshot: no action called {verb}"),
+                    }
                 }
                 "sessions" => {
                     canned_sessions(board);
@@ -1590,6 +1606,23 @@ pub fn open_formalise(board: &mut Board, project: &str, flag: &str) {
         }
         _ => board.open_formalise(project),
     }
+}
+
+/// What `act=<project>:<verb>` or `act=backup` opens once the files are read (EP-34): the
+/// confirmation of the project's action from the canned readings, or Back up now with a neutral
+/// script (a screenshot run's registry names no job).
+pub fn open_act(board: &mut Board, project: Option<String>, verb: crw_core::actions::Verb) {
+    if verb == crw_core::actions::Verb::BackUpNow {
+        let script = Path::new(r"C:\Tools\Backups\nightly-job.ps1");
+        board.act = Some(crate::act::Dialog::ready(crw_core::actions::backup_plan(
+            script,
+        )));
+        return;
+    }
+    // The pass that read the files puts the canned readings in after this call: put them in
+    // first, or the plan sees no origin and no account (the first picture's refusal).
+    readings(&mut board.portfolio, chrono::Utc::now());
+    board.open_act(project, verb);
 }
 
 /// The tracked fake projects.

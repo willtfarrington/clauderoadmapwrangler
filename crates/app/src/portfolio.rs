@@ -183,6 +183,8 @@ pub enum Moment {
     SessionEnded,
     /// The row's menu.
     Menu,
+    /// A hosting action the window ran on it (EP-34).
+    Acted,
 }
 
 impl Moment {
@@ -192,6 +194,7 @@ impl Moment {
             Moment::RunEnded { chained: true } => "after its chained run ended",
             Moment::SessionEnded => "after a session ended there",
             Moment::Menu => "from its row's menu",
+            Moment::Acted => "after an action on its hosting",
         }
     }
 }
@@ -562,6 +565,15 @@ impl Git {
             .as_ref()
             .and_then(|status| status.oid.clone())
     }
+
+    /// Whether `HEAD` names a commit; `None` when the status was not read or failed (EP-34's
+    /// review: a failed status is no proof of an empty repository).
+    pub(crate) fn has_commit(&self) -> Option<bool> {
+        self.reading
+            .worktree
+            .as_ref()
+            .map(|status| status.oid.is_some())
+    }
 }
 
 /// The git pass for one repository: `HEAD`'s README and the status, then the last commit, in
@@ -889,20 +901,7 @@ impl Loader {
                         .collect()
                 })
                 .unwrap_or_default();
-            let (settings, log) = registry
-                .as_ref()
-                .map(Registry::backup_files)
-                .unwrap_or_default();
-            let reading = settings.map(|settings| backup::Reading::read(&settings, log.as_deref()));
-            let backups = reading
-                .as_ref()
-                .map(|reading| {
-                    projects
-                        .iter()
-                        .map(|(name, folder)| (key(name), reading.project(folder)))
-                        .collect()
-                })
-                .unwrap_or_default();
+            let (reading, backups) = read_backup_job(registry.as_ref(), &projects);
             let _ = tx.send(Message::Backups {
                 generation,
                 reading,
@@ -939,6 +938,35 @@ impl Loader {
                 }
             }
             let _ = tx.send(Message::GitDone { generation });
+            ctx.request_repaint();
+        });
+    }
+
+    /// Reads the backup job again on a worker thread (EP-34's Back up now): its settings, its log
+    /// and each project's unit, as the git pass's start reads them, into the pass that runs or
+    /// last ran; no child.
+    pub fn read_backups(&mut self) {
+        let generation = self.git.load(Atomic::SeqCst);
+        let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
+        thread::spawn(move || {
+            let registry = store.load().map(|loaded| loaded.registry).ok();
+            let projects: Vec<(String, PathBuf)> = registry
+                .as_ref()
+                .map(|registry| {
+                    let root = registry.data_root();
+                    registry
+                        .projects
+                        .iter()
+                        .map(|project| (project.name.clone(), project.folder(&root)))
+                        .collect()
+                })
+                .unwrap_or_default();
+            let (reading, projects) = read_backup_job(registry.as_ref(), &projects);
+            let _ = tx.send(Message::Backups {
+                generation,
+                reading,
+                projects,
+            });
             ctx.request_repaint();
         });
     }
@@ -1302,6 +1330,26 @@ impl Loader {
             }
         }
     }
+}
+
+/// The backup job as the registry names it, and each of `projects`' units by key; nothing when
+/// the registry sets no job. File reads only.
+fn read_backup_job(
+    registry: Option<&Registry>,
+    projects: &[(String, PathBuf)],
+) -> (Option<backup::Reading>, HashMap<String, Backup>) {
+    let (settings, log) = registry.map(Registry::backup_files).unwrap_or_default();
+    let reading = settings.map(|settings| backup::Reading::read(&settings, log.as_deref()));
+    let backups = reading
+        .as_ref()
+        .map(|reading| {
+            projects
+                .iter()
+                .map(|(name, folder)| (key(name), reading.project(folder)))
+                .collect()
+        })
+        .unwrap_or_default();
+    (reading, backups)
 }
 
 /// The projects the GitHub pass asks about: every registered folder, with its origin and whether

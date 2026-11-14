@@ -310,6 +310,16 @@ pub enum Action {
     /// older roadmap to the house tables (D-9; EP-21a): a row's Migrate the roadmap…, the Detail
     /// pane's and the formalise preview's Migrate….
     OpenMigration(String),
+    /// The confirmation of a hosting or backup action (D-24; EP-34): a row's menu, the Detail
+    /// pane's Hosting and Backup subsections, File's Back up now…; no project for the backup.
+    OpenAct {
+        project: Option<String>,
+        verb: crw_core::actions::Verb,
+    },
+    /// The dialog's action button: the plan read again, and run if it is the one shown.
+    ConfirmAct,
+    /// The dialog put away, or its result read.
+    CloseAct,
     /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key. Turned
     /// on where its runs would wait at each shell command, it opens the offer of `auto` first
     /// (EP-19b).
@@ -452,6 +462,16 @@ pub struct Board {
     /// `formalise=<project>[:busy|:migrate]`): the project and the flag.
     #[cfg(feature = "screenshot")]
     pub formalise_when_read: Option<(String, String)>,
+    /// The confirmation of a hosting or backup action, while it is open (EP-34).
+    pub act: Option<crate::act::Dialog>,
+    /// The runner the actions use when not the real one: a test's (EP-34).
+    pub act_runner: Option<std::sync::Arc<dyn crw_core::actions::Runner>>,
+    /// A backup whose dialog was closed while it ran: its answer, still read (EP-34's review).
+    pub act_detached: Option<crate::act::Detached>,
+    /// An action's dialog to open once the files are read (a screenshot run's
+    /// `act=<project>:<verb>` or `act=backup`).
+    #[cfg(feature = "screenshot")]
+    pub act_when_read: Option<(Option<String>, crw_core::actions::Verb)>,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -524,6 +544,11 @@ impl Board {
             formalise: None,
             #[cfg(feature = "screenshot")]
             formalise_when_read: None,
+            act: None,
+            act_runner: None,
+            act_detached: None,
+            #[cfg(feature = "screenshot")]
+            act_when_read: None,
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -704,6 +729,7 @@ impl Board {
         }
         self.receive_revert(ctx);
         self.receive_formalise(ctx);
+        self.receive_act(ctx);
         let portfolio = &self.portfolio;
         let registered = || {
             portfolio
@@ -796,6 +822,17 @@ impl Board {
             crate::screenshot::open_formalise(self, &name, &flag);
         }
         #[cfg(feature = "screenshot")]
+        if let Some((project, verb)) = &self.act_when_read
+            && !self.loader.reading_files
+            && project
+                .as_deref()
+                .is_none_or(|name| self.portfolio.project(name).is_some())
+        {
+            let (project, verb) = (project.clone(), *verb);
+            self.act_when_read = None;
+            crate::screenshot::open_act(self, project, verb);
+        }
+        #[cfg(feature = "screenshot")]
         if self.fixtures {
             crate::screenshot::readings(&mut self.portfolio, chrono::Utc::now());
         }
@@ -871,7 +908,7 @@ impl Board {
                 self.fixtures,
                 self.tray.is_some(),
                 stoppable,
-                self.reverting() || self.formalising(),
+                self.reverting() || self.formalising() || self.acting(),
             ) {
                 Closing::Hide => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1131,19 +1168,22 @@ impl Board {
             .is_some_and(crate::formalise::Dialog::is_writing)
     }
 
-    /// What quitting says while it waits: for a revert, or for a formalise's write.
+    /// What quitting says while it waits: for a revert, a formalise's write or an action.
     fn waiting_words(&self) -> &'static str {
         if self.reverting() {
             REVERTING
-        } else {
+        } else if self.formalising() {
             FORMALISING
+        } else {
+            crate::act::ACTING
         }
     }
 
     /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
-    /// runs (EP-15c), nor while a formalise writes (EP-21a's review).
+    /// runs (EP-15c), nor while a formalise writes (EP-21a's review), nor while a hosting or
+    /// backup action runs (EP-34).
     fn quit(&mut self) {
-        if self.reverting() || self.formalising() {
+        if self.reverting() || self.formalising() || self.acting() {
             self.quit_asked = false;
             self.show();
             self.warn(self.waiting_words());
@@ -1241,6 +1281,7 @@ impl Board {
             || self.offer.is_some()
             || self.compose.is_some()
             || self.formalise.is_some()
+            || self.act.is_some()
         {
             return;
         }
@@ -1410,6 +1451,9 @@ impl Board {
                 self.close_formalise();
                 self.open_migration(&name);
             }
+            Action::OpenAct { project, verb } => self.open_act(project, verb),
+            Action::ConfirmAct => self.confirm_act(),
+            Action::CloseAct => self.close_act(),
             Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
             Action::AutopilotOn { project, auto } => return self.autopilot_on(&project, auto),
             Action::CloseOffer => self.offer = None,
@@ -2516,6 +2560,19 @@ impl Dashboard {
                     self.board.actions.push(Action::TestToastLater);
                 }
                 ui.separator();
+                // The backup job run now (D-24; EP-34), behind its confirmation.
+                let verb = crw_core::actions::Verb::BackUpNow;
+                if ui
+                    .button(verb.label())
+                    .on_hover_text(crate::act::hint(verb))
+                    .clicked()
+                {
+                    self.board.actions.push(Action::OpenAct {
+                        project: None,
+                        verb,
+                    });
+                }
+                ui.separator();
                 // The restart into the installed build (EP-37): enabled when a newer build waits
                 // and nothing would be lost, else its hover says why not.
                 self.board.restart.look(crate::restart::LOOK_OPEN);
@@ -2681,6 +2738,7 @@ impl eframe::App for Dashboard {
         self.board.quit_dialog(&ctx);
         self.board.revert_dialog(&ctx);
         self.board.formalise_dialog(&ctx);
+        self.board.act_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 

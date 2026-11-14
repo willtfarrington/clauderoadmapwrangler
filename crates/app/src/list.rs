@@ -1051,8 +1051,8 @@ fn project_row(
 
 /// The row's menu on a right click, shared by the row and the card (EP-26a): pin, priority and
 /// state (D-6's "by hand"), Refresh this project (EP-25a), the proposals' dismissals (D-6),
-/// Send a message… (D-13), Formalise… and Migrate the roadmap… (D-11), Revert the latest
-/// session… (EP-15c).
+/// Send a message… (D-13), Formalise… and Migrate the roadmap… (D-11), the actions its hosting
+/// allows (D-24; EP-34), Revert the latest session… (EP-15c).
 fn row_menu(
     response: &egui::Response,
     row: &ProjectRow,
@@ -1158,6 +1158,25 @@ fn row_menu(
             {
                 actions.push(Action::OpenMigration(name.to_owned()));
                 ui.close();
+            }
+        }
+        // What the project's hosting allows on GitHub and on its origin, each behind its
+        // confirmation (D-24; EP-34).
+        let offered = crate::act::offered(row);
+        if !offered.is_empty() {
+            ui.separator();
+            for verb in offered {
+                if ui
+                    .button(verb.label())
+                    .on_hover_text(crate::act::hint(verb))
+                    .clicked()
+                {
+                    actions.push(Action::OpenAct {
+                        project: Some(name.to_owned()),
+                        verb,
+                    });
+                    ui.close();
+                }
             }
         }
         // The project's latest session undone, behind its preview (D-11; EP-15c).
@@ -2121,6 +2140,69 @@ mod tests {
             testing::button(item, egui::PointerButton::Primary, false),
         );
         assert_eq!(actions, [Action::RefreshProject("harbor".to_owned())]);
+    }
+
+    /// The row's menu offers what the project's hosting allows (EP-34): a public repository's
+    /// Make private… and Remove the remote…, each opening its confirmation.
+    #[test]
+    fn the_rows_menu_offers_what_its_hosting_allows() {
+        use crw_core::actions::Verb;
+        use crw_core::badges::hosting::{Hosting, Listed, Repo, Visibility};
+        let scratch = Scratch::new("list-row-hosting");
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio
+            .projects
+            .iter_mut()
+            .find(|row| row.name() == "harbor")
+            .unwrap();
+        harbor.badges.remote = Some("https://github.com/example/harbor.git".to_owned());
+        harbor.badges.hosting = Hosting::Listed(Listed {
+            repo: Repo {
+                owner: "example".to_owned(),
+                name: "harbor".to_owned(),
+            },
+            visibility: Visibility::Public,
+            archived: false,
+            pushed_at: None,
+            default_branch: Some("main".to_owned()),
+        });
+        harbor.badges.activity = Some(crw_core::badges::activity::Activity {
+            oid: Some("f".repeat(40)),
+            last_commit: None,
+            changed: 0,
+            branch: Some("main".to_owned()),
+            upstream: None,
+            ahead_behind: None,
+        });
+        let mut screen = Screen::new();
+        let (_, _, name, _) = harbor_pass(&mut screen, &portfolio, Vec::new());
+        let at = name.left_center() + vec2(8.0, 0.0);
+        let press = |pressed| testing::button(at, egui::PointerButton::Secondary, pressed);
+        harbor_pass(&mut screen, &portfolio, testing::moved(at));
+        harbor_pass(&mut screen, &portfolio, press(true));
+        harbor_pass(&mut screen, &portfolio, press(false));
+        let (.., output) = harbor_pass(&mut screen, &portfolio, Vec::new());
+        assert!(testing::text_at(&output, "Remove the remote…").is_some());
+        assert!(testing::text_at(&output, "Make public…").is_none());
+        let item = testing::text_at(&output, "Make private…").expect("the menu item");
+        harbor_pass(&mut screen, &portfolio, testing::moved(item));
+        harbor_pass(
+            &mut screen,
+            &portfolio,
+            testing::button(item, egui::PointerButton::Primary, true),
+        );
+        let (actions, ..) = harbor_pass(
+            &mut screen,
+            &portfolio,
+            testing::button(item, egui::PointerButton::Primary, false),
+        );
+        assert_eq!(
+            actions,
+            [Action::OpenAct {
+                project: Some("harbor".to_owned()),
+                verb: Verb::MakePrivate,
+            }]
+        );
     }
 
     /// Every measured column `width` wide, the fixed ones as they are.

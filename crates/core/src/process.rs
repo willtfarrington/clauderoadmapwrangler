@@ -116,6 +116,100 @@ where
     output(command, args, timeout, false)
 }
 
+/// How a child ended (EP-34): its exit code (`None` when it has none) and what it printed on its
+/// standard output and its standard error.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Exit {
+    pub code: Option<i32>,
+    pub stdout: String,
+    pub stderr: String,
+}
+
+/// Runs `program` with `args` and `env` added to its end within `timeout`, killing it then: how it
+/// ended, whatever its exit code; `Err` only when it did not start or did not end in time. The
+/// hosting actions' `gh` and `git` (EP-34), whose failure is shown in their own words.
+pub fn exit_of<I, S>(
+    program: &Path,
+    args: I,
+    env: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<Exit, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(program);
+    command.envs(env.iter().copied());
+    let Finished {
+        status,
+        stdout,
+        stderr,
+    } = finish(command, args, timeout, true)?;
+    // Its errors' words are read only for a failure, as `output` reads them: a grandchild may
+    // hold the pipe after a success.
+    let stderr = match stderr {
+        Some(reader) if !status.success() => reader.join().unwrap_or_default(),
+        _ => String::new(),
+    };
+    Ok(Exit {
+        code: status.code(),
+        stdout,
+        stderr,
+    })
+}
+
+/// Starts `program` with `args` on its own in `folder` (EP-34's backup job, in its script's
+/// folder): no console, nothing piped, so it goes on whatever becomes of the window; the caller
+/// holds [`turn`] while it starts.
+pub fn start_alone<I, S>(
+    program: &Path,
+    args: I,
+    folder: Option<&Path>,
+) -> Result<std::process::Child, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(program);
+    if let Some(folder) = folder {
+        command.current_dir(folder);
+    }
+    command
+        .args(args)
+        .env_remove("ANTHROPIC_API_KEY")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        command.creation_flags(0x0800_0000);
+    }
+    command.spawn().map_err(|e| format!("did not start: {e}"))
+}
+
+/// Waits up to `timeout` for a child started on its own: its exit code (`None` when it has
+/// none), or why it is not known; a child still running then is left to run, never killed.
+pub fn wait_alone(
+    child: &mut std::process::Child,
+    timeout: Duration,
+) -> Result<Option<i32>, String> {
+    let started = Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => return Ok(status.code()),
+            Ok(None) if started.elapsed() >= timeout => {
+                return Err(format!(
+                    "still running after {} min: it goes on by itself",
+                    timeout.as_secs() / 60
+                ));
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(250)),
+            Err(e) => return Err(format!("could not wait for it: {e}")),
+        }
+    }
+}
+
 /// Reads a child's pipe on a thread, so a chatty child cannot fill it and stall before it exits.
 fn reader(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<String> {
     thread::spawn(move || {
@@ -126,11 +220,48 @@ fn reader(mut pipe: impl Read + Send + 'static) -> thread::JoinHandle<String> {
 }
 
 fn output<I, S>(
-    mut command: Command,
+    command: Command,
     args: I,
     timeout: Duration,
     keep_stderr: bool,
 ) -> Result<String, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let Finished {
+        status,
+        stdout: text,
+        stderr,
+    } = finish(command, args, timeout, keep_stderr)?;
+    if status.success() {
+        return Ok(text);
+    }
+    let said = stderr
+        .and_then(|reader| reader.join().ok())
+        .map(|said| said.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|said| !said.is_empty());
+    Err(match said {
+        Some(said) => format!("exited with {status}: {said}"),
+        None => format!("exited with {status}"),
+    })
+}
+
+/// A child run to its end: its status, its standard output and, when kept, the reader of its
+/// standard error, which a caller joins for a failure only.
+struct Finished {
+    status: std::process::ExitStatus,
+    stdout: String,
+    stderr: Option<thread::JoinHandle<String>>,
+}
+
+/// Runs a child to its end within `timeout` (killed then).
+fn finish<I, S>(
+    mut command: Command,
+    args: I,
+    timeout: Duration,
+    keep_stderr: bool,
+) -> Result<Finished, String>
 where
     I: IntoIterator<Item = S>,
     S: AsRef<OsStr>,
@@ -168,16 +299,9 @@ where
             Err(e) => return Err(format!("could not wait for it: {e}")),
         }
     };
-    let text = stdout.join().unwrap_or_default();
-    if status.success() {
-        return Ok(text);
-    }
-    let said = stderr
-        .and_then(|stderr| stderr.join().ok())
-        .map(|said| said.split_whitespace().collect::<Vec<_>>().join(" "))
-        .filter(|said| !said.is_empty());
-    Err(match said {
-        Some(said) => format!("exited with {status}: {said}"),
-        None => format!("exited with {status}"),
+    Ok(Finished {
+        status,
+        stdout: stdout.join().unwrap_or_default(),
+        stderr,
     })
 }

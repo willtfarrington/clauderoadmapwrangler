@@ -1510,7 +1510,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-40 | [Field fixes from P4's first chains: the five-hour limit back in the meter (the endpoint's `session` kind merged, one row) and in the autopilot gate; the downshift for every size; the single-instance guard; the model policy as registry rules](EP-40-field-fixes.md) (D-22, D-23, D-29) | M | EP-17, EP-18, EP-19, EP-37a | core | ☑ `1eac82a` |
 | EP-26a | [Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view](EP-26a-analytics-in-the-list.md) (D-25) | M | EP-26 | core | ☑ `7f1778b` |
 | EP-27 | [Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project](EP-27-exports.md) (D-8, D-24) | S | EP-25 | core | ☑ `53c474b` |
-| EP-34 | Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged (D-24) | M | EP-7 | core | ☐ |
+| EP-34 | [Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged](EP-34-hosting-and-backup-actions.md) (D-24) | M | EP-7 | core | ☐ |
 | EP-28 | Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints (D-29) | M | EP-15, EP-37 | core | ☐ |
 | EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
 | EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
@@ -1911,6 +1911,11 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   retention rule (the last N days, or the first of each month kept); and OT-27's first site
   export with the site session's wiring. The first real five-hour hold (EP-40's parked reading)
   held EP-27's chain three times at 57 % until the window's reset, then chained it at 17:04.
+  **From EP-34 (2026-11-13):** the first delivery of a brief's `Handed on` block into another
+  project came at 17:29 (EP-27's letter, the site's IN-1), which settles from the records the
+  P3 item above on a delivery from one project into another; the walk asks how the first real
+  hosting or backup action went (OT-28) and whether Make public should scan the project's
+  history against rule 3's word list before it runs, which EP-34 left to the dialog's words.
 
 ## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
 

@@ -209,7 +209,7 @@ fn project(
     let measured = analytics::measured(analytics, portfolio);
     history(ui, row, &measured, actions);
     analytics::section(ui, row, portfolio, analytics, &measured);
-    status(ui, row, portfolio, week);
+    status(ui, row, portfolio, week, actions);
     owner_items(ui, row, actions);
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
@@ -731,6 +731,14 @@ impl Columns {
         });
     }
 
+    /// A line of small buttons where the sentences start, wrapping in a narrow pane (EP-34).
+    fn button_line(&self, ui: &mut egui::Ui, add: impl FnOnce(&mut egui::Ui)) {
+        ui.horizontal_top(|ui| {
+            style::padded(ui, self.mark, |_| {});
+            ui.horizontal_wrapped(add);
+        });
+    }
+
     /// A line without a mark, its text where the sentences start.
     fn weak_line(&self, ui: &mut egui::Ui, text: impl Into<String>) {
         ui.horizontal_top(|ui| {
@@ -746,8 +754,15 @@ fn divider(ui: &mut egui::Ui) {
 }
 
 /// The badges spelt out (D-24, D-25): stack, activity, hosting with the head check, health,
-/// backup and this week's usage share (EP-18b), each with where it comes from and how old it is.
-fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio, week: &Week) {
+/// backup and this week's usage share (EP-18b), each with where it comes from and how old it is;
+/// the hosting's actions and Back up now under their subsections (EP-34).
+fn status(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    portfolio: &Portfolio,
+    week: &Week,
+    actions: &mut Vec<Action>,
+) {
     let now = Utc::now();
     let badges = &row.badges;
     let activity = badges::activity(row, now);
@@ -844,6 +859,24 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio, week: &Wee
             }
             None => columns.weak_line(ui, "GitHub not read yet: it is asked daily and on F5"),
         }
+        // What the hosting allows, each behind its confirmation (D-24; EP-34).
+        let offered = crate::act::offered(row);
+        if !offered.is_empty() {
+            columns.button_line(ui, |ui| {
+                for verb in offered {
+                    if ui
+                        .small_button(verb.label())
+                        .on_hover_text(crate::act::hint(verb))
+                        .clicked()
+                    {
+                        actions.push(Action::OpenAct {
+                            project: Some(row.name().to_owned()),
+                            verb,
+                        });
+                    }
+                }
+            });
+        }
     });
     divider(ui);
 
@@ -899,6 +932,22 @@ fn status(ui: &mut egui::Ui, row: &ProjectRow, portfolio: &Portfolio, week: &Wee
                 None => String::new(),
             };
             columns.weak_line(ui, format!("The job's {target}{run}"));
+        }
+        // The whole job run now, behind its confirmation (D-24; EP-34).
+        if portfolio.backup.is_some() || badges.backup.is_some() {
+            let verb = crw_core::actions::Verb::BackUpNow;
+            columns.button_line(ui, |ui| {
+                if ui
+                    .small_button(verb.label())
+                    .on_hover_text(crate::act::hint(verb))
+                    .clicked()
+                {
+                    actions.push(Action::OpenAct {
+                        project: None,
+                        verb,
+                    });
+                }
+            });
         }
     });
     divider(ui);
@@ -1503,7 +1552,9 @@ mod tests {
         let harbor = portfolio.project("harbor").unwrap();
         let week = Week::default();
         let mut screen = Screen::new();
-        let output = screen.pass(Vec::new(), |ui| status(ui, harbor, &portfolio, &week));
+        let output = screen.pass(Vec::new(), |ui| {
+            status(ui, harbor, &portfolio, &week, &mut Vec::new())
+        });
         assert!(testing::text_containing(&output, "Read again").is_none());
         let mut reread = harbor.clone();
         reread.reread = Some(Reread {
@@ -1511,13 +1562,79 @@ mod tests {
             moment: Moment::SessionEnded,
             what: "the files, git and the history".to_owned(),
         });
-        let output = screen.pass(Vec::new(), |ui| status(ui, &reread, &portfolio, &week));
+        let output = screen.pass(Vec::new(), |ui| {
+            status(ui, &reread, &portfolio, &week, &mut Vec::new())
+        });
         assert!(
             testing::text_at(
                 &output,
                 "Read again 5 min ago after a session ended there: the files, git and the history"
             )
             .is_some()
+        );
+    }
+
+    /// The Status section offers what the hosting allows under Hosting and Back up now under
+    /// Backup (EP-34): a local repository's Create a private remote…, each button pushing its
+    /// action; neither for a folder that is not a repository and has no backup.
+    #[test]
+    fn the_status_section_offers_the_hosting_actions_and_back_up_now() {
+        use crate::meter::Week;
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::actions::Verb;
+        use eframe::egui::PointerButton;
+
+        let scratch = Scratch::new("detail-actions");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let week = Week::default();
+        let mut quarry = portfolio.project("quarry").unwrap().clone();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            status(ui, &quarry, &portfolio, &week, &mut Vec::new())
+        });
+        assert!(testing::text_at(&output, "Create a private remote…").is_none());
+        assert!(testing::text_at(&output, "Back up now…").is_none());
+        // A repository with no remote, and a unit in the backup job.
+        quarry.badges.activity = Some(crw_core::badges::activity::Activity {
+            oid: Some("f".repeat(40)),
+            last_commit: None,
+            changed: 0,
+            branch: Some("main".to_owned()),
+            upstream: None,
+            ahead_behind: None,
+        });
+        quarry.badges.backup = Some(crw_core::badges::backup::Backup::default());
+        let press = |screen: &mut Screen, label: &str| {
+            let mut actions = Vec::new();
+            let output = screen.pass(Vec::new(), |ui| {
+                status(ui, &quarry, &portfolio, &week, &mut actions)
+            });
+            let at = testing::text_at(&output, label).expect(label);
+            for events in [
+                testing::moved(at),
+                testing::button(at, PointerButton::Primary, true),
+                testing::button(at, PointerButton::Primary, false),
+            ] {
+                screen.pass(events, |ui| {
+                    status(ui, &quarry, &portfolio, &week, &mut actions)
+                });
+            }
+            actions
+        };
+        assert_eq!(
+            press(&mut screen, "Create a private remote…"),
+            [Action::OpenAct {
+                project: Some("quarry".to_owned()),
+                verb: Verb::CreatePrivate,
+            }]
+        );
+        assert_eq!(
+            press(&mut screen, "Back up now…"),
+            [Action::OpenAct {
+                project: None,
+                verb: Verb::BackUpNow,
+            }]
         );
     }
 

@@ -22,7 +22,8 @@
 //! EP-20c; the prompt hook, `hook` on a `UserPromptSubmit` giving a prompt's `@<project>`
 //! mentions their context and `signals install` adding the event, from EP-20b; `export`, the
 //! site's cards, the daily export of the registry and the ledger and a project's CSV, with the
-//! `site` setting, from EP-27.
+//! `site` setting, from EP-27; `act`, a hosting or backup action previewed as the window's dialog
+//! shows it, from EP-34.
 
 use std::collections::HashMap;
 use std::fs;
@@ -181,6 +182,15 @@ commands:
                                  a day
   export csv <project>           write the project's sessions and daily counts as CSV into
                                  today's export folder
+  act <project> <action>         preview a hosting action the window's dialog would run:
+                                 create-private (gh repo create, private, pushed), make-public,
+                                 make-private (gh repo edit --visibility), remove-remote (git
+                                 remote remove origin; GitHub left alone), archive or delete (an
+                                 orphan's repository on GitHub): the command, what it does, the
+                                 warnings and the refusals, from the account's list the window
+                                 cached (create-private and delete ask gh auth status); runs
+                                 nothing, the window's dialog runs it
+  act backup                     preview Back up now: the backup job's script run with -Force
   autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
                                  the projects with it on, their limits and permission modes and
                                  whether their runs would wait at each shell command, and the
@@ -360,6 +370,9 @@ fn main() -> ExitCode {
         ["export", "daily"] => export_daily(),
         ["export", "csv", target] => export_csv(target),
         ["export", ..] => usage_error("export takes site [--yes], daily, or csv <project>"),
+        ["act", verb] => act_preview(None, verb),
+        ["act", project, verb] => act_preview(Some(project), verb),
+        ["act", ..] => usage_error("act takes <project> <action>, or backup"),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -2109,6 +2122,89 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
         };
         println!("  {name:<23} {value}");
     }
+    ExitCode::SUCCESS
+}
+
+/// Previews one of D-24's actions (EP-34): the plan the window's dialog would show, read with the
+/// account's list the window cached and, for create-private and delete, `gh auth status`; runs
+/// nothing, since the window's dialog is the confirmation D-24 asks for.
+fn act_preview(project: Option<&str>, verb: &str) -> ExitCode {
+    use crw_core::actions::{self, Facts, Target, Verb};
+    let Some(verb) = Verb::parse(verb) else {
+        return usage_error(&format!(
+            "no action called {verb}: create-private, make-public, make-private, remove-remote, \
+             archive, delete or backup"
+        ));
+    };
+    println!("crw {} act {}", env!("CARGO_PKG_VERSION"), verb.id());
+    let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
+        Ok(loaded) => loaded.registry,
+        Err(e) => return failed(e),
+    };
+    let target = match (project, verb) {
+        (Some(_), Verb::BackUpNow) => return usage_error("act backup names no project"),
+        (None, Verb::BackUpNow) => None,
+        (None, _) => return usage_error("act <project> <action>: name the project"),
+        (Some(name), _) => {
+            let Some(found) = registry.project(name) else {
+                return failed(format!("{name} is not a registered project"));
+            };
+            let folder = found.folder(&registry.data_root());
+            // Whether HEAD names a commit, from git's status in its turn (unknown when the status
+            // fails); never asked in a data repository, whose create the plan refuses anyway.
+            let has_commit = if !found.data && folder.join(".git").exists() {
+                let _turn = process::turn();
+                git::status(&folder).ok().map(|status| status.oid.is_some())
+            } else {
+                None
+            };
+            Some(Target::read(&found.name, &folder, found.data, has_commit))
+        }
+    };
+    let cached = paths::ledger_file()
+        .and_then(|path| Ledger::open_read_only(&path).ok())
+        .and_then(|ledger| ledger.cached_one("", online::ACCOUNT).ok().flatten());
+    let account = cached.as_ref().and_then(|row| {
+        match Reading::from_cache(&row.project, &row.source, &row.data) {
+            Some(Reading::Account(Ok(list))) => Some((list, row.fetched_at)),
+            _ => None,
+        }
+    });
+    if verb != Verb::BackUpNow {
+        match &account {
+            Some((list, at)) => println!(
+                "  github    {} repositories, the window's list of {} ago",
+                list.len(),
+                short_age(Utc::now() - *at)
+            ),
+            None => println!("  github    no list cached: the window's GitHub pass keeps one (F5)"),
+        }
+    }
+    let facts = Facts {
+        verb,
+        target,
+        account: account.map(|(list, _)| list),
+        refusals: Vec::new(),
+        backup: registry.backup_files().0,
+    };
+    let plan = actions::plan(&facts, &actions::Real);
+    println!("  question  {}", verb.question(&plan.target));
+    if let Some(command) = &plan.command {
+        println!("  runs      {}", command.line());
+    }
+    for words in &plan.words {
+        println!("  does      {words}");
+    }
+    for warning in &plan.warnings {
+        println!("  warning   {warning}");
+    }
+    for problem in &plan.problems {
+        println!("  refused   {problem}");
+    }
+    println!(
+        "\npreviewed only: the window runs it after its dialog (the row's menu, the Detail pane, \
+         File > Back up now…), refused while a session works or waits there"
+    );
     ExitCode::SUCCESS
 }
 

@@ -1771,6 +1771,39 @@ archive mechanism; editing `index.html`.
 > told by a `Handed on` block, and the push stays the owner's. *Alternatives.* The site found by
 > a fixed folder name; asking `gh` at the export; the window's File menu first.
 
+> **Addendum (2026-11-13, EP-34).** The actions as built (`core::actions`, `app::act`). A row's
+> menu and its Detail pane's Hosting subsection offer what its hosting allows: Create a private
+> remote for a local repository (`gh repo create <login>/<folder> --private --source <folder>
+> --push`, the login from `gh auth status --active --hostname github.com --json hosts`); Make
+> public or Make private for a listed repository (`gh repo edit <slug> --visibility …
+> --accept-visibility-change-consequences`, the dialog repeating `gh`'s consequences paragraph
+> and, for Make public, rule 3's word on a push to a public remote); Remove the remote for any
+> origin (`git -C <folder> remote remove origin`, GitHub left alone, the row then an orphan while
+> the account lists it); Archive and Delete for an orphan (`gh repo archive|delete <slug> --yes`;
+> Delete refused until the same status lists the token's `delete_repo` scope, the dialog naming
+> `gh auth refresh -s delete_repo`, and never passed
+> `--accept-cascading-deletion-of-private-forks`, so `gh` refuses a private orphan with forks).
+> Back up now, in the Backup subsection and the File menu, runs the job's script, found beside
+> its settings under their name with `.ps1`, as its daily run does with `-Force` (`pwsh
+> -NoProfile -NonInteractive -File <script> -Mode Run -Force`), refused with no job, no script or
+> its target not mounted. Refused besides: Create while the account's list is unread, for an
+> orphan's name, a project with no commit or no repository; Create and Make public for a project
+> marked a data repository (`data = true`); every project action while a session works or waits
+> there or the poll has not answered (`Board::work_view`). The plan is read on a worker thread and
+> again at the press, and runs only when the two are equal. `gh` and `git` run in their turn
+> (`process::turn()`), prompts off, the status read within 20 s, a change within a minute and
+> Create's push within 5 minutes; the job starts in its turn from its script's folder and is
+> waited on outside it for up to 30 minutes, never killed, its exit code 2 a warning, and its
+> dialog may close while it runs, the window still reading its end (a second run refused
+> meanwhile). Each run is an `event` row of kind `hosting` or `backup` (the verb, the outcome,
+> the command) however it ended; then the project is read again and GitHub asked again as F5
+> asks it, or the job is read again. Quit waits while an action runs, and a restart is refused
+> while its dialog is open or a backup it started runs. `crw act <project> <action>` and `crw act
+> backup` preview the plans and run nothing. *Alternatives.* A registry setting naming the job's
+> script; the job holding the turn for its whole run; a GitHub pass for the one project, which
+> would postpone the others' daily look; `crw act --yes`; finding the missing scope only when
+> Delete fails.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with

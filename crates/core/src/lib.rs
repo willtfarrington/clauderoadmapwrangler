@@ -11,6 +11,7 @@
 //! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin,
 //! EP-24 the chat's hosted session and its digest.
 
+pub mod actions;
 pub mod autopilot;
 pub mod badges;
 pub mod catalog;
