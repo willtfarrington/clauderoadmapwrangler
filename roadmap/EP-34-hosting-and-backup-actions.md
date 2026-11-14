@@ -217,4 +217,5 @@ screenshot runs and pointer tests, not in the owner's window.
 >    roadmaps, the pictures, the diff.
 >
 > **Owner task:** OT-28, the first real action. **Next: EP-28** (operations, Diagnostics),
-> chained by the autopilot when its gate allows, else from the window.
+> chained by the autopilot when its gate allows, else from the window. The work commit is
+> `ec2957e`; the record commit follows.
