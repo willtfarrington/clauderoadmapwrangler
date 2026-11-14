@@ -244,5 +244,5 @@ in the narrow right-hand group the fifth tab's title may sit past the tab bar's 
 >
 > **No owner task.** Nothing here needs the owner's hands: the pane and the log arrive with the
 > install, and the residual risks go to EP-29's walk. **Next: EP-28a** (operations, the start),
-> chained by the autopilot when its gate allows, else from the window. The record commit names
-> the work commit's hash here and in the roadmap's row.
+> chained by the autopilot when its gate allows, else from the window. The work commit is
+> `fef1e59`; the record commit follows.

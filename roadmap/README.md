@@ -1511,7 +1511,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-26a | [Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view](EP-26a-analytics-in-the-list.md) (D-25) | M | EP-26 | core | ☑ `7f1778b` |
 | EP-27 | [Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project](EP-27-exports.md) (D-8, D-24) | S | EP-25 | core | ☑ `53c474b` |
 | EP-34 | [Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged](EP-34-hosting-and-backup-actions.md) (D-24) | M | EP-7 | core | ☑ `ec2957e` |
-| EP-28 | [Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints](EP-28-diagnostics.md) (D-29) | M | EP-15, EP-37 | core | ☐ |
+| EP-28 | [Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints](EP-28-diagnostics.md) (D-29) | M | EP-15, EP-37 | core | ☑ `fef1e59` |
 | EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
 | EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
