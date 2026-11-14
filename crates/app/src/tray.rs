@@ -1,5 +1,5 @@
 //! The tray icon (D-21, D-29; EP-15): the window's mark in the notification area while it runs,
-//! shown or hidden. The tool draws the icon itself until EP-28 brings the app's own: a blue tile
+//! shown or hidden. The icon is the app's own, drawn by `crw_core::icon` (EP-28a): a blue tile
 //! with a roadmap's three rows, a red disc with the count of what waits for the owner
 //! (`Board::decisions_count`), and an amber dot while a badge event is new since the window was
 //! last in front (`toasts::Attention`). The tooltip says both in words. A left click shows the
@@ -13,6 +13,7 @@
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
+use crw_core::icon::{self, Look};
 use eframe::egui;
 use tray_icon::menu::{Menu, MenuEvent, MenuItem, PredefinedMenuItem};
 use tray_icon::{Icon, MouseButton, MouseButtonState, TrayIcon, TrayIconBuilder, TrayIconEvent};
@@ -25,27 +26,6 @@ const TOOLTIP: usize = 120;
 
 /// A replaced menu is kept this long, in case it was open when it was replaced.
 const RETIRED_FOR: Duration = Duration::from_secs(60);
-
-const BLUE: [u8; 3] = [37, 99, 235];
-const WHITE: [u8; 3] = [255, 255, 255];
-const RED: [u8; 3] = [220, 38, 38];
-const AMBER: [u8; 3] = [245, 158, 11];
-
-/// The count's digits and its plus, three pixels wide and five high: each row's three bits, the
-/// leftmost the highest.
-const GLYPHS: [(char, [u8; 5]); 11] = [
-    ('0', [0b111, 0b101, 0b101, 0b101, 0b111]),
-    ('1', [0b010, 0b110, 0b010, 0b010, 0b111]),
-    ('2', [0b111, 0b001, 0b111, 0b100, 0b111]),
-    ('3', [0b111, 0b001, 0b111, 0b001, 0b111]),
-    ('4', [0b101, 0b101, 0b111, 0b001, 0b001]),
-    ('5', [0b111, 0b100, 0b111, 0b001, 0b111]),
-    ('6', [0b111, 0b100, 0b111, 0b101, 0b111]),
-    ('7', [0b111, 0b001, 0b001, 0b001, 0b001]),
-    ('8', [0b111, 0b101, 0b111, 0b101, 0b111]),
-    ('9', [0b111, 0b101, 0b111, 0b001, 0b111]),
-    ('+', [0b000, 0b010, 0b111, 0b010, 0b000]),
-];
 
 /// What the tray asks of the window.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -91,14 +71,6 @@ pub struct State {
     /// A newer build is built or installed, to restart into (EP-37).
     pub restart: bool,
     /// The icon's side in pixels.
-    pub size: u32,
-}
-
-/// What the icon's pixels show.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Look {
-    pub waiting: usize,
-    pub new: bool,
     pub size: u32,
 }
 
@@ -219,7 +191,7 @@ impl Tray {
         let tooltip = tooltip(&state);
         let built = Built::new(entries(&state))?;
         let icon = TrayIconBuilder::new()
-            .with_icon(icon(&look)?)
+            .with_icon(drawn(&look)?)
             .with_tooltip(&tooltip)
             .with_menu(Box::new(built.menu.clone()))
             .with_menu_on_left_click(false)
@@ -246,7 +218,7 @@ impl Tray {
     pub fn update(&mut self, state: &State) {
         let look = look(state);
         if look != self.look {
-            match icon(&look)
+            match drawn(&look)
                 .and_then(|icon| self.icon.set_icon(Some(icon)).map_err(|e| e.to_string()))
             {
                 Ok(()) => self.look = look,
@@ -335,8 +307,9 @@ fn look(state: &State) -> Look {
     }
 }
 
-fn icon(look: &Look) -> Result<Icon, String> {
-    Icon::from_rgba(draw(look), look.size, look.size).map_err(|e| e.to_string())
+/// The tray's icon for `look`, drawn by the app's own icon with its badges.
+fn drawn(look: &Look) -> Result<Icon, String> {
+    Icon::from_rgba(icon::draw(look), look.size, look.size).map_err(|e| e.to_string())
 }
 
 /// `text` with its ampersands doubled, which a Windows menu would read as a mnemonic's mark.
@@ -416,148 +389,9 @@ fn entries(state: &State) -> Vec<Entry> {
     entries
 }
 
-/// The icon's pixels for `look`, RGBA, `look.size` square.
-pub fn draw(look: &Look) -> Vec<u8> {
-    let s = look.size as f32;
-    let mut canvas = Canvas::new(look.size);
-    canvas.rounded([0.06 * s, 0.06 * s, 0.94 * s, 0.94 * s], 0.22 * s, BLUE);
-    let half = 0.055 * s;
-    for (y, length) in [(0.32, 0.50), (0.50, 0.38), (0.68, 0.26)] {
-        let rect = [0.24 * s, y * s - half, (0.24 + length) * s, y * s + half];
-        canvas.rounded(rect, half, WHITE);
-    }
-    let ring = (s / 24.0).max(1.0);
-    if look.new {
-        let (x, y, r) = (0.80 * s, 0.20 * s, 0.17 * s);
-        canvas.disc(x, y, r + ring, WHITE);
-        canvas.disc(x, y, r, AMBER);
-    }
-    if look.waiting > 0 {
-        let r = 0.30 * s;
-        let centre = s - r - 0.02 * s;
-        canvas.disc(centre, centre, r + ring, WHITE);
-        canvas.disc(centre, centre, r, RED);
-        let count = if look.waiting > 9 {
-            "9+".to_owned()
-        } else {
-            look.waiting.to_string()
-        };
-        canvas.text(&count, centre, centre, 2.0 * (r - ring), WHITE);
-    }
-    canvas.pixels
-}
-
-/// Straight-alpha RGBA pixels, drawn with each pixel covered by how much of it a shape holds.
-struct Canvas {
-    size: u32,
-    pixels: Vec<u8>,
-}
-
-impl Canvas {
-    fn new(size: u32) -> Self {
-        Self {
-            size,
-            pixels: vec![0; (size * size * 4) as usize],
-        }
-    }
-
-    /// Lays `rgb` over the pixel at `x`, `y` by `cover`, from 0 to 1.
-    fn blend(&mut self, x: u32, y: u32, rgb: [u8; 3], cover: f32) {
-        let a = cover.clamp(0.0, 1.0);
-        if a == 0.0 {
-            return;
-        }
-        let at = ((y * self.size + x) * 4) as usize;
-        let below = f32::from(self.pixels[at + 3]) / 255.0;
-        let alpha = a + below * (1.0 - a);
-        for (channel, value) in rgb.into_iter().enumerate() {
-            let was = f32::from(self.pixels[at + channel]);
-            let mixed = (f32::from(value) * a + was * below * (1.0 - a)) / alpha;
-            self.pixels[at + channel] = mixed.round() as u8;
-        }
-        self.pixels[at + 3] = (alpha * 255.0).round() as u8;
-    }
-
-    /// Fills `rgb` by `cover`, which gives how much of the pixel centred at `x`, `y` lies inside.
-    fn fill(&mut self, rgb: [u8; 3], cover: impl Fn(f32, f32) -> f32) {
-        for y in 0..self.size {
-            for x in 0..self.size {
-                let inside = cover(x as f32 + 0.5, y as f32 + 0.5);
-                self.blend(x, y, rgb, inside);
-            }
-        }
-    }
-
-    fn disc(&mut self, cx: f32, cy: f32, r: f32, rgb: [u8; 3]) {
-        self.fill(rgb, |x, y| r - (x - cx).hypot(y - cy) + 0.5);
-    }
-
-    /// A rectangle `[left, top, right, bottom]` with its corners rounded by `radius`.
-    fn rounded(&mut self, rect: [f32; 4], radius: f32, rgb: [u8; 3]) {
-        let [left, top, right, bottom] = rect;
-        let (cx, cy) = ((left + right) / 2.0, (top + bottom) / 2.0);
-        let (hx, hy) = ((right - left) / 2.0 - radius, (bottom - top) / 2.0 - radius);
-        self.fill(rgb, |x, y| {
-            let (qx, qy) = ((x - cx).abs() - hx, (y - cy).abs() - hy);
-            let outside = qx.max(0.0).hypot(qy.max(0.0));
-            let inside = qx.max(qy).min(0.0);
-            0.5 - (outside + inside - radius)
-        });
-    }
-
-    /// Writes `text` in [`GLYPHS`] centred on `cx`, `cy`: as large as fits in `width`, by whole
-    /// pixels, a twelfth of the icon at most.
-    fn text(&mut self, text: &str, cx: f32, cy: f32, width: f32, rgb: [u8; 3]) {
-        let glyphs: Vec<[u8; 5]> = text
-            .chars()
-            .filter_map(|c| GLYPHS.iter().find(|(glyph, _)| *glyph == c))
-            .map(|(_, rows)| *rows)
-            .collect();
-        let count = glyphs.len() as u32;
-        if count == 0 {
-            return;
-        }
-        let span = |scale: u32| count * 4 * scale - scale;
-        let mut scale = (self.size / 12).max(1);
-        while scale > 1 && span(scale) as f32 > width {
-            scale -= 1;
-        }
-        let left = (cx - span(scale) as f32 / 2.0).round() as i64;
-        let top = (cy - (5 * scale) as f32 / 2.0).round() as i64;
-        let size = i64::from(self.size);
-        for (n, rows) in glyphs.iter().enumerate() {
-            for (row, bits) in rows.iter().enumerate() {
-                for column in 0..3 {
-                    if bits & (0b100 >> column) == 0 {
-                        continue;
-                    }
-                    for dy in 0..scale {
-                        for dx in 0..scale {
-                            let x = left + i64::from((n as u32 * 4 + column) * scale + dx);
-                            let y = top + i64::from(row as u32 * scale + dy);
-                            if (0..size).contains(&x) && (0..size).contains(&y) {
-                                self.blend(x as u32, y as u32, rgb, 1.0);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn pixel(pixels: &[u8], size: u32, x: u32, y: u32) -> [u8; 4] {
-        let at = ((y * size + x) * 4) as usize;
-        [pixels[at], pixels[at + 1], pixels[at + 2], pixels[at + 3]]
-    }
-
-    fn opaque(rgb: [u8; 3]) -> [u8; 4] {
-        [rgb[0], rgb[1], rgb[2], 255]
-    }
 
     fn state(waiting: usize, new: &str) -> State {
         State {
@@ -571,39 +405,22 @@ mod tests {
         }
     }
 
+    /// The tray's look follows its state: the count, whether something is new, the side held to
+    /// what a tray shows (the drawing itself is `crw_core::icon`'s, tested there).
     #[test]
-    fn the_icon_is_a_tile_with_a_count_and_a_dot_when_asked() {
-        let plain = draw(&Look {
-            waiting: 0,
-            new: false,
-            size: 24,
-        });
-        assert_eq!(plain.len(), 24 * 24 * 4);
-        // The corner lies outside the tile's rounding; above the rows, the tile.
-        assert_eq!(pixel(&plain, 24, 0, 0)[3], 0);
-        assert_eq!(pixel(&plain, 24, 12, 3), opaque(BLUE));
-        assert_eq!(pixel(&plain, 24, 8, 7), opaque(WHITE));
-        let has =
-            |pixels: &[u8], rgb: [u8; 3]| pixels.chunks(4).any(|px| px == opaque(rgb).as_slice());
-        assert!(!has(&plain, RED) && !has(&plain, AMBER));
-
-        let marked = draw(&Look {
-            waiting: 3,
-            new: true,
-            size: 24,
-        });
-        // The disc's centre is the 3's middle bar; beside the digit, the disc.
-        assert_eq!(pixel(&marked, 24, 16, 16), opaque(WHITE));
-        assert_eq!(pixel(&marked, 24, 11, 16), opaque(RED));
-        assert_eq!(pixel(&marked, 24, 19, 4), opaque(AMBER));
-        // Many waiting: 9+, its two glyphs inside the disc.
-        let many = draw(&Look {
-            waiting: 14,
-            new: false,
-            size: 16,
-        });
-        assert!(has(&many, RED));
-        assert_eq!(many.len(), 16 * 16 * 4);
+    fn the_look_follows_the_state() {
+        let mut shown = state(3, "1 inbox message");
+        assert_eq!(
+            look(&shown),
+            Look {
+                waiting: 3,
+                new: true,
+                size: 24,
+            }
+        );
+        shown.size = 512;
+        assert_eq!(look(&shown).size, 64);
+        assert!(!look(&state(0, "")).new);
     }
 
     #[test]

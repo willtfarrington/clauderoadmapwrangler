@@ -10,6 +10,7 @@
 //! helpers the extension starts, the tabs a window restores and a compaction's restart get none).
 
 pub mod agents;
+pub mod reconcile;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

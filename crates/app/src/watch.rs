@@ -22,7 +22,9 @@ use crw_core::ledger::Ledger;
 use crw_core::process;
 use crw_core::revert::{self, Start};
 use crw_core::sessions::agents::{self, Agent};
-use crw_core::sessions::{self, Change, Mode, Registered, Seen, Sessions, Status, VISUAL_CLAIM};
+use crw_core::sessions::{
+    self, Change, Mode, Registered, Seen, Sessions, Status, VISUAL_CLAIM, reconcile,
+};
 use crw_core::signals::{self, Hook, Signal, StatusLine, Yield, install};
 use eframe::egui;
 
@@ -42,7 +44,8 @@ const STEP: Duration = Duration::from_millis(250);
 /// How often the visual launches past their window are closed (EP-13).
 const LAPSE_EVERY: Duration = Duration::from_secs(60);
 
-type Listing = Result<Vec<Agent>, String>;
+/// A listing of the live sessions, with how many of its entries did not read (EP-28a).
+type Listing = Result<(Vec<Agent>, usize), String>;
 
 /// The poll's thread: its listings, and the focus it paces itself by.
 struct Poller {
@@ -90,6 +93,19 @@ pub struct Watch {
     pub yielded: bool,
     /// A second window asked this one to show itself.
     show_asked: bool,
+    /// A start at login (EP-28a): a window found holding the port is not asked to show itself,
+    /// and this one quits quietly.
+    pub quiet: bool,
+    /// When the watch started: the start-up reconciliation closes only older rows (EP-28a).
+    /// None in tests and screenshot runs, which reconcile nothing.
+    started: Option<DateTime<Utc>>,
+    /// What the start-up reconciliation closed, or why it failed; none until it has run.
+    reconciled: Option<Result<Vec<reconcile::Closing>, String>>,
+    /// Claude Code's folder, whose transcripts' last writes end the closed rows; none in tests.
+    claude_dir: Option<PathBuf>,
+    /// The session ids of the latest listing that left no entry out: the reconciliation waits for
+    /// two such listings in a row, a session in either of them counting as live.
+    previous_listing: Option<HashSet<String>>,
 }
 
 /// The starts of the sessions the hooks see begin (EP-15b): read on a worker thread, one git child
@@ -142,6 +158,8 @@ impl Watch {
     ) {
         self.port = port;
         self.guard = guard;
+        self.started = Some(Utc::now());
+        self.claude_dir = crw_core::usage::claude_dir();
         self.bind(ctx);
         self.poller = poll(program, ctx.clone());
         self.starts.backups = Some(backups);
@@ -178,6 +196,12 @@ impl Watch {
                     self.yielded = true;
                     self.guard_words = Some("another window holds it and was shown".to_owned());
                 }
+                Ok(Yield::Present) => {
+                    self.probe = None;
+                    self.yielded = true;
+                    self.guard_words =
+                        Some("another window holds it; a start at login leaves it be".to_owned());
+                }
                 Ok(Yield::NoWindow) => {
                     self.probe = None;
                     self.guard_words =
@@ -210,10 +234,11 @@ impl Watch {
         {
             let (sender, receiver) = mpsc::channel();
             let ctx = self.starts.ctx.clone();
+            let show = !self.quiet;
             let spawned = thread::Builder::new()
                 .name("single instance".to_owned())
                 .spawn(move || {
-                    let _ = sender.send(signals::ask_show(port));
+                    let _ = sender.send(signals::ask_show(port, show));
                     if let Some(ctx) = ctx {
                         ctx.request_repaint();
                     }
@@ -326,12 +351,17 @@ impl Watch {
             }
             for listing in listings {
                 match listing {
-                    Ok(agents) => {
+                    Ok((agents, left_out)) => {
+                        self.reconcile(&agents, left_out, ledger, now);
                         for change in self.model.poll(&agents, &projects, now) {
                             self.record(&change, ledger);
                         }
                     }
-                    Err(why) => self.model.poll_failed(why),
+                    Err(why) => {
+                        // Two listings in a row, for the start's reconciliation (EP-28a).
+                        self.previous_listing = None;
+                        self.model.poll_failed(why);
+                    }
                 }
             }
             self.learn_modes(ledger);
@@ -577,6 +607,87 @@ impl Watch {
         }
     }
 
+    /// The start-up reconciliation (D-29; EP-28a), once, as only the window that holds the port
+    /// hears the hooks: at the second listing in a row that left no entry out (`left_out` counts
+    /// the entries that did not read as a session with an id) while this window holds the port.
+    /// The ledger's open rows from before the window's start are weighed against the ids of both
+    /// listings (`reconcile::choose`), the closings kept in one transaction, and the window's
+    /// lines and the log say what was closed. A failure is tried again at the next listing.
+    fn reconcile(
+        &mut self,
+        agents: &[Agent],
+        left_out: usize,
+        ledger: Option<&Path>,
+        now: DateTime<Utc>,
+    ) {
+        let (Some(started), Some(path)) = (self.started, ledger) else {
+            return;
+        };
+        if matches!(self.reconciled, Some(Ok(_))) {
+            return;
+        }
+        // A listing that left an entry out may have missed a live session: the count starts
+        // afresh.
+        if left_out > 0 {
+            self.previous_listing = None;
+            return;
+        }
+        let ids: HashSet<String> = agents
+            .iter()
+            .filter_map(|agent| agent.session_id.clone())
+            .collect();
+        let Some(previous) = self.previous_listing.replace(ids.clone()) else {
+            return;
+        };
+        if !matches!(self.listening, Some(Listening::On(_))) {
+            return;
+        }
+        let live: HashSet<String> = previous.union(&ids).cloned().collect();
+        let claude = self.claude_dir.clone();
+        let outcome = Ledger::open(path).and_then(|opened| {
+            let open = opened.open_rows()?;
+            let closings = reconcile::choose(&open, &live, started, |id| {
+                claude
+                    .as_deref()
+                    .and_then(|dir| reconcile::last_write(dir, id))
+            });
+            reconcile::apply(&opened, &closings, now)
+        });
+        match &outcome {
+            Ok(closed) if closed.is_empty() => {}
+            Ok(closed) => {
+                self.recorded = true;
+                crw_core::log::line("reconcile", &reconcile::words(closed));
+            }
+            Err(e) => crw_core::log::line(
+                "error",
+                &format!("the start's reconciliation of the ledger failed: {e}"),
+            ),
+        }
+        self.reconciled = Some(outcome.map_err(|e| e.to_string()));
+    }
+
+    /// The start-up reconciliation in words for the Diagnostics pane (EP-28a), and whether it
+    /// is a warning; none in a test or a screenshot run, which reconcile nothing.
+    pub fn reconcile_line(&self) -> Option<(String, bool)> {
+        self.started?;
+        Some(match &self.reconciled {
+            Some(Ok(closed)) => (reconcile::words(closed), false),
+            Some(Err(why)) => (
+                format!("it failed and is tried again at the next poll: {why}"),
+                true,
+            ),
+            None if !matches!(self.listening, Some(Listening::On(_))) => (
+                "this window holds no loopback port, so the window that does reconciles".to_owned(),
+                false,
+            ),
+            None => (
+                "waits for two polls of live sessions in a row that read whole".to_owned(),
+                false,
+            ),
+        })
+    }
+
     /// Whether a session's start in the project called `name` is being read, which a revert there
     /// waits for (EP-15c).
     pub fn reading_start(&self, name: &str) -> bool {
@@ -733,7 +844,7 @@ fn poll(program: PathBuf, ctx: egui::Context) -> Option<Poller> {
                     continue;
                 }
                 last = Some(Instant::now());
-                if sender.send(agents::ask(&program)).is_err() {
+                if sender.send(agents::ask_counting(&program)).is_err() {
                     return;
                 }
                 ctx.request_repaint();
@@ -871,6 +982,88 @@ mod tests {
                 .iter()
                 .all(|id| watch.moded.contains(*id))
         );
+    }
+
+    /// The start-up reconciliation (EP-28a): only a window that holds the port runs it, once,
+    /// at a listing; it closes an older open row whose session is not listed and leaves a live
+    /// one, and the pane's line says what it closed. A test's watch never started reconciles
+    /// nothing.
+    #[test]
+    fn the_start_closes_the_rows_no_window_heard_end_once() {
+        let scratch = Scratch::new("watch-reconcile");
+        let path = scratch.0.join("ledger.sqlite");
+        let ledger = Ledger::open(&path).unwrap();
+        for id in ["gone", "live"] {
+            ledger
+                .start_session(&crw_core::ledger::NewSession {
+                    session_id: Some(id),
+                    project: "alpha",
+                    ep: Some("EP-4"),
+                    mode: "visual",
+                    model: None,
+                    effort: None,
+                    ultracode: false,
+                    started_at: Utc::now() - chrono::TimeDelta::hours(30),
+                })
+                .unwrap();
+        }
+        drop(ledger);
+        let live = Agent {
+            session_id: Some("live".to_owned()),
+            status: Some("idle".to_owned()),
+            ..Agent::default()
+        };
+        let listing = std::slice::from_ref(&live);
+        let mut watch = Watch::default();
+        assert_eq!(watch.reconcile_line(), None);
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        assert!(
+            watch.reconciled.is_none(),
+            "never started: nothing reconciled"
+        );
+
+        watch.started = Some(Utc::now() - chrono::TimeDelta::seconds(5));
+        watch.listening = Some(Listening::Taken(47999, "taken".to_owned()));
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        assert!(watch.reconciled.is_none(), "another window holds the port");
+        assert!(
+            watch
+                .reconcile_line()
+                .is_some_and(|(line, warns)| !warns && line.contains("holds no loopback port"))
+        );
+
+        // A listing that left an entry out starts the count afresh: two whole ones are needed.
+        watch.listening = Some(Listening::On(47999));
+        watch.reconcile(listing, 1, Some(&path), Utc::now());
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        assert!(
+            watch.reconciled.is_none(),
+            "one whole listing since the count began"
+        );
+        assert!(
+            watch
+                .reconcile_line()
+                .is_some_and(|(line, _)| line.contains("two polls"))
+        );
+        watch.reconcile(listing, 0, Some(&path), Utc::now());
+        let (line, warns) = watch.reconcile_line().unwrap();
+        assert!(!warns);
+        assert!(line.starts_with("closed 1 row no window heard end: gone (alpha, visual"));
+        assert!(watch.recorded);
+        let open: Vec<Option<String>> = Ledger::open(&path)
+            .unwrap()
+            .open_rows()
+            .unwrap()
+            .into_iter()
+            .map(|row| row.session_id)
+            .collect();
+        assert_eq!(open, [Some("live".to_owned())]);
+        // Once: later listings without the live session close nothing more.
+        watch.reconcile(&[], 0, Some(&path), Utc::now());
+        watch.reconcile(&[], 0, Some(&path), Utc::now());
+        assert_eq!(Ledger::open(&path).unwrap().open_rows().unwrap().len(), 1);
     }
 
     /// The sessions that worked since the meter's last reading (EP-18a): a turn's end, a wait

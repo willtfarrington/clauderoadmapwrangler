@@ -78,21 +78,39 @@ impl Agent {
 
 /// The listing's text read; an entry that does not read as a session is passed over.
 pub fn parse(text: &str) -> Result<Vec<Agent>, String> {
+    parse_counting(text).map(|(agents, _)| agents)
+}
+
+/// The listing's text read, with how many of its entries did not read as a session with an id
+/// (EP-28a): the start-up reconciliation trusts only a listing that left none out, since a CLI
+/// that changed the entries' form would otherwise read as no session at all.
+pub fn parse_counting(text: &str) -> Result<(Vec<Agent>, usize), String> {
     let entries: Vec<Value> = serde_json::from_str(text.trim())
         .map_err(|e| format!("claude agents --json printed no list: {e}"))?;
-    Ok(entries
+    let all = entries.len();
+    let agents: Vec<Agent> = entries
         .into_iter()
         .filter_map(|entry| serde_json::from_value(entry).ok())
-        .collect())
+        .collect();
+    let named = agents
+        .iter()
+        .filter(|agent| agent.session_id.as_deref().is_some_and(|id| !id.is_empty()))
+        .count();
+    Ok((agents, all - named))
 }
 
 /// Asks `program` (the Claude Code CLI) for its live sessions: one child, in its turn (D-29).
 pub fn ask(program: &Path) -> Result<Vec<Agent>, String> {
+    ask_counting(program).map(|(agents, _)| agents)
+}
+
+/// [`ask`], with how many entries the listing left out ([`parse_counting`]).
+pub fn ask_counting(program: &Path) -> Result<(Vec<Agent>, usize), String> {
     let remove = session::markers(env::vars_os().map(|(name, _)| name));
     let _turn = process::turn();
     let text = process::output_without(program, ["agents", "--json"], &remove, TIMEOUT)
         .map_err(|e| format!("claude agents --json: {e}"))?;
-    parse(&text)
+    parse_counting(&text)
 }
 
 #[cfg(test)]
@@ -129,5 +147,14 @@ mod tests {
         assert_eq!(agents[1].folder(), Path::new(r"c:\data\beta"));
         assert_eq!(parse("[]").unwrap(), []);
         assert!(parse("Usage: claude agents").is_err());
+        // The two entries that are no session are counted as left out (EP-28a), and so is a
+        // session with no id.
+        let (read, left_out) = parse_counting(
+            r#"[{"sessionId": "a0", "status": "busy"}, "not a session", {"pid": "x"},
+                {"status": "idle"}]"#,
+        )
+        .unwrap();
+        assert_eq!((read.len(), left_out), (2, 3));
+        assert_eq!(parse_counting("[]").unwrap().1, 0);
     }
 }

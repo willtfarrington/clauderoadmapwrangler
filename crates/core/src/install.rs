@@ -11,12 +11,19 @@
 //! with [`RESTARTED_FLAG`] and its own process id, and the new window waits for the old one to end
 //! before it opens. The window takes a build for its own install only once the build has settled
 //! ([`build_ready`]), so that it never copies an exe the linker is still writing.
+//!
+//! EP-28a adds `crw` on PATH (IN-3) and the shortcuts' icon. The copy of `crw.exe` on PATH sits
+//! in [`path_dir`], the folder Claude Code's installer puts `claude.exe` in and on PATH; it is
+//! placed, refreshed and removed the way an install copies ([`place_path_copy`],
+//! [`remove_path_copy`]), and it touches nothing there but `crw.exe`, its staged copy and its
+//! previous copies. [`write_icon`] writes the app's own icon beside the installed exes, which the
+//! shortcuts show.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::{paths, process};
+use crate::{files, icon, paths, process};
 
 /// The install's folder under the local folder.
 pub const BIN_DIR: &str = "bin";
@@ -38,9 +45,23 @@ pub const RESTARTED_FLAG: &str = "--restarted";
 /// How long a restarted window waits for the old one to end: its state saved, its port free.
 pub const WAIT_FOR_OLD: Duration = Duration::from_secs(10);
 
+/// The folder under `CRW_HOME` that stands in for the PATH folder in a trial.
+pub const TRIAL_PATH_DIR: &str = "path";
+
 /// `%LOCALAPPDATA%\clauderoadmapwrangler\bin`, or `CRW_HOME\bin`.
 pub fn bin_dir() -> Option<PathBuf> {
     Some(paths::local_dir()?.join(BIN_DIR))
+}
+
+/// The folder of `crw`'s copy on PATH (IN-3): `%USERPROFILE%\.local\bin`, where Claude Code's
+/// installer puts `claude.exe` and which it puts on PATH; `CRW_HOME\path` in a trial.
+pub fn path_dir() -> Option<PathBuf> {
+    match paths::home() {
+        Some(home) => Some(home.join(TRIAL_PATH_DIR)),
+        None => std::env::var_os("USERPROFILE")
+            .filter(|value| !value.is_empty())
+            .map(|profile| PathBuf::from(profile).join(".local").join("bin")),
+    }
 }
 
 /// The release build of the repository this build was compiled in.
@@ -134,13 +155,154 @@ pub fn install(from: &Path, to: &Path, stamp: &str) -> Result<Report, String> {
             ));
         }
     }
+    copy_exes(from, to, stamp, &EXES)
+}
+
+/// Places `crw`'s copy on PATH (IN-3; EP-28a): the installed `crw.exe` in `bin` copied into
+/// `dir`, the folder made if it is missing, the way an install copies. A copy there that runs is
+/// renamed to a previous copy, and the previous copies of an earlier time are removed. Nothing
+/// else in `dir` is touched: it holds other programs.
+pub fn place_path_copy(bin: &Path, dir: &Path, stamp: &str) -> Result<Report, String> {
+    let installed = bin.join(CLI_EXE);
+    if Stamp::of(&installed).is_none() {
+        return Err(format!(
+            "{} is missing: install first (pwsh -File scripts\\install-shortcut.ps1)",
+            installed.display()
+        ));
+    }
+    let copy = dir.join(CLI_EXE);
+    if is_ours(&copy) == Some(false) {
+        return Err(foreign(&copy));
+    }
+    copy_exes(bin, dir, stamp, &[CLI_EXE])
+}
+
+/// Whether the `crw.exe` at `path` is this tool's (EP-28a's review): its bytes name the tool's
+/// folder, as every build of it does, and another program's `crw.exe` in the PATH folder (a
+/// tool that uv or pipx put there) would not. None when the file does not read: absent, or held
+/// by a process that shares no reading, which a later remove or rename then names.
+fn is_ours(path: &Path) -> Option<bool> {
+    let mark = paths::APP_DIR.as_bytes();
+    fs::read(path)
+        .ok()
+        .map(|bytes| bytes.windows(mark.len()).any(|window| window == mark))
+}
+
+/// The words for another program's `crw.exe` in the PATH folder, which is left alone.
+fn foreign(copy: &Path) -> String {
+    format!(
+        "{} is another program's crw.exe, left alone: this tool's copy cannot go there",
+        copy.display()
+    )
+}
+
+/// Removes `crw`'s copy on PATH from `dir`, with the previous copies of an earlier time and a
+/// staged copy an interrupted pass left: whether there was a copy. A copy that runs cannot be
+/// removed, so it is renamed to a previous copy dated `stamp`, which the next `crw path on` or
+/// `crw path off` removes. Nothing else in `dir` is touched.
+pub fn remove_path_copy(dir: &Path, stamp: &str) -> Result<bool, String> {
+    for (_, path) in previous_copies(dir, &[CLI_EXE]) {
+        // One that still runs stays for the next pass.
+        let _ = fs::remove_file(path);
+    }
+    let _ = fs::remove_file(dir.join(staged_name(CLI_EXE)));
+    let copy = dir.join(CLI_EXE);
+    if Stamp::of(&copy).is_none() {
+        return Ok(false);
+    }
+    if is_ours(&copy) == Some(false) {
+        return Err(foreign(&copy));
+    }
+    let refused = match fs::remove_file(&copy) {
+        Ok(()) => return Ok(true),
+        Err(e) => e,
+    };
+    // Windows lets a running exe be renamed, not removed.
+    let previous = dir.join(previous_name(dir, CLI_EXE, stamp));
+    if let Err(e) = fs::rename(&copy, &previous) {
+        return Err(format!(
+            "{} could not be removed ({refused}) or renamed ({e})",
+            copy.display()
+        ));
+    }
+    let _ = fs::remove_file(&previous);
+    Ok(true)
+}
+
+/// `crw`'s copy on PATH, set against the installed one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PathCopy {
+    Absent,
+    /// The copy, as the installed build: the same size and last write.
+    AsInstalled(PathBuf),
+    /// The copy, of another build than the installed one, older or newer.
+    Differs(PathBuf),
+    /// Another program's `crw.exe`, which the tool leaves alone.
+    Foreign(PathBuf),
+}
+
+/// The copy of `crw.exe` in `dir`, against the installed one in `bin`.
+pub fn path_copy(bin: &Path, dir: &Path) -> PathCopy {
+    let copy = dir.join(CLI_EXE);
+    match Stamp::of(&copy) {
+        None => PathCopy::Absent,
+        Some(stamp) if Stamp::of(&bin.join(CLI_EXE)) == Some(stamp) => PathCopy::AsInstalled(copy),
+        Some(_) if is_ours(&copy) == Some(false) => PathCopy::Foreign(copy),
+        Some(_) => PathCopy::Differs(copy),
+    }
+}
+
+/// Writes the app's own icon as [`icon::ICO_FILE`] in `to`, for the shortcuts (EP-28a): through a
+/// temporary name and a rename, and only when the file there differs from the drawing; whether
+/// it was written.
+pub fn write_icon(to: &Path) -> Result<bool, String> {
+    let bytes = icon::ico(&icon::ICO_SIZES);
+    let path = to.join(icon::ICO_FILE);
+    if fs::read(&path).is_ok_and(|there| there == bytes) {
+        return Ok(false);
+    }
+    fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    files::write_atomic(&path, &bytes).map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(true)
+}
+
+/// What follows an install of the exes into `bin` (EP-28a), in lines: the icon written beside
+/// them when it differs, then `crw`'s copy on PATH in `path_dir` refreshed while there is one,
+/// dated `stamp`. A failure of either is a warning line: the exes are installed all the same.
+pub fn after_install(bin: &Path, path_dir: Option<&Path>, stamp: &str) -> Vec<String> {
+    let mut lines = vec![match write_icon(bin) {
+        Ok(true) => format!("{} written", icon::ICO_FILE),
+        Ok(false) => format!("{} is as drawn already", icon::ICO_FILE),
+        Err(e) => format!("warning: {} was not written: {e}", icon::ICO_FILE),
+    }];
+    if let Some(dir) = path_dir.filter(|dir| dir.join(CLI_EXE).is_file()) {
+        match place_path_copy(bin, dir, stamp) {
+            Ok(report) => lines.extend(
+                report
+                    .lines()
+                    .into_iter()
+                    .map(|line| format!("the copy on PATH in {}: {line}", dir.display())),
+            ),
+            Err(e) => lines.push(format!(
+                "warning: the copy on PATH in {} was not refreshed: {e}",
+                dir.display()
+            )),
+        }
+    }
+    lines
+}
+
+/// Copies the exes called `names` from `from` into `to`, which [`install`] describes: the
+/// previous copies of these exes removed, the copies staged, then each renamed into place. Only
+/// these exes' files are touched in `to`.
+fn copy_exes(from: &Path, to: &Path, stamp: &str, names: &[&str]) -> Result<Report, String> {
     fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     let mut report = Report {
         from: from.to_path_buf(),
         to: to.to_path_buf(),
         ..Report::default()
     };
-    for (name, path) in previous_copies(to) {
+    for (name, path) in previous_copies(to, names) {
         match fs::remove_file(&path) {
             Ok(()) => report.removed.push(name),
             Err(e) => report.kept.push((name, e.to_string())),
@@ -148,7 +310,7 @@ pub fn install(from: &Path, to: &Path, stamp: &str) -> Result<Report, String> {
     }
     // The copies first, beside their places: one that fails leaves the folder as it was.
     let mut staged: Vec<(&str, PathBuf)> = Vec::new();
-    for name in EXES {
+    for &name in names {
         let (source, target) = (from.join(name), to.join(name));
         let copy = to.join(staged_name(name));
         // A staged copy an interrupted install left.
@@ -238,8 +400,9 @@ fn copy_keeping_time(source: &Path, target: &Path, modified: SystemTime) -> std:
         .set_modified(modified)
 }
 
-/// The previous copies an earlier install left in `folder`, by name, oldest name first.
-pub fn previous_copies(folder: &Path) -> Vec<(String, PathBuf)> {
+/// The previous copies of the exes called `names` an earlier pass left in `folder`, by name,
+/// oldest name first.
+pub fn previous_copies(folder: &Path, names: &[&str]) -> Vec<(String, PathBuf)> {
     let Ok(entries) = fs::read_dir(folder) else {
         return Vec::new();
     };
@@ -248,17 +411,17 @@ pub fn previous_copies(folder: &Path) -> Vec<(String, PathBuf)> {
         .filter(|entry| entry.file_type().is_ok_and(|kind| kind.is_file()))
         .filter_map(|entry| {
             let name = entry.file_name().to_string_lossy().into_owned();
-            is_previous(&name).then(|| (name, entry.path()))
+            is_previous(&name, names).then(|| (name, entry.path()))
         })
         .collect();
     found.sort();
     found
 }
 
-/// Whether `name` is a previous copy of one of [`EXES`].
-fn is_previous(name: &str) -> bool {
+/// Whether `name` is a previous copy of one of the exes called `names`.
+fn is_previous(name: &str, names: &[&str]) -> bool {
     let name = name.to_ascii_lowercase();
-    EXES.iter().any(|exe| {
+    names.iter().any(|exe| {
         let stem = exe.trim_end_matches(".exe");
         name.strip_prefix(stem)
             .and_then(|rest| rest.strip_prefix(PREVIOUS))
@@ -610,17 +773,217 @@ mod tests {
 
     #[test]
     fn previous_copies_are_known_by_their_mark() {
-        assert!(is_previous("crw.previous-20261110-081000.exe"));
+        assert!(is_previous("crw.previous-20261110-081000.exe", &EXES));
         assert!(is_previous(
-            "ClaudeRoadmapWrangler.previous-20261110-081000-2.exe"
+            "ClaudeRoadmapWrangler.previous-20261110-081000-2.exe",
+            &EXES
         ));
-        assert!(!is_previous("crw.exe"));
-        assert!(!is_previous("crw.previous-.exe"));
-        assert!(!is_previous("other.previous-20261110.exe"));
-        assert!(!is_previous("crw.previous-20261110.txt"));
+        assert!(!is_previous("crw.exe", &EXES));
+        assert!(!is_previous("crw.previous-.exe", &EXES));
+        assert!(!is_previous("other.previous-20261110.exe", &EXES));
+        assert!(!is_previous("crw.previous-20261110.txt", &EXES));
         // A staged copy is no previous copy.
-        assert!(!is_previous(&staged_name(CLI_EXE)));
+        assert!(!is_previous(&staged_name(CLI_EXE), &EXES));
         assert_eq!(staged_name(CLI_EXE), "crw.installing.exe");
+        // Only the names asked: the PATH folder's pass knows crw's alone.
+        assert!(is_previous("crw.previous-20261110-081000.exe", &[CLI_EXE]));
+        assert!(!is_previous(
+            "clauderoadmapwrangler.previous-20261110-081000.exe",
+            &[CLI_EXE]
+        ));
+    }
+
+    /// The PATH folder in a trial is CRW_HOME's; else the folder Claude Code's installer puts on
+    /// PATH, under the profile.
+    #[test]
+    fn the_path_folder_is_beside_claude_code_or_the_trials() {
+        let dir = path_dir();
+        match paths::home() {
+            Some(home) => assert_eq!(dir, Some(home.join(TRIAL_PATH_DIR))),
+            None if std::env::var_os("USERPROFILE").is_some() => {
+                assert!(dir.unwrap().ends_with(Path::new(".local").join("bin")));
+            }
+            None => assert_eq!(dir, None),
+        }
+    }
+
+    /// The copy on PATH is placed, refreshed while a running copy is renamed, and removed; the
+    /// folder's other programs, and a previous copy of the window's, are never touched.
+    #[test]
+    fn the_path_copy_is_placed_refreshed_and_removed() {
+        let scratch = Scratch::new("install-path-copy");
+        let (from, bin, dir) = (
+            scratch.0.join("release"),
+            scratch.0.join("bin"),
+            scratch.0.join("path"),
+        );
+        // Nothing installed: refused, and the folder is not made.
+        let error = place_path_copy(&bin, &dir, "20261114-080000").unwrap_err();
+        assert!(error.contains("install first"), "{error}");
+        assert!(!dir.exists());
+        assert_eq!(path_copy(&bin, &dir), PathCopy::Absent);
+
+        // Every build names the tool's folder, by which a copy is known for the tool's.
+        build(&from, "one of clauderoadmapwrangler", at(0));
+        install(&from, &bin, "20261114-080000").unwrap();
+        // A folder made on the way; the first pass copies.
+        let report = place_path_copy(&bin, &dir, "20261114-080100").unwrap();
+        assert_eq!(report.copied, vec![CLI_EXE]);
+        assert_eq!(names(&dir), vec![CLI_EXE]);
+        assert_eq!(
+            path_copy(&bin, &dir),
+            PathCopy::AsInstalled(dir.join(CLI_EXE))
+        );
+        // The folder's other programs, and a file that looks like the window's previous copy.
+        let others = [
+            "claude.exe",
+            "clauderoadmapwrangler.previous-20261110-080000.exe",
+        ];
+        for name in others {
+            fs::write(dir.join(name), name).unwrap();
+        }
+        // As installed: left alone.
+        let again = place_path_copy(&bin, &dir, "20261114-080200").unwrap();
+        assert_eq!(again.unchanged, vec![CLI_EXE]);
+        assert!(again.copied.is_empty() && again.removed.is_empty());
+
+        // A newer install: the copy differs until it is refreshed, the one before renamed.
+        build(&from, "two of clauderoadmapwrangler", at(10));
+        install(&from, &bin, "20261114-081000").unwrap();
+        assert_eq!(path_copy(&bin, &dir), PathCopy::Differs(dir.join(CLI_EXE)));
+        let refreshed = place_path_copy(&bin, &dir, "20261114-081100").unwrap();
+        assert_eq!(
+            refreshed.renamed,
+            vec![(
+                CLI_EXE.to_owned(),
+                "crw.previous-20261114-081100.exe".to_owned()
+            )]
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join(CLI_EXE)).unwrap(),
+            "crw.exe: two of clauderoadmapwrangler"
+        );
+        // The next refresh removes crw's previous copy, never the window's.
+        build(&from, "three of clauderoadmapwrangler", at(20));
+        install(&from, &bin, "20261114-082000").unwrap();
+        let next = place_path_copy(&bin, &dir, "20261114-082100").unwrap();
+        assert_eq!(next.removed, vec!["crw.previous-20261114-081100.exe"]);
+        assert_eq!(
+            names(&dir),
+            vec![
+                "claude.exe",
+                "clauderoadmapwrangler.previous-20261110-080000.exe",
+                CLI_EXE,
+                "crw.previous-20261114-082100.exe",
+            ]
+        );
+
+        // Removed, with crw's previous copies and a staged one; the others stay.
+        fs::write(dir.join(staged_name(CLI_EXE)), "staged").unwrap();
+        assert!(remove_path_copy(&dir, "20261114-083000").unwrap());
+        assert_eq!(names(&dir), others);
+        assert_eq!(path_copy(&bin, &dir), PathCopy::Absent);
+        assert!(!remove_path_copy(&dir, "20261114-083100").unwrap());
+        for name in others {
+            assert_eq!(fs::read_to_string(dir.join(name)).unwrap(), name);
+        }
+    }
+
+    /// Another program's `crw.exe` in the PATH folder (EP-28a's review) is never replaced or
+    /// removed: placing, removing and an install's refresh refuse with words that name it.
+    #[test]
+    fn another_programs_crw_on_path_is_left_alone() {
+        let scratch = Scratch::new("install-path-foreign");
+        let (from, bin, dir) = (
+            scratch.0.join("release"),
+            scratch.0.join("bin"),
+            scratch.0.join("path"),
+        );
+        build(&from, "one of clauderoadmapwrangler", at(0));
+        install(&from, &bin, "20261114-080000").unwrap();
+        fs::create_dir_all(&dir).unwrap();
+        let theirs = dir.join(CLI_EXE);
+        fs::write(&theirs, "another tool's crw").unwrap();
+        assert_eq!(path_copy(&bin, &dir), PathCopy::Foreign(theirs.clone()));
+        let error = place_path_copy(&bin, &dir, "20261114-080100").unwrap_err();
+        assert!(error.contains("another program's crw.exe"), "{error}");
+        let error = remove_path_copy(&dir, "20261114-080200").unwrap_err();
+        assert!(error.contains("another program's crw.exe"), "{error}");
+        let lines = after_install(&bin, Some(&dir), "20261114-080300");
+        assert!(
+            lines[1].starts_with("warning: the copy on PATH in") && lines[1].contains("left alone"),
+            "{lines:?}"
+        );
+        assert_eq!(fs::read_to_string(&theirs).unwrap(), "another tool's crw");
+        assert_eq!(names(&dir), vec![CLI_EXE]);
+    }
+
+    /// A copy that cannot be removed or renamed is an error that names it, and it stays.
+    #[cfg(windows)]
+    #[test]
+    fn a_path_copy_that_is_held_says_so() {
+        let scratch = Scratch::new("install-path-held");
+        let (from, bin, dir) = (
+            scratch.0.join("release"),
+            scratch.0.join("bin"),
+            scratch.0.join("path"),
+        );
+        build(&from, "one of clauderoadmapwrangler", at(0));
+        install(&from, &bin, "20261114-080000").unwrap();
+        place_path_copy(&bin, &dir, "20261114-080100").unwrap();
+        let handle = hold(&dir.join(CLI_EXE));
+        let error = remove_path_copy(&dir, "20261114-080200").unwrap_err();
+        drop(handle);
+        assert!(error.contains("could not be removed"), "{error}");
+        assert_eq!(names(&dir), vec![CLI_EXE]);
+    }
+
+    #[test]
+    fn the_icon_is_written_once_then_left() {
+        let scratch = Scratch::new("install-icon");
+        let bin = scratch.0.join("bin");
+        // The folder made on the way.
+        assert!(write_icon(&bin).unwrap());
+        let path = bin.join(icon::ICO_FILE);
+        assert_eq!(fs::read(&path).unwrap(), icon::ico(&icon::ICO_SIZES));
+        assert!(!write_icon(&bin).unwrap());
+        // A file that differs is written again, through a temporary name that does not stay.
+        fs::write(&path, "an older drawing").unwrap();
+        assert!(write_icon(&bin).unwrap());
+        assert_eq!(names(&bin), vec![icon::ICO_FILE]);
+    }
+
+    /// After an install: the icon, then the copy on PATH refreshed only while there is one.
+    #[test]
+    fn after_an_install_the_icon_is_written_and_a_path_copy_refreshed() {
+        let scratch = Scratch::new("install-after");
+        let (from, bin, dir) = (
+            scratch.0.join("release"),
+            scratch.0.join("bin"),
+            scratch.0.join("path"),
+        );
+        build(&from, "one of clauderoadmapwrangler", at(0));
+        install(&from, &bin, "20261114-080000").unwrap();
+        let lines = after_install(&bin, Some(&dir), "20261114-080000");
+        assert_eq!(lines, vec![format!("{} written", icon::ICO_FILE)]);
+        assert!(!dir.exists(), "no copy on PATH is placed by an install");
+        place_path_copy(&bin, &dir, "20261114-080100").unwrap();
+        build(&from, "two of clauderoadmapwrangler", at(10));
+        install(&from, &bin, "20261114-081000").unwrap();
+        let lines = after_install(&bin, Some(&dir), "20261114-081100");
+        assert_eq!(lines[0], format!("{} is as drawn already", icon::ICO_FILE));
+        assert_eq!(
+            lines[1],
+            format!(
+                "the copy on PATH in {}: crw.exe copied; the one before is now \
+                 crw.previous-20261114-081100.exe",
+                dir.display()
+            )
+        );
+        assert_eq!(
+            path_copy(&bin, &dir),
+            PathCopy::AsInstalled(dir.join(CLI_EXE))
+        );
     }
 
     #[test]

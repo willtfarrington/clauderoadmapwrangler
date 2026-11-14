@@ -23,7 +23,9 @@
 //! mentions their context and `signals install` adding the event, from EP-20b; `export`, the
 //! site's cards, the daily export of the registry and the ledger and a project's CSV, with the
 //! `site` setting, from EP-27; `act`, a hosting or backup action previewed as the window's dialog
-//! shows it, from EP-34; `doctor`'s report by group, the Diagnostics pane's checks, from EP-28.
+//! shows it, from EP-34; `doctor`'s report by group, the Diagnostics pane's checks, from EP-28;
+//! `autostart`, the start-at-login entry, and `path`, `crw`'s copy on PATH, with `install`
+//! writing the app's icon and refreshing that copy, from EP-28a.
 
 use std::collections::HashMap;
 use std::fs;
@@ -56,8 +58,8 @@ use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::{
-    export, files, formalise, git, notify, paths, plugin, process, prompt, proposal, rules, usage,
-    workspace,
+    autostart, export, files, formalise, git, notify, paths, plugin, process, prompt, proposal,
+    rules, usage, workspace,
 };
 
 const USAGE: &str = "\
@@ -77,11 +79,26 @@ commands:
                                  target\\release: the window's exe and crw.exe) into the install
                                  folder, %LOCALAPPDATA%\\clauderoadmapwrangler\\bin, each exe there
                                  renamed to a dated previous copy first (a running one included)
-                                 and an earlier install's previous copies removed; then ask the
-                                 window to restart into it, which it does unless something would
-                                 be lost (a headless run of its own that works or waits, a
-                                 dialog...): then its File > Install and restart, or the tray's,
-                                 does it later; a trial (CRW_HOME) asks no window
+                                 and an earlier install's previous copies removed; write the
+                                 app's icon beside them (app.ico, which the shortcuts show)
+                                 when it differs, and refresh crw's copy on PATH
+                                 while there is one; then ask the window to restart into it,
+                                 which it does unless something would be lost (a headless run of
+                                 its own that works or waits, a dialog...): then its File >
+                                 Install and restart, or the tray's, does it later; a trial
+                                 (CRW_HOME) asks no window
+  autostart [on|off]             print the start-at-login entry: where it lives (the value
+                                 Roadmap Wrangler in the Run key of your Windows user; a file in
+                                 CRW_HOME in a trial), what it starts and whether that is the
+                                 installed window; on writes it, so that the installed window
+                                 starts hidden in the tray at each login (the window's File >
+                                 Start at login does the same); off removes it
+  path [on|off]                  print crw's copy on PATH: its folder (%USERPROFILE%\\.local\\bin,
+                                 beside claude.exe, which Claude Code's installer puts on PATH;
+                                 CRW_HOME\\path in a trial), whether the copy is the installed
+                                 build, and what PATH finds for crw; on copies the installed
+                                 crw.exe there, which every install then refreshes; off removes
+                                 it; nothing else in the folder is touched
   scan                           print the registry: projects, unadopted folders, proposals
   adopt <folder>...              register folders of the data root, write each one's own
                                  <folder>.code-workspace beside it unless one is there, and add
@@ -370,6 +387,14 @@ fn main() -> ExitCode {
         ["signals", "install", flags @ ..] => signals_install(flags),
         ["signals", "remove"] => signals_remove(),
         ["install", flags @ ..] => install_build(flags),
+        ["autostart"] => autostart_status(),
+        ["autostart", "on"] => autostart_switch(true),
+        ["autostart", "off"] => autostart_switch(false),
+        ["autostart", ..] => usage_error("autostart takes on or off, or nothing"),
+        ["path"] => path_status(),
+        ["path", "on"] => path_on(),
+        ["path", "off"] => path_off(),
+        ["path", ..] => usage_error("path takes on or off, or nothing"),
         ["export", "site"] => export_site(false),
         ["export", "site", "--yes"] => export_site(true),
         ["export", "daily"] => export_daily(),
@@ -3524,12 +3549,17 @@ fn install_build(flags: &[&str]) -> ExitCode {
     println!("crw {} install", env!("CARGO_PKG_VERSION"));
     println!("  from  {}", from.display());
     println!("  to    {}", bin.display());
-    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S").to_string();
+    let stamp = stamp_now();
     let report = match install::install(&from, &bin, &stamp) {
         Ok(report) => report,
         Err(e) => return failed(e),
     };
     for line in report.lines() {
+        println!("  - {line}");
+    }
+    // The shortcuts' icon beside the exes, and crw's copy on PATH while there is one (EP-28a):
+    // a failure of either is a warning, the exes being installed.
+    for line in install::after_install(&bin, install::path_dir().as_deref(), &stamp) {
         println!("  - {line}");
     }
     // The build's copy of the plugin, so that the installed build and the copy agree from here
@@ -3571,6 +3601,206 @@ fn install_build(flags: &[&str]) -> ExitCode {
              from the shortcut, which opens the installed build."
         ),
         signals::RestartReply::Failed(why) => println!("The window did not answer: {why}."),
+    }
+    ExitCode::SUCCESS
+}
+
+/// The date and time a previous copy is named by: `20261114-081500`.
+fn stamp_now() -> String {
+    chrono::Local::now().format("%Y%m%d-%H%M%S").to_string()
+}
+
+/// Prints the start-at-login entry (D-29; EP-28a): where it lives, what it starts and whether
+/// that is the installed window. Reads only.
+fn autostart_status() -> ExitCode {
+    println!("crw {} autostart", env!("CARGO_PKG_VERSION"));
+    let place = autostart::Place::current();
+    let window = install::bin_dir().map(|bin| bin.join(install::WINDOW_EXE));
+    let status = match autostart::status(&place, window.as_deref()) {
+        Ok(status) => status,
+        Err(e) => return failed(e),
+    };
+    println!("  {:<11}{}", "where", place.words());
+    let command = match &status {
+        autostart::Status::Absent => "none",
+        autostart::Status::Starts { command, .. } => command.as_str(),
+    };
+    println!("  {:<11}{command}", "command");
+    let installed = match &window {
+        Some(window) if window.is_file() => window.display().to_string(),
+        Some(window) => format!(
+            "none yet at {}: install it first with pwsh -File scripts\\install-shortcut.ps1",
+            window.display()
+        ),
+        None => "no local folder".to_owned(),
+    };
+    println!("  {:<11}{installed}", "installed");
+    println!("  {:<11}{}", "state", status.words());
+    if !status.is_registered() {
+        println!(
+            "\ncrw autostart on registers it: the installed window then starts hidden in the tray \
+             at each login."
+        );
+    }
+    ExitCode::SUCCESS
+}
+
+/// Writes the start-at-login entry, the installed window with `--autostart`, or removes it
+/// (D-29; EP-28a): the owner's word, as the window's File > Start at login is. A trial writes its
+/// own file in `CRW_HOME`, never the registry (rule 13).
+fn autostart_switch(on: bool) -> ExitCode {
+    let place = autostart::Place::current();
+    if !on {
+        return match autostart::remove(&place) {
+            Ok(true) => {
+                println!(
+                    "The start-at-login entry is removed from {}: the window no longer starts \
+                     at login.",
+                    place.words()
+                );
+                ExitCode::SUCCESS
+            }
+            Ok(false) => {
+                println!(
+                    "No start-at-login entry was there ({}); nothing changed.",
+                    place.words()
+                );
+                ExitCode::SUCCESS
+            }
+            Err(e) => failed(e),
+        };
+    }
+    let Some(bin) = install::bin_dir() else {
+        return failed(format!(
+            "no local folder: neither LOCALAPPDATA nor {} is set",
+            paths::HOME_VAR
+        ));
+    };
+    let window = bin.join(install::WINDOW_EXE);
+    if !window.is_file() {
+        return failed(format!(
+            "the installed window is not there ({}): install it first with pwsh -File \
+             scripts\\install-shortcut.ps1",
+            window.display()
+        ));
+    }
+    match autostart::register(&place, &window) {
+        Ok(()) => {
+            println!(
+                "Wrote {} into {}.",
+                autostart::command(&window),
+                place.words()
+            );
+            println!("At each login Windows starts the installed window, hidden in the tray.");
+            ExitCode::SUCCESS
+        }
+        Err(e) => failed(e),
+    }
+}
+
+/// The PATH folder of `crw`'s copy and the install folder (IN-3; EP-28a).
+fn path_places() -> Result<(PathBuf, PathBuf), String> {
+    match (install::path_dir(), install::bin_dir()) {
+        (Some(dir), Some(bin)) => Ok((dir, bin)),
+        _ => Err(format!(
+            "no profile folder: neither USERPROFILE and LOCALAPPDATA nor {} is set",
+            paths::HOME_VAR
+        )),
+    }
+}
+
+/// Whether `dir` is one of this shell's PATH folders.
+fn on_this_path(dir: &Path) -> bool {
+    std::env::var_os("PATH")
+        .is_some_and(|path| std::env::split_paths(&path).any(|entry| paths::same(&entry, dir)))
+}
+
+/// Prints `crw`'s copy on PATH (IN-3; EP-28a): its folder, the copy against the installed one,
+/// and what PATH finds for `crw`. Reads only.
+fn path_status() -> ExitCode {
+    println!("crw {} path", env!("CARGO_PKG_VERSION"));
+    let (dir, bin) = match path_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    let on_path = if on_this_path(&dir) {
+        "on PATH"
+    } else {
+        "not on this shell's PATH"
+    };
+    println!("  {:<11}{} ({on_path})", "folder", dir.display());
+    let copy = match install::path_copy(&bin, &dir) {
+        install::PathCopy::Absent => "none (crw path on places one)".to_owned(),
+        install::PathCopy::AsInstalled(copy) => {
+            format!("{}, a copy of the installed build", copy.display())
+        }
+        install::PathCopy::Differs(copy) => format!(
+            "{}, older or newer than the installed build: crw install refreshes it",
+            copy.display()
+        ),
+        install::PathCopy::Foreign(copy) => format!(
+            "{} is another program's crw.exe, which crw path and crw install leave alone",
+            copy.display()
+        ),
+    };
+    println!("  {:<11}{copy}", "copy");
+    let installed = match installed_cli() {
+        Some(installed) => installed.display().to_string(),
+        None => "none: crw install copies the release build there".to_owned(),
+    };
+    println!("  {:<11}{installed}", "installed");
+    let (_, finds) = doctor::crw_on_path(Some(&bin), &dir);
+    println!("  {:<11}{finds}", "lookup");
+    ExitCode::SUCCESS
+}
+
+/// Places `crw`'s copy on PATH (IN-3; EP-28a): the installed `crw.exe` copied into the PATH
+/// folder, which every `crw install` then refreshes while the copy is there.
+fn path_on() -> ExitCode {
+    let (dir, bin) = match path_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    println!("crw {} path on", env!("CARGO_PKG_VERSION"));
+    println!("  from  {}", bin.display());
+    println!("  to    {}", dir.display());
+    let report = match install::place_path_copy(&bin, &dir, &stamp_now()) {
+        Ok(report) => report,
+        Err(e) => return failed(e),
+    };
+    for line in report.lines() {
+        println!("  - {line}");
+    }
+    if on_this_path(&dir) {
+        println!("The folder is on PATH: a new shell finds crw.");
+    } else {
+        println!(
+            "The folder is not on this shell's PATH: a shell finds crw once it is (Claude Code's \
+             installer puts it there)."
+        );
+    }
+    println!("Every crw install refreshes the copy while it is there; crw path off removes it.");
+    ExitCode::SUCCESS
+}
+
+/// Removes `crw`'s copy on PATH (IN-3; EP-28a), and nothing else in the folder.
+fn path_off() -> ExitCode {
+    let (dir, _) = match path_places() {
+        Ok(places) => places,
+        Err(e) => return failed(e),
+    };
+    match install::remove_path_copy(&dir, &stamp_now()) {
+        Ok(true) => println!(
+            "{} is removed from {}: crw install no longer refreshes a copy there.",
+            install::CLI_EXE,
+            dir.display()
+        ),
+        Ok(false) => println!(
+            "No copy of {} was in {}; nothing changed.",
+            install::CLI_EXE,
+            dir.display()
+        ),
+        Err(e) => return failed(e),
     }
     ExitCode::SUCCESS
 }

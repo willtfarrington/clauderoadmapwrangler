@@ -1512,7 +1512,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-27 | [Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project](EP-27-exports.md) (D-8, D-24) | S | EP-25 | core | ☑ `53c474b` |
 | EP-34 | [Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged](EP-34-hosting-and-backup-actions.md) (D-24) | M | EP-7 | core | ☑ `ec2957e` |
 | EP-28 | [Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints](EP-28-diagnostics.md) (D-29) | M | EP-15, EP-37 | core | ☑ `fef1e59` |
-| EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
+| EP-28a | [Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final](EP-28a-the-start.md) (D-29) | M | EP-28, EP-37a | core | ☐ |
 | EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
@@ -1922,6 +1922,17 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   P3 item above on a delivery from one project into another; the walk asks how the first real
   hosting or backup action went (OT-28) and whether Make public should scan the project's
   history against rule 3's word list before it runs, which EP-34 left to the dialog's words.
+  **From EP-28a (2026-11-14):** the session registered the start-at-login entry and put `crw`'s
+  copy on PATH on the owner's yes. The walk asks how the first start at login went: the window
+  hidden in the tray, or the flash eframe may give it. It also settles from the records what the
+  first start in EP-28a's build closed: the Diagnostics pane's reconciliation line, the `event`
+  rows of kind `reconcile`, and `crw sessions --all`, where the two old rows of 2026-11-02 and
+  2026-11-10 should read closed. It asks whether the new icon shows on the shortcuts and the
+  taskbar. Last, it weighs the review's two logged points:
+  - an entry turned off in Task Manager's Startup apps, a flag Windows keeps beside the Run value,
+    which the doctor and the File menu do not read;
+  - `crw.previous-<stamp>.exe` files that can stay in `.local\bin` after `crw path off` or a
+    refresh, until the next pass.
 
 ## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
 

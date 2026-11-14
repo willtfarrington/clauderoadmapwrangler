@@ -227,6 +227,16 @@ impl Board {
                 "not started (a screenshot run or a test)".to_owned(),
             ),
         });
+        // What the start-up reconciliation closed (EP-28a).
+        lines.push(match self.watch.reconcile_line() {
+            Some((line, true)) => (Level::Warn, "reconciliation", line),
+            Some((line, false)) => (Level::Ok, "reconciliation", line),
+            None => (
+                Level::Note,
+                "reconciliation",
+                "not run (a screenshot run or a test)".to_owned(),
+            ),
+        });
         let (notifications, warns) = self.notifications_state();
         let level = if warns { Level::Warn } else { Level::Ok };
         lines.push((level, "notifications", notifications));
@@ -435,6 +445,18 @@ pub fn canned() -> Report {
             ),
             line(
                 Group::Exes,
+                "start at login",
+                Level::Ok,
+                "starts the installed window hidden in the tray",
+            ),
+            line(
+                Group::Exes,
+                "crw on PATH",
+                Level::Note,
+                r"not on PATH: crw path on puts a copy in C:\Tools\bin",
+            ),
+            line(
+                Group::Exes,
                 "SessionStart",
                 Level::Ok,
                 "runs the installed copy hook --inbox",
@@ -547,6 +569,7 @@ mod tests {
             [
                 "build",
                 "signals",
+                "reconciliation",
                 "notifications",
                 "usage meter",
                 "mailman",

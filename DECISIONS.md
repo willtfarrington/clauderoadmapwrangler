@@ -2631,6 +2631,65 @@ an opt-in live smoke test; documented AV exclusions.
 > written by `crw` and the hooks too (a file write at every event); a log viewer in the window
 > (the pane names the file); the stale lock files deleted (they are the extension's).
 
+> **Addendum (2026-11-14, EP-28a).** **The start.**
+>
+> - **The start-at-login entry.**
+>   - What it is: the value `Roadmap Wrangler` under the user's
+>     `HKCU\Software\Microsoft\Windows\CurrentVersion\Run`, holding the installed window's path
+>     with `--autostart`. It is written through the pinned `windows` crate's registry functions
+>     (`crw_core::autostart`; a trial's `CRW_HOME` keeps a file `autostart.txt` in its place).
+>   - Its switches: File > Start at login in the window, and `crw autostart on|off`. The tool
+>     writes the entry at the owner's click or command and never by itself.
+>   - The start: a window started with the flag opens hidden in the tray, and shows when the tray
+>     failed to start. When it finds a window already holding the port, it asks only `/health`
+>     and quits without showing that window.
+>   - Where it shows: the doctor's Exes group says whether the entry starts the installed window.
+>     A delay between sign-in and the start stays the owner's start-up manager's to set.
+> - **The start-up reconciliation** (`crw_core::sessions::reconcile`).
+>   - When: once a window holds the port and two listings of `claude agents --json` in a row have
+>     answered, neither leaving out an entry that does not read as a session with an id. A CLI
+>     that changed the entries' form would otherwise read as no session at all.
+>   - What it closes: each ledger row with no end that started in a second before the window's
+>     (the ledger keeps whole seconds).
+>     - A visual or manual row closes as completed, as its end hook would have. That happens when
+>       neither listing names its session and its transcript was not written since the window
+>       started; a write since then is a live session's.
+>     - A headless row, whose runner died with its window, closes as stopped, as a quit records
+>       the runs it ends. The listings do not count for it, since `-p` runs are never listed and
+>       one listed is the owner's resume of its session.
+>   - The end time: the transcript's last write (the file's modified time; D-26 reads no
+>     transcript), a headless row's at the window's start at the latest; else the row's start.
+>   - The record: the row's result says that no end was heard and when it was closed, and an
+>     `event` row of kind `reconcile` names it, all in one transaction. The Diagnostics pane and
+>     the rolling log say what was closed.
+>   - What it leaves: a visual launch with no session stays the lapse's (D-26 addendum of EP-13).
+>     Only the window that holds the port reconciles, as only it hears the hooks.
+> - **`crw` on PATH.** A copy of `crw.exe` in `%USERPROFILE%\.local\bin`, the folder Claude Code's
+>   installer puts on PATH beside `claude.exe`.
+>   - `crw path on` places it and `crw path off` removes it. Each `crw install` refreshes it
+>     while it is there, staged and renamed as the install does.
+>   - Only crw's own files are ever touched in that folder.
+>   - The doctor's Exes group says what PATH finds for `crw` and whether it is the installed build.
+> - **The app's own icon.** The tray's tile without its badges: blue, with a roadmap's three
+>   white rows.
+>   - Drawn in core (`crw_core::icon`), it is the window's icon (title bar, Alt+Tab, taskbar).
+>   - `crw install` (and the window's own Install and restart) writes it as `app.ico` beside the
+>     exes for the shortcuts, so `install-shortcut.ps1` needs neither egui's logo nor
+>     System.Drawing. The new name makes the shell's icon cache show it at once, and the script
+>     removes the earlier `clauderoadmapwrangler.ico`.
+>   - The exes carry no icon resource: that needs a resource compiler, a build dependency left to
+>     a re-plan.
+>
+> *Alternatives.* A shortcut in the Startup folder (the Run value is what Task Manager's Startup
+> apps and the owner's start-up manager both list); the entry written by the install script; a start at
+> login that shows the running window, as a start by hand does. For the reconciliation: every
+> open row closed at the window's start time (a run four days long for a tab closed on the first
+> day); new rows closed during the window's life (the poll and the hooks do that). For `crw` on
+> PATH: the `bin` folder added to the user's PATH (a write into the user's environment variables,
+> seen only by shells started afterwards); a `crw.cmd` shim (Git Bash finds no `.cmd` by its bare
+> name, and cmd.exe changes `%`, `^` and `&` in arguments). For the icon: egui's logo kept; an
+> icon drawn in a separate file.
+
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored
 `private/portfolio-2026-10-31.md`. The interview ran 18 rounds and 72 questions on 2026-10-31; every

@@ -437,7 +437,9 @@ mod tests {
     #[test]
     fn a_second_window_asks_the_first_to_show_itself() {
         let (mut server, port, _) = listening();
-        assert_eq!(signals::ask_show(port), signals::Yield::Shown);
+        // A start at login only asks whether a window is there (EP-28a): nothing is shown.
+        assert_eq!(signals::ask_show(port, false), signals::Yield::Present);
+        assert_eq!(signals::ask_show(port, true), signals::Yield::Shown);
         assert_eq!(heard(&mut server, 1), vec![Signal::Show]);
         let local = format!("127.0.0.1:{port}");
         assert_eq!(
@@ -456,7 +458,7 @@ mod tests {
             let probe = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
             probe.local_addr().unwrap().port()
         };
-        assert_eq!(signals::ask_show(free), signals::Yield::NoWindow);
+        assert_eq!(signals::ask_show(free, true), signals::Yield::NoWindow);
     }
 
     /// `crw install`'s request (EP-37) reaches the window, and the window's answer goes back; a

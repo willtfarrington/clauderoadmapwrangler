@@ -135,8 +135,12 @@ cargo build --release                   # target\release\clauderoadmapwrangler.e
 pwsh -File scripts\install-shortcut.ps1 # rebuilds, installs (crw install), then a desktop shortcut
                                         # and a Start-menu entry that open the installed window
 target\release\crw.exe install          # copy the build into %LOCALAPPDATA%\clauderoadmapwrangler\bin
-                                        # (and the plugin's copy beside it) and ask the window to
-                                        # restart into it
+                                        # (the plugin's copy and the app's icon beside it, the copy
+                                        # on PATH refreshed) and ask the window to restart into it
+target\release\crw.exe autostart [on|off]  # the start-at-login entry: start the installed window
+                                        # hidden in the tray when you sign in (File > Start at login)
+target\release\crw.exe path [on|off]    # a copy of crw.exe in %USERPROFILE%\.local\bin, so `crw`
+                                        # runs from any shell
 target\release\crw.exe doctor           # the Diagnostics pane's checks by group: the tools, the
                                         # exes and the hooks, gh's login, Tailscale, the backup
                                         # drive, the registry and the ledger, the crash log and
@@ -190,7 +194,15 @@ moment: the held chains and the chain plans cross the restart in a handover file
 brief starts in the new window once its first poll of live sessions has answered. A chain that ends
 leaves the window as it is. The status bar says when a newer build waits. A second window started
 by hand finds the first over the loopback port, asks it to show itself and quits, so one window
-holds the port, the hooks and the meter (EP-40). The registry lists the folders of one data root (by default the folder
+holds the port, the hooks and the meter (EP-40). File > Start at login (or `crw autostart on`)
+registers the tool's own start-at-login entry, the value "Roadmap Wrangler" under the user's Run key,
+which starts the installed window hidden in the tray when you sign in; a start at login that finds a
+window already running quits without showing it. When a window first holds the port and its poll of
+live sessions answers, it closes the ledger's rows whose end no window heard: a visual or manual
+session's tab closed while no window ran, or a headless run whose window crashed. Each ends at its
+transcript's last write (the file's time, its contents never read) and keeps a note saying so, and
+the Diagnostics pane names what was closed (EP-28a). The window, the tray and the shortcuts show the
+tool's own icon. The registry lists the folders of one data root (by default the folder
 that holds this repository); `crw adopt` registers a folder, writes its own single-folder
 `<folder>.code-workspace` beside it unless one is there, and adds it to the aggregate VS Code workspace
 file; `crw ignore` hides one, `crw set` changes a project's state, priority, pin or time limit for

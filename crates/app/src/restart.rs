@@ -107,6 +107,9 @@ pub struct Restart {
     /// The local folder, where the handover goes (EP-37a); none in a test or a screenshot run
     /// unless set.
     pub local: Option<PathBuf>,
+    /// The folder of `crw`'s copy on PATH, which the window's own install refreshes while there
+    /// is one (EP-28a); none in a test or a screenshot run, so that neither reaches the owner's.
+    pub path_dir: Option<PathBuf>,
     /// A test's stand-in for the installed window's start; none starts it.
     pub spawn: Option<Spawn>,
     /// The installed copy whose window ended at once: the gate's moment leaves it alone until the
@@ -481,9 +484,18 @@ impl Board {
         if asked == Asked::Owner
             && install::build_ready(&self.restart.build, &bin, SystemTime::now())
         {
-            match install::install(&self.restart.build, &bin, &stamp_now()) {
+            let stamp = stamp_now();
+            match install::install(&self.restart.build, &bin, &stamp) {
                 Ok(report) if !report.copied.is_empty() => {
                     installed = format!("installed {}; ", report.copied.join(" and "));
+                    // The icon beside the exes and the copy on PATH, as `crw install` does them
+                    // (EP-28a); a warning among them is said with the restart.
+                    let path_dir = self.restart.path_dir.clone();
+                    for line in install::after_install(&bin, path_dir.as_deref(), &stamp) {
+                        if let Some(warning) = line.strip_prefix("warning: ") {
+                            installed.push_str(&format!("{warning}; "));
+                        }
+                    }
                 }
                 Ok(_) => {}
                 Err(e) => return Outcome::Refused(format!("not installed: {e}")),

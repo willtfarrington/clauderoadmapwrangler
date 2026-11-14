@@ -254,16 +254,23 @@ pub enum Yield {
     NoWindow,
     /// A Roadmap Wrangler window answered, and the request to show itself failed, in words.
     Failed(String),
+    /// A Roadmap Wrangler window answered `/health` and was not asked to show itself: a start at
+    /// login yields to it quietly (EP-28a).
+    Present,
 }
 
 /// Asks the window on `port` to show itself, when a Roadmap Wrangler window answers `/health`
-/// there (EP-40): the second start's yield, after which it quits.
-pub fn ask_show(port: u16) -> Yield {
+/// there (EP-40): the second start's yield, after which it quits. With `show` false (a start at
+/// login, EP-28a) the window is only asked whether it is there.
+pub fn ask_show(port: u16, show: bool) -> Yield {
     let Ok(health) = relay::request(port, "GET", HEALTH_ROUTE, None, BUDGET) else {
         return Yield::NoWindow;
     };
     if health.status != 200 || !is_this_app(&health.body) {
         return Yield::NoWindow;
+    }
+    if !show {
+        return Yield::Present;
     }
     match relay::request(port, "POST", SHOW_ROUTE, None, BUDGET) {
         Ok(answer) if answer.status == 204 => Yield::Shown,

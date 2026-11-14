@@ -51,7 +51,7 @@ use std::path::PathBuf;
 use crw_core::install::{self, Running, Stamp};
 use crw_core::registry::Store;
 use crw_core::session::cli;
-use crw_core::{paths, signals, usage};
+use crw_core::{autostart, icon, paths, signals, usage};
 use eframe::egui;
 
 use board::{Dashboard, Places};
@@ -77,6 +77,8 @@ fn main() -> eframe::Result {
     if let Some(pid) = restarted {
         install::wait_for_end(pid, install::WAIT_FOR_OLD);
     }
+    // A start at login (D-29; EP-28a): hidden in the tray, and quiet when a window runs already.
+    let at_login = restarted.is_none() && autostart::started_at_login(&args);
     // With CRW_HOME set, eframe's state lives there too, so a trial leaves the owner's layout
     // alone (rule 13).
     let persistence_path = paths::home().map(|home| home.join("app.ron"));
@@ -93,9 +95,11 @@ fn main() -> eframe::Result {
         let build = Running::now()
             .and_then(|running| running.stamp)
             .map_or_else(String::new, |stamp| format!(", built {}", stamp.when()));
-        let restart = restarted.map_or_else(String::new, |pid| {
-            format!(", restarted from the window of process {pid}")
-        });
+        let restart = match restarted {
+            Some(pid) => format!(", restarted from the window of process {pid}"),
+            None if at_login => ", at login".to_owned(),
+            None => String::new(),
+        };
         crw_core::log::line(
             "start",
             &format!(
@@ -142,9 +146,12 @@ fn main() -> eframe::Result {
             board.restart =
                 restart::Restart::new(running, install::bin_dir(), install::build_dir());
             board.restart.local = paths::local_dir();
+            board.restart.path_dir = install::path_dir();
             let backups = board.store().backups.clone();
             // A window started by a restart never yields to another (EP-40): it binds once the
-            // old one ended, and it holds the handover.
+            // old one ended, and it holds the handover. A start at login yields without asking
+            // the running window to show itself (EP-28a).
+            board.watch.quiet = at_login;
             board
                 .watch
                 .start(port, program, backups, &cc.egui_ctx, restarted.is_none());
@@ -170,6 +177,13 @@ fn main() -> eframe::Result {
             // chains and plans, said in the start's notice with the build; a file no restart took
             // is dropped, and what it held said.
             board.take_handover(paths::local_dir().as_deref(), restarted, &when);
+            // A start at login opens hidden in the tray (EP-28a); without the tray it shows. The
+            // first close's notice stays for the owner's own first close.
+            if at_login && board.tray.is_some() {
+                let told = board.told_tray;
+                board.hide_at_start();
+                board.told_tray = told;
+            }
             Ok(Box::new(dashboard))
         }),
     );
@@ -185,10 +199,19 @@ fn options(
     persistence_path: Option<std::path::PathBuf>,
     persist_window: bool,
 ) -> eframe::NativeOptions {
+    // The app's own icon (EP-28a): the tray's tile without its badges, which eframe scales for
+    // the title bar, Alt+Tab and the taskbar in place of egui's logo.
+    let side = 256;
+    let icon = egui::IconData {
+        rgba: icon::plain(side),
+        width: side,
+        height: side,
+    };
     eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title(APP_ID)
             .with_app_id(APP_ID)
+            .with_icon(std::sync::Arc::new(icon))
             .with_inner_size(size)
             .with_min_inner_size([900.0, 560.0]),
         persistence_path,

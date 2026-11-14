@@ -5,6 +5,7 @@
 //! (the versions, `gh auth status`, `tailscale status --json`), [`report`] reads the files (the
 //! hooks and the status line, the installed copy, the backup drive, the registry, the ledger,
 //! the crash log, the rolling log, the last readings, VS Code's lock files) and words each line.
+//! EP-28a adds the start-at-login entry and what PATH finds for `crw` to the exes' group.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -19,7 +20,7 @@ use crate::process::{self, TIMEOUT, output_of};
 use crate::registry::{Registry, Store};
 use crate::signals::install::{self as entries, Hooked, Line as StatusLine};
 use crate::version::{MIN_CLAUDE_CODE, Version};
-use crate::{actions, install, log, notify, plugin, usage, visual};
+use crate::{actions, autostart, install, log, notify, plugin, usage, visual};
 
 /// The protocol crate's pin (D-15): `claude-codes` moves only in a re-plan; a test holds this
 /// to `Cargo.lock`.
@@ -502,6 +503,10 @@ pub struct Places {
     pub plugin: Option<PathBuf>,
     /// The exe that asks.
     pub this_exe: Option<PathBuf>,
+    /// Where the start-at-login entry lives (EP-28a).
+    pub autostart: Option<autostart::Place>,
+    /// The folder of `crw`'s copy on PATH (IN-3; EP-28a).
+    pub path_dir: Option<PathBuf>,
 }
 
 impl Places {
@@ -516,6 +521,8 @@ impl Places {
             bin: install::bin_dir(),
             plugin: plugin::dir(),
             this_exe: env::current_exe().ok(),
+            autostart: Some(autostart::Place::current()),
+            path_dir: install::path_dir(),
         }
     }
 }
@@ -736,6 +743,15 @@ fn exes(report: &mut Report, places: &Places) {
         None => (Level::Warn, "no local folder".to_owned()),
     };
     report.push(Group::Exes, "plugin", level, text);
+    if let Some(place) = &places.autostart {
+        let window = places.bin.as_ref().map(|bin| bin.join(install::WINDOW_EXE));
+        let (level, text) = autostart_line(autostart::status(place, window.as_deref()));
+        report.push(Group::Exes, "start at login", level, text);
+    }
+    if let Some(dir) = &places.path_dir {
+        let (level, text) = crw_on_path(places.bin.as_deref(), dir);
+        report.push(Group::Exes, "crw on PATH", level, text);
+    }
     let Some(settings) = &places.settings else {
         report.push(
             Group::Exes,
@@ -783,6 +799,137 @@ fn exes(report: &mut Report, places: &Places) {
         ),
     };
     report.push(Group::Exes, "status line", level, text);
+}
+
+/// The start-at-login line (D-29; EP-28a): not registered, starting the installed window, or
+/// starting another exe or one that is gone.
+fn autostart_line(status: Result<autostart::Status, String>) -> (Level, String) {
+    match status {
+        Err(e) => (Level::Warn, e),
+        Ok(autostart::Status::Absent) => (
+            Level::Note,
+            "not registered: crw autostart on (or File > Start at login in the window) starts the \
+             installed window hidden in the tray at login"
+                .to_owned(),
+        ),
+        Ok(autostart::Status::Starts {
+            exe: None, command, ..
+        }) => (
+            Level::Warn,
+            format!("its command names no program ({command}): crw autostart on writes it again"),
+        ),
+        Ok(autostart::Status::Starts {
+            installed: true,
+            present: true,
+            ..
+        }) => (
+            Level::Ok,
+            "starts the installed window hidden in the tray".to_owned(),
+        ),
+        // The installed window itself gone: the entry is right, the install is not.
+        Ok(autostart::Status::Starts {
+            exe: Some(exe),
+            installed: true,
+            present: false,
+            ..
+        }) => (
+            Level::Warn,
+            format!(
+                "starts the installed window {}, which is not there: {}; install it again with \
+                 pwsh -File scripts\\install-shortcut.ps1",
+                exe.display(),
+                process::GONE
+            ),
+        ),
+        Ok(autostart::Status::Starts {
+            exe: Some(exe),
+            present: false,
+            ..
+        }) => (
+            Level::Warn,
+            format!(
+                "starts {}, which is not there: {}; crw autostart on points it at the installed \
+                 window",
+                exe.display(),
+                process::GONE
+            ),
+        ),
+        Ok(autostart::Status::Starts { exe: Some(exe), .. }) => (
+            Level::Warn,
+            format!(
+                "starts {}, not the installed window: crw autostart on points it there",
+                exe.display()
+            ),
+        ),
+    }
+}
+
+/// The "crw on PATH" line (IN-3; EP-28a): what PATH finds for `crw.exe`, set against the
+/// installed copy in `bin` and the copy in `dir`, the PATH folder `crw path on` puts it in.
+pub fn crw_on_path(bin: Option<&Path>, dir: &Path) -> (Level, String) {
+    path_line(on_path(install::CLI_EXE).as_deref(), bin, dir)
+}
+
+/// The "crw on PATH" line for what PATH found.
+fn path_line(found: Option<&Path>, bin: Option<&Path>, dir: &Path) -> (Level, String) {
+    let Some(found) = found else {
+        let copy = dir.join(install::CLI_EXE);
+        let text = if copy.is_file() {
+            format!(
+                "not on PATH: {} is there, but its folder is not on PATH",
+                copy.display()
+            )
+        } else {
+            format!("not on PATH: crw path on puts a copy in {}", dir.display())
+        };
+        return (Level::Note, text);
+    };
+    let installed = bin.map(|bin| bin.join(install::CLI_EXE));
+    if installed
+        .as_deref()
+        .is_some_and(|installed| crate::paths::same(found, installed))
+    {
+        return (Level::Ok, "PATH finds the installed copy".to_owned());
+    }
+    if let Some(bin) = bin
+        && crate::paths::same(found, &dir.join(install::CLI_EXE))
+    {
+        match install::path_copy(bin, dir) {
+            install::PathCopy::AsInstalled(_) => {
+                return (
+                    Level::Ok,
+                    format!(
+                        "PATH finds {}, a copy of the installed build",
+                        found.display()
+                    ),
+                );
+            }
+            install::PathCopy::Differs(_) => {
+                return (
+                    Level::Warn,
+                    format!(
+                        "PATH finds {}, a copy older or newer than the installed build: crw \
+                         install refreshes it",
+                        found.display()
+                    ),
+                );
+            }
+            install::PathCopy::Foreign(_) => {
+                return (
+                    Level::Note,
+                    format!(
+                        "PATH finds {}, another program's crw.exe, which the tool leaves alone",
+                        found.display()
+                    ),
+                );
+            }
+            install::PathCopy::Absent => {}
+        }
+    }
+    (
+        Level::Note,
+        format!("PATH finds {}, not the installed copy", found.display()),
+    )
 }
 
 fn accounts(report: &mut Report, gh: Option<&Result<actions::Account, String>>) {
@@ -1497,6 +1644,8 @@ mod tests {
             bin: Some(bin),
             plugin: Some(root.join("plugin")),
             this_exe: Some(root.join("target").join(install::CLI_EXE)),
+            autostart: Some(autostart::Place::File(root.join(autostart::SCRATCH_FILE))),
+            path_dir: Some(root.join("path")),
         };
         let found = |name, version| Check {
             name,
@@ -1545,6 +1694,11 @@ mod tests {
             "runs the installed copy statusline"
         );
         assert_eq!(line("plugin").level, Level::Note);
+        let login = line("start at login");
+        assert_eq!(login.level, Level::Note);
+        assert!(login.text.starts_with("not registered"), "{}", login.text);
+        // What PATH finds is the machine's own; the line is there.
+        assert_eq!(line("crw on PATH").group, Group::Exes);
         let network = report.group(Group::Network).next().unwrap();
         assert_eq!(network.level, Level::Warn);
         assert!(network.text.starts_with("Stopped"));
@@ -1565,6 +1719,117 @@ mod tests {
         for group in Group::ALL {
             assert!(report.group(group).next().is_some(), "{group:?}");
         }
+    }
+
+    /// The start-at-login line over a trial's file: not registered, the installed window, another
+    /// window, one that is gone, a command without a program, and a place that does not read.
+    #[test]
+    fn the_start_at_login_line_says_what_the_entry_starts() {
+        let scratch = Scratch::new("doctor-autostart");
+        let place = autostart::Place::File(scratch.0.join(autostart::SCRATCH_FILE));
+        let bin = scratch.0.join("bin");
+        fs::create_dir_all(&bin).unwrap();
+        let window = bin.join(install::WINDOW_EXE);
+        fs::write(&window, "window").unwrap();
+        let line = || autostart_line(autostart::status(&place, Some(window.as_path())));
+
+        let (level, text) = line();
+        assert_eq!(level, Level::Note);
+        assert!(text.contains("crw autostart on"), "{text}");
+        autostart::register(&place, &window).unwrap();
+        assert_eq!(
+            line(),
+            (
+                Level::Ok,
+                "starts the installed window hidden in the tray".to_owned()
+            )
+        );
+        let other = scratch.0.join("other.exe");
+        fs::write(&other, "other").unwrap();
+        autostart::register(&place, &other).unwrap();
+        let (level, text) = line();
+        assert_eq!(level, Level::Warn);
+        assert!(
+            text.ends_with("not the installed window: crw autostart on points it there"),
+            "{text}"
+        );
+        fs::remove_file(&other).unwrap();
+        let (level, text) = line();
+        assert_eq!(level, Level::Warn);
+        assert!(text.contains(process::GONE), "{text}");
+        fs::write(scratch.0.join(autostart::SCRATCH_FILE), "  ").unwrap();
+        let (level, text) = line();
+        assert_eq!(level, Level::Warn);
+        assert!(text.contains("names no program"), "{text}");
+        // A folder where the file goes does not read.
+        let folder = autostart::Place::File(bin.clone());
+        let (level, _) = autostart_line(autostart::status(&folder, Some(window.as_path())));
+        assert_eq!(level, Level::Warn);
+    }
+
+    /// The PATH line from what PATH found: nothing, the installed copy, the copy in the PATH
+    /// folder as installed or not, or another exe.
+    #[test]
+    fn the_path_line_says_what_path_finds() {
+        let scratch = Scratch::new("doctor-path");
+        let (bin, dir) = (scratch.0.join("bin"), scratch.0.join("path"));
+        fs::create_dir_all(&bin).unwrap();
+        let installed = bin.join(install::CLI_EXE);
+        fs::write(&installed, "crw").unwrap();
+        let copy = dir.join(install::CLI_EXE);
+        let line = |found: &Path| path_line(Some(found), Some(bin.as_path()), &dir);
+
+        let (level, text) = path_line(None, Some(bin.as_path()), &dir);
+        assert_eq!(level, Level::Note);
+        assert_eq!(
+            text,
+            format!("not on PATH: crw path on puts a copy in {}", dir.display())
+        );
+        assert_eq!(
+            line(&installed),
+            (Level::Ok, "PATH finds the installed copy".to_owned())
+        );
+        install::place_path_copy(&bin, &dir, "20261114-080000").unwrap();
+        assert_eq!(
+            line(&copy),
+            (
+                Level::Ok,
+                format!(
+                    "PATH finds {}, a copy of the installed build",
+                    copy.display()
+                )
+            )
+        );
+        // An older build of the tool names its folder as every build does.
+        fs::write(&copy, "an older crw of clauderoadmapwrangler").unwrap();
+        let (level, text) = line(&copy);
+        assert_eq!(level, Level::Warn);
+        assert!(text.ends_with("crw install refreshes it"), "{text}");
+        // Another program's crw.exe there is said, and left alone.
+        fs::write(&copy, "another tool's crw").unwrap();
+        let (level, text) = line(&copy);
+        assert_eq!(level, Level::Note);
+        assert!(text.contains("another program's crw.exe"), "{text}");
+        fs::write(&copy, "an older crw of clauderoadmapwrangler").unwrap();
+        let elsewhere = scratch.0.join("tools").join(install::CLI_EXE);
+        assert_eq!(
+            line(&elsewhere),
+            (
+                Level::Note,
+                format!("PATH finds {}, not the installed copy", elsewhere.display())
+            )
+        );
+        // A copy placed in a folder PATH does not hold.
+        assert_eq!(
+            path_line(None, Some(bin.as_path()), &dir),
+            (
+                Level::Note,
+                format!(
+                    "not on PATH: {} is there, but its folder is not on PATH",
+                    copy.display()
+                )
+            )
+        );
     }
 
     #[test]

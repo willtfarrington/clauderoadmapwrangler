@@ -869,6 +869,55 @@ impl Ledger {
         Ok(closed)
     }
 
+    /// Runs `work` in one write transaction (EP-28a): all of its writes kept, or none when it
+    /// fails.
+    pub fn in_transaction<T>(
+        &self,
+        work: impl FnOnce(&Ledger) -> Result<T, Error>,
+    ) -> Result<T, Error> {
+        self.connection.execute_batch("BEGIN IMMEDIATE")?;
+        match work(self) {
+            Ok(value) => {
+                self.connection.execute_batch("COMMIT")?;
+                Ok(value)
+            }
+            Err(e) => {
+                let _ = self.connection.execute_batch("ROLLBACK");
+                Err(e)
+            }
+        }
+    }
+
+    /// Every row with no end recorded, the oldest first (EP-28a): the sessions that run, and the
+    /// ones whose end no window heard.
+    pub fn open_rows(&self) -> Result<Vec<SessionRow>, Error> {
+        self.session_rows("WHERE ended_at IS NULL ORDER BY started_at, id", None)
+    }
+
+    /// Closes the row `id` whose end no window heard (EP-28a's reconciliation): ended at `at`
+    /// with `outcome`, its result `note` when it has none. `false` when the row had an end by then.
+    pub fn close_unheard(
+        &self,
+        id: i64,
+        at: DateTime<Utc>,
+        outcome: &str,
+        note: &str,
+    ) -> Result<bool, Error> {
+        let changed = if self.version >= 3 {
+            self.connection.execute(
+                "UPDATE session SET ended_at = ?2, outcome = ?3, result = COALESCE(result, ?4) \
+                 WHERE id = ?1 AND ended_at IS NULL",
+                (id, rfc3339(at), outcome, note),
+            )?
+        } else {
+            self.connection.execute(
+                "UPDATE session SET ended_at = ?2, outcome = ?3 WHERE id = ?1 AND ended_at IS NULL",
+                (id, rfc3339(at), outcome),
+            )?
+        };
+        Ok(changed > 0)
+    }
+
     /// Adds a session's part of one poll's rise to the latest row of `session_id` (D-23; EP-18a):
     /// each share added to the row's, the figure before kept from the first part and the one
     /// after from the latest. `false` when no row holds the session, whose part then stays

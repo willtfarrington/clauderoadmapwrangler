@@ -31,7 +31,7 @@ use crw_core::roadmap::snapshot::InProgress;
 use crw_core::session::{Response, Route, cli};
 use crw_core::sessions::Registered;
 use crw_core::usage::share;
-use crw_core::{files, inbox, paths, prompt, revert, rules, tasks};
+use crw_core::{autostart, files, inbox, install, paths, prompt, revert, rules, tasks};
 use eframe::egui::{self, Key, KeyboardShortcut, Modifiers, RichText, ThemePreference};
 use egui_tiles::Tree;
 use serde::{Deserialize, Serialize};
@@ -283,6 +283,9 @@ pub enum Action {
     /// The same from the launch dialog's own button (EP-39): the dialog closes for the restart
     /// and opens again in the new window; a refusal puts it back with the reasons.
     RestartFromLaunch,
+    /// File's Start at login (D-29; EP-28a): the entry that starts the installed window hidden
+    /// in the tray at login registered (true) or removed (false), at the owner's click.
+    StartAtLogin(bool),
     /// Quit: at once, or after a question when headless runs would stop (EP-15).
     Quit,
     /// The question's yes: quit, and the runs stop.
@@ -1135,8 +1138,64 @@ impl Board {
         }
     }
 
+    /// Whether the start-at-login entry is registered (EP-28a), wherever it starts: the entry read
+    /// alone, never the file it names, which the File menu asks at each frame while it is open.
+    pub(crate) fn starts_at_login(&self) -> bool {
+        autostart::read(&autostart::Place::current()).is_ok_and(|command| command.is_some())
+    }
+
+    /// File's Start at login (D-29; EP-28a): the entry registered to start the installed window
+    /// hidden in the tray, or removed, at the owner's click; the notice says what was written and
+    /// where. A screenshot run writes nothing, and without an installed window there is nothing to
+    /// start.
+    fn start_at_login(&mut self, on: bool) {
+        if self.fixtures {
+            self.warn("A screenshot run writes no start-at-login entry.");
+            return;
+        }
+        let place = autostart::Place::current();
+        let changed = if on {
+            let window = install::bin_dir()
+                .map(|bin| bin.join(install::WINDOW_EXE))
+                .filter(|window| window.is_file());
+            let Some(window) = window else {
+                self.warn(
+                    "No installed window to start at login: install it first \
+                     (pwsh -File scripts\\install-shortcut.ps1).",
+                );
+                return;
+            };
+            autostart::register(&place, &window).map(|()| {
+                format!(
+                    "At login Windows now starts {}, hidden in the tray (the entry is in {}).",
+                    window.display(),
+                    place.words()
+                )
+            })
+        } else {
+            autostart::remove(&place).map(|had| {
+                if had {
+                    format!(
+                        "The start-at-login entry is removed from {}.",
+                        place.words()
+                    )
+                } else {
+                    "There was no start-at-login entry to remove.".to_owned()
+                }
+            })
+        };
+        match changed {
+            Ok(words) => {
+                crw_core::log::line("autostart", &words);
+                self.notify(words);
+            }
+            Err(e) => self.fail(format!("The start-at-login entry was not changed: {e}")),
+        }
+    }
+
     /// Hides the window in the tray at its start, without the toast that says where it went: a
-    /// restart at the gate's moment from a window hidden there (EP-37a).
+    /// restart at the gate's moment from a window hidden there (EP-37a), or a start at login
+    /// (EP-28a).
     pub(crate) fn hide_at_start(&mut self) {
         self.told_tray = true;
         self.hide();
@@ -1427,6 +1486,7 @@ impl Board {
             Action::HideWindow => self.hide(),
             Action::InstallAndRestart => self.restart_from_window(),
             Action::RestartFromLaunch => self.restart_from_launch(),
+            Action::StartAtLogin(on) => self.start_at_login(on),
             Action::Quit => self.ask_quit(),
             Action::QuitAnyway => self.quit(),
             Action::KeepRunning => self.quit_asked = false,
@@ -2622,6 +2682,25 @@ impl Dashboard {
                     .clicked()
                 {
                     self.board.actions.push(Action::InstallAndRestart);
+                }
+                // The start-at-login entry (D-29; EP-28a), read while the menu is open: a
+                // screenshot run neither reads nor writes it.
+                let registered = !self.board.fixtures && self.board.starts_at_login();
+                let mut ticked = registered;
+                if ui
+                    .add_enabled(
+                        !self.board.fixtures,
+                        egui::Checkbox::new(&mut ticked, "Start at login, hidden in the tray"),
+                    )
+                    .on_hover_text(
+                        "Windows starts the installed window when you sign in, hidden in the \
+                         tray, so the ledger hears every session; untick to remove the entry \
+                         (crw autostart says where it lives)",
+                    )
+                    .on_disabled_hover_text("A screenshot run writes no start-at-login entry")
+                    .changed()
+                {
+                    self.board.actions.push(Action::StartAtLogin(ticked));
                 }
                 if ui
                     .add_enabled(

@@ -14,6 +14,7 @@
 
 pub mod actions;
 pub mod autopilot;
+pub mod autostart;
 pub mod badges;
 pub mod catalog;
 pub mod chat;
@@ -27,6 +28,7 @@ pub mod formalise;
 pub mod git;
 pub mod handover;
 pub mod history;
+pub mod icon;
 pub mod inbox;
 pub mod install;
 pub mod ledger;

@@ -1,27 +1,28 @@
 <#
 .SYNOPSIS
     Builds the release exes, installs them and (re)creates the desktop shortcut and the
-    Start-menu entry (D-29, EP-37).
+    Start-menu entry (D-29; EP-37, final at EP-28a).
 .DESCRIPTION
     pwsh -File scripts\install-shortcut.ps1
     The build runs with the window up: the window runs from its installed copy in
     %LOCALAPPDATA%\clauderoadmapwrangler\bin (CRW_HOME\bin in a trial), not from target\release.
     `crw install` copies the build there, each installed exe renamed to a dated previous copy
-    first (Windows lets a running exe be renamed, not replaced), and asks the window to restart
-    into it, which it does unless something would be lost (a headless run of its own that works
-    or waits, an open dialog...): it then keeps running, and its File > Install and restart, or
-    the tray's, restarts it later. -NoRestart leaves the window as it is. A window started from
-    target\release before the first install (EP-37) holds its exe, so that one build needs the
-    window quit from the tray first. A trial (CRW_HOME set) installs into CRW_HOME\bin, asks no
-    window to restart, and must name scratch folders with -Desktop and -StartMenu.
-    Both shortcuts are called "Roadmap Wrangler" (D-2 addendum) and open the installed window.
-    Both carry the AppUserModelID below, the id Windows attributes the app's toasts to (D-21,
-    EP-15), and the icon the window's title bar shows: eframe's default (egui's logo, eframe's
-    data\icon.png, MIT OR Apache-2.0), written beside the installed exe as an .ico at the sizes
-    Windows asks for (the owner's ask, 2026-11-05; the app's own icon replaces both at EP-28).
-    -Desktop and -StartMenu put the shortcuts elsewhere (EP-1 checked the script against scratch
-    folders); -NoBuild skips the build. Skeleton: the start-at-login entry and the final form
-    arrive at EP-28.
+    first (Windows lets a running exe be renamed, not replaced). It writes the app's own icon
+    beside them (app.ico, drawn by the tool: the tray's tile without its badges; the earlier
+    clauderoadmapwrangler.ico, egui's logo, is removed, so the shell shows the new icon at once), refreshes the copy of crw.exe on PATH when there is one (`crw path on` puts it in
+    %USERPROFILE%\.local\bin, beside claude.exe; `crw path off` removes it), and asks the window
+    to restart into the new build. The window does so unless something would be lost (a headless
+    run of its own that works or waits, an open dialog...): it then keeps running, and its
+    File > Install and restart, or the tray's, restarts it later. -NoRestart leaves the window as
+    it is. A trial (CRW_HOME set) installs into CRW_HOME\bin, asks no window to restart, and must
+    name scratch folders with -Desktop and -StartMenu.
+    Both shortcuts are called "Roadmap Wrangler" (D-2 addendum), open the installed window in its
+    own folder, carry the AppUserModelID below (the id Windows attributes the app to, D-21) and
+    show the tool's icon. The start-at-login entry is the tool's own switch, never this script's:
+    File > Start at login in the window, or `crw autostart on|off`, which starts the installed
+    window hidden in the tray when you sign in. The script ends by printing where the entry and
+    the PATH copy stand. -Desktop and -StartMenu put the shortcuts elsewhere (EP-1 checked the
+    script against scratch folders); -NoBuild skips the build.
 #>
 param(
     [string] $Desktop = [Environment]::GetFolderPath('Desktop'),
@@ -152,74 +153,13 @@ namespace RoadmapWrangler
 }
 '@
 
-# The PNG the window's title bar shows: eframe's default icon, found through cargo's metadata.
-function Find-WindowIcon {
-    $metadata = cargo metadata --format-version 1 --locked --manifest-path (Join-Path $root 'Cargo.toml') |
-        ConvertFrom-Json
-    if ($LASTEXITCODE -ne 0) { throw "cargo metadata failed (exit $LASTEXITCODE)" }
-    $eframe = $metadata.packages | Where-Object name -EQ 'eframe' | Select-Object -First 1
-    if (-not $eframe) { throw 'eframe is not among the packages' }
-    $png = Join-Path (Split-Path -Parent $eframe.manifest_path) 'data\icon.png'
-    if (-not (Test-Path $png)) { throw "$png is missing" }
-    $png
-}
-
-# Writes $png into $ico as one PNG-compressed image per size, which Windows reads since Vista.
-function Write-Icon([string] $png, [string] $ico) {
-    Add-Type -AssemblyName System.Drawing
-    $sizes = @(16, 20, 24, 32, 40, 48, 64, 72, 96, 128, 256)
-    $source = [System.Drawing.Image]::FromFile($png)
-    try {
-        $images = foreach ($size in $sizes) {
-            $bitmap = [System.Drawing.Bitmap]::new($size, $size, [System.Drawing.Imaging.PixelFormat]::Format32bppArgb)
-            $graphics = [System.Drawing.Graphics]::FromImage($bitmap)
-            $graphics.InterpolationMode = [System.Drawing.Drawing2D.InterpolationMode]::HighQualityBicubic
-            $graphics.PixelOffsetMode = [System.Drawing.Drawing2D.PixelOffsetMode]::HighQuality
-            $graphics.CompositingQuality = [System.Drawing.Drawing2D.CompositingQuality]::HighQuality
-            $graphics.SmoothingMode = [System.Drawing.Drawing2D.SmoothingMode]::HighQuality
-            $graphics.DrawImage($source, 0, 0, $size, $size)
-            $graphics.Dispose()
-            $stream = [System.IO.MemoryStream]::new()
-            $bitmap.Save($stream, [System.Drawing.Imaging.ImageFormat]::Png)
-            $bitmap.Dispose()
-            , $stream.ToArray()
-        }
-    }
-    finally {
-        $source.Dispose()
-    }
-    $out = [System.IO.MemoryStream]::new()
-    $writer = [System.IO.BinaryWriter]::new($out)
-    # ICONDIR: reserved, type 1 (an icon), the count; then a 16-byte entry per image.
-    $writer.Write([uint16] 0)
-    $writer.Write([uint16] 1)
-    $writer.Write([uint16] $sizes.Count)
-    $offset = 6 + 16 * $sizes.Count
-    for ($i = 0; $i -lt $sizes.Count; $i++) {
-        $side = [byte] ($sizes[$i] % 256)  # 0 stands for 256
-        $writer.Write($side)
-        $writer.Write($side)
-        $writer.Write([byte] 0)    # no palette
-        $writer.Write([byte] 0)    # reserved
-        $writer.Write([uint16] 1)  # colour planes
-        $writer.Write([uint16] 32) # bits per pixel
-        $writer.Write([uint32] $images[$i].Length)
-        $writer.Write([uint32] $offset)
-        $offset += $images[$i].Length
-    }
-    foreach ($image in $images) { $writer.Write([byte[]] $image) }
-    $writer.Flush()
-    [System.IO.File]::WriteAllBytes($ico, $out.ToArray())
-    $writer.Dispose()
-}
-
-$icon = Join-Path $bin 'clauderoadmapwrangler.ico'
-try {
-    Write-Icon (Find-WindowIcon) $icon
-    "Icon: $icon"
-}
-catch {
-    Write-Warning "The shortcuts keep Windows' default icon: $_"
+# The app's own icon, which `crw install` drew beside the exes (EP-28a), under a new name so that
+# the shell's icon cache shows it at once; the earlier file (egui's logo) is removed.
+$icon = Join-Path $bin 'app.ico'
+$earlier = Join-Path $bin 'clauderoadmapwrangler.ico'
+if (Test-Path -LiteralPath $earlier) { Remove-Item -LiteralPath $earlier }
+if (-not (Test-Path $icon)) {
+    Write-Warning "The shortcuts keep Windows' default icon: $icon is missing"
     $icon = ''
 }
 
@@ -230,3 +170,12 @@ foreach ($folder in @($Desktop, $StartMenu)) {
     [RoadmapWrangler.ShellLink]::Save($lnk, $exe, $bin, $description, $appId, $icon)
     "Shortcut: $lnk -> $exe"
 }
+
+# Where the start-at-login entry and the copy of crw on PATH stand (both read, nothing changed):
+# their switches are the tool's own, `crw autostart on|off` (or File > Start at login) and
+# `crw path on|off`.
+$installed = Join-Path $bin 'crw.exe'
+& $installed autostart
+if ($LASTEXITCODE -ne 0) { Write-Warning "crw autostart did not read the entry (exit $LASTEXITCODE)" }
+& $installed path
+if ($LASTEXITCODE -ne 0) { Write-Warning "crw path did not read the PATH copy (exit $LASTEXITCODE)" }
