@@ -280,9 +280,10 @@ impl Job {
                 Err(e) => {
                     self.forget_answer();
                     let _ = started.send(Err(format!(
-                        "could not start {} in {}: {e}",
+                        "could not start {} in {}: {}",
                         self.program.display(),
-                        self.launch.folder.display()
+                        self.launch.folder.display(),
+                        crate::process::explained(&self.program, &e)
                     )));
                     return;
                 }

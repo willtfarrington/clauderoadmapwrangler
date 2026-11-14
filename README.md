@@ -99,7 +99,22 @@ while a session works or waits in the project, never for a project marked a data
 where it would put it on GitHub or make it public; each run is an `event` row of the ledger, a
 failure is shown in the tool's own words and never retried, and the project's readings are asked
 again after it. `crw act <project> <action>` and `crw act backup` preview the same plans and run
-nothing. The roadmap is
+nothing. The Diagnostics pane and `crw doctor` (EP-28) give the same checks: the tools' versions
+against Claude Code's minimum, the extension's beside the standalone CLI's and the protocol
+crate's pin; this exe, the installed copy and the plugin's; each hook and the status line, which
+exe it runs and whether that exe is there; `gh`'s login; Tailscale's state; the backup drive
+mounted and labelled as the job expects; the registry and the ledger (its schema and SQLite's
+quick check); the crash log's last report; the rolling log; the last readings of the usage
+endpoint, the GitHub list, the mailman, ntfy and the status line; where Visual launches find
+VS Code and how many of the extension's lock files are stale (counted, never deleted). Each
+line is ok, a note, a warning or a failure, and nothing is changed. The pane gathers them on a
+worker thread when first shown and at Check again, under the window's own lines (its build, the
+signals, the notifications, the meter, the mailman, the headless route, the defer route's
+`crw.exe`, the log). The window keeps a rolling log, a file a day in the local folder's `log`
+with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
+restarts, a panic's head line and a child that did not start; a start that failed for reasons
+security software causes (the file flagged, access denied, a file gone) says where to look. The
+roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 
@@ -122,10 +137,11 @@ pwsh -File scripts\install-shortcut.ps1 # rebuilds, installs (crw install), then
 target\release\crw.exe install          # copy the build into %LOCALAPPDATA%\clauderoadmapwrangler\bin
                                         # (and the plugin's copy beside it) and ask the window to
                                         # restart into it
-target\release\crw.exe doctor           # versions of claude, gh, tailscale, code and the extension,
-                                        # where the installed copy is, which crw.exe the hooks run,
-                                        # whether the plugin's copy matches the build, and whether
-                                        # claude would start a headless session
+target\release\crw.exe doctor           # the Diagnostics pane's checks by group: the tools, the
+                                        # exes and the hooks, gh's login, Tailscale, the backup
+                                        # drive, the registry and the ledger, the crash log and
+                                        # the rolling log, the last readings, VS Code; then
+                                        # whether claude would start a headless session
 target\release\crw.exe scan             # the registry: projects, unadopted folders, proposals
 target\release\crw.exe dismiss <project>          # leave its proposals out until their facts change
 target\release\crw.exe roadmap <folder> # a project's snapshot: the next EP, its brief notes and brief,

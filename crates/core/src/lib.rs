@@ -9,7 +9,8 @@
 //! notifications' rules, EP-15b a session's start and its revert, EP-17 the usage meter, EP-37
 //! the installed copy of the exes and the window's restart into it, EP-20 the mailman, EP-21 the
 //! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin,
-//! EP-24 the chat's hosted session and its digest.
+//! EP-24 the chat's hosted session and its digest, EP-28 the doctor's report and the window's
+//! rolling log.
 
 pub mod actions;
 pub mod autopilot;
@@ -29,6 +30,7 @@ pub mod history;
 pub mod inbox;
 pub mod install;
 pub mod ledger;
+pub mod log;
 pub mod notify;
 pub mod paths;
 pub mod plugin;

@@ -337,7 +337,7 @@ impl Meter {
     }
 
     /// The meter's state in a sentence, and whether it warns.
-    fn state(&self, now: DateTime<Utc>) -> (String, bool) {
+    pub(crate) fn state(&self, now: DateTime<Utc>) -> (String, bool) {
         let next = match self.next {
             Some(at) if at > now + TimeDelta::minutes(1) => {
                 format!(" The next poll is in {}.", usage::countdown(at, now))

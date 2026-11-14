@@ -577,6 +577,16 @@ impl Ledger {
         Ok(version(&self.connection)?)
     }
 
+    /// SQLite's `quick_check` (D-29; EP-28): the problems it names, none when the file is sound.
+    /// It reads only, so it runs on a ledger opened with [`Ledger::open_read_only`].
+    pub fn check(&self) -> Result<Vec<String>, Error> {
+        let mut statement = self.connection.prepare("PRAGMA quick_check")?;
+        let said = statement
+            .query_map([], |row| row.get::<_, String>(0))?
+            .collect::<Result<Vec<String>, _>>()?;
+        Ok(said.into_iter().filter(|line| line != "ok").collect())
+    }
+
     /// Keeps one networked reading, replacing the project's earlier one from the same source.
     pub fn cache(
         &self,
@@ -1493,6 +1503,17 @@ mod tests {
             .unwrap()
             .map(Result::unwrap)
             .collect()
+    }
+
+    /// A sound ledger opened to read passes SQLite's check, at this build's schema (EP-28).
+    #[test]
+    fn a_sound_ledger_passes_its_check_read_only() {
+        let scratch = Scratch::new("ledger-check");
+        let path = scratch.0.join("local").join("ledger.sqlite");
+        drop(Ledger::open(&path).unwrap());
+        let read = Ledger::open_read_only(&path).unwrap();
+        assert_eq!(read.check().unwrap(), Vec::<String>::new());
+        assert_eq!(read.schema_version().unwrap(), SCHEMA_VERSION);
     }
 
     /// An import replaces the project's rows; the snapshot rows come once a day and at a change

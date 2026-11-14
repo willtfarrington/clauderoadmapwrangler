@@ -2585,6 +2585,52 @@ an opt-in live smoke test; documented AV exclusions.
 > *Alternatives.* A named mutex (it says nothing of which window holds the port and cannot ask
 > it to show itself); the guard left for EP-28a with the retry alone.
 
+> **Addendum (2026-11-13, EP-28).** **The doctor, the Diagnostics pane, the rolling log and the
+> AV hints.**
+>
+> - **One report.** `crw_core::doctor` gathers a `Report` of lines, each in a group with a name,
+>   a level (ok, note, warn, fail) and its words, which `crw doctor` prints by group and the
+>   Diagnostics pane draws. `probe` asks the children one at a time in their turn (the versions,
+>   `gh auth status`, `tailscale status --json`, whose peers, names and addresses are never
+>   kept); `report` reads files only. The groups: the tools (Claude Code against the minimum, the
+>   extension's version beside the standalone CLI's, the protocol crate's pin, held to
+>   `Cargo.lock` by a test), the exes and the entries (each hook and the status line, the exe
+>   it runs and whether that exe is there), `gh`'s login and its `delete_repo` scope,
+>   Tailscale's state, the backup drive (mounted, and its label against the job's
+>   `VolumeLabel`, read through `GetVolumeInformationW`; the job's last run), the records (the
+>   registry, the ledger read only with its schema and SQLite's `quick_check`, the crash log's
+>   last report, the rolling log), the last readings (the usage endpoint, the GitHub list, the
+>   mailman's last row, the last ntfy push with the host and whether a topic is set, never the
+>   topic, the latest status-line figures) and VS Code (where Visual launches find `Code.exe`,
+>   the extension's lock files counted live and stale and never deleted). `crw doctor` then
+>   prints the preflight as before and fails on a fail line.
+> - **The pane** is the seventh tile, in the right-hand group of the default layout and added
+>   beside the Detail pane to a saved layout. It gathers the report on a worker thread when it
+>   is first shown and at Check again, and draws above it the window's own lines: its build and
+>   a newer one installed, the signals, the notifications and the tray, the meter's state, the
+>   mailman's last round, the headless route with the preflight and `--permission-prompt-tool`,
+>   the defer route's `crw.exe`, the log's file. Only the real window gathers (`main` starts
+>   it); a screenshot run shows a canned report and a test's board starts no child.
+> - **The rolling log** is the window's alone: `crw_core::log` writes `crw-<date>.log` in the
+>   local folder's `log` (`CRW_HOME\log` in a trial), a file a local day, and removes the day
+>   files older than fourteen days when it starts and when the day turns, only files of that
+>   name. The window writes its start (the build, the process, a restart), every notice,
+>   warning and error the status bar shows (whole, where the bar cuts them), a held-back
+>   notification's words, its restart and its end, a panic's head line beside `crash.log`, the
+>   report's warn and fail lines, and each child that did not start; a line written within five
+>   minutes is left out, whatever came between, so a child that fails at every poll stays a line
+>   in five minutes. `crw` and the hooks write nothing, a hook running at every event.
+> - **The AV hints.** A child that does not start says why where Windows' error points at
+>   security software: the file flagged (errors 225 and 226), access denied (5), a file named by
+>   its path gone (2 and 3); in every short-lived child, the backup job, the session runner's
+>   start and the visual launch. The report says the same of an entry's exe that is missing and
+>   of the defer route's `crw.exe` missing beside the window.
+>
+> *Alternatives.* A tile with its own checks beside `crw doctor`'s (two sets of words to keep
+> alike); the checks run at every start (eight children the owner did not ask for); a log
+> written by `crw` and the hooks too (a file write at every event); a log viewer in the window
+> (the pane names the file); the stale lock files deleted (they are the extension's).
+
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored
 `private/portfolio-2026-10-31.md`. The interview ran 18 rounds and 72 questions on 2026-10-31; every

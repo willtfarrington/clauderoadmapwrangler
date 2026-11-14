@@ -481,9 +481,13 @@ impl Starter for Children {
         for name in withheld(env::vars_os().map(|(name, _)| name)) {
             command.env_remove(name);
         }
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("could not start {}: {e}", program.display()))?;
+        let mut child = command.spawn().map_err(|e| {
+            format!(
+                "could not start {}: {}",
+                program.display(),
+                process::explained(program, &e)
+            )
+        })?;
         let started = Instant::now();
         loop {
             match child.try_wait() {

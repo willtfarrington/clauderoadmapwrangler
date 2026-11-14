@@ -1511,7 +1511,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-26a | [Analytics in the list: inline row expansion with the burn-up sparkline, Expand all and Collapse all, the cards view](EP-26a-analytics-in-the-list.md) (D-25) | M | EP-26 | core | ☑ `7f1778b` |
 | EP-27 | [Exports: site `projects.json` and HTML snippet, daily JSON export into `private/`, CSV per project](EP-27-exports.md) (D-8, D-24) | S | EP-25 | core | ☑ `53c474b` |
 | EP-34 | [Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged](EP-34-hosting-and-backup-actions.md) (D-24) | M | EP-7 | core | ☑ `ec2957e` |
-| EP-28 | Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints (D-29) | M | EP-15, EP-37 | core | ☐ |
+| EP-28 | [Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints](EP-28-diagnostics.md) (D-29) | M | EP-15, EP-37 | core | ☐ |
 | EP-28a | Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final (D-29) | M | EP-28, EP-37a | core | ☐ |
 | EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
@@ -1880,7 +1880,13 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   before EP-37 still starts `target\release`, which the window's chip offers to move. EP-28's
   note holds the earlier segments for these parts (From IN-3, EP-12, EP-13, EP-15 and EP-16:
   `signals::install::status`, the `/health` probe, `Ledger::open_read_only` and the open rows, the
-  hidden start), which this brief reads with its own.
+  hidden start), which this brief reads with its own. **From EP-28 (2026-11-13):** `crw doctor`
+  and the Diagnostics pane share `crw_core::doctor::report`, whose Exes group is where the
+  shim's line belongs (whether `crw` on PATH reaches the installed copy, IN-3's check) and the
+  start-at-login entry's (there, and starting the installed window); the pane's own lines
+  (`Board::window_lines`) are where the reconciliation can say what it closed at the start; the
+  window's starts, restarts and ends are lines of the rolling log (`crw_core::log`, kind `start`,
+  `restart`, `quit`), which a start at login makes daily.
 - **EP-29.** Retro, addenda, P5 charters upgraded to full briefs with pickup notes (the web pages' exact
   routes and templates decided from a month of desktop use), `v2-notes.md` grown. **From the planning
   session (2026-11-08):** the re-plan opens with the P4 walk, compiled from the residual-risk

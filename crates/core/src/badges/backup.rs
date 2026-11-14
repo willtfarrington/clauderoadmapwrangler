@@ -27,6 +27,9 @@ const LOG_TAIL: u64 = 512 * 1024;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Job {
     pub target: PathBuf,
+    /// The label the target's drive should carry (`VolumeLabel`), which the doctor sets against
+    /// the drive's own (EP-28).
+    pub label: Option<String>,
     /// The sets that make one unit per child folder: the set's name, and the folder relative to
     /// the job's root (`Each`).
     pub each: Vec<(String, String)>,
@@ -61,8 +64,15 @@ pub fn read_job(path: &Path) -> Result<Job, String> {
         .iter()
         .filter_map(|path| path.as_str().map(str::to_owned))
         .collect();
+    let label = value
+        .get("VolumeLabel")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .map(str::to_owned);
     Ok(Job {
         target: PathBuf::from(target),
+        label,
         each,
         exclude,
     })
@@ -292,7 +302,7 @@ impl Reading {
 }
 
 /// `E:\Archive\…` → `E:\`.
-fn drive_root(path: &Path) -> Option<PathBuf> {
+pub fn drive_root(path: &Path) -> Option<PathBuf> {
     let mut components = path.components();
     match (components.next()?, components.next()?) {
         (prefix @ Component::Prefix(_), Component::RootDir) => {
@@ -462,11 +472,12 @@ not json at all
         fs::write(
             &settings,
             format!(
-                "@{{\n    Target = '{}'\n    Sets = @(\n        @{{ Name = 'NOTES'; Paths = @('NOTES') }}\n        @{{ Name = 'WORK'; Each = 'WORK' }}\n    )\n    ExcludePaths = @(\n        'WORK\\alpha\\big data'\n        'WORK\\alphabet\\other'\n    )\n}}\n",
+                "@{{\n    Target = '{}'\n    VolumeLabel = 'SPARE'\n    Sets = @(\n        @{{ Name = 'NOTES'; Paths = @('NOTES') }}\n        @{{ Name = 'WORK'; Each = 'WORK' }}\n    )\n    ExcludePaths = @(\n        'WORK\\alpha\\big data'\n        'WORK\\alphabet\\other'\n    )\n}}\n",
                 target.display()
             ),
         )
         .unwrap();
+        assert_eq!(read_job(&settings).unwrap().label.as_deref(), Some("SPARE"));
         let alpha = target.join("WORK").join("alpha");
         fs::create_dir_all(&alpha).unwrap();
         for name in [

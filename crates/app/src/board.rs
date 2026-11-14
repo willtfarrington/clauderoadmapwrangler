@@ -449,6 +449,8 @@ pub struct Board {
     pub reopen_launch: Option<String>,
     /// The mailman's rounds and what they made of each block (D-13; EP-20).
     pub mail: crate::mail::Mail,
+    /// The Diagnostics tile's report (D-29; EP-28).
+    pub diagnostics: crate::diagnostics::Diagnostics,
     /// The compose dialog, while it is open (D-13; EP-20c).
     pub compose: Option<crate::compose::Dialog>,
     /// The Chat tile's conversation (D-27; EP-24).
@@ -538,6 +540,7 @@ impl Board {
             restart: crate::restart::Restart::default(),
             reopen_launch: None,
             mail: crate::mail::Mail::default(),
+            diagnostics: crate::diagnostics::Diagnostics::default(),
             compose: None,
             chat: crate::chat::Chat::default(),
             compose_when_read: None,
@@ -632,15 +635,19 @@ impl Board {
         self.error.as_deref()
     }
 
+    /// Each notice, warning and error goes to the rolling log whole as well (D-29; EP-28), where
+    /// the window started one; the status bar shows its first line, cut.
     pub fn notify(&mut self, text: impl Into<String>) {
-        let text = one_line(&text.into(), NOTICE_CHARS);
-        self.notice = Some((text, Tone::Plain, Instant::now()));
+        let text = text.into();
+        crw_core::log::line("notice", &text);
+        self.notice = Some((one_line(&text, NOTICE_CHARS), Tone::Plain, Instant::now()));
         self.error = None;
     }
 
     pub fn warn(&mut self, text: impl Into<String>) {
-        let text = one_line(&text.into(), NOTICE_CHARS);
-        self.notice = Some((text, Tone::Warning, Instant::now()));
+        let text = text.into();
+        crw_core::log::line("warning", &text);
+        self.notice = Some((one_line(&text, NOTICE_CHARS), Tone::Warning, Instant::now()));
     }
 
     /// What a toast held back while the window is in front says instead; an error stands.
@@ -650,12 +657,15 @@ impl Board {
         } else {
             Tone::Plain
         };
-        let text = one_line(&toast.words(), NOTICE_CHARS);
-        self.notice = Some((text, tone, Instant::now()));
+        let words = toast.words();
+        crw_core::log::line("in front", &words);
+        self.notice = Some((one_line(&words, NOTICE_CHARS), tone, Instant::now()));
     }
 
     pub fn fail(&mut self, text: impl Into<String>) {
-        self.error = Some(one_line(&text.into(), NOTICE_CHARS));
+        let text = text.into();
+        crw_core::log::line("error", &text);
+        self.error = Some(one_line(&text, NOTICE_CHARS));
         self.notice = None;
     }
 
@@ -1154,6 +1164,7 @@ impl Board {
     /// Lets the window close for a restart whose new window has started (EP-37): nothing runs,
     /// since a restart is refused while anything would stop.
     pub(crate) fn close_for_restart(&mut self) {
+        crw_core::log::line("restart", "the window closes for its restart");
         self.quitting = true;
         self.quit_asked = false;
         self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -2003,7 +2014,7 @@ impl Board {
     }
 
     /// The registry's `settings.decisions`, when it reads.
-    fn decisions_setting(&self) -> Option<Route> {
+    pub(crate) fn decisions_setting(&self) -> Option<Route> {
         self.store()
             .load()
             .ok()
@@ -2325,14 +2336,21 @@ impl Board {
     }
 
     /// The notifications and the tray in words, for the status bar's hover (EP-15).
-    fn notifications_line(&self) -> String {
+    pub(crate) fn notifications_line(&self) -> String {
+        self.notifications_state().0
+    }
+
+    /// The same line, and whether it tells of a failure (the Diagnostics pane's level, EP-28);
+    /// the registry is read once for both.
+    pub(crate) fn notifications_state(&self) -> (String, bool) {
         let tray = match &self.tray {
             Some(tray) => tray.line(),
             None if self.toasts.is_on() => "no tray icon: closing the window quits".to_owned(),
             None => "no tray icon".to_owned(),
         };
         let (quiet, ntfy) = self.notify_settings();
-        format!("{}; {tray}", self.toasts.line(quiet, ntfy.as_ref()))
+        let line = format!("{}; {tray}", self.toasts.line(quiet, ntfy.as_ref()));
+        (line, self.toasts.line_warns(ntfy.as_ref()))
     }
 
     /// Errors stay until the next notice; a notice fades. With nothing to report, the keys.

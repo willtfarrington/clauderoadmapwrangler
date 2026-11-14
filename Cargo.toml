@@ -41,7 +41,7 @@ image = { version = "=0.25.10", default-features = false, features = ["png"] }
 # whether the process of a VS Code lock file still runs (the features process-wrap compiles in).
 # From EP-12, tokio's `net` carries the window's loopback server. From EP-17, `windows` also
 # makes the usage meter's one HTTPS request through WinHTTP, Windows' own HTTP stack (the owner's
-# choice over a client crate).
+# choice over a client crate). From EP-28, it reads a drive's label for the doctor.
 claude-codes = { version = "=2.1.316", default-features = false, features = ["types"] }
 process-wrap = { version = "=10.0.1", default-features = false, features = [
     "creation-flags",
@@ -62,6 +62,7 @@ uuid = { version = "=1.29.0", features = ["v4"] }
 windows = { version = "=0.62.2", features = [
     "Win32_Foundation",
     "Win32_Networking_WinHttp",
+    "Win32_Storage_FileSystem",
     "Win32_System_Threading",
 ] }
 

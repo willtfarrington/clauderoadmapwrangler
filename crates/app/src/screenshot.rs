@@ -295,6 +295,10 @@ impl Run {
                 .join("fixtures")
                 .join("model-catalog"),
         );
+        // The Diagnostics tile's report is canned: a screenshot run starts no child (EP-28).
+        board
+            .diagnostics
+            .can(crate::diagnostics::canned(), chrono::Utc::now());
         for flag in &self.flags {
             let (name, value) = flag.split_once('=').unwrap_or((flag.as_str(), ""));
             let board = dashboard.board_mut();

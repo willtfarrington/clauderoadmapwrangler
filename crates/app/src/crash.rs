@@ -1,7 +1,9 @@
 //! The window's crash log (EP-14a, D-14 addendum): a release build has no console, so a panic
 //! would end the window without a word. The hook appends each panic's report to `crash.log` in the
 //! local folder (`%LOCALAPPDATA%\clauderoadmapwrangler`, or `CRW_HOME`), and the next start names
-//! the last report in the status bar, once.
+//! the last report in the status bar, once. The report's form and its reader are
+//! `crw_core::doctor`'s, which the Diagnostics tile and `crw doctor` read too (EP-28); a panic
+//! also leaves a line in the rolling log.
 
 use std::backtrace::Backtrace;
 use std::fs::{self, OpenOptions};
@@ -9,34 +11,38 @@ use std::io::{self, Write};
 use std::panic::PanicHookInfo;
 use std::path::{Path, PathBuf};
 
-use chrono::{DateTime, Local, SecondsFormat, Utc};
+use chrono::{DateTime, SecondsFormat, Utc};
+use crw_core::doctor::{CRASH_FILE, CRASH_HEAD as HEAD, CRASH_SEP as SEP, last_crash};
 
 /// The log's name in the local folder.
-pub const FILE: &str = "crash.log";
+pub const FILE: &str = CRASH_FILE;
 /// Where a full log goes.
 const OLD: &str = "crash.old.log";
 /// Beside the log: the time of the last report the status bar named.
 const SEEN: &str = "crash.seen";
 /// Past this size the log moves to [`OLD`] and a new one starts.
 const CAP: u64 = 1 << 20;
-/// A report's head line starts so; the version, time, thread and place follow, apart by [`SEP`].
-const HEAD: &str = "== crw ";
-const SEP: &str = " · ";
 
-/// Installs the hook: each panic, on any thread, appends its report to `file`, then the hook that
-/// was there runs as before (a debug build's console still shows the panic).
+/// Installs the hook: each panic, on any thread, appends its report to `file` and a line to the
+/// rolling log, then the hook that was there runs as before (a debug build's console still shows
+/// the panic).
 pub fn install(file: PathBuf) {
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current();
+        let (place, message) = (place(info), message(info));
         let text = report(
             Utc::now(),
             thread.name().unwrap_or("unnamed"),
-            &place(info),
-            &message(info),
+            &place,
+            &message,
             &Backtrace::force_capture().to_string(),
         );
         let _ = append(&file, &text, CAP);
+        crw_core::log::try_line(
+            "panic",
+            &format!("{message} ({place}); {} has the report", file.display()),
+        );
         previous(info);
     }));
 }
@@ -82,49 +88,21 @@ fn append(file: &Path, report: &str, cap: u64) -> io::Result<()> {
         .write_all(report.as_bytes())
 }
 
-/// The last report of a log, as its head line and first line of message give it.
-#[derive(Debug, PartialEq)]
-struct Last {
-    at: String,
-    place: String,
-    message: String,
-}
-
-fn last(log: &str) -> Option<Last> {
-    let start = log.rfind(HEAD)?;
-    let mut lines = log[start + HEAD.len()..].lines();
-    let mut head = lines.next()?.split(SEP);
-    let (_version, at, _thread) = (head.next()?, head.next()?, head.next()?);
-    let place = head.collect::<Vec<_>>().join(SEP);
-    Some(Last {
-        at: at.to_owned(),
-        place,
-        message: lines.next().unwrap_or_default().trim().to_owned(),
-    })
-}
-
 /// The status bar's word on the last report in `file`, once: none without one, or when the
 /// window named it already (its time is kept in [`SEEN`]).
 pub fn unseen(file: &Path) -> Option<String> {
-    let last = last(&fs::read_to_string(file).ok()?)?;
+    let last = last_crash(&fs::read_to_string(file).ok()?)?;
     let mark = file.with_file_name(SEEN);
     if fs::read_to_string(&mark).is_ok_and(|seen| seen.trim() == last.at) {
         return None;
     }
     let _ = fs::write(&mark, &last.at);
-    let when = DateTime::parse_from_rfc3339(&last.at).map_or_else(
-        |_| last.at.clone(),
-        |at| {
-            at.with_timezone(&Local)
-                .format("%Y-%m-%d %H:%M")
-                .to_string()
-        },
-    );
     // A library's place is a long registry path: its file name and line say enough.
-    let place = last.place.rsplit(['\\', '/']).next().unwrap_or_default();
     Some(format!(
-        "The window closed on a panic at {when}: {} ({place}); {} has the report.",
+        "The window closed on a panic at {}: {} ({}); {} has the report.",
+        last.when(),
         last.message,
+        last.short_place(),
         file.display()
     ))
 }
@@ -181,15 +159,11 @@ mod tests {
             ),
         ]
         .concat();
-        assert_eq!(
-            last(&log),
-            Some(Last {
-                at: "2026-11-03T17:47:53Z".to_owned(),
-                place: r"C:\src\board.rs:1043:39".to_owned(),
-                message: "overflow when subtracting durations".to_owned(),
-            })
-        );
-        assert_eq!(last("no report here"), None);
+        let last = last_crash(&log).unwrap();
+        assert_eq!(last.at, "2026-11-03T17:47:53Z");
+        assert_eq!(last.place, r"C:\src\board.rs:1043:39");
+        assert_eq!(last.message, "overflow when subtracting durations");
+        assert_eq!(last_crash("no report here"), None);
     }
 
     #[test]
@@ -242,6 +216,6 @@ mod tests {
         assert!(log.starts_with(HEAD), "{log}");
         assert!(log.contains("thread 'probe'"), "{log}");
         assert!(log.contains("crash.rs:"), "{log}");
-        assert_eq!(last(&log).unwrap().message, "probe panic 7");
+        assert_eq!(last_crash(&log).unwrap().message, "probe panic 7");
     }
 }

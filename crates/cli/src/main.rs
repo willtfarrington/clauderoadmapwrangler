@@ -23,7 +23,7 @@
 //! mentions their context and `signals install` adding the event, from EP-20b; `export`, the
 //! site's cards, the daily export of the registry and the ledger and a project's CSV, with the
 //! `site` setting, from EP-27; `act`, a hosting or backup action previewed as the window's dialog
-//! shows it, from EP-34.
+//! shows it, from EP-34; `doctor`'s report by group, the Diagnostics pane's checks, from EP-28.
 
 use std::collections::HashMap;
 use std::fs;
@@ -40,7 +40,7 @@ use crw_core::badges::short_age;
 use crw_core::badges::stack::{self, Chip};
 use crw_core::catalog::{self, Catalog};
 use crw_core::discovery::{self, Folder, Listing, OwnFile, OwnFiles, View};
-use crw_core::doctor::{self, Outcome};
+use crw_core::doctor::{self, Level};
 use crw_core::inbox::{self, Recipient, mailman};
 use crw_core::install;
 use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
@@ -55,7 +55,6 @@ use crw_core::sessions::{Registered, Status, VISUAL_CLAIM, project_of};
 use crw_core::signals::install::{self as signal_entries, Hooked, Line, Options};
 use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
-use crw_core::version::MIN_CLAUDE_CODE;
 use crw_core::{
     export, files, formalise, git, notify, paths, plugin, process, prompt, proposal, rules, usage,
     workspace,
@@ -65,9 +64,15 @@ const USAGE: &str = "\
 usage: crw <command>
 
 commands:
-  doctor                         print the versions of claude, gh, tailscale, code and the extension,
-                                 where this exe and the installed copy are and which one the hooks
-                                 run, and whether claude would start a headless session (no usage)
+  doctor                         print the Diagnostics pane's checks, each ok, a note, a warning or
+                                 a failure: the versions of claude (against the minimum), gh,
+                                 tailscale, code and the extension; this exe, the installed copy,
+                                 the plugin's copy, each hook and the status line and whether the
+                                 exe they run is there; gh's login; Tailscale's state; the backup
+                                 drive and its label; the registry, the ledger, the crash log and
+                                 the window's rolling log; the last readings; VS Code and its lock
+                                 files; then whether claude would start a headless session. Reads
+                                 only (no usage); fails on a failure
   install [--no-restart]         copy the release build of the repository crw was built in (its
                                  target\\release: the window's exe and crw.exe) into the install
                                  folder, %LOCALAPPDATA%\\clauderoadmapwrangler\\bin, each exe there
@@ -406,32 +411,36 @@ fn failed(error: impl std::fmt::Display) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// Prints one line per tool, then the session runner's preflight (EP-9), and fails when Claude
-/// Code is missing, older than the minimum, or would refuse a headless session.
+/// Prints the doctor's report by group (D-29; EP-28: the tools, the exes and the entries, the
+/// accounts, the network, the backup drive, the records, the last readings, VS Code), then the
+/// session runner's preflight (EP-9); fails on a fail line or when Claude Code would refuse a
+/// headless session. Reads only.
 fn doctor() -> ExitCode {
     println!("crw {} doctor", env!("CARGO_PKG_VERSION"));
-    let checks = doctor::run();
-    for check in &checks {
-        let (version, detail) = match &check.outcome {
-            Outcome::Found { version, source } => {
-                (version.to_string(), source.display().to_string())
-            }
-            Outcome::Missing => ("-".to_owned(), "not found".to_owned()),
-            Outcome::Failed { source, reason } => {
-                ("?".to_owned(), format!("{reason}: {}", source.display()))
-            }
-        };
-        println!("  {:<10} {:<9} {detail}", check.name, version);
+    let report = doctor::report(&doctor::probe(), &doctor::Places::real(), Utc::now());
+    let width = report
+        .lines
+        .iter()
+        .map(|line| line.name.chars().count())
+        .max()
+        .unwrap_or(0);
+    for group in doctor::Group::ALL {
+        let mut lines = report.group(group).peekable();
+        if lines.peek().is_none() {
+            continue;
+        }
+        println!("{}", group.title());
+        for line in lines {
+            println!(
+                "  {:<4}  {:<width$}  {}",
+                line.level.word(),
+                line.name,
+                line.text
+            );
+        }
     }
-    print_exes();
-    let meets = doctor::claude_meets_minimum(&checks);
-    if meets {
-        println!("claude meets the minimum version {MIN_CLAUDE_CODE}");
-    } else {
-        println!(
-            "claude is missing or older than {MIN_CLAUDE_CODE}: headless sessions will be refused"
-        );
-    }
+    let meets = report.worst() < Level::Fail;
+    println!("Headless");
     // The CLI the runner would start: the registry's setting, else where the installer puts it.
     let setting = store()
         .ok()
@@ -3564,76 +3573,6 @@ fn install_build(flags: &[&str]) -> ExitCode {
         signals::RestartReply::Failed(why) => println!("The window did not answer: {why}."),
     }
     ExitCode::SUCCESS
-}
-
-/// Where this exe and the installed copy are, and which `crw.exe` the hooks and the status line
-/// run (D-29; EP-37).
-fn print_exes() {
-    let this = this_exe().ok();
-    println!(
-        "  this exe   {}",
-        this.as_ref()
-            .map_or_else(|| "?".to_owned(), |this| this.display().to_string())
-    );
-    match install::bin_dir() {
-        Some(bin) => match install::Stamp::of(&bin.join(install::CLI_EXE)) {
-            Some(stamp) => println!("  installed  {}, built {}", bin.display(), stamp.when()),
-            None => println!(
-                "  installed  none in {}: crw install copies the release build there",
-                bin.display()
-            ),
-        },
-        None => println!("  installed  ? no local folder"),
-    }
-    // The build's copy of the plugin a headless run loads (D-27; EP-22a).
-    match plugin::dir() {
-        Some(dir) => println!(
-            "  plugin     {}: {}",
-            dir.display(),
-            plugin::Status::of(&dir).words()
-        ),
-        None => println!("  plugin     ? no local folder"),
-    }
-    let Some(status) =
-        signal_entries::settings_file().and_then(|path| signal_entries::status(&path).ok())
-    else {
-        println!("  hooks      ? the user settings did not read");
-        return;
-    };
-    let all = status
-        .hooks
-        .iter()
-        .filter_map(|(_, hooked)| match hooked {
-            Hooked::Ours { exe, .. } => Some(exe.clone()),
-            _ => None,
-        })
-        .chain(match &status.line {
-            Line::Ours(exe) => Some(exe.clone()),
-            _ => None,
-        });
-    let mut run: Vec<PathBuf> = Vec::new();
-    for exe in all {
-        if !run.iter().any(|seen| paths::same(seen, &exe)) {
-            run.push(exe);
-        }
-    }
-    let words: Vec<String> = run
-        .iter()
-        .map(|exe| exe_words(exe, this.as_deref()))
-        .collect();
-    match words.as_slice() {
-        [] => println!("  hooks      not installed (crw signals install)"),
-        [one] if one == "the installed copy" => println!("  hooks      run the installed copy"),
-        _ => println!(
-            "  hooks      run {}{}",
-            words.join(" and "),
-            if installed_cli().is_some() {
-                ": crw signals install points them at the installed copy"
-            } else {
-                ""
-            }
-        ),
-    }
 }
 
 fn print_report(report: &signal_entries::Report, unchanged: &str) {

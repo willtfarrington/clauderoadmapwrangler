@@ -20,16 +20,19 @@ pub enum Pane {
     Sessions,
     Chat,
     Usage,
+    /// The doctor's checks and the window's own lines (D-29; EP-28).
+    Diagnostics,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 6] = [
+    pub const ALL: [Pane; 7] = [
         Pane::Projects,
         Pane::Detail,
         Pane::Decisions,
         Pane::Sessions,
         Pane::Chat,
         Pane::Usage,
+        Pane::Diagnostics,
     ];
 
     pub fn title(self) -> &'static str {
@@ -40,6 +43,7 @@ impl Pane {
             Pane::Sessions => "Sessions",
             Pane::Chat => "Chat",
             Pane::Usage => "Usage",
+            Pane::Diagnostics => "Diagnostics",
         }
     }
 
@@ -60,7 +64,13 @@ pub fn default_layout() -> Tree<Pane> {
         (&[Pane::Projects], 1.75),
         (&[Pane::Detail], 1.0),
         (
-            &[Pane::Decisions, Pane::Sessions, Pane::Chat, Pane::Usage],
+            &[
+                Pane::Decisions,
+                Pane::Sessions,
+                Pane::Chat,
+                Pane::Usage,
+                Pane::Diagnostics,
+            ],
             0.45,
         ),
     ];
@@ -174,6 +184,7 @@ impl egui_tiles::Behavior<Pane> for Board {
                 Pane::Sessions => self.sessions_pane(ui),
                 Pane::Chat => self.chat_pane(ui),
                 Pane::Usage => self.usage_pane(ui),
+                Pane::Diagnostics => self.diagnostics_pane(ui),
             });
         UiResponse::None
     }
@@ -237,6 +248,14 @@ pub(crate) mod tests {
         );
         show(&mut tree, Pane::Usage);
         assert_eq!(shown(&tree), [Pane::Projects, Pane::Detail, Pane::Usage]);
+        // The Diagnostics pane is a tab of the right-hand group, behind Decisions (EP-28).
+        let group = |pane| tree.tiles.parent_of(tree.tiles.find_pane(&pane).unwrap());
+        assert_eq!(group(Pane::Diagnostics), group(Pane::Decisions));
+        show(&mut tree, Pane::Diagnostics);
+        assert_eq!(
+            shown(&tree),
+            [Pane::Projects, Pane::Detail, Pane::Diagnostics]
+        );
     }
 
     #[test]
@@ -273,6 +292,16 @@ pub(crate) mod tests {
                 .unwrap()
         };
         assert_eq!(group(Pane::Usage), group(Pane::Detail));
+        assert_eq!(group(Pane::Diagnostics), group(Pane::Detail));
+        // The Detail pane stays in front: the new tab draws nothing, and so gathers nothing,
+        // until it is chosen.
+        assert!(
+            completed
+                .active_tiles()
+                .into_iter()
+                .filter_map(|id| completed.tiles.get_pane(&id).copied())
+                .all(|pane| pane != Pane::Diagnostics)
+        );
     }
 
     #[test]

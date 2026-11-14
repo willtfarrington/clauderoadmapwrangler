@@ -21,6 +21,7 @@ mod compose;
 mod crash;
 mod decisions;
 mod detail;
+mod diagnostics;
 mod formalise;
 mod launch;
 mod layout;
@@ -86,7 +87,25 @@ fn main() -> eframe::Result {
     if let Some(file) = &crash_log {
         crash::install(file.clone());
     }
-    eframe::run_native(
+    // The rolling log (D-29; EP-28): a file a day in the local folder's `log`, fourteen kept.
+    if let Some(dir) = paths::local_dir() {
+        crw_core::log::start(dir.join(crw_core::log::FOLDER));
+        let build = Running::now()
+            .and_then(|running| running.stamp)
+            .map_or_else(String::new, |stamp| format!(", built {}", stamp.when()));
+        let restart = restarted.map_or_else(String::new, |pid| {
+            format!(", restarted from the window of process {pid}")
+        });
+        crw_core::log::line(
+            "start",
+            &format!(
+                "the window starts: crw {}{build}, process {}{restart}",
+                env!("CARGO_PKG_VERSION"),
+                std::process::id()
+            ),
+        );
+    }
+    let ended = eframe::run_native(
         APP_ID,
         options,
         Box::new(move |cc| {
@@ -139,6 +158,8 @@ fn main() -> eframe::Result {
             // The notifications and the tray icon (D-21, D-29; EP-15), on this thread, whose
             // message loop serves the icon. Without the icon, closing the window quits as before.
             board.toasts.start(paths::ledger_file());
+            // The Diagnostics tile's checks may start children in this window (EP-28).
+            board.diagnostics.start();
             match tray::Tray::start(&cc.egui_ctx) {
                 Ok(tray) => board.tray = Some(tray),
                 Err(why) => board.warn(format!(
@@ -151,7 +172,12 @@ fn main() -> eframe::Result {
             board.take_handover(paths::local_dir().as_deref(), restarted, &when);
             Ok(Box::new(dashboard))
         }),
-    )
+    );
+    match &ended {
+        Ok(()) => crw_core::log::line("quit", "the window ends"),
+        Err(e) => crw_core::log::line("error", &format!("the window ends on an error: {e}")),
+    }
+    ended
 }
 
 fn options(

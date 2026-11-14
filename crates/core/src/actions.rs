@@ -41,7 +41,7 @@ const QUIET: [(&str, &str); 3] = [
 
 /// `gh auth status` asked for the active account on github.com, as JSON: its login and the
 /// token's scopes.
-const AUTH: [&str; 7] = [
+pub(crate) const AUTH: [&str; 7] = [
     "auth",
     "status",
     "--active",
@@ -52,7 +52,7 @@ const AUTH: [&str; 7] = [
 ];
 
 /// The scope `gh repo delete` needs, and how the owner adds it (`gh`'s own words).
-const DELETE_SCOPE: &str = "delete_repo";
+pub(crate) const DELETE_SCOPE: &str = "delete_repo";
 pub const ADD_DELETE_SCOPE: &str = "gh auth refresh -s delete_repo";
 
 /// `gh repo edit`'s paragraph on changing a repository's visibility (gh 2.104), repeated by the

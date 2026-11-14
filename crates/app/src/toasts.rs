@@ -417,6 +417,9 @@ struct Pending {
     what: &'static str,
 }
 
+/// How the latest outcome of a failed push starts, which [`Toasts::line_warns`] looks for.
+const PUSH_FAILED: &str = "the last push failed";
+
 /// The pushes to ntfy, sent one at a time on a thread of their own so that a slow or absent server
 /// never holds the window (EP-20a); each push is logged, and the latest outcome kept for the
 /// status bar.
@@ -457,7 +460,7 @@ impl Pusher {
                 let at = Local::now().format("%H:%M");
                 let mut words = match outcome {
                     Ok(_) => format!("the last push went at {at}"),
-                    Err(why) => format!("the last push failed at {at}: {why}"),
+                    Err(why) => format!("{PUSH_FAILED} at {at}: {why}"),
                 };
                 if let Err(e) = logged {
                     words.push_str(&format!(" (the ledger did not log it: {e})"));
@@ -1016,6 +1019,19 @@ impl Toasts {
         if let Err(e) = added {
             self.problem = Some(format!("The ledger did not take a notification: {e}"));
         }
+    }
+
+    /// Whether [`Toasts::line`] tells of a failure (the Diagnostics pane's level, EP-28): the
+    /// ledger refused a notification, ntfy's settings do not read, or the last push failed.
+    pub fn line_warns(&self, ntfy: Option<&Result<Ntfy, String>>) -> bool {
+        self.on
+            && (self.problem.is_some()
+                || matches!(ntfy, Some(Err(_)))
+                || self
+                    .pusher
+                    .as_ref()
+                    .and_then(Pusher::last)
+                    .is_some_and(|last| last.starts_with(PUSH_FAILED)))
     }
 
     /// The notifications in words, for the status bar's hover.

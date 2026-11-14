@@ -20,6 +20,47 @@ pub const TIMEOUT: Duration = Duration::from_secs(20);
 
 static TURN: Mutex<()> = Mutex::new(());
 
+/// The hint for a file Windows says security software flagged (its errors 225 and 226).
+pub const FLAGGED: &str = "Windows says security software flagged the file: look in its quarantine";
+/// The hint for access denied (error 5).
+pub const DENIED: &str = "access was denied: security software may hold the file, or a build is \
+     replacing it; if it lasts, look in the security software's quarantine";
+/// The hint for a file named by its path that is not there (errors 2 and 3).
+pub const GONE: &str = "the file is not there: if it was a moment ago, security software may \
+     have quarantined it";
+
+/// Why a child did not start, for the errors security software causes on this machine's two AV
+/// products (D-29; EP-28): the file flagged, access denied, or a file named by its path gone. A
+/// bare name not found on PATH is only missing.
+pub fn hint(program: &Path, error: &std::io::Error) -> Option<&'static str> {
+    match error.raw_os_error()? {
+        225 | 226 => Some(FLAGGED),
+        5 => Some(DENIED),
+        2 | 3 if program.components().count() > 1 => Some(GONE),
+        _ => None,
+    }
+}
+
+/// A start's error in words, with [`hint`]'s when they apply; the window's rolling log keeps the
+/// line (`crw` keeps none). The session runner and the visual launch word their own failures
+/// around it.
+pub fn explained(program: &Path, error: &std::io::Error) -> String {
+    let words = match hint(program, error) {
+        Some(hint) => format!("{error}; {hint}"),
+        None => error.to_string(),
+    };
+    crate::log::line(
+        "spawn",
+        &format!("{} did not start: {words}", program.display()),
+    );
+    words
+}
+
+/// `did not start: <error>`, as [`explained`] words it.
+pub fn did_not_start(program: &Path, error: &std::io::Error) -> String {
+    format!("did not start: {}", explained(program, error))
+}
+
 /// Waits for this thread's turn to start children, then for the spacing: the threads that start
 /// children (the dashboard's git and GitHub passes) never run two at once (D-29). Hold the guard
 /// while the children run.
@@ -185,7 +226,7 @@ where
         use std::os::windows::process::CommandExt;
         command.creation_flags(0x0800_0000);
     }
-    command.spawn().map_err(|e| format!("did not start: {e}"))
+    command.spawn().map_err(|e| did_not_start(program, &e))
 }
 
 /// Waits up to `timeout` for a child started on its own: its exit code (`None` when it has
@@ -282,7 +323,9 @@ where
         // CREATE_NO_WINDOW: no console flashes when the desktop app runs the checks (EP-28).
         command.creation_flags(0x0800_0000);
     }
-    let mut child = command.spawn().map_err(|e| format!("did not start: {e}"))?;
+    let mut child = command
+        .spawn()
+        .map_err(|e| did_not_start(Path::new(command.get_program()), &e))?;
     let stdout = reader(child.stdout.take().expect("stdout is piped"));
     let stderr = child.stderr.take().map(reader);
     let started = Instant::now();
@@ -304,4 +347,39 @@ where
         stdout: stdout.join().unwrap_or_default(),
         stderr,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use std::io::Error;
+
+    #[test]
+    fn a_start_refused_by_security_software_says_where_to_look() {
+        let path = Path::new(r"C:\Tools\tool.exe");
+        let bare = Path::new("tool.exe");
+        assert_eq!(hint(path, &Error::from_raw_os_error(225)), Some(FLAGGED));
+        assert_eq!(hint(bare, &Error::from_raw_os_error(226)), Some(FLAGGED));
+        assert_eq!(hint(path, &Error::from_raw_os_error(5)), Some(DENIED));
+        assert_eq!(hint(path, &Error::from_raw_os_error(2)), Some(GONE));
+        assert_eq!(hint(path, &Error::from_raw_os_error(3)), Some(GONE));
+        // A bare name not on PATH is only missing; other errors carry no hint.
+        assert_eq!(hint(bare, &Error::from_raw_os_error(2)), None);
+        assert_eq!(hint(path, &Error::from_raw_os_error(193)), None);
+        assert_eq!(hint(path, &Error::other("no code")), None);
+        let words = did_not_start(path, &Error::from_raw_os_error(225));
+        assert!(words.starts_with("did not start: "), "{words}");
+        assert!(words.ends_with(FLAGGED), "{words}");
+    }
+
+    /// A program named by a path that is not there: the real start's error carries the hint.
+    #[cfg(windows)]
+    #[test]
+    fn a_missing_program_named_by_its_path_hints_at_the_quarantine() {
+        let missing = std::env::temp_dir().join(format!("crw-absent-{}.exe", std::process::id()));
+        let said = output_of(&missing, ["--version"], TIMEOUT).unwrap_err();
+        assert!(said.starts_with("did not start: "), "{said}");
+        assert!(said.ends_with(GONE), "{said}");
+    }
 }

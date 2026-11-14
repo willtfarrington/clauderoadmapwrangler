@@ -40,6 +40,11 @@ pub struct Mail {
 }
 
 impl Mail {
+    /// When the latest round started, for the Diagnostics tile (EP-28).
+    pub fn last_round(&self) -> Option<Instant> {
+        self.last
+    }
+
     /// Sets each row's marks from the latest round's, again after each files read (EP-18b's
     /// pattern for the week's usage).
     pub fn apply(&self, portfolio: &mut Portfolio) {
