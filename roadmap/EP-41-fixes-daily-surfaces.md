@@ -141,9 +141,10 @@ the mouse in the real window is egui's own ComboBox, as the section's other pick
 portfolio's roadmaps with every row expanded: one left edge for every row; a narrower pane puts
 each sparkline under its phases, as before.
 
-> **Completion note (2026-11-15; claude-opus-5-5/max; about 55 minutes).** A headless run the
-> owner started from the window (ledger row `8814ff81`, from 17:42), under the autopilot's
-> standing yes and M's cap; no question was put, since no decision here was the owner's.
+> **Completion note (2026-11-15; claude-opus-5-5/max; about 45 minutes).** A headless run the
+> owner started from the window (ledger row `8814ff81`, from 17:42; the record commit at
+> 18:24, the install at 18:25), under the autopilot's standing yes and M's cap; no question was
+> put, since no decision here was the owner's.
 >
 > **Built.**
 >
