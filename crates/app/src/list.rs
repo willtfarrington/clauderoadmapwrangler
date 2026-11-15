@@ -62,8 +62,6 @@ const LEGEND_AT_MOST: f32 = 0.45;
 const LEGEND_TOP: i8 = 8;
 /// The sparkline's width in the expanded row, and the room beside the phases it asks for.
 const SPARK_WIDTH: f32 = 220.0;
-/// The phases' least width beside the sparkline, so that the sparklines line up.
-const PHASES_AT_LEAST: f32 = 360.0;
 /// Under this width a phase's line wraps as a whole: its id, bar and counts take about 190.
 const PHASE_LINE_AT_LEAST: f32 = 300.0;
 /// A card's width when the pane fits several to a line (EP-26a); a narrower pane gives one card
@@ -1400,7 +1398,9 @@ fn size_hint(size: crw_core::roadmap::Size) -> &'static str {
 
 /// The inline expansion under the name: each phase's progress, and the burn-up sparkline beside
 /// them when the row is wide enough, else under them (EP-26a); the phase names wrap in a narrow
-/// pane.
+/// pane. Beside, the phases take the row's width less the sparkline's, so the sparkline is set
+/// from the row's right and every expanded row's starts at one place, whatever its phases' names
+/// (EP-41; under a shared least width a long name pushed its row's further right).
 fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32, drawing: &Drawing<'_>) {
     let beside = ui.available_width() - indent >= 2.0 * SPARK_WIDTH + GAP;
     ui.horizontal_top(|ui| {
@@ -1412,8 +1412,9 @@ fn expansion(ui: &mut egui::Ui, row: &ProjectRow, indent: f32, drawing: &Drawing
         };
         ui.vertical(|ui| {
             ui.set_max_width(phases_width);
-            // So that the sparklines of the rows below one another start at one place.
-            ui.set_min_width(phases_width.min(PHASES_AT_LEAST));
+            if beside {
+                ui.set_min_width(phases_width);
+            }
             phases(ui, row);
             if !beside {
                 ui.add_space(2.0);
@@ -1966,6 +1967,46 @@ mod tests {
             "the row's menu is open"
         );
         assert!(testing::text_at(&output, "Refresh this project").is_some());
+    }
+
+    /// Under Expand all the sparklines start at one place (EP-41): a row whose phase has a long
+    /// name sets its sparkline where a row of short names does, from the row's right.
+    #[test]
+    fn the_expanded_rows_sparklines_start_at_one_place() {
+        let scratch = Scratch::new("list-spark-edge");
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio
+            .projects
+            .iter_mut()
+            .find(|row| row.name() == "harbor")
+            .unwrap();
+        let roadmap = harbor.snapshot.tree.as_mut().expect("harbor's roadmap");
+        roadmap.phases[0].heading.name = "A phase whose name runs on and on, well past the \
+            least width the phases block once had, so that it wraps"
+            .to_owned();
+        let mut loaded = canned_loaded();
+        let rows = loaded.snapshots["harbor"].clone();
+        loaded.snapshots.insert("lantern".to_owned(), rows);
+        let view = View {
+            expanded: ["harbor".to_owned(), "lantern".to_owned()].into(),
+            ..View::default()
+        };
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            let widths = Widths::measure(ui, &portfolio, Utc::now());
+            let plan = Plan::new(&widths, ui.available_width());
+            for name in ["harbor", "lantern"] {
+                let row = portfolio.project(name).unwrap();
+                project_row(ui, row, &plan, None, &drawing(&view, Some(&loaded)));
+            }
+        });
+        let captions = testing::texts_at(&output, "Burn-up: done and total by day");
+        assert_eq!(captions.len(), 2, "both rows draw their sparkline");
+        assert!(
+            (captions[0].x - captions[1].x).abs() < 0.5,
+            "the sparklines start at one place: {captions:?}"
+        );
+        assert!(captions[0].y < captions[1].y, "one row below the other");
     }
 
     #[test]

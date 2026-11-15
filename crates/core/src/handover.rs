@@ -294,6 +294,7 @@ mod tests {
                 why: "EP-7 is a re-plan, the owner's to run".to_owned(),
             }),
             daily: 3,
+            five_hour_mark: None,
         }
     }
 
@@ -529,6 +530,36 @@ mod tests {
         let text = fs::read_to_string(&path).unwrap();
         assert!(text.contains("\"version\": 1"), "{text}");
         assert!(text.contains("\"open_launch\": \"meadow\""), "{text}");
+        assert_eq!(take(&scratch.0, Some(9)), Taken::Ours(written));
+    }
+
+    /// A chain's own five-hour mark (EP-41) travels with its plan: the frozen file, written
+    /// before the field, reads with none (the setting's); a plan with one reads it back, in the
+    /// version 1 form.
+    #[test]
+    fn a_plans_own_mark_travels_and_an_older_plan_holds_at_the_setting() {
+        let scratch = Scratch::new("handover-mark");
+        fs::write(path(&scratch.0), FROZEN).unwrap();
+        let Taken::Ours(found) = take(&scratch.0, Some(9)) else {
+            panic!("a version 1 file reads");
+        };
+        assert_eq!(
+            found.plans[0].five_hour_mark, None,
+            "the form before EP-41's field"
+        );
+        let with_field = FROZEN.replacen("\"daily\": 3", "\"daily\": 3, \"five_hour_mark\": 75", 1);
+        assert_ne!(with_field, FROZEN);
+        fs::write(path(&scratch.0), with_field).unwrap();
+        let Taken::Ours(found) = take(&scratch.0, Some(9)) else {
+            panic!("a version 1 file with the mark reads");
+        };
+        assert_eq!(found.plans[0].five_hour_mark, Some(75));
+        let mut written = handover(9);
+        written.plans[0].five_hour_mark = Some(70);
+        let path = write(&scratch.0, &written).unwrap();
+        let text = fs::read_to_string(&path).unwrap();
+        assert!(text.contains("\"version\": 1"), "{text}");
+        assert!(text.contains("\"five_hour_mark\": 70"), "{text}");
         assert_eq!(take(&scratch.0, Some(9)), Taken::Ours(written));
     }
 }

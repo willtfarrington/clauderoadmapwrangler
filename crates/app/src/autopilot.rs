@@ -52,6 +52,9 @@ const CONFIRM_FOR: chrono::TimeDelta = chrono::TimeDelta::seconds(75);
 /// The runs a day and the budgets the section's pickers offer (EP-19b); `crw set` takes any.
 const DAILY_CHOICES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 8];
 const BUDGET_CHOICES: [f64; 6] = [5.0, 10.0, 15.0, 20.0, 30.0, 50.0];
+/// The marks a chain's own picker offers (EP-41), in percent of the session (five-hour) window,
+/// beside the setting's.
+const MARK_CHOICES: [u8; 7] = [30, 40, 50, 60, 70, 80, 90];
 
 /// What `auto` means, as the offer says it (D-18; EP-19b), from Claude Code's permission-modes
 /// and permissions pages (read 2026-11-09).
@@ -103,6 +106,8 @@ struct Queued {
     idle: Vec<String>,
     /// When the start was queued: a poll after it confirms an idle session (EP-19b's review).
     queued_at: DateTime<Utc>,
+    /// The chain's own five-hour mark, from its plan (EP-41), which the chained line names.
+    mark: Option<u8>,
 }
 
 /// What a gate's worker brings back.
@@ -149,6 +154,9 @@ pub struct Pilot {
     /// The chain plans (EP-19a), by project in lower case: each kept from Start headless until
     /// its chain ends.
     pub plans: BTreeMap<String, Plan>,
+    /// The projects whose chain's own mark changed while their gate was read (EP-41's review):
+    /// a hold that comes back is read again at the next pass, with the new mark.
+    pub recheck_after: BTreeSet<String>,
     /// The chain's moments since the last pass, for the popup.
     moments: Vec<Toast>,
     /// The gate's verdict on the conditions that stand between runs (EP-19b), by project in
@@ -177,6 +185,7 @@ impl Default for Pilot {
             five_hour_mark: autopilot::DEFAULT_FIVE_HOUR_PERCENT,
             canned: false,
             plans: BTreeMap::new(),
+            recheck_after: BTreeSet::new(),
             moments: Vec::new(),
             standing: BTreeMap::new(),
         }
@@ -365,6 +374,11 @@ impl Board {
         let home = std::env::var_os("USERPROFILE").map(PathBuf::from);
         let ledger = self.ledger().map(PathBuf::from);
         let data_root = registry.data_root();
+        // The chain's own five-hour mark, from its plan (EP-41); none holds at the setting.
+        let five_hour_mark = self
+            .autopilot
+            .plan_of(&entry.name)
+            .and_then(|plan| plan.five_hour_mark);
         let (sender, receiver) = mpsc::channel();
         let spawned = thread::Builder::new()
             .name("autopilot gate".to_owned())
@@ -385,6 +399,7 @@ impl Board {
                         home: home.as_deref(),
                         ledger: ledger.as_deref(),
                         others,
+                        five_hour_mark,
                     })
                 };
                 let refusals = autopilot::gate(&reading.facts, now);
@@ -445,6 +460,8 @@ impl Board {
             program,
         } = gated;
         self.autopilot.reading.remove(&project.to_lowercase());
+        // The chain's own mark changed while this gate was read (EP-41's review).
+        let again = self.autopilot.recheck_after.remove(&project.to_lowercase());
         let was_held = self
             .autopilot
             .held
@@ -453,6 +470,9 @@ impl Board {
         if !refusals.is_empty() {
             let words = autopilot::refused_words(after, &refusals);
             if autopilot::holds(&refusals) {
+                if again {
+                    self.autopilot.held_read = None;
+                }
                 let unchanged = was_held.is_some_and(|at| self.autopilot.held[at].words == words);
                 if let Some(at) = was_held {
                     self.autopilot.held.remove(at);
@@ -552,7 +572,12 @@ impl Board {
         {
             chosen.push_str(&format!(" (the downshift: {})", downshift.words));
         }
+        let mark = self
+            .autopilot
+            .plan_of(&project)
+            .and_then(|plan| plan.five_hour_mark);
         self.autopilot.queued = Some(Queued {
+            mark,
             project,
             after,
             next: draft.ep,
@@ -719,6 +744,7 @@ impl Board {
                 let cap = Cap::new(queued.size, Instant::now());
                 let mut words =
                     autopilot::chained_words(queued.next, queued.after, &queued.chosen, &cap);
+                words.push_str(&autopilot::own_mark_words(queued.mark));
                 words.push_str(&idle_words(&queued.idle));
                 self.chain_moment(&queued.project, &words, false, false);
             }
@@ -1085,6 +1111,90 @@ impl Board {
         true
     }
 
+    /// A running chain's own five-hour mark changed in the Autopilot section (EP-41): its plan
+    /// takes it from now, the change is a line of the chain log, and a chain held by the pause is
+    /// read again at once, since a higher mark may let it go; a gate read while the change came
+    /// is read again once it is in, if it held (the review's finding). Nothing in the registry
+    /// changes, so no file is written and the files are not read again (`false`).
+    pub fn set_chain_mark(&mut self, name: &str, mark: Option<u8>) -> bool {
+        let setting = self.autopilot.five_hour_mark.max(1);
+        let key = name.to_lowercase();
+        let Some(plan) = self.autopilot.plans.get_mut(&key) else {
+            return false;
+        };
+        if plan.five_hour_mark == mark {
+            return false;
+        }
+        plan.five_hour_mark = mark;
+        let project = plan.project.clone();
+        self.log_chain(
+            Some(&project),
+            &autopilot::mark_words(mark, setting, "your change"),
+        );
+        if self
+            .autopilot
+            .held
+            .iter()
+            .any(|held| held.project.eq_ignore_ascii_case(&project))
+        {
+            self.autopilot.recheck = true;
+        }
+        if self.autopilot.reading.contains(&key) {
+            self.autopilot.recheck_after.insert(key);
+        }
+        let words = match mark {
+            Some(mark) => format!(
+                "{project}: this chain holds at {mark} % of the session (five-hour) window from \
+                 now."
+            ),
+            None => format!(
+                "{project}: this chain holds at the setting's {setting} % of the session \
+                 (five-hour) window from now."
+            ),
+        };
+        self.notify(words);
+        false
+    }
+
+    /// A headless run the owner started from the launch dialog runs (EP-41): a chain held in its
+    /// project gives way to it, since the run's plan took the held chain's place (the review's
+    /// finding: the held chain's next read counted the new run as a busy session, ended the
+    /// chain and dropped the new plan with it); and a plan holding its own five-hour mark is
+    /// named in the chain log.
+    pub(crate) fn started_by_hand(&mut self, project: &str, ep: Option<EpId>) {
+        if let Some(at) = self
+            .autopilot
+            .held
+            .iter()
+            .position(|held| held.project.eq_ignore_ascii_case(project))
+        {
+            let held = self.autopilot.held.remove(at);
+            let after = held
+                .after
+                .map_or(String::new(), |ep| format!(" after {ep}"));
+            let started = ep.map_or_else(|| "a run".to_owned(), |ep| ep.to_string());
+            self.log_chain(
+                Some(project),
+                &format!("the chain ends{after}: you started {started} headless yourself"),
+            );
+        }
+        self.log_own_mark(project);
+    }
+
+    /// The line of the chain log when a run whose plan holds its own five-hour mark starts
+    /// (EP-41): the chain's mark, from then until the chain ends, is in the log.
+    pub(crate) fn log_own_mark(&mut self, project: &str) {
+        let setting = self.autopilot.five_hour_mark.max(1);
+        let mark = self
+            .autopilot
+            .plan_of(project)
+            .and_then(|plan| plan.five_hour_mark);
+        if let Some(mark) = mark {
+            let words = autopilot::mark_words(Some(mark), setting, "your choice in its plan");
+            self.log_chain(Some(project), &words);
+        }
+    }
+
     /// The offer of `auto` over the window (D-18; EP-19b): why the project's runs would wait,
     /// what `auto` means, and three ways on. Escape or a click beside it puts it away.
     pub fn offer_dialog(&mut self, ctx: &egui::Context) {
@@ -1228,8 +1338,16 @@ impl Board {
                     }
                 });
                 for refusal in &usage {
+                    // The session window's at the setting: a chain's own mark may let it go
+                    // (EP-41).
+                    let who = match refusal {
+                        Refusal::Usage { which, .. } if *which == autopilot::FIVE_HOUR => {
+                            "Chains without a mark of their own hold"
+                        }
+                        _ => "The chains hold",
+                    };
                     ui.label(
-                        RichText::new(format!("The chains hold: {}.", refusal.words()))
+                        RichText::new(format!("{who}: {}.", refusal.words()))
                             .small()
                             .color(style::amber(ui)),
                     );
@@ -1242,7 +1360,9 @@ impl Board {
                             .color(style::amber(ui)),
                     );
                 }
-                // The plans the chains follow (EP-19a), in the autopilot's violet.
+                // The plans the chains follow (EP-19a), in the autopilot's violet, each with
+                // its chain's own five-hour mark, which a change takes from now (EP-41).
+                let setting = self.autopilot.five_hour_mark.max(1);
                 for plan in self.autopilot.plans.values() {
                     ui.add(
                         egui::Label::new(
@@ -1257,6 +1377,14 @@ impl Board {
                          one you left alone, and ends before one you left out; kept until the \
                          chain ends or the autopilot is turned off",
                     );
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(RichText::new("This chain holds at").small());
+                        let id = ("chain-mark", plan.project.to_lowercase());
+                        if let Some(mark) = mark_picker(ui, id, plan.five_hour_mark, setting) {
+                            actions.push(Action::SetChainMark(plan.project.clone(), mark));
+                        }
+                        ui.label(RichText::new("of the session (five-hour) window").small());
+                    });
                 }
                 if let Some(problem) = &self.autopilot.problem {
                     ui.label(RichText::new(problem).small().color(style::red(ui)));
@@ -1350,6 +1478,51 @@ impl Board {
             }
         }
     }
+}
+
+/// A chain's own five-hour mark as a small picker (EP-41), for the launch dialog's Chain plan
+/// and the Autopilot section: the setting's entry, which holds the chain at the setting, then
+/// the choices; a mark another way set is offered as it stands. The new mark when the owner
+/// chose another, `Some(None)` for the setting.
+pub(crate) fn mark_picker(
+    ui: &mut egui::Ui,
+    id: impl std::hash::Hash + std::fmt::Debug,
+    mark: Option<u8>,
+    setting: u8,
+) -> Option<Option<u8>> {
+    let words = |value: Option<u8>| match value {
+        None => format!("{setting} % (the setting)"),
+        Some(value) => format!("{value} %"),
+    };
+    let mut options: Vec<u8> = MARK_CHOICES
+        .iter()
+        .copied()
+        .filter(|&value| value != setting)
+        .collect();
+    if let Some(own) = mark
+        && !options.contains(&own)
+    {
+        options.push(own);
+        options.sort_unstable();
+    }
+    let mut chosen = mark;
+    egui::ComboBox::from_id_salt(id)
+        .width(132.0)
+        .selected_text(words(mark))
+        .show_ui(ui, |ui| {
+            ui.selectable_value(&mut chosen, None, words(None));
+            for option in options {
+                ui.selectable_value(&mut chosen, Some(option), words(Some(option)));
+            }
+        })
+        .response
+        .on_hover_text(
+            "The share of the session (five-hour) window at which this chain holds until the \
+             window resets (D-22): a higher mark lets it run further into the window. The chain \
+             keeps it across the window's restarts and drops it when it ends; a chain without \
+             its own holds at the setting (crw setting autopilot_five_hour_percent).",
+        );
+    (chosen != mark).then_some(chosen)
 }
 
 /// A line of a project's verdict in the Autopilot section, small and wrapped.
@@ -2128,6 +2301,7 @@ mod tests {
             program: PathBuf::from("claude.exe"),
             idle: vec!["a manual session is idle (since 13:11)".to_owned()],
             queued_at: Utc::now(),
+            mark: Some(70),
         });
         board.chain_started(Started::Running("a1".to_owned()));
         let line = board.autopilot.log[0].detail.clone().unwrap();
@@ -2135,11 +2309,113 @@ mod tests {
             line.starts_with("chained EP-5 after EP-4: fable at xhigh, the rules' choice"),
             "{line}"
         );
+        // The chain's own mark is named (EP-41), then the idle sessions.
         assert!(
             line.ends_with(
-                "; open there and idle, not counted: a manual session is idle (since 13:11)"
+                "; it holds at 70 % of the session (five-hour) window, your mark for this chain; \
+                 open there and idle, not counted: a manual session is idle (since 13:11)"
             ),
             "{line}"
+        );
+    }
+
+    /// A chain's own five-hour mark (EP-41): named in the log when its run starts, changed in
+    /// the Autopilot section from then on with a line of its own, a held chain read again at
+    /// once; a plan at the setting logs nothing at its start.
+    #[test]
+    fn a_chains_own_mark_is_logged_and_changed_from_the_autopilot_section() {
+        let scratch = Scratch::new("autopilot-chain-mark");
+        let mut board = board(&scratch);
+        let plan = Plan {
+            project: "harbor".to_owned(),
+            after: EpId::new(4),
+            briefs: Vec::new(),
+            stop: None,
+            daily: 2,
+            five_hour_mark: None,
+        };
+        board.autopilot.keep_plan(plan.clone());
+        board.log_own_mark("harbor");
+        assert!(
+            board.autopilot.log.is_empty(),
+            "a plan at the setting logs nothing"
+        );
+        board.autopilot.keep_plan(Plan {
+            five_hour_mark: Some(70),
+            ..plan
+        });
+        board.log_own_mark("harbor");
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some(
+                "the chain's mark: 70 % of the session (five-hour) window, your choice in its \
+                 plan (the setting holds at 50 %)"
+            )
+        );
+        // Held by the pause, the chain is read again at once after a change, which the section's
+        // action brings without reading the files again (no file is written); a change while
+        // its gate is read asks for a read after it.
+        board.autopilot.held.push(Held {
+            project: "harbor".to_owned(),
+            after: Some(EpId::new(4)),
+            words: "held after EP-4 until the pause lifts".to_owned(),
+        });
+        board.autopilot.reading.insert("harbor".to_owned());
+        assert!(!board.run(Action::SetChainMark("harbor".to_owned(), Some(80))));
+        assert_eq!(
+            board.autopilot.plan_of("harbor").unwrap().five_hour_mark,
+            Some(80)
+        );
+        assert!(board.autopilot.recheck);
+        assert!(board.autopilot.recheck_after.contains("harbor"));
+        board.autopilot.reading.clear();
+        assert!(
+            board.autopilot.log[0]
+                .detail
+                .as_deref()
+                .is_some_and(
+                    |line| line.starts_with("the chain's mark: 80 % of the session")
+                        && line.contains("your change")
+                ),
+            "{:?}",
+            board.autopilot.log[0]
+        );
+        // Back to the setting; the same mark again changes nothing; no plan, nothing.
+        assert!(!board.set_chain_mark("harbor", None));
+        assert_eq!(
+            board.autopilot.plan_of("harbor").unwrap().five_hour_mark,
+            None
+        );
+        let lines = board.autopilot.log.len();
+        board.set_chain_mark("harbor", None);
+        board.set_chain_mark("meadow", Some(60));
+        assert_eq!(board.autopilot.log.len(), lines);
+        assert!(board.autopilot.plan_of("meadow").is_none());
+
+        // The owner starts the next brief by hand, its plan in the held chain's place: the held
+        // chain gives way, logged as its end, and the new plan with its mark stays (the
+        // review's finding).
+        board.autopilot.keep_plan(Plan {
+            five_hour_mark: Some(85),
+            ..board.autopilot.plan_of("harbor").unwrap().clone()
+        });
+        board.started_by_hand("harbor", Some(EpId::new(5)));
+        assert!(board.autopilot.held.is_empty());
+        assert_eq!(
+            board.autopilot.plan_of("harbor").unwrap().five_hour_mark,
+            Some(85)
+        );
+        let newest: Vec<&str> = board.autopilot.log[..2]
+            .iter()
+            .filter_map(|row| row.detail.as_deref())
+            .collect();
+        assert!(
+            newest[0].starts_with("the chain's mark: 85 %"),
+            "{newest:?}"
+        );
+        assert_eq!(
+            newest[1],
+            "the chain ends after EP-4: you started EP-5 headless yourself"
         );
     }
 

@@ -250,6 +250,20 @@ database stored in `private/` directly; a one-year retention.
 > fixed and nothing removed; both left as they are; a File item for the site export, a
 > row-menu item for the CSV.
 
+> **Addendum (2026-11-15, EP-41).** The day and the keep as built. The window notes the local
+> day of its latest read of every project's files; the first pass after the day turns (within
+> ten minutes of midnight with the window up, or the first after the machine wakes) reads them
+> all again, which keeps the day's counts for every project (EP-25's gap) and writes the day's
+> export, now after the read is handed to the window. After each write, the window's and `crw
+> export daily`'s, `export::prune` keeps the last 14 days, today's included (the rolling log's
+> rule), and the earliest folder of each month for ever; in an older folder it removes only the
+> files the tool writes there (the two of the export and a project's CSVs), then the folder once
+> empty, one folder at a time with half a second between two; a folder holding anything else
+> stays and is named. Each write, removal and failure is a line of kind `export` in the rolling
+> log. On 2026-11-15 the export folder held 2026-11-13 (November's first) and 2026-11-15, so the
+> first real removal falls on 2026-11-29. *Alternatives.* Removing a whole dated folder whatever
+> it holds; keeping fourteen days before today; a scheduled task at midnight.
+
 ## Conventions
 
 **D-9 Convention model and format profiles.** The house style is the schema: `# | Brief | Size | Depends
@@ -1700,6 +1714,20 @@ committing and recording hashes; one model and effort per project; usage thresho
 > the ledger for a later gate; the push guard carried as it is, or probed in a supervised run
 > on a scratch repository.
 
+> **Addendum (2026-11-15, EP-41).** The mark per chain as built. It lives in the chain plan
+> (`autopilot::Plan::five_hour_mark`, none for the setting's), so the handover carries it across
+> the window's restarts in version 1's form and it ends with the plan; a plan made again after a
+> keep holds it. The launch dialog's Chain plan picks it ("Hold this chain at [n] of the session
+> (five-hour) window", the setting's entry first, then 30 to 90 %), and the Autopilot section
+> shows each kept plan's mark with the same picker, a change taking effect at once (a held chain
+> read again). The gate weighs it through `Ask::five_hour_mark`; a hold's words then say "at or
+> over this chain's mark at n %". The chain log names it three ways: a line `the chain's mark:
+> …` when a run whose plan holds one starts or when the owner changes it, the chained line's
+> end, and the hold's words; `crw autopilot` prints the log, the plan itself living in the
+> window. The registry is unchanged: the setting stays every other chain's mark, and the
+> Autopilot section's header and the tray still say what the setting holds. *Alternatives.* The
+> mark kept in the ledger for `crw autopilot` to read; the chain's state read back from the log.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -2150,6 +2178,13 @@ state; graphs only in the detail tile or a separate window.
 > goes (EP-38), and a double click on a row or a card selects it and brings the Detail pane
 > forward, as Enter does. *Alternatives.* The title's floor at zero with an ellipsis; a double
 > click that opens the launch dialog.
+
+> **Addendum (2026-11-15, EP-41).** The sparklines' edge as built: beside its phases, an
+> expanded row's sparkline is set from the row's right, the phases block taking the row's width
+> less the sparkline's, so every expanded row's starts at one place whatever its phases' names
+> (`PHASES_AT_LEAST` is gone). Checked in a screenshot run over a copy of the portfolio's
+> roadmaps with every row expanded. *Alternatives.* The widest phases block of the rows shown,
+> measured each pass, as the edge.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

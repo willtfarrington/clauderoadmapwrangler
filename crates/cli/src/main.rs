@@ -201,7 +201,8 @@ commands:
   export daily                   write today's export now: the registry and every table of the
                                  ledger into private/export/<date>/ of the repository crw was
                                  built in (CRW_HOME\\export in a trial), as the window does once
-                                 a day
+                                 a day; then keep the last 14 days and each month's first
+                                 folder, the older dated folders removed one at a time
   export csv <project>           write the project's sessions and daily counts as CSV into
                                  today's export folder
   act <project> <action>         preview a hosting action the window's dialog would run:
@@ -1896,8 +1897,9 @@ fn autopilot_state() -> ExitCode {
     let settings = &registry.settings;
     println!(
         "autopilot: {}; it holds every chain at {} % of the weekly or the Fable limit until the \
-         reset, and at {} % of the session (five-hour) window until it resets; {} chained runs \
-         a day in all projects",
+         reset, and at {} % of the session (five-hour) window until it resets (a chain's own \
+         mark from its plan wins, and the chain log names it); {} chained runs a day in all \
+         projects",
         if settings.autopilot_paused() {
             "paused by you (crw autopilot resume)"
         } else {
@@ -2387,23 +2389,28 @@ fn ledger_to_read() -> Result<Ledger, String> {
 }
 
 /// The daily export (D-8; EP-27), written now: the registry and every table of the ledger into
-/// today's folder, replacing what the window wrote there today.
+/// today's folder, replacing what the window wrote there today; then the keep, as the window's
+/// write is followed by it (EP-41): the dated folders past fourteen days removed one at a time,
+/// each month's first kept.
 fn export_daily() -> ExitCode {
     let ledger = match ledger_to_read() {
         Ok(ledger) => ledger,
         Err(e) => return failed(e),
     };
     let registry = paths::registry_file();
-    match export::daily(
-        registry.as_deref(),
-        &ledger,
-        &export::folder(),
-        Local::now().date_naive(),
-        Utc::now(),
-    ) {
+    let folder = export::folder();
+    let today = Local::now().date_naive();
+    match export::daily(registry.as_deref(), &ledger, &folder, today, Utc::now()) {
         Ok(paths) => {
             for path in paths {
                 println!("wrote {}", path.display());
+            }
+            let (removed, kept) = export::prune(&folder, today, export::PRUNE_PAUSE);
+            for path in removed {
+                println!("removed {} (past the keep)", path.display());
+            }
+            for why in &kept {
+                println!("kept: {why}");
             }
             ExitCode::SUCCESS
         }

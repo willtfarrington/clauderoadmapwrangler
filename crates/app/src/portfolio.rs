@@ -17,7 +17,7 @@ use std::sync::mpsc::{self, Receiver, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use chrono::{DateTime, Local, Utc};
+use chrono::{DateTime, Local, NaiveDate, Utc};
 use crw_core::badges::activity::Activity;
 use crw_core::badges::backup::{self, Backup};
 use crw_core::badges::health::{self, Run};
@@ -36,7 +36,7 @@ use crw_core::proposal::{self, Facts, Proposal};
 use crw_core::registry::{Project, Registry, State, Store};
 use crw_core::roadmap::snapshot::{self, GitReading, InProgress, Snapshot};
 use crw_core::roadmap::table::{Counts, Profile, Row};
-use crw_core::{export, git, paths};
+use crw_core::{export, git, log, paths};
 use eframe::egui;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde::{Deserialize, Serialize};
@@ -520,24 +520,79 @@ fn record_counts(ledger: Option<&Path>, rows: &[ProjectRow]) {
 }
 
 /// The daily export (D-8; EP-27): the registry and the ledger into today's folder of
-/// `export::folder()`, at the first files pass of a day whose folder holds no `ledger.json`; a
-/// failure leaves it to the next pass, and `crw export daily` says why.
+/// `export::folder()`, at the first files pass of a day whose folder holds no `ledger.json`
+/// (the day's turn starts one, EP-41); then the keep removes the tool's own dated folders past
+/// fourteen days, each month's first kept. A failed write or removal is a line of the rolling
+/// log (EP-41), and a failed write is tried again at the next pass.
 fn daily_export(ledger: Option<&Path>) {
+    // One export at a time: two reads close together would both write and both prune.
+    static EXPORTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = EXPORTING
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
     let folder = export::folder();
     let today = Local::now().date_naive();
     if export::written(&folder, today) {
         return;
     }
-    let Some(ledger) = ledger.and_then(|path| Ledger::open_read_only(path).ok()) else {
+    // No ledger yet (a first start, a trial): nothing to export, and nothing failed.
+    let Some(path) = ledger.filter(|path| path.is_file()) else {
         return;
     };
-    let _ = export::daily(
+    let ledger = match Ledger::open_read_only(path) {
+        Ok(ledger) => ledger,
+        Err(e) => {
+            log::line(
+                "export",
+                &format!("the daily export was not written: the ledger: {e}"),
+            );
+            return;
+        }
+    };
+    let written = export::daily(
         paths::registry_file().as_deref(),
         &ledger,
         &folder,
         today,
         Utc::now(),
     );
+    drop(ledger);
+    match written {
+        Ok(_) => {
+            let (removed, failed) = export::prune(&folder, today, export::PRUNE_PAUSE);
+            let mut words = format!(
+                "the daily export: written into {}",
+                export::day_folder(&folder, today).display()
+            );
+            if !removed.is_empty() {
+                let days: Vec<String> = removed
+                    .iter()
+                    .filter_map(|path| path.file_name())
+                    .map(|name| name.to_string_lossy().into_owned())
+                    .collect();
+                words.push_str(&format!(
+                    "; removed {} past the keep: {}",
+                    if days.len() == 1 {
+                        "a day's folder"
+                    } else {
+                        "days' folders"
+                    },
+                    days.join(", ")
+                ));
+            }
+            log::line("export", &words);
+            for why in failed {
+                log::line(
+                    "export",
+                    &format!("the daily export's keep left a folder: {why}"),
+                );
+            }
+        }
+        Err(why) => log::line(
+            "export",
+            &format!("the daily export was not written: {why}"),
+        ),
+    }
 }
 
 /// The history after a git reading (EP-25): imported at the repository's first sight and when
@@ -729,6 +784,10 @@ pub struct Loader {
     online_checked: Option<Instant>,
     watcher: Option<(PathBuf, RecommendedWatcher)>,
     pub watch_problem: Option<String>,
+    /// The local day of the latest read of every project's files (EP-41): when the day turns
+    /// with the window up, the next pass reads them again, which keeps the day's counts and
+    /// writes the day's export.
+    pub(crate) day: NaiveDate,
 }
 
 impl Loader {
@@ -764,6 +823,7 @@ impl Loader {
             online_checked: None,
             watcher: None,
             watch_problem: None,
+            day: Local::now().date_naive(),
         }
     }
 
@@ -771,12 +831,22 @@ impl Loader {
         &self.store
     }
 
+    /// Whether the local day turned since the latest read of every project's files (EP-41), as
+    /// it does at midnight with the window up or when the machine wakes in a new day: the caller
+    /// reads them again.
+    pub fn day_turned(&self) -> bool {
+        Local::now().date_naive() != self.day
+    }
+
     /// Reads the files again on a worker thread; an older read still running is dropped, and
-    /// so are the rows' notes of a read on their own: every project reads afresh.
+    /// so are the rows' notes of a read on their own: every project reads afresh. Each project's
+    /// counts are kept, then the read goes to the window, then the day's export is written when
+    /// it is due (EP-41: after the read, since its keep may pause between folders).
     pub fn read_files(&mut self) {
         let generation = self.files.fetch_add(1, Atomic::SeqCst) + 1;
         self.reading_files = true;
         self.rereads.clear();
+        self.day = Local::now().date_naive();
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let ledger = self.ledger.clone();
         // A screenshot run (offline) and the tests write no export.
@@ -784,14 +854,14 @@ impl Loader {
         thread::spawn(move || {
             let portfolio = read_files(&store);
             record_counts(ledger.as_deref(), &portfolio.projects);
-            if export {
-                daily_export(ledger.as_deref());
-            }
             let _ = tx.send(Message::Files {
                 generation,
                 portfolio,
             });
             ctx.request_repaint();
+            if export {
+                daily_export(ledger.as_deref());
+            }
         });
     }
 
@@ -1897,6 +1967,37 @@ pub(crate) mod tests {
                 .groups(SortKey::Name, Filter::name("nothing"))
                 .is_empty()
         );
+    }
+
+    /// The day's turn (EP-41): a loader whose latest full read was on another day says so, and a
+    /// read of every project's files notes today, which keeps the day's counts.
+    #[test]
+    fn the_days_turn_asks_for_a_read_of_every_projects_files() {
+        let scratch = Scratch::new("portfolio-day-turn");
+        let ledger = scratch.0.join("ledger.sqlite");
+        let mut loader = Loader::new(
+            Arc::new(fake_store(&scratch)),
+            Some(ledger.clone()),
+            false,
+            egui::Context::default(),
+        );
+        assert!(!loader.day_turned(), "a loader notes today when it is made");
+        loader.day = Local::now().date_naive() - chrono::Days::new(1);
+        assert!(loader.day_turned());
+        loader.read_files();
+        assert!(!loader.day_turned(), "a full read notes today");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut portfolio = Portfolio::default();
+        while loader.reading_files && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!loader.reading_files, "the read came back");
+        // Every project with rows got its count for the day.
+        let counted = Ledger::open_read_only(&ledger)
+            .and_then(|ledger| ledger.snapshots_all())
+            .unwrap();
+        assert!(counted.contains_key("harbor"), "{:?}", counted.keys());
     }
 
     /// A one-project read (EP-25a): the named row swapped in with the kept readings added

@@ -3,11 +3,15 @@
 //! of the site wires into its page (the tool never edits the page); the daily JSON export of the
 //! registry and the ledger into this repository's git-ignored `private/export/<date>/`, which the
 //! owner's Documents backup archives; a project's sessions and daily counts as CSV on demand.
+//! After each daily write, [`prune`] keeps the last [`KEEP_DAYS`] days' folders and each month's
+//! first, removing the rest one folder at a time (EP-41).
 
+use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
-use chrono::{DateTime, NaiveDate, SecondsFormat, Utc};
+use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, TimeDelta, Utc};
 use serde::Serialize;
 
 use crate::badges::hosting::{Class, Hosting};
@@ -26,6 +30,13 @@ pub const NEXT_ROWS: usize = 2;
 /// The daily export's two files.
 pub const LEDGER_JSON: &str = "ledger.json";
 pub const REGISTRY_COPY: &str = "registry.toml";
+/// The ends of a project's two CSV files' names (`<project>-sessions.csv`).
+const CSV_ENDS: [&str; 2] = ["-sessions.csv", "-snapshots.csv"];
+/// How many days of the daily export are kept, today's included, besides each month's first
+/// folder, which stays (D-8 addendum of 2026-11-15; EP-41).
+pub const KEEP_DAYS: i64 = 14;
+/// The pause between two folders a prune removes (rule 9: never a burst of deletions).
+pub const PRUNE_PAUSE: Duration = Duration::from_millis(500);
 
 /// The site export: the public projects as of a day.
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -236,6 +247,99 @@ pub fn daily(
     files::write_atomic(&path, text.as_bytes()).map_err(|e| format!("{}: {e}", path.display()))?;
     written.push(path);
     Ok(written)
+}
+
+/// The day a folder under the export folder is for, when its name is a date exactly as
+/// [`day_folder`] writes it (`2026-11-15`, not `2026-11-5`).
+fn day_of(name: &str) -> Option<NaiveDate> {
+    let day = NaiveDate::parse_from_str(name, "%Y-%m-%d").ok()?;
+    (day.format("%Y-%m-%d").to_string() == name).then_some(day)
+}
+
+/// The dated folders under `folder` a prune on `today` removes, the oldest first: those older
+/// than the last [`KEEP_DAYS`] days, today's included, except the earliest folder of each
+/// month. A file, or a folder whose name is no such date, is never among them.
+pub fn due_for_removal(folder: &Path, today: NaiveDate) -> Vec<PathBuf> {
+    let Ok(entries) = fs::read_dir(folder) else {
+        return Vec::new();
+    };
+    let mut days: Vec<(NaiveDate, PathBuf)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let day = day_of(entry.file_name().to_str()?)?;
+            entry.file_type().ok().filter(fs::FileType::is_dir)?;
+            Some((day, entry.path()))
+        })
+        .collect();
+    days.sort();
+    let oldest_kept = today - TimeDelta::days(KEEP_DAYS - 1);
+    let mut months = BTreeSet::new();
+    days.into_iter()
+        .filter(|(day, _)| {
+            // Oldest first, so the first folder met in a month is its earliest.
+            let first = months.insert((day.year(), day.month()));
+            !first && *day < oldest_kept
+        })
+        .map(|(_, path)| path)
+        .collect()
+}
+
+/// Whether a file in a day's folder is one the tool writes there: the daily export's two and a
+/// project's CSVs, or one of them half written (`files::write_atomic`'s `.tmp`, left by a write
+/// cut short).
+fn is_own_file(name: &str) -> bool {
+    let name = name.strip_suffix(".tmp").unwrap_or(name);
+    name == LEDGER_JSON || name == REGISTRY_COPY || CSV_ENDS.iter().any(|end| name.ends_with(end))
+}
+
+/// Removes one dated folder: the tool's own files in it, one at a time, then the folder. A file
+/// or a folder the tool did not write keeps the whole folder untouched, and the error says so:
+/// the folder is looked through before anything in it is removed.
+pub fn remove_day(path: &Path) -> Result<(), String> {
+    let entries = fs::read_dir(path).map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut own = Vec::new();
+    let mut others = Vec::new();
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("{}: {e}", path.display()))?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        let file = entry.file_type().is_ok_and(|kind| kind.is_file());
+        if file && is_own_file(&name) {
+            own.push(entry.path());
+        } else {
+            others.push(name);
+        }
+    }
+    if !others.is_empty() {
+        others.sort();
+        return Err(format!(
+            "{} is kept: it holds what the tool did not write there ({})",
+            path.display(),
+            others.join(", ")
+        ));
+    }
+    for file in own {
+        fs::remove_file(&file).map_err(|e| format!("{}: {e}", file.display()))?;
+    }
+    fs::remove_dir(path).map_err(|e| format!("{}: {e}", path.display()))
+}
+
+/// The daily export's keep (D-8 addendum of 2026-11-15; EP-41), run after each write: removes
+/// [`due_for_removal`]'s folders one at a time, `pause` between two, so a backlog after a long
+/// absence is never a burst (rule 9); nothing else under `folder` is touched. The folders
+/// removed, and why each other one was not.
+pub fn prune(folder: &Path, today: NaiveDate, pause: Duration) -> (Vec<PathBuf>, Vec<String>) {
+    let mut removed = Vec::new();
+    let mut failed = Vec::new();
+    for (n, path) in due_for_removal(folder, today).into_iter().enumerate() {
+        if n > 0 {
+            std::thread::sleep(pause);
+        }
+        match remove_day(&path) {
+            Ok(()) => removed.push(path),
+            Err(why) => failed.push(why),
+        }
+    }
+    (removed, failed)
 }
 
 /// The CSV columns of a project's sessions.
@@ -501,6 +605,103 @@ mod tests {
         assert_eq!(json["tables"]["snapshot"][0]["project"], "harbor");
         assert_eq!(json["tables"]["snapshot"][0]["total"], 9);
         assert!(json["tables"]["session"].is_array());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_keep_holds_fourteen_days_and_each_months_first_and_touches_nothing_else() {
+        let dir = temp("prune");
+        let out = dir.join("export");
+        let day = |month, day| NaiveDate::from_ymd_opt(2026, month, day).unwrap();
+        let make = |date: NaiveDate| {
+            let into = day_folder(&out, date);
+            fs::create_dir_all(&into).unwrap();
+            fs::write(into.join(LEDGER_JSON), "{}").unwrap();
+            fs::write(into.join(REGISTRY_COPY), "version = 1\n").unwrap();
+        };
+        // October from the 20th, November but the 14th, December's first days.
+        for d in 20..=31 {
+            make(day(10, d));
+        }
+        for d in (1..=30).filter(|&d| d != 14) {
+            make(day(11, d));
+        }
+        for d in 1..=3 {
+            make(day(12, d));
+        }
+        // A CSV and a half-written file are the tool's; a note of the owner's keeps its folder
+        // whole; other names stay.
+        fs::write(day_folder(&out, day(11, 4)).join("ledger.json.tmp"), "half").unwrap();
+        fs::write(
+            day_folder(&out, day(11, 2)).join("harbor-sessions.csv"),
+            "x",
+        )
+        .unwrap();
+        fs::write(day_folder(&out, day(11, 3)).join("notes.txt"), "mine").unwrap();
+        fs::create_dir_all(out.join("2026-11-5")).unwrap();
+        fs::create_dir_all(out.join("archive")).unwrap();
+        fs::write(out.join("2026-11-14"), "a file named as a date").unwrap();
+
+        let today = day(12, 3);
+        // Fourteen days kept, today's included: from 2026-11-20; each month's first too.
+        let due = due_for_removal(&out, today);
+        assert!(
+            !due.contains(&day_folder(&out, day(10, 20))),
+            "October's first"
+        );
+        assert!(
+            !due.contains(&day_folder(&out, day(11, 1))),
+            "November's first"
+        );
+        assert!(
+            !due.contains(&day_folder(&out, day(11, 20))),
+            "the oldest kept day"
+        );
+        assert!(due.contains(&day_folder(&out, day(11, 19))));
+        assert!(due.contains(&day_folder(&out, day(10, 21))));
+        assert_eq!(
+            due.len(),
+            11 + 17,
+            "October 21-31 and November 2-19 but the 14th"
+        );
+        let (removed, failed) = prune(&out, today, Duration::ZERO);
+        assert_eq!(removed.len(), due.len() - 1);
+        assert_eq!(failed.len(), 1, "{failed:?}");
+        assert!(failed[0].contains("notes.txt"), "{failed:?}");
+        assert!(
+            !day_folder(&out, day(11, 2)).exists(),
+            "its CSV went with it"
+        );
+        assert!(
+            !day_folder(&out, day(11, 4)).exists(),
+            "a half-written file is the tool's"
+        );
+        assert!(day_folder(&out, day(11, 3)).join("notes.txt").is_file());
+        assert!(
+            written(&out, day(11, 3)),
+            "a folder holding the owner's note is left untouched"
+        );
+        assert!(out.join("2026-11-5").is_dir() && out.join("archive").is_dir());
+        assert!(out.join("2026-11-14").is_file());
+        for kept in [
+            day(10, 20),
+            day(11, 1),
+            day(11, 20),
+            day(11, 30),
+            day(12, 1),
+            day(12, 3),
+        ] {
+            assert!(written(&out, kept), "{kept} is kept");
+        }
+        // Run again the same day: only the folder the owner's note keeps is due, and it stays.
+        let (removed, failed) = prune(&out, today, Duration::ZERO);
+        assert!(removed.is_empty());
+        assert_eq!(failed.len(), 1);
+        // No export folder at all: nothing to do.
+        assert_eq!(
+            prune(&dir.join("none"), today, Duration::ZERO),
+            (Vec::new(), Vec::new())
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 

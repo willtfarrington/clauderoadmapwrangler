@@ -618,6 +618,8 @@ fn canned_chain_plan(project: &str) -> crw_core::autopilot::Plan {
             why: "EP-6 is a re-plan, the owner's to run".to_owned(),
         }),
         daily: 2,
+        // The chain's own mark (EP-41), so that the Autopilot section shows its picker set.
+        five_hour_mark: Some(70),
     }
 }
 

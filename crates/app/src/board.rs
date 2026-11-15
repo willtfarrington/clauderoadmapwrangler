@@ -348,6 +348,9 @@ pub enum Action {
     },
     /// One of a project's autopilot limits set in the Autopilot section (D-22; EP-19b).
     SetAutopilotLimit(String, Limit),
+    /// A running chain's own five-hour mark set in the Autopilot section (EP-41), or taken
+    /// back to the setting with `None`.
+    SetChainMark(String, Option<u8>),
     /// Every chain paused by the owner, or resumed (D-22): the Sessions pane, the tray.
     PauseAutopilot(bool),
     /// An ended session resumed with the owner's yes to its commit (D-22): its tab's Commit.
@@ -704,7 +707,14 @@ impl Board {
             // The chain's own start neither closes the dialog nor takes the pane (EP-19).
             Some(started) if self.autopilot.is_starting() => self.chain_started(started),
             Some(Started::Running(text)) => {
-                self.launch = None;
+                // A chain held there gives way to the owner's own start, whose plan took its
+                // place, and a plan's own five-hour mark is named in the chain log (EP-41); a
+                // migration keeps no plan.
+                if let Some(dialog) = self.launch.take()
+                    && dialog.migrates.is_none()
+                {
+                    self.started_by_hand(&dialog.project, dialog.ep);
+                }
                 self.notify(text);
                 self.bring = Some(Pane::Sessions);
             }
@@ -851,6 +861,16 @@ impl Board {
         }
         if self.loader.online_due() {
             self.loader.read_online(false);
+        }
+        // The local day turned with the window up (EP-41): every project's files read again,
+        // which keeps the day's counts and writes the day's export; the pass within
+        // `ONLINE_WAKE` of midnight, or the first after the machine wakes, takes it.
+        if self.loader.day_turned() && !self.loader.reading_files {
+            crw_core::log::line(
+                "notice",
+                "the day turned: every project's files read again for the day's counts and export",
+            );
+            self.loader.read_files();
         }
         ctx.request_repaint_after(ONLINE_WAKE);
         if let Some(at) = self.settle_until {
@@ -1429,7 +1449,7 @@ impl Board {
     }
 
     /// Runs one action; `true` when it wrote a file.
-    fn run(&mut self, action: Action) -> bool {
+    pub(crate) fn run(&mut self, action: Action) -> bool {
         let today = files::today();
         match action {
             Action::Select(selection) => self.view.selected = Some(selection),
@@ -1540,6 +1560,7 @@ impl Board {
             Action::SetAutopilotLimit(project, limit) => {
                 return self.set_autopilot_limit(&project, &limit);
             }
+            Action::SetChainMark(project, mark) => return self.set_chain_mark(&project, mark),
             Action::PauseAutopilot(paused) => return self.pause_autopilot(paused),
             Action::CommitSession(key) => self.commit_session(key),
             Action::ToggleExpanded(name) => {
@@ -2289,10 +2310,18 @@ impl Board {
             None
         };
         // The session (five-hour) window at or over the autopilot's mark (EP-40), as the meter
-        // last read it.
+        // last read it: the mark the dialog's chain plan holds when it holds its own (EP-41).
+        let setting = self.autopilot.five_hour_mark.max(1);
+        dialog.five_hour_setting = setting;
+        let own = dialog
+            .plan
+            .as_ref()
+            .filter(|_| !dialog.visual())
+            .and_then(|plan| plan.five_hour_mark);
         dialog.session_notice = crw_core::autopilot::session_notice(
             &self.meter.gauge.figures(chrono::Utc::now()),
-            self.autopilot.five_hour_mark.max(1),
+            own.unwrap_or(setting),
+            own.is_some(),
             chrono::Utc::now(),
         );
         if dialog.readiness_due() {
@@ -2880,6 +2909,36 @@ mod tests {
 
     use super::*;
     use crate::layout::tests::MemoryStorage;
+
+    /// The day's turn (EP-41): a pass after the local day turned starts a read of every
+    /// project's files, which notes the new day; the next pass starts none.
+    #[test]
+    fn a_pass_after_the_days_turn_reads_every_projects_files() {
+        let scratch = crate::portfolio::tests::Scratch::new("board-day-turn");
+        let places = Places {
+            store: crate::portfolio::tests::fake_store(&scratch),
+            ledger: None,
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while board.loader.reading_files && Instant::now() < deadline {
+            board.receive(&ctx);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(!board.loader.reading_files, "the first read came back");
+        board.receive(&ctx);
+        assert!(!board.loader.reading_files, "the same day: no read");
+        board.loader.day = chrono::Local::now().date_naive() - chrono::Days::new(1);
+        board.receive(&ctx);
+        assert!(
+            board.loader.reading_files,
+            "the day turned: every project read again"
+        );
+        assert!(!board.loader.day_turned());
+    }
 
     #[test]
     fn a_notice_has_time_left_only_before_its_mark() {

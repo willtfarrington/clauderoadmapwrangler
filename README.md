@@ -85,9 +85,11 @@ the account's list the window cached (name, stack badge, done of total, the next
 rows, the day), and `--yes` writes them into the `assets/data` folder of the project the `site`
 setting names, for a session of the site to wire into its page (the tool never edits the page
 and never pushes); the window writes the daily export once a day, the registry and every table
-of the ledger as JSON into the git-ignored `private/export/<date>/` (`crw export daily` writes
-it at once); `crw export csv <project>` writes a project's sessions and daily counts as CSV
-there. The hosting and backup actions (EP-34): a row's menu and its Detail pane offer what its
+of the ledger as JSON into the git-ignored `private/export/<date>/`, at its first read of the
+files in a day and when the day turns while it is up (`crw export daily` writes it at once), and
+after each write keeps the last 14 days and each month's first folder, removing the older ones
+one at a time (EP-41); `crw export csv <project>` writes a project's sessions and daily counts as
+CSV there. The hosting and backup actions (EP-34): a row's menu and its Detail pane offer what its
 hosting allows (Create a private remote, which runs `gh repo create … --private --source …
 --push`; Make public or Make private, `gh repo edit --visibility …`, the dialog repeating `gh`'s
 consequences paragraph and, for Make public, what a push to a public remote means; Remove the
@@ -274,8 +276,10 @@ run of a project with the autopilot on completes, a gate reads the project afres
 condition that fails: the brief's completion note and its checked row, the next brief not a
 re-plan and no larger than M, no owner task due before it, a clean tree, the day's caps (2 chained
 runs a project, 4 in all), the weekly and Fable figures under 90 % (and recent enough to trust),
-the session (five-hour) figure under 50 % while a window is open (`autopilot_five_hour_percent`;
-a run cut short by a limit is named so in the log and its notification, EP-40),
+the session (five-hour) figure under 50 % while a window is open (`autopilot_five_hour_percent`,
+or the chain's own mark, which the launch dialog's chain plan and the Autopilot section set for
+that chain alone, EP-41; a run cut short by a limit is named so in the log and its notification,
+EP-40),
 no other session working or waiting there (an idle tab is named, not counted), and runs that
 would not wait at every shell command (a permission mode of `auto`, or allow rules). Ticking the
 box of a project whose runs would wait offers `auto` first, with what it means; the launch

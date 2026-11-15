@@ -43,6 +43,8 @@ pub const DEFAULT_PAUSE_PERCENT: u8 = 90;
 pub const DEFAULT_FIVE_HOUR_PERCENT: u8 = 50;
 /// The gate's name for the session (five-hour) figure.
 pub const FIVE_HOUR: &str = "the session (five-hour) window";
+/// The first words of the chain log's line on a chain's own five-hour mark (EP-41).
+pub const MARKED: &str = "the chain's mark: ";
 /// How long a figure under the mark is trusted after its reading: the meter's own freshness.
 pub const TRUSTED_FOR: TimeDelta = usage::FRESH_FOR;
 
@@ -173,9 +175,11 @@ pub struct Facts {
     pub weekly: Option<Figure>,
     pub fable: Option<Figure>,
     pub pause_percent: u8,
-    /// The session (five-hour) figure while a window is open (EP-40), and its mark.
+    /// The session (five-hour) figure while a window is open (EP-40), and its mark: the chain's
+    /// own when its plan holds one (`five_hour_own`; EP-41), else the setting's.
     pub five_hour: Option<Figure>,
     pub five_hour_percent: u8,
+    pub five_hour_own: bool,
     /// What the run's result said when a usage limit cut it short (`usage::limit_hit`; EP-40).
     pub limit_hit: Option<String>,
     /// The working tree's changes, by path, or why git could not say.
@@ -234,12 +238,14 @@ pub enum Refusal {
         size: Option<Size>,
         max: Size,
     },
-    /// A limit at or over the mark until its reset: the automatic pause.
+    /// A limit at or over the mark until its reset: the automatic pause. `own` when the mark is
+    /// the chain's own, from its plan (EP-41), rather than the setting's.
     Usage {
         which: &'static str,
         percent: f64,
         mark: u8,
         until: Option<DateTime<Utc>>,
+        own: bool,
     },
     /// A figure too old to trust, or read before its window reset.
     Stale {
@@ -308,6 +314,7 @@ impl Refusal {
                 percent,
                 mark,
                 until,
+                own,
             } => {
                 let until = until.map_or(String::new(), |at| {
                     format!(
@@ -315,7 +322,12 @@ impl Refusal {
                         at.with_timezone(&Local).format("%a %d %b %H:%M")
                     )
                 });
-                format!("{which} is at {percent:.0} %, at or over the pause at {mark} %{until}")
+                let at = if *own {
+                    "this chain's mark"
+                } else {
+                    "the pause"
+                };
+                format!("{which} is at {percent:.0} %, at or over {at} at {mark} %{until}")
             }
             Refusal::Stale {
                 which, reset: true, ..
@@ -482,6 +494,7 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
     no.extend(weigh_five_hour(
         facts.five_hour.as_ref(),
         facts.five_hour_percent,
+        facts.five_hour_own,
         now,
     ));
     // The inbox is left out (EP-20) when a message was delivered or written into it since the
@@ -553,6 +566,7 @@ fn weigh(
             percent: figure.limit.percent,
             mark,
             until: figure.limit.resets_at,
+            own: false,
         });
     }
     (now - figure.at > TRUSTED_FOR).then_some(Refusal::Stale {
@@ -565,8 +579,14 @@ fn weigh(
 /// The session (five-hour) figure against its mark (EP-40): at or over it, the chain holds
 /// until the window resets; no figure passes (no window is open, or the account has no such
 /// limit), as does one whose window has ended, and an old figure under the mark is not held on
-/// its age, since the weekly figure of the same reading already is.
-fn weigh_five_hour(figure: Option<&Figure>, mark: u8, now: DateTime<Utc>) -> Option<Refusal> {
+/// its age, since the weekly figure of the same reading already is. `own` when the mark is the
+/// chain's own (EP-41).
+fn weigh_five_hour(
+    figure: Option<&Figure>,
+    mark: u8,
+    own: bool,
+    now: DateTime<Utc>,
+) -> Option<Refusal> {
     let figure = figure?;
     if !figure.limit.before_reset(now) {
         return None;
@@ -576,13 +596,20 @@ fn weigh_five_hour(figure: Option<&Figure>, mark: u8, now: DateTime<Utc>) -> Opt
         percent: figure.limit.percent,
         mark,
         until: figure.limit.resets_at,
+        own,
     })
 }
 
 /// The launch dialog's notice on the session (five-hour) window (EP-40): its figure at or over
-/// the mark while a window is open, with its reset; none otherwise.
-pub fn session_notice(figures: &Figures, mark: u8, now: DateTime<Utc>) -> Option<String> {
-    let refusal = weigh_five_hour(figures.five_hour.as_ref(), mark, now)?;
+/// the mark while a window is open, with its reset; none otherwise. `own` when the mark is the
+/// one the dialog's chain plan holds (EP-41).
+pub fn session_notice(
+    figures: &Figures,
+    mark: u8,
+    own: bool,
+    now: DateTime<Utc>,
+) -> Option<String> {
+    let refusal = weigh_five_hour(figures.five_hour.as_ref(), mark, own, now)?;
     Some(format!(
         "A run started now may hit the five-hour limit: {}",
         refusal.words()
@@ -603,6 +630,7 @@ pub fn usage_pause(
         .chain(weigh_five_hour(
             figures.five_hour.as_ref(),
             five_hour_mark,
+            false,
             now,
         ))
         .filter(|refusal| matches!(refusal, Refusal::Usage { .. }))
@@ -721,6 +749,26 @@ pub fn capped_words(ep: &str, cap: &Cap, worked: Duration) -> String {
     )
 }
 
+/// A chain's own five-hour mark (EP-41), as the log says it when a run whose plan holds one
+/// starts or the owner changes it: `the chain's mark: 70 % of the session (five-hour) window,
+/// your choice in its plan (the setting holds at 50 %)`; back at the setting, its figure.
+pub fn mark_words(mark: Option<u8>, setting: u8, whose: &str) -> String {
+    match mark {
+        Some(mark) => {
+            format!("{MARKED}{mark} % of {FIVE_HOUR}, {whose} (the setting holds at {setting} %)")
+        }
+        None => format!("{MARKED}the setting's {setting} % of {FIVE_HOUR} again, {whose}"),
+    }
+}
+
+/// The chained line's end when the chain holds at a mark of its own (EP-41); nothing when it
+/// holds at the setting's.
+pub fn own_mark_words(mark: Option<u8>) -> String {
+    mark.map_or(String::new(), |mark| {
+        format!("; it holds at {mark} % of {FIVE_HOUR}, your mark for this chain")
+    })
+}
+
 /// A chained start the runner refused, as the log says it.
 pub fn not_started_words(next: &str, after: Option<EpId>, why: &str) -> String {
     let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
@@ -802,9 +850,20 @@ pub struct Plan {
     pub stop: Option<Stop>,
     /// The project's chained runs a day: the most briefs listed.
     pub daily: u32,
+    /// The share of the session (five-hour) window this chain holds at (EP-41, the owner's ask
+    /// at the P4 walk): set in the launch dialog or the Autopilot section, carried with the plan
+    /// across the window's restarts; none holds at the setting, read when the gate weighs. A
+    /// handover written before EP-41 has none.
+    #[serde(default)]
+    pub five_hour_mark: Option<u8>,
 }
 
 impl Plan {
+    /// The mark the chain holds at: its own, else `setting`.
+    pub fn mark(&self, setting: u8) -> u8 {
+        self.five_hour_mark.unwrap_or(setting)
+    }
+
     /// What the plan says of `ep`.
     pub fn answer(&self, ep: EpId) -> Answer {
         match self.briefs.iter().find(|planned| planned.ep == ep) {
@@ -836,9 +895,10 @@ impl Plan {
     }
 
     /// A plan made again after a keep (EP-19c) takes each row's Chain box and the owner's choice
-    /// from `before`, by EP id; a row left alone keeps its new resolution, and so does a row
-    /// `before` did not list.
+    /// from `before`, by EP id, and the chain's own mark (EP-41); a row left alone keeps its new
+    /// resolution, and so does a row `before` did not list.
     pub fn keep_choices(&mut self, before: &Plan) {
+        self.five_hour_mark = before.five_hour_mark;
         for planned in &mut self.briefs {
             if let Some(old) = before.briefs.iter().find(|old| old.ep == planned.ep) {
                 planned.chain = old.chain;
@@ -868,6 +928,7 @@ pub fn plan(
         briefs: Vec::new(),
         stop: None,
         daily,
+        five_hour_mark: None,
     };
     let Some(roadmap) = snapshot.current() else {
         return plan;
@@ -971,6 +1032,8 @@ pub struct Ask<'a> {
     pub ledger: Option<&'a Path>,
     /// The other sessions open in the project, in words.
     pub others: Vec<String>,
+    /// The chain's own five-hour mark, from its plan (EP-41); none holds at the setting.
+    pub five_hour_mark: Option<u8>,
 }
 
 /// The gate's facts read afresh, and the next brief's draft when there is one.
@@ -1053,7 +1116,10 @@ pub fn read(ask: &Ask<'_>) -> Reading {
         fable: ask.figures.fable.clone(),
         pause_percent: settings.autopilot_pause_percent(),
         five_hour: ask.figures.five_hour.clone(),
-        five_hour_percent: settings.autopilot_five_hour_percent(),
+        five_hour_percent: ask
+            .five_hour_mark
+            .unwrap_or_else(|| settings.autopilot_five_hour_percent()),
+        five_hour_own: ask.five_hour_mark.is_some(),
         limit_hit: ask.limit_hit.clone(),
         tree,
         mail_since_run,
@@ -1196,6 +1262,7 @@ mod tests {
             pause_percent: 90,
             five_hour: None,
             five_hour_percent: 50,
+            five_hour_own: false,
             limit_hit: None,
             tree: Ok(Vec::new()),
             mail_since_run: false,
@@ -1387,12 +1454,18 @@ mod tests {
         assert_eq!(pause.len(), 1);
         assert!(matches!(&pause[0], Refusal::Usage { which, .. } if *which == FIVE_HOUR));
         assert!(
-            session_notice(&figures, 50, now())
+            session_notice(&figures, 50, false, now())
                 .unwrap()
                 .starts_with("A run started now may hit the five-hour limit: the session"),
         );
-        assert_eq!(session_notice(&figures, 70, now()), None);
-        assert_eq!(session_notice(&Figures::default(), 50, now()), None);
+        assert_eq!(session_notice(&figures, 70, true, now()), None);
+        assert_eq!(session_notice(&Figures::default(), 50, false, now()), None);
+        // The dialog's own mark is named as the chain's (EP-41).
+        assert!(
+            session_notice(&figures, 60, true, now())
+                .unwrap()
+                .contains("at or over this chain's mark at 60 %"),
+        );
         // A run cut short by a limit is named beside its outcome, and the chain ends.
         let mut facts = passing();
         facts.outcome = Outcome::Failed;
@@ -1411,6 +1484,70 @@ mod tests {
             "the chain ends after EP-4: the run ended failed rather than completed; the run hit \
              the 5-hour limit, resets 11:30pm"
         );
+    }
+
+    #[test]
+    fn a_chain_holds_at_its_own_mark_and_the_log_names_it() {
+        // The setting's 50 would hold at 62 %; the chain's own 70 lets it go, and its own 60
+        // holds it with words naming the chain's mark, not the setting's (EP-41).
+        let mut facts = passing();
+        facts.five_hour = Some(figure(62.0, 1, 2));
+        assert!(holds(&gate(&facts, now())));
+        facts.five_hour_percent = 70;
+        facts.five_hour_own = true;
+        assert!(gate(&facts, now()).is_empty());
+        facts.five_hour_percent = 60;
+        let held = gate(&facts, now());
+        assert!(matches!(
+            held.as_slice(),
+            [Refusal::Usage {
+                which: FIVE_HOUR,
+                mark: 60,
+                own: true,
+                ..
+            }]
+        ));
+        let words = refused_words(Some(ep("EP-4")), &held);
+        assert!(
+            words.starts_with(
+                "held after EP-4 until the pause lifts: the session (five-hour) window is at 62 %, \
+                 at or over this chain's mark at 60 % until its reset"
+            ),
+            "{words}"
+        );
+        // The plan's mark, kept when the plan is made again after a keep; the log's lines name
+        // it.
+        let plan = Plan {
+            project: "alpha".to_owned(),
+            after: ep("EP-4"),
+            briefs: Vec::new(),
+            stop: None,
+            daily: 2,
+            five_hour_mark: Some(70),
+        };
+        assert_eq!(plan.mark(50), 70);
+        let mut plain = Plan {
+            five_hour_mark: None,
+            ..plan.clone()
+        };
+        assert_eq!(plain.mark(50), 50);
+        plain.keep_choices(&plan);
+        assert_eq!(plain.five_hour_mark, Some(70));
+        assert_eq!(
+            mark_words(Some(70), 50, "your choice in its plan"),
+            "the chain's mark: 70 % of the session (five-hour) window, your choice in its plan \
+             (the setting holds at 50 %)"
+        );
+        assert_eq!(
+            mark_words(None, 50, "your change"),
+            "the chain's mark: the setting's 50 % of the session (five-hour) window again, your \
+             change"
+        );
+        assert_eq!(
+            own_mark_words(Some(70)),
+            "; it holds at 70 % of the session (five-hour) window, your mark for this chain"
+        );
+        assert_eq!(own_mark_words(None), "");
     }
 
     #[test]

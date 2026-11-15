@@ -136,6 +136,9 @@ pub struct Dialog {
     /// The notice that a run started now may hit the five-hour limit (EP-40): the session
     /// figure at or over the autopilot's mark, with its reset. The board keeps it current.
     pub session_notice: Option<String>,
+    /// The setting's five-hour mark, which the chain plan's own mark is chosen against
+    /// (EP-41). The board keeps it current.
+    pub five_hour_setting: u8,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -201,6 +204,7 @@ impl Dialog {
             kept_effort: opening.kept_effort,
             newer_build: None,
             session_notice: None,
+            five_hour_setting: crw_core::autopilot::DEFAULT_FIVE_HOUR_PERCENT,
         }
     }
 
@@ -253,6 +257,7 @@ impl Dialog {
             kept_effort: opening.kept_effort,
             newer_build: None,
             session_notice: None,
+            five_hour_setting: crw_core::autopilot::DEFAULT_FIVE_HOUR_PERCENT,
         };
         dialog.set_mode(LaunchMode::Headless);
         dialog
@@ -607,7 +612,8 @@ impl Dialog {
     /// The room the chain plan takes under the columns, which the editor gives up.
     fn plan_height(&self) -> f32 {
         match &self.plan {
-            Some(plan) if !self.visual() => 80.0 + 30.0 * plan.briefs.len().max(1) as f32,
+            // The briefs' rows, the notes and the chain's own mark (EP-41).
+            Some(plan) if !self.visual() => 110.0 + 30.0 * plan.briefs.len().max(1) as f32,
             Some(_) => 40.0,
             None => 0.0,
         }
@@ -624,6 +630,7 @@ impl Dialog {
         let listed = flags_of(preflight).is_some_and(|flags| flags.ultracode());
         let cli = cli_efforts(preflight);
         let catalog = &self.catalog;
+        let setting = self.five_hour_setting.max(1);
         let Some(plan) = self.plan.as_mut() else {
             return;
         };
@@ -682,6 +689,17 @@ impl Dialog {
                 );
             }
         }
+        // The chain's own five-hour mark (EP-41), filled from the setting: kept with the plan at
+        // Start headless and gone when the chain ends.
+        ui.horizontal(|ui| {
+            ui.label("Hold this chain at");
+            let id = ("launch-chain-mark", plan.project.to_lowercase());
+            if let Some(mark) = crate::autopilot::mark_picker(ui, id, plan.five_hour_mark, setting)
+            {
+                plan.five_hour_mark = mark;
+            }
+            ui.label("of the session (five-hour) window");
+        });
         let mut notes = Vec::new();
         if let Some(stop) = &plan.stop {
             notes.push(format!("The chain would end at {}: {}.", stop.ep, stop.why));
@@ -1909,7 +1927,7 @@ mod tests {
         assert_eq!(dialog.plan_height(), 40.0);
         dialog.set_mode(LaunchMode::Headless);
         assert!(!dialog.visual());
-        assert_eq!(dialog.plan_height(), 110.0);
+        assert_eq!(dialog.plan_height(), 140.0);
         assert!(dialog.prompt.contains("with fable at xhigh effort"));
 
         // The plan's row is drawn with its box, which a click unticks (EP-15a's screen).
@@ -1921,6 +1939,16 @@ mod tests {
             })
         };
         let output = draw(&mut dialog, Vec::new());
+        // The chain's own mark (EP-41), filled from the setting until the owner picks one.
+        assert!(testing::text_at(&output, "Hold this chain at").is_some());
+        assert!(testing::text_at(&output, "50 % (the setting)").is_some());
+        dialog.five_hour_setting = 60;
+        dialog.plan.as_mut().unwrap().five_hour_mark = Some(80);
+        let output = draw(&mut dialog, Vec::new());
+        assert!(testing::text_at(&output, "80 %").is_some());
+        dialog.plan.as_mut().unwrap().five_hour_mark = None;
+        let output = draw(&mut dialog, Vec::new());
+        assert!(testing::text_at(&output, "60 % (the setting)").is_some());
         let at = testing::text_at(&output, "EP-5").expect("the plan's row names EP-5");
         draw(&mut dialog, testing::moved(at));
         draw(
