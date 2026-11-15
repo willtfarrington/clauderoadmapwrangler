@@ -6,8 +6,9 @@ items marked *(EP-8)*, at EP-9 by the one marked *(EP-9)*, at EP-10 by those mar
 EP-33 by the one marked *(EP-33)*, at EP-11 by those marked *(EP-11)*, at EP-12 by those marked
 *(EP-12)*, at EP-13 by those marked *(EP-13)*, at EP-14 by those marked *(EP-14)*, at EP-15b by the
 revert's, at EP-16 (2026-11-04, the P2 re-plan) by those marked *(EP-16)*, at EP-35 by those
-marked *(EP-35)*, at EP-19, EP-19a, EP-19c and EP-20a by those marked so, and at EP-23 (2026-11-11,
-the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
+marked *(EP-35)*, at EP-19, EP-19a, EP-19c and EP-20a by those marked so, at EP-23 (2026-11-11,
+the P3 re-plan) by those marked *(EP-23)*, and at EP-29 (2026-11-15, the P4 re-plan) by those
+marked *(EP-29)*, each with the brief it comes from.
 
 ## 1 Launch modes
 
@@ -86,6 +87,8 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   line.
 - *(EP-35)* A headless run's row that a crash left open closed when the window starts again: no
   hook closes a row of the runner's, and a resume in a terminal starts a manual row beside it.
+  *(EP-29: built by EP-28a's reconciliation, which closes such a row as stopped at the window's
+  next start.)*
 - *(EP-35)* Resume in VS Code for a session whose working folder was a subfolder of the project:
   its transcript lies under the subfolder's slug, which the project's window may not look in.
 - *(EP-19)* A held chain kept across a restart of the window: EP-19's lives in the window, and
@@ -121,7 +124,8 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
 - *(EP-23, from EP-18 and EP-19c)* A downshift for M or L briefs, to a model other than Opus 5.5,
   or a rule's opt-out; the downshift lifted over a kept Fable model (it stays the resolver's last
   layer and names itself when it stands over a keep); the effort's "CLI default" kept as a
-  standing choice.
+  standing choice. *(EP-29: EP-40 built the downshift for every size and the owner's policy as
+  two rules in the registry; another model, a rule's opt-out and the rest stay parked.)*
 - *(EP-23, from EP-19b)* A control for the permission mode in the Autopilot section, which shows
   it (the box's offer, the dialog's pin and `crw set` change it); free figures for the limits in
   the window, whose pickers offer presets (`crw set` takes any).
@@ -145,6 +149,25 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
 - *(EP-23, from EP-20b)* The prompt hook's mentions by folder path, or by a folder name that
   differs from the registry's; a session title from the hook; a hook that blocks or changes a
   prompt; the context as a pointer alone (the alternative to EP-39's order).
+- *(EP-29, from EP-39)* A restart by itself when the launch dialog opens on a newer installed
+  build (the dialog offers it); the dialog's edits (its prompt, its mode, the chain plan's rows)
+  carried across that restart, which carries the project alone.
+- *(EP-29, from EP-40)* The five-hour limit's extras, parked at the P4 walk (the owner's choice):
+  notifications at 80 % and 95 % of the session window, a five-hour line in the usage sparkline,
+  and a predictive gate from the ledger's attribution, which needs the five-hour rise recorded
+  for each session (a ledger column). A run that hit the limit resumed after the reset (the
+  owner prefers a fresh run). The global mark made editable in the Autopilot section (the
+  alternative to EP-41's mark per chain). The single-instance guard's two gaps: a hand-started
+  window that binds the port in the moment between a restart's two windows, and the second
+  window's quit coming before its meter's first poll by timing, not by a gate.
+- *(EP-29, from EP-28a)* The start's parked points. An entry turned off in Task Manager's Startup
+  apps, a flag Windows keeps beside the Run value, which the doctor and File > Start at login do
+  not read; `crw.previous-<stamp>.exe` files left in the PATH copy's folder until the next pass
+  (both parked at the P4 walk, the owner's choice). The window created hidden at a start at
+  login, should EP-32's walk find the flash eframe may give it; a delay at sign-in; a
+  reconciliation during the window's life; the icon inside the exes as a resource (it needs a
+  resource compiler, a stack change); the install folder itself on PATH, or a `crw.cmd` shim
+  (the owner chose a copy).
 
 ## 2 Analytics
 
@@ -158,14 +181,38 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   weighted by busy time (it is equal among the sessions that worked), the five-hour figure, use
   the window cannot see (claude.ai, the phone) told apart, and the check whether the poll of live
   sessions lists a session's subagents or the extension's helpers as sessions of their own.
+  *(EP-29: the five-hour limit is back and the gate weighs its figure since EP-40; its rise
+  split among the sessions is still unbuilt, and is what a predictive gate would need.)*
 - *(EP-23, from EP-18b)* The Fable sum in the Usage cell with a sort by it; the usage share in
   `crw status` (`crw sessions` prints the week's sums).
+- *(EP-29, from EP-25 and EP-25a)* The ledger's rows from before EP-13 cleaned or backfilled;
+  Re-import in a row's menu (the Detail pane has it); the latest daily count drawn in the
+  History section; record commits worded another way (an unknown form reads as noise); a GitHub
+  pass, or the backup job's reading, for one project; a re-read at every hook event rather than
+  at a session's end.
+- *(EP-29, from EP-26 and EP-26a)* The usage sparkline moved to `egui_plot`; the owner's waits in
+  visual sessions counted from the watch's busy and idle; the waits as a true sum (they are a
+  mean times a count, worded "about"); the analytics printed by `crw`; a burn-up, a velocity and
+  a projection for the whole portfolio (the switch moves the heatmap alone); the ledger read off
+  the UI thread; the heatmap in an expanded row; Start and the autopilot box on a card; a card's
+  density, or cards resized by hand; the arrow keys in the cards view.
 
 ## 3 Chat
 
 - **Portfolio report**: a Markdown report across projects written into `private/` on request (round 14,
   round 17: not picked).
 - A full-tool chat session in `DATA` (rejected for blast radius, D-27).
+- *(EP-29, from EP-24, EP-24a and EP-24b)* The chat's parked points. In a reply: syntax
+  highlighting, images (an image reads as its alt text), a search, a link opened in the browser
+  (the status bar names its target). The conversations in a pane of their own, or more than the
+  latest twenty listed; a conversation's earlier turns read back from Claude Code's transcripts;
+  a time limit for a chat's own question, which waits for good; the Sessions pane's transcripts
+  drawn as Markdown too. For the session: writing commands admitted (`crw send`, `crw formalise
+  --yes`, `crw adopt`; the owner chose none, every write a button), `crw scan` and `crw chats`,
+  an owner task added from the chat, a button from the streaming text, commands with a pipe or a
+  redirect, and a tool call the host answers (a server of the tool's own) as the proposal's
+  channel, should the line form prove fragile. A ledger mode of its own for chat runs; a `data`
+  box in the window's own Adopt, as the chat's confirmation has.
 
 ## 4 Phone view
 
@@ -175,16 +222,33 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   keyboard-covers-field issue #4572 was open on 2026-10-31).
 - A PIN for write actions and periodic re-authentication (alternatives to D-28).
 - A path mount under the other project's existing hostname instead of a new HTTPS port.
+- *(EP-29)* What the P4 re-plan left out of the phone view, each the owner's choice (D-28
+  addendum): a revert from the phone, or its preview read-only; a session resumed with a typed
+  message; a project's autopilot switch; Kill; the hosting and backup actions; a QR code for
+  the link (`qrcode` 0.14.1 was the crate looked at; the link is shown and pushed through
+  ntfy); links on the waiting pushes
+  alone; Enable remote view built early, each page then watched on the phone, or a gated phone
+  check after each page's brief; the whole port proxied as D-28 first wrote it.
 
 ## 5 Hosting and backup
 
 - Deleting the orphan private repository from the tool (needs the `delete_repo` scope; D-24 flags it with
-  Archive and Delete actions and leaves the scope refresh to the owner).
+  Archive and Delete actions and leaves the scope refresh to the owner). *(EP-29: EP-34 built
+  Archive and Delete for an orphan; Delete is refused until the owner's token has the scope.)*
 - A second backup mechanism (rejected; the Documents job is the one, D-24).
 - Health badges beyond the latest Actions run and licence presence (CodeQL, Dependabot alerts).
 - *(EP-8)* Rewriting this repository's history to drop the planning record's first wording of the
   owner's machine details (rejected before the public flip: every recorded hash would change; D-3
   addendum).
+- *(EP-29, from EP-34)* Connecting an orphan repository as a project's origin; a repository's
+  name, description and topics changed from the tool; the actions run from the command line
+  (`crw act` previews only); a registry setting naming the backup job's script; Create pushing
+  more than the current branch; the history scan before Make public as a command's preview
+  alone (the alternative to EP-42's dialog).
+- *(EP-29, from EP-27)* The exports in the window's menus, a File item for the site export and a
+  row-menu item for a project's CSV (the commands serve, the owner's choice at the P4 walk); a
+  registry or a ledger restored from an export; a JSON file for each table; the daily folders
+  kept 30 days, or all of them (the owner chose 14 days and each month's first, EP-41).
 
 ## 6 Conventions and other projects
 
@@ -194,7 +258,8 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   roadmap was migrated at the P3 walk (D-9 addendum); the others when the owner wants them.)*
 - The owner's vault tooling plans a mirror row per DATA repository (checkboxes, decision count, recent
   commits) that overlaps this tool's parser; the vault could consume this tool's daily export instead
-  (noted for that project's re-plan).
+  (noted for that project's re-plan). *(EP-29: the daily export exists since EP-27, a folder a
+  day under `private/export/`.)*
 - Owner-tasks ticking for the legacy forms (they stay read-only, D-10).
 - *(EP-8)* Eligibility from the dependency graph, and a split set's name (`EP-5` for `EP-5a` and
   `EP-5b`): the next EP stays the first unchecked row (D-9; left out at EP-3).
@@ -221,6 +286,14 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   an owner-tasks file (EP-38 leaves a project without the file as it is); the opener pointing at
   a project's read-first rule and quoting nothing, which would shorten every opener; a second
   walk in the middle of a phase.
+- *(EP-29, from the P4 walk)* The routes no real use has met, staged once on scratch projects
+  under a scratch home, or listed at the close-out and no longer asked (the owner chose to carry
+  them to EP-32's walk); the Keep pins closed as unexercised; other wording for the plugin's
+  four skills (the `replan` skill gained its sentence on the records at EP-29).
+- *(EP-29, from EP-38 and EP-39)* A sort by the Waiting count; the older forms counted by kind (a
+  parked block counted, a risk not); the Detail pane's `markup::reflow` shared with core's
+  `prompt::joined`, which carries a form it does not know (a fence nested in a list item) as
+  written.
 
 ## 7 Stack alternatives considered
 
@@ -233,6 +306,11 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
 - *(EP-23)* A Markdown renderer of the tool's own for the chat's replies, grown from `markup` on
   pulldown-cmark, and replies shown as source text (the owner chose `egui_commonmark`, D-15
   addendum); the protocol crate moved at each of its releases rather than at a re-plan.
+- *(EP-29)* For the phone pages: Datastar 1.0.5 vendored, or htmx 2.0.11 with its SSE extension
+  (the owner chose plain forms and one script of the tool's own, D-14 addendum); the handlers
+  reading the registry and the ledger themselves rather than a snapshot the window publishes.
+  The protocol crate moved to 2.1.325 in a row of its own while the standalone CLI stays at
+  2.1.316 (kept, D-15 addendum).
 
 ## 8 Operations
 
@@ -254,6 +332,11 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
   copy's states are derived, a data repository is never copied or listed, and a copy run's
   sessions, plans and usage stay the fake projects'. The copy script reading a manifest two
   folders down, or a decision log in a folder it skips.
+- *(EP-29, from EP-28)* The extension's stale lock files deleted by the tool, or anything else
+  the doctor's report finds put right by it (it reads only); a log written by `crw` and the
+  hooks beside the window's; a log viewer in the window; the doctor's checks run at every start
+  of the window. For the push guard (risk 17): a supervised probe on a scratch repository with
+  a scratch remote, the alternative to EP-42's line.
 
 ## 9 Views
 
@@ -282,3 +365,8 @@ the P3 re-plan) by those marked *(EP-23)*, each with the brief it comes from.
 - *(EP-23, from the P3 walk)* Long project names cut with an ellipsis in the list, the title
   keeping its width (the owner chose the title to give way first, D-25 addendum; the
   drag-resizable columns above stay parked).
+- *(EP-29, from the P4 walk)* The Brief title shrinking all the way, cut with an ellipsis, before
+  any badge column goes (its floor of 80 points stays, the owner's choice again); a double click
+  on a row or a card that opens the launch dialog (it brings the Detail pane forward, as Enter
+  does); the Diagnostics tab's place, should its title ever sit past the tab bar's scroll arrow
+  in a narrow group (it was easy to find in the owner's layout).

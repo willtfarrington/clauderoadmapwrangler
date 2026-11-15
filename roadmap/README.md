@@ -45,6 +45,21 @@ note were one M short since EP-19b joined without a recount (55 briefs before th
 restarting itself into each brief's build (D-5, D-22 addenda). *(EP-40, 2026-11-13.)* With
 EP-40 in P4, v1 is **62 briefs, 14 S · 43 M · 5 L ≈ 60 session-hours**.
 
+**Re-planned 2026-11-15 (EP-29, the P4 re-plan).** P4 took 10 h 22 min of active work against 13
+h planned (80 %) and 30 h of wall time, 18 of them two long waits for the owner's answers;
+an S about 20 minutes of active work, an M about 48, and the sizes stay the planning unit (D-4
+addendum). Planned as 13 rows, P4 closed with 15 (EP-25a and EP-40 joined at the owner's word);
+no row split at pickup, the three large ones having been cut beforehand. Thirteen of its fourteen
+briefs ran headless from the window, nine of them chained. The re-plan opened with the second
+walk (D-10 addendum): the records settled about a third of its points, the owner the rest with
+five live steps, and five fixes became EP-41 and EP-42 at P5's start. P5's charters are full
+briefs now: the web pages are cut beforehand into three M briefs (EP-30, EP-30a, EP-30b), the
+session page and Enable remote view into two (EP-31, EP-31a), and the pages are plain forms with
+one small script of the tool's own (D-14 and D-28 addenda). v1 is now **68 briefs, 15 S · 49 M ·
+4 L ≈ 64.5 session-hours**, 8 of them open, counted afresh from the tables: the line above
+written at EP-40 was one S short, EP-25a having dropped out of its recount (63 briefs before
+this re-plan, not 62). No L row remains open.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -63,7 +78,8 @@ the top-level [`README.md`](../README.md#the-roadmap-house-style) (moved there a
 is split at pickup. A re-plan is M from EP-23: it opens with the phase walk (D-10 addendum, 2026-11-08). L is reserved for six engines: the tile shell (EP-6), the session runner (EP-9), the
 decisions tile (EP-14), the autopilot (EP-19), the chat tile (EP-24) and the web pages (EP-30).
 *(EP-23, 2026-11-11.)* The chat tile was cut beforehand into three M briefs, so five L remain, one
-of them open (EP-30).
+of them open (EP-30). *(EP-29, 2026-11-15.)* The web pages were cut beforehand into three M
+briefs too, so four L remain, all done.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -1513,7 +1529,7 @@ window; D-16 addendum: Visual stays the default, and the autopilot runs headless
 | EP-34 | [Hosting and backup actions: Create private remote, Make public, Make private, Remove remote, Archive and Delete an orphan, Back up now, each behind a confirmation and logged](EP-34-hosting-and-backup-actions.md) (D-24) | M | EP-7 | core | ☑ `ec2957e` |
 | EP-28 | [Operations, Diagnostics: `doctor` and the Diagnostics tile with D-29's checks, the rolling log, AV hints](EP-28-diagnostics.md) (D-29) | M | EP-15, EP-37 | core | ☑ `fef1e59` |
 | EP-28a | [Operations, the start: the start-at-login entry, single instance, start-up reconciliation of the ledger's open rows, `crw` on PATH, the app's own icon, the install script final](EP-28a-the-start.md) (D-29) | M | EP-28, EP-37a | core | ☑ `09756e9` |
-| EP-29 | Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
+| EP-29 | [Re-plan P4, opening with the P4 walk (D-10 addendum, 2026-11-08); P5 charters upgraded to full briefs](EP-29-replan-p4.md) | M | EP-38, EP-39, EP-24, EP-24a, EP-24b, EP-25, EP-25a, EP-26, EP-40, EP-26a, EP-27, EP-34, EP-28, EP-28a | core | ☐ |
 
 Ordering rationale: the chat needs the decisions tile (its questions) and the plugin (its method); the
 backfill feeds the graphs and the exports; operations polish lands before the phone view exposes the tool
@@ -1934,16 +1950,110 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   - `crw.previous-<stamp>.exe` files that can stay in `.local\bin` after `crw path off` or a
     refresh, until the next pass.
 
-## Phase P5 — Phone view (charter briefs; upgraded at EP-29)
+## Phase P5 — Phone view (charters of 2026-10-31, upgraded to full briefs 2026-11-15)
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-30 | Web pages: askama templates with SSE-driven updates — project list, project page with tasks and inbox tick, decisions answer form, start and pause actions; identity middleware and action log (D-28) | L | EP-12, EP-14, EP-19 | core | ☐ |
-| EP-31 | Session page and remote enable: streaming transcript over SSE with an input for answers, Enable remote view action running `tailscale serve`, serve status, QR code, disable (D-28) | M | EP-30 | core | ☐ |
-| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-30, EP-31 | core | ☐ |
+| EP-41 | Fixes from the P4 walk, the daily surfaces: a chain's own five-hour mark in the Chain plan and the Autopilot section; the expanded rows' sparklines on one left edge; the daily export at the day's turn, 14 days and each month's first kept (D-22, D-25, D-8) | M | EP-40, EP-26a, EP-27 | core | ☐ |
+| EP-42 | Fixes from the P4 walk, the two guards: Make public scans the project's history against a word list before its confirmation; the doctor says an autopilot run carries the push deny rule (D-24, D-22, D-3) | M | EP-34, EP-28 | core | ☐ |
+| EP-30 | Phone pages, the base: the window's state published to the server, queued actions run while the window is hidden (the tray's Pause with them), the `/m/` router with the identity check and the remote-action log, askama's layout and the read-only project list (D-28, D-14) | L → M (cut beforehand at EP-29) | EP-12, EP-19 | core | ☐ |
+| EP-30a | Phone pages, a project and the decisions: the project page with the next brief's note, owner tasks and inbox messages ticked, a message composed; the decisions page answering questions and permission requests (D-28, D-10, D-13, D-19) | M | EP-30, EP-14, EP-20c | core | ☐ |
+| EP-30b | Phone pages, the actions and live updates: start the next brief as the rules resolve it, stop a headless run, pause and resume the autopilot; the usage strip and the autopilot block; one event stream and the tool's own script (D-28, D-22, D-14) | M | EP-30a, EP-40 | core | ☐ |
+| EP-31 | Phone pages, the sessions: a session's page with its transcript streaming and its answers, the sessions list, the notifications page and the doctor's report (D-28, D-26, D-29) | M | EP-30b, EP-13, EP-28 | core | ☐ |
+| EP-31a | Enable remote view: `tailscale serve` on the phone's path alone behind a confirmation, the owner's login read and confirmed, Serve's status in Diagnostics, the link shown and pushed through ntfy, pushes that open their page, Disable, the tray's entry (D-28, D-21) | M | EP-31, EP-20a | core | ☐ |
+| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31a | core | ☐ |
 
-**Charters.** Each is upgraded to a full brief by EP-29 or at pickup.
+Ordering rationale *(EP-29, 2026-11-15, the owner's choices)*: EP-41 and EP-42 open the phase,
+as EP-38 and EP-39 opened P4: the walk's five fixes to the surfaces and guards the owner uses
+daily come before the phone work starts. The web pages are cut beforehand into three M briefs,
+since every large row so far either split at pickup or was cut at a re-plan, and a chained run
+can ask about a split only while its chain waits: the base first (it gives the server the
+window's state and lets an action run while the window is hidden, which every later page needs),
+then the pages that tick and answer, then the actions that start and stop with the live updates.
+The session page follows with the two read-only pages the owner added, and Enable remote view
+comes last: until it exists the pages are checked through the server in tests (a session never
+drives a browser; the owner may open a page in a browser on the machine itself, where the
+loopback counts as local), so the briefs chain without waiting on the owner's phone, and the
+first real Enable is one owner task when everything is there to see. The close-out's walk is the
+phone's.
 
+Standing decisions for phase P5: D-28 and its addendum of 2026-11-15 (the seven actions and no
+other; answers only from a session's page; no revert; the identity check on every `/m/` request;
+the phone's path alone proxied; every remote action logged before it runs), D-14 addendum (plain
+forms and one script of the tool's own; no third-party script), D-15 addendum (no new pin without
+a line in the brief's note; the protocol crate stays), D-3 (the owner's login, the machine's
+tailnet name and the remote view's URL are private: templates, tests and pictures use the
+fixtures' names and `owner@example.com`, and none of the three enters a tracked file, the rolling
+log's words excepted, which stay on the machine), D-29 (tests never run `tailscale` and never
+drive a browser: a page is tested as a request in and HTML or events out, Serve through a fake
+runner as `gh` is), D-10 addendum (a residual-risk paragraph per brief; one hands-only task, the
+first real Enable).
+
+**Brief notes.** The three charters (EP-30, EP-31, EP-32) stand as written on 2026-10-31, each
+followed by what EP-29 settled; where the two differ, the later segment holds.
+
+- **EP-41.** Added at EP-29 (2026-11-15) from the P4 walk: three fixes to surfaces the owner uses
+  daily, each the owner's choice there.
+  (1) **A chain's own five-hour mark** (D-22 addendum). Today one setting holds every chain:
+  `settings.autopilot_five_hour_percent` (1 to 100, default 50; `Settings` in
+  `core/src/registry.rs`), read into `Pilot::five_hour_mark` (`app/src/autopilot.rs`) by
+  `Board::read_pilot` and weighed by `autopilot::usage_pause` (`core/src/autopilot.rs`). The
+  launch dialog's Chain plan (`app/src/launch.rs`; `autopilot::Plan` in core) gains "Hold this
+  chain at [n] % of the session window", filled from the setting; the value belongs to that
+  chain: it travels with the plan across the window's restarts (the handover file of EP-37a,
+  `app/src/restart.rs`) and ends with the chain. The Sessions pane's Autopilot section
+  (`Board::autopilot_section`) shows a running chain's mark and changes it; `crw autopilot`
+  prints it; the hold's words in the chain log name the chain's mark, not the setting's. A
+  chain with no plan of its own holds at the setting, which stays the default.
+  (2) **The sparklines on one left edge** (D-25 addendum). `list::expansion` (`app/src/list.rs`)
+  draws an expanded row's sparkline (`spark_block`, which calls `analytics::sparkline`) beside
+  its phases block, and gives that block a minimum width (`PHASES_AT_LEAST`, 360) "so that the
+  sparklines of the rows below one another start at one place". A block wider than the minimum,
+  a phase's long name, pushes its row's sparkline right, so under Expand all they start at
+  different places (the owner saw them follow the longest title). They get one left edge for
+  the rows shown: the widest phases block measured as the list's columns are, or the sparkline
+  set from the row's right. Checked in a screenshot run over a copy of real roadmaps with every
+  row expanded (rule 5; the setup's `expand=all` and `analytics=all`).
+  (3) **The daily export's day and its keep** (D-8 addendum). `portfolio::daily_export`
+  (`app/src/portfolio.rs`) calls `export::daily` at a full read of the files when
+  `export::written` says the day has none, so a day the window stays up without such a read is
+  skipped (2026-11-14 was). The export also runs when the local day turns while the window is
+  up, and after each write the tool removes its own folders under the export folder: those named
+  as a date (`export::day_folder`'s form), older than 14 days, the earliest folder of each month
+  kept, one at a time and never as a burst (rule 9), nothing else in that folder touched. A
+  failed write or removal is said in the rolling log (`crw_core::log::line`), where EP-27 left
+  it silent. EP-25's daily counts (`record_counts` in the same file) are written at that read
+  and at a one-project re-read (EP-25a), so a project nobody worked in on such a day has no
+  count for it (EP-25's review logged the gap): they take the day's turn too if one moment
+  serves both, else the brief says why not.
+- **EP-42.** Added at EP-29 (2026-11-15) from the P4 walk: two guards, each the owner's choice
+  there.
+  (1) **A scan before Make public** (D-24 addendum). `core::actions` holds the hosting actions
+  (`Verb`, its previews and `actions::log`) and `app::act` their dialogs. Before Make public's
+  confirmation the dialog runs one read-only pass over the project's whole history, off the UI
+  thread as EP-15c's preview is read, one git child in its turn (`process::turn`): the added
+  lines of every commit against the fixed strings of a word list, case ignored, as rule 3's
+  check does for one commit. The list's file is named by a new registry setting, a path
+  beside the others in `Settings::KEYS` (`Settings::is_path` lists the keys that are not
+  paths, so a path needs no line there; this project's list is `private/public-check.txt`);
+  without the setting or the file the dialog says no list is named and goes on as today. The dialog lists the commits that hit by short hash and subject
+  and asks for a second tick to go on when any did. **D-3:** the words, the matched lines and
+  the list's contents are never shown beyond a count, never logged and never written to the
+  ledger; tests use a scratch repository and a scratch list. `crw act <project> make-public`
+  (`Verb::id`) previews the same. Setting the path in the owner's registry is theirs (rule 13): the
+  brief's closing question offers the command. `Settings` refuses unknown fields
+  (`deny_unknown_fields`), so an older build would refuse a registry that holds the new one;
+  the installed copy is replaced by this brief's own install, and the note says so.
+  (2) **The push rule's line in the doctor** (D-22 addendum; risk 17). An autopilot run's
+  launch sets `Launch::deny_push`, which adds `session::launch::PUSH_DENY_RULE` (`Bash(git
+  push *)`) to the settings the run is passed (`core/src/session/launch.rs`;
+  `core/src/autopilot.rs` sets it for a chained start, `Board::start_headless` for an
+  autopilot project's first run). `crw doctor` and the Diagnostics pane (`core::doctor`: a
+  line in its Readings group, or beside the headless route's line that `crw doctor` prints
+  last and the pane keeps among the window's own) build the launch the autopilot would and
+  read the rule back from what it would pass, so the line fails if a later change drops the
+  rule. It
+  shows that the rule is passed, not that Claude Code honours it: risk 17 keeps that half.
 - **EP-30.** The axum server from EP-12 gains routes under `/m/`: list (state groups, next EP, badges,
   session status), project (brief notes, owner tasks with tick, inbox with tick and compose), decisions
   (pending questions with option buttons and free text, permission allow/deny), actions (start the next
@@ -1964,12 +2074,175 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   are `Action::PauseAutopilot` (the registry's `settings.autopilot_paused`, which `crw autopilot
   pause|resume` also sets), a project's switch `Action::SetAutopilot`, and the chain log the
   ledger's `event` rows of kind `autopilot` (`autopilot::recent`).
+  **From EP-29 (2026-11-15; D-14 and D-28 addenda):** cut beforehand into three M briefs. This
+  one is the base and the read-only list; the project and decisions pages are EP-30a's, the
+  actions and the live updates EP-30b's. No Datastar and no htmx: plain forms and, in EP-30b,
+  one script of the tool's own. What the survey of the tree found, for this brief to build on:
+  - **The server only takes signals in.** `app/src/server.rs`: `Server::start` runs
+    `axum::serve` on a thread of its own with a current-thread tokio runtime; `router(shared)`
+    is private and holds `POST /hook`, `POST /statusline`, `GET /health`, `POST /restart` and
+    `POST /show`; `Shared` holds the port, two `std::sync::mpsc` senders and the `wake` closure,
+    so no handler can read the window's state. The base adds a snapshot the window publishes for
+    the handlers to read (plain data, no egui type; `tokio`'s `sync` feature is on, so a
+    `watch` channel serves and its change is EP-30b's event): for the list, each
+    `portfolio::ProjectRow`'s name, state, `next()`, `counts()`, `open_items()`,
+    `open_messages()`, `in_progress()` and `usage_tenths()`, `Board::session_summary(name)`,
+    and the badges as their `badges::Mark` words.
+  - **A request that needs the window's hand** follows `RestartRequest`'s pattern: a struct
+    with a `tokio::sync::oneshot` reply, sent through `Shared`, drained in `Board::attend`
+    (which runs while the window is hidden; `Dashboard::logic`), answered within a timeout
+    (`RESTART_WAIT` is 6 s).
+  - **Queued actions run only in a drawn frame.** `Board::run_actions` is called at the end of
+    `Dashboard::ui`, after the early return while hidden, so the tray's `Order::Pause`, which
+    queues `Action::PauseAutopilot` in `Board::attend`, waits until the window is shown (the P4
+    walk's finding; D-29 addendum). The base runs the queue in the hidden pass as well; an
+    action that needs the tiles' tree keeps to a drawn frame. A test holds the tray's Pause
+    acting while hidden.
+  - **The guard.** `Shared::local` refuses any `Origin` and any `Host` but
+    `127.0.0.1:<port>` or `localhost:<port>`; it stays on the five routes above. The `/m/`
+    routes take the identity check in its place (D-28 addendum): local when the `Host` is the
+    loopback and no `Tailscale-User-Login` is present; through Serve only with that header
+    equal to `settings.owner_login`, a new setting (`Settings`, `Settings::KEYS`,
+    `Settings::get`, `Settings::is_path`, which lists the keys that are not paths, and
+    `Changes::set_setting` with its `none` arm, in `core/src/registry.rs`; `crw setting
+    owner_login <login|none>`; Enable writes it in EP-31a); 403 otherwise, and for every
+    request through Serve while the setting is absent. A form's POST must name the page's own
+    origin. `Settings` refuses unknown fields, so an older build refuses a registry that holds
+    the new one: said in the note.
+  - **The log.** `Ledger::add_event(at, kind, project, detail)` with a kind of its own for the
+    phone (`remote`): the identity, the path and the time, written before the action runs; a
+    refused identity is logged too, at most once a minute for each. EP-30b adds its reader.
+  - **Crates.** `askama` (pinned `=0.16.1` in the workspace since EP-1, in no crate and not
+    in `Cargo.lock` yet) joins `crates/app`, its templates in `crates/app/templates/`
+    (`base.html`, `list.html`, later `project.html`, `decisions.html`, `start.html`,
+    `session.html`, `sessions.html`, `notifications.html`, `diagnostics.html` and the parts
+    they share). axum
+    is built with `http1`, `json` and `tokio` only: a form's body needs its `form` feature, a
+    feature of the pinned release, not a move of the pin (D-15 addendum). The page loads
+    nothing from outside: `GET /m/app.css` is served from the exe, both themes by the phone's
+    own setting.
+  - **Routes of the base:** `GET /m/` (the list in its state groups: name, state, next EP with
+    its size and title, progress, what waits, the session's words, the badges in words), `GET
+    /m/app.css`. The later briefs add `GET /m/p/<project>`, `GET /m/decisions`, `GET
+    /m/sessions`, `GET /m/s/<key>`, `GET /m/notifications`, `GET /m/diagnostics`, `GET
+    /m/events`, `GET /m/app.js` and the forms' POST routes under the page each belongs to; a
+    brief that renames one says so in its note.
+  - **Tests.** No test drives the router through `tower` (not a direct dependency): the four
+    tests in `app/src/server.rs` start `Server::start(0, …)` and speak HTTP through its `raw`
+    helper, which returns the status alone, or `signals::relay::request`, which sends no
+    header of the caller's. The `/m/` tests need a helper of that kind that sends their own
+    `Host`, `Origin` and `Tailscale-User-Login` and reads the body back. A screenshot run binds no port, so no picture shows a
+    page: the brief renders the fixtures' portfolio to HTML under `target\tmp\` and reads it.
+- **EP-30a.** Added at EP-29 (2026-11-15) by EP-30's cut: the two pages that tick and answer.
+  Every form is a POST answered by a redirect to its page with one line saying what happened;
+  each goes to the window through EP-30's request channel, since everything below runs on the
+  window's own thread.
+  (1) **`GET /m/p/<project>`**: the next brief's note (`Roadmap::note(id)`, `Note::text`),
+  what waits on the owner (`Snapshot::waiting`, and `uncounted` under its own heading, as the
+  Detail pane's `owner_items` in `app/src/detail.rs` reads them), the inbox (`snapshot.inbox`:
+  `Inbox`, `Message`) and the project's sessions in words. A note is drawn in HTML from the
+  same block model the Detail pane uses (`markup::blocks` and `markup::spans` in
+  `app/src/markup.rs` return plain data; `markup::job` and `note` are its egui half): no
+  Markdown-to-HTML renderer
+  exists in the tree, and `export::escape` in core escapes text for a hand-built part.
+  (2) **Ticks.** An owner task: `Board::tick` (`tasks::tick(folder, id, backups, today)`, then
+  `Board::log_tick`). An inbox message needs its disposition: `inbox::tick(folder, id,
+  disposition, backups, today)` refuses an empty one (`checklist::Error::NoDisposition`); the
+  window's `Action::TickMessage` reads it from `Board.drafts`, so the phone's form carries its
+  own. (3) **Compose**: `mailman::send_from_owner(folder, receiver, text, urgent, backups,
+  today, ledger)`, on a worker thread as `Board::send_message` runs it (`app/src/compose.rs`),
+  with the dialog's refusals. (4) **`GET /m/decisions`**: each waiting request
+  (`Live.waiting`; `session::protocol::Request` with its questions) as a form built by
+  `decisions::Draft`'s rules (one answer or several, the owner's own words, a refusal's
+  reason), sent through `Board::respond` (`Sessions::respond(key, request, Response)`) or,
+  for a deferred run, `Board::answer_deferred` (`Sessions::answer_open`); the words shown
+  afterwards are `decisions::answer_words`. Sessions that wait in VS Code are listed
+  read-only, and a chat's questions stay in the Chat pane (`Sessions::waiting` leaves them
+  out). A request answered at the desk meanwhile answers the form with "already answered".
+- **EP-30b.** Added at EP-29 (2026-11-15) by EP-30's cut: the three actions that run things,
+  the two blocks the owner asked for on the list page, and the live updates.
+  (1) **Start.** No action starts a brief without the launch dialog today
+  (`Action::OpenLaunch`, then `Action::StartHeadless` from `launch::Dialog`); the nearest path
+  without it is the autopilot's, in two halves: `Board::gated` (`app/src/autopilot.rs`) drafts
+  the next brief's launch, the rules resolving its model and effort (`rules::resolve` in the
+  gate's draft, `core/src/autopilot.rs`; `autopilot::launch`), and `Board::start_queued`
+  starts what was drafted through `Sessions::start`. The phone's start needs both halves
+  without a run having just ended, behind a page of its own: `GET /m/p/<project>/start` shows the brief, its size, the
+  model and effort the rules resolve, the permission mode and what the gate would refuse
+  (`Pilot.standing`), and its button posts. Headless only; refused with the dialog's reasons
+  (`Sessions::preflight` is none while the CLI is first asked). (2) **Stop**:
+  `Sessions::stop(key)`, never Kill. (3) **Pause and resume**: `Board::pause_autopilot`. Each
+  is logged before it runs and said in the window's status bar and rolling log
+  (`Board::notify`) with the identity. (4) **The usage strip and the autopilot block** on the
+  list page: the meter's weekly, Fable and session figures with their resets; `Pilot`'s
+  `paused`, `held`, `plans` and `log` (`autopilot::recent`). (5) **Live updates.** `GET
+  /m/events` is one event stream naming what changed (the list, a project, the decisions, a
+  session), driven by the published snapshot's change; `GET /m/app.js`, the tool's own script
+  (about fifty lines, served from the exe), listens with `EventSource`, fetches the changed
+  part again and leaves alone a part that holds the focused field. axum's `Sse` takes a
+  stream, and no crate of the tool's names a stream crate (`futures-util` is in the lock as
+  others' dependency, axum's among them): the brief writes the stream over what the lock has,
+  or names and pins what it adds (D-15 addendum). No stream survives
+  the window's quit; the script tries again. (6) **`crw remote`** prints the remote-action
+  log, as `crw mail` prints the mailman's.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
   the Diagnostics tile, the URL and a QR code shown, a Disable action (`tailscale serve --https=9443 off`);
   a check that the phone's VPN does not block the tailnet (hint only). **From EP-15:** Enable
   remote view joins the tray's menu (`tray::entries`), as D-21 planned.
+  **From EP-29 (2026-11-15; D-28 addendum):** cut in two. This brief is the sessions' pages and
+  the two read-only pages the owner added; Enable remote view, the link and the tray's entry
+  are EP-31a's, and no QR code is drawn. (1) **`GET /m/s/<key>`** (the charter's
+  `/m/session/<id>`): the window's own session by its key, its `Live.transcript`
+  (`app/src/transcript.rs`: `Transcript{entries, streaming, dropped}`, `Entry::{Prompt, Text,
+  Tool, Denied, Asked, Notice, Result}`, 2,000 entries kept) drawn as the Sessions pane draws
+  it: text as paragraphs, a tool call in one line with its result folded, a request with its
+  answer. New entries and the streaming text arrive over EP-30b's event stream and are
+  appended, never the whole page again. A waiting request shows EP-30a's form; Stop is
+  EP-30b's. **Answers only**: no box for a message and no Resume from the phone (the owner's
+  choice; a typed message into a session is the free chat D-28 parked). The page says a revert
+  is a desk action. (2) **`GET /m/sessions`**: the window's sessions and the ones started
+  elsewhere (`crw_core::sessions::Seen`: `summary`, `doing`), then the ledger's latest rows as
+  `crw sessions` prints them, each of the window's linking to its page. (3) **`GET
+  /m/notifications`**: the ledger's `event` rows of kind `notification` (`Ledger::events`), as
+  `crw notifications` reads them. (4) **`GET /m/diagnostics`**: the doctor's report by group
+  (`core::doctor`: `Group::ALL`, `report`), the one the Diagnostics pane last gathered
+  (`Diagnostics::check` in `app/src/diagnostics.rs` runs `doctor::probe` on a worker thread,
+  six children in their turn), with its age; whether the page may ask the window for a fresh
+  one is the brief's first question, since Check again is not among the phone's actions.
+- **EP-31a.** Added at EP-29 (2026-11-15) by EP-31's cut: the one brief that touches Tailscale,
+  placed last (the owner's choice), with the link and the pushes that use it.
+  (1) **Enable remote view**, a confirmation dialog in the form of EP-34's actions (`app::act`:
+  the command shown before it runs, a fake runner in tests, the result's words shown whole):
+  `tailscale serve --bg --https=9443 --set-path=/m http://127.0.0.1:<port>/m`, the phone's
+  path alone, so the relays' routes are never proxied; Disable is the same command with `off`.
+  The brief reads `tailscale serve --help` of the installed client first (1.104.7 on
+  2026-11-15) and corrects the form from it. Before either, `tailscale serve status --json`
+  is read: a port or path another service holds is refused with its words, and the tool never
+  runs `tailscale serve reset`, the node's Serve configuration being shared. Serve needs HTTPS
+  certificates enabled in the tailnet and says so itself; its words are shown.
+  (2) **The owner's login**: read from `tailscale status --json` (the machine's own user;
+  `doctor::parse_tailscale` keeps `BackendState` and `Self.Online` alone today, so this is a
+  second, narrow read), shown in the confirmation, written to `settings.owner_login` only on
+  the owner's click. (3) **The link**: the URL from the machine's own tailnet name, shown in
+  the dialog and on a "remote view" line of the doctor's Network group (off; on at its URL; on
+  in the registry while Serve says otherwise), with Copy; "Send the link to my phone" pushes
+  it through `ntfy::Ntfy::publish` when ntfy is set. (4) **Pushes that open their page**:
+  while remote view is on, a notification's push carries its page's link (ntfy's click
+  header, in the header form `core/src/notify/ntfy.rs` already uses), chosen from the toast's
+  `Target` (`app/src/toasts.rs`): a waiting request the decisions page, a finished or failed
+  run its session's page, a chain's change the list, an urgent letter the project's page.
+  (5) **The tray**: `tray::entries` gains Enable or Disable remote view before Install and
+  restart, an `Order` of its own handled in `Board::attend`. (6) **How `Host` arrives through
+  Serve** decides the local rule EP-30 wrote; no test can see it, so the brief keeps both
+  readings tested by their headers and the owner task's first step says which one the real
+  request showed (the remote-action log's refused line names the headers' presence, never
+  their values beyond the login). (7) **The owner task**, ungated: the first real Enable on
+  the owner's tailnet, the link opened on the phone, one action of each kind, Disable.
+  (8) **The README** gains the phone view's section and its security words, in generic terms
+  (D-3: no login, no tailnet name; a phone whose other VPN displaces the tailnet cannot reach
+  the page, said as a hint).
 - **EP-32.** Timings for every EP of v1, the README's "State of the app" and screenshots refreshed,
   addenda, `v2-notes.md` compiled into themes (launch modes, analytics, chat, phone, hosting, conventions),
   the v2 direction (the first candidates: `--bg` background sessions with Attach, worktree-per-session,
@@ -1990,6 +2263,34 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
   **From EP-23:** retaken at the P3 re-plan the same way (the dark picture now shows the Detail
   pane's Compose…, the usage lines and the legend's urgent mark); the close-out takes them once
   more after P4 and P5, when the Chat tab and the graphs are no longer placeholders.
+  **From EP-29 (the P4 walk's method and what it carried):** settle from the records first, as
+  EP-23's note for EP-29 says, with two sources P4 added: the window's rolling log
+  (`%LOCALAPPDATA%\clauderoadmapwrangler\log`, fourteen day files) and `crw history
+  <project>`; the phone's actions are the `event` rows of kind `remote` (`crw remote`). A
+  question describes its surface from the brief and the code, never from memory (D-10
+  addendum). Time the briefs as EP-23 and EP-29 did; a session's subagents write their own
+  transcripts in a folder beside the session's, and counting their timestamps moved P4's
+  total by five minutes. Carried to this walk, the owner's choice each time:
+  - the start at login as it looks (hidden, or the flash eframe may give it), and File > Start
+    at login, which no one has opened (EP-28a);
+  - the launch dialog's Install and restart with a newer build installed, and the dialog
+    opening again (EP-39);
+  - a chat's own question answered in its tile, and a deferred question's resume (EP-24a);
+  - the first hosting action from the window (EP-34; Back up now ran on 2026-11-15);
+  - the Keep pins on the real registry and a chain with a kept value (EP-19c);
+  - a delivery under a session idle in the receiver (EP-20); a chain that meets a changed
+    inbox with no mail since its run, and a restart with an urgent letter in flight (EP-20c);
+    the first reworded block (EP-20d); a revert that redoes a formalise (EP-21a);
+  - `/roadmap-wrangler:formalise` writing from a session in the project, and the four skills'
+    wording after more use (EP-22);
+  - the push guard's refusal in a real run, the half EP-42's doctor line does not show
+    (risk 17);
+  - the expanded rows' sparklines once a project has crossed a phase inside their span
+    (EP-26a; the owner saw too little change to judge them).
+  The pins are looked at again (D-15 addendum: the protocol crate at 2.1.316 against 2.1.325
+  and the standalone CLI's version that day), and egui#8470. The pictures cannot show a phone
+  page (a screenshot run binds no port): whether the README shows one, rendered from the
+  fixtures and pictured in a desktop browser by the owner, is this brief's question.
 
 ## Risks / open items
 
@@ -2021,7 +2322,9 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
    extension carries 2.1.322, the standalone binary is still 2.1.316, and the protocol crate's
    newest release is 2.1.323 against the pin 2.1.316, kept because it is the runner's CLI (D-15
    addendum); the day the standalone binary updates itself, the adapter meets a newer CLI than
-   its pin, which shows as events it cannot read rather than a hung run (risk 2).
+   its pin, which shows as events it cannot read rather than a hung run (risk 2). *(EP-29,
+   2026-11-15.)* Wider still: the extension and the protocol crate's newest release are both at
+   2.1.325, the standalone binary is still 2.1.316, and the pin stays with it (D-15 addendum).
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
@@ -2090,14 +2393,31 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
     for their fix (EP-38, EP-39). The cadence stays for P4, and a brief that changes a list or a pane now
     checks it on a copy before its close (D-10 addendum, rule 5). What a walk cannot reach in one
     sitting is carried to the next in EP-29's note, so a rare route (a reworded letter, a revert
-    after a formalise) may stay unexercised through v1.
+    after a formalise) may stay unexercised through v1. *(EP-29, 2026-11-15.)* The second walk
+    found no blocker either: five fixes waited up to fourteen briefs (EP-41, EP-42), and a
+    sixth, the tray's Pause queued while the window is hidden, was found by reading the code for
+    P5, not by use. The rare routes are carried by name to EP-32's walk, the last one v1 has.
 17. **The push guard is unexercised** (D-22; EP-19b, EP-23). An autopilot run under permission
     mode `auto` carries a deny rule for `git push`, since `auto` would allow a plain push and a
     push of this repository publishes at once (risk 11). The opener's "never push" is the first
     guard and the rule the second; that Claude Code refuses a push under the rule rests on its
     permissions page and on EP-9's probe of a deny rule passed the same way, and no run is known
     to have tried. The rule guards the usual form, not a push written another way (`git -C .
-    push`). The first refused push seen in a run's transcript closes this.
+    push`). The first refused push seen in a run's transcript closes this. *(EP-29,
+    2026-11-15.)* Thirteen more autopilot runs completed in P4 and none pushed; none is known
+    to have tried. EP-42 gives the doctor a line that says the rule is passed to such a run;
+    that Claude Code refuses under it stays unseen.
+18. **The phone view acts on real projects from outside the desk** (D-28 and its addendum of
+    2026-11-15; EP-29). Once EP-31a's Enable has run, a request that comes through Tailscale
+    Serve can answer a waiting question, start a run, stop one, pause the autopilot, tick, and
+    write into a project's inbox. The guards: the
+    loopback bind; the phone's path alone proxied; `Tailscale-User-Login` equal to the owner's
+    login on every request (Serve strips a forged header and gives a tagged device none); a
+    form's own origin; an action list without revert, kill, the hosting actions or any free
+    text into a session; a log row before each action; Disable. What no test can see is how a
+    request really arrives through Serve (its `Host`, its headers) and the script on a real
+    phone: both wait for the owner's first Enable (EP-31a's task) and EP-32's walk. The node's
+    Serve configuration is shared with the owner's other services, so the tool never resets it.
 
 ## Decision record
 

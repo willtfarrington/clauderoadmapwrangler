@@ -124,6 +124,27 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > L's left re-cut; an M counted as 45 minutes; the rows kept and split at pickup as in P3; only
 > EP-24 cut beforehand.
 
+> **Addendum (2026-11-15, EP-29).** P4 measured as the earlier phases were: EP-38 … EP-28a took
+> 10 h 22 min of active work against 13 h planned (80 %), and 30 h 04 min from each session's
+> first entry to its record commit, 12 h 05 min without the two long waits for the owner's
+> answers (EP-34's 4 h 20 min through an evening, EP-28a's 13 h 39 min overnight). The two S took 18 and 22 minutes of
+> active work, the twelve M 31 to 70 (48 on average; 54 in P3). Thirteen of the fourteen briefs
+> ran headless from the window, nine of them as a chained run; EP-40 ran by hand in VS Code, and
+> EP-26a took two runs, the first ended by the five-hour limit after 19 minutes and reverted.
+> The sizes stay the planning unit (the owner's choice). Planned at EP-23 as 13 rows, P4 closed
+> with 15: EP-25a (S, from IN-13) and EP-40 (M, the field fixes) joined at the owner's word,
+> and no row split at pickup, the three large rows having been cut beforehand. This re-plan
+> cuts P5's one large row the same way (the owner's choice): EP-30 into EP-30, EP-30a and
+> EP-30b, each an M, and EP-31 into EP-31 and EP-31a, the four extra views and the push links
+> having joined it; with the walk's two fix rows, EP-41 and EP-42 (M each), v1 is 68 briefs, 15
+> S · 49 M · 4 L ≈ 64.5 session-hours, 8 of them open once EP-29 is checked, counted afresh from
+> the tables (`crw roadmap` reads 69 rows with EP-0). The roadmap's line written at EP-40 was
+> one S short, 62 briefs where the tables held 63: EP-25a dropped out of that recount, as EP-19b
+> had out of an earlier one, so a recount is made from the tables, never from the last total.
+> No L row remains open. *Alternatives.* EP-30
+> in two M briefs, or kept as one L; an M counted as 45 minutes; the fixes in one row with the
+> two guards parked, or placed after the phone pages.
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it
@@ -216,6 +237,19 @@ database stored in `private/` directly; a one-year retention.
 > file per table; the ledger's file copied as is (a copy of an open SQLite file may tear); only
 > the tables of this build's schema; a CSV item in the row's menu now.
 
+> **Addendum (2026-11-15, EP-29).** The daily export's day and its keep (the owner's choices at
+> the P4 walk; EP-41 builds them). The export ran on 2026-11-13 and 2026-11-15 and left no
+> folder for 2026-11-14: it is written at the first full read of the files in a day, and on the
+> 14th the window stayed up without one. It will also run when the day turns while the window
+> is up, and after each write the tool removes its own dated folders older than 14 days, each
+> month's first kept, one folder at a time (a day's folder was about 1 MB on 2026-11-13, a
+> whole copy of the ledger, zipped daily by the Documents backup). The window offers neither
+> export in its menus: `crw export site` and `crw export csv` serve (the owner's choice). The
+> first real site export ran on 2026-11-15 (OT-27): both files written into the site's
+> `assets\data`, nothing else there. *Alternatives.* The last 30 days kept; the skipped day
+> fixed and nothing removed; both left as they are; a File item for the site export, a
+> row-menu item for the CSV.
+
 ## Conventions
 
 **D-9 Convention model and format profiles.** The house style is the schema: `# | Brief | Size | Depends
@@ -299,6 +333,10 @@ house style only with a regex fallback.
 > Migrate… each when the owner wants it. *Alternatives.* The migration carried to EP-29's walk
 > untried; an owner task for it.
 
+> **Addendum (2026-11-15, EP-29).** The first migration, read: the owner found the roadmap
+> converted at the P3 walk to read well and committed it as the run left it. The other older
+> roadmaps follow when the owner wants them.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -373,6 +411,26 @@ forms only with ticks in the registry; tasks only in the registry.
 > house style writes what needs the owner's hands to the file. The gate (`prompt::due`) read the
 > file alone already. *Alternatives.* The older forms counted by kind (a block to the owner
 > counted, a risk not); the uncounted list folded; the list before the inbox.
+
+> **Addendum (2026-11-15, EP-29).** The second walk. The fourteen residual-risk paragraphs of
+> EP-38 … EP-28a and the points carried from P3 gave some forty points. About a third
+> settled from the records alone (the ledger's `event` rows, the rolling log EP-28 gave the
+> window, `crw history` over each project that is not a data repository, `crw mail`, `crw
+> doctor`, the export's folders), the rest by the owner's answers and five live steps in the
+> window (the Diagnostics pane, the list with its cards and expanded rows, the Detail pane's
+> graphs, the icons, a chat run asked which skills it holds). Five became fixes in two rows
+> that open P5 (EP-41, EP-42), a sixth joined EP-30, one was a sentence added to the plugin's
+> `replan` skill at once, and what nothing has exercised is carried by name to EP-32's walk
+> (its brief note), the owner choosing to carry rather than to close. P4's briefs wrote three
+> owner tasks (OT-26, OT-27, OT-28), each the first real run of a new route, none gated; ten
+> chained starts ran past them. The cadence stays for P5 (the owner's choice): a
+> residual-risk paragraph per brief, EP-32 opening with the P5 walk, and one hands-only task,
+> the first real Enable remote view. A walk's question describes the surface from the brief
+> and the code, not from memory: one of this walk's said a card's double click opens the
+> launch dialog, where it selects and brings the Detail pane forward, and the owner's "it does
+> not" cost a round. *Alternatives.* A phone check as a gated owner task after each P5 brief
+> that adds a page; the rare routes staged once under a scratch home, or listed at the
+> close-out and no longer asked.
 
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
@@ -672,6 +730,17 @@ urgent messages into running headless sessions.
 > with no mail since its run, and a restart with an urgent letter in flight. *Alternatives.*
 > The log's line fixed in a row of P4, alone or with the counted block's case; no test letter.
 
+> **Addendum (2026-11-15, EP-29).** The mail at the P4 walk. The first `Handed on` block
+> delivered from one project into another came on 2026-11-13 at 17:29 (EP-27's letter, the
+> site's IN-1; `crw mail`: `delivered EP-27:… to prime as IN-1`), which settles the point the P3
+> walk carried. Five routes are still unmet in real use after two phases and are carried to
+> EP-32's walk (the owner's choice): a delivery under a session idle in the receiver, a chain
+> that meets a changed inbox with no mail since its run, a restart with an urgent letter in
+> flight, a block reworded after its delivery, and a revert that redoes a formalise. The first
+> real revert, of EP-26a's failed run on 2026-11-12, put seven files back with no commit to
+> undo and kept the work in the backups folder. *Alternatives.* The five listed at the
+> close-out as built and never met; a staged pass over each on scratch projects.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,
@@ -722,6 +791,25 @@ with modules; hand-written protocol types; another community client.
 > pickup). A loopback host, the tests' listener, is reached over plain HTTP without a proxy.
 > *Alternatives.* ureq with native-tls; reqwest with rustls; `curl.exe` from System32 at each
 > poll, the token on its standard input.
+
+> **Addendum (2026-11-15, EP-29).** The phone pages' stack, settled before P5 (the owner's
+> choices). The pages are askama templates rendered by the window's own axum server, as planned;
+> the layer the charter left open ("a small Datastar or htmx layer") is neither. Every action
+> is an ordinary HTML form (a POST answered by a redirect), which works with no script and is
+> tested through the router, and one small script of the tool's own, served from the exe,
+> listens to one event stream (`EventSource`), fetches the changed parts of a page and appends
+> a transcript's lines, leaving alone a form the owner is typing in. *Why.* The tests may never
+> drive a browser (D-29), so what a third-party script does with its attributes would be unseen
+> until the owner's phone opened the page, while what the server sends is checked whole;
+> Datastar reached 1.0 this autumn with its attribute syntax changed between release
+> candidates, and htmx 2.0 is about to be replaced by 4.0; no third-party file joins the public
+> repository and no pin joins D-15. The server today only takes signals in: no handler can read
+> the window's state, and queued actions run only in a drawn frame. So EP-30 first has the
+> window publish what the pages show (a snapshot the server reads) and run a queued action in
+> the hidden pass too, which also makes the tray's Pause act at once (it waited for the window
+> to be shown, found at the P4 walk). *Alternatives.* Datastar 1.0.5 vendored; htmx 2.0.11 with
+> its SSE extension; the handlers reading the registry and the ledger themselves rather than a
+> snapshot the window publishes.
 
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
@@ -793,6 +881,21 @@ everything.
 > links are egui's own hyperlinks, whose click the tile takes over (D-27 addendum of this
 > date), so no fallback renderer was needed. *Alternatives.* The default features (an image
 > loader and a regex search the chat has no use for); syntect highlighting at a build-time cost.
+
+> **Addendum (2026-11-15, EP-29).** The pins at the P4 re-plan. eframe 0.37.0, egui_tiles
+> 0.18.0, axum 0.8.9 and askama 0.16.1 are still the newest releases and the pins; askama has
+> been pinned in the workspace since EP-1 and joins a crate and `Cargo.lock` with EP-30, its
+> first use. The protocol crate's newest release is 2.1.325 against the pin 2.1.316, kept (the
+> owner's choice): the standalone CLI the runner starts is still 2.1.316, while the VS Code
+> extension bundles 2.1.325, and P4's fourteen headless runs and ten chat runs read every line;
+> EP-32 looks again. egui#8470 is still open (a fix for the immediate-viewport panic was
+> committed upstream on 2026-11-11, in no release), so the D-21 addendum's rule against
+> immediate viewports stands. P5 adds no third-party script (D-14 addendum) and no QR crate
+> (D-28 addendum); a brief that finds it needs a crate for the event stream (axum's `Sse` takes
+> a stream, and no crate of the tool's names a stream crate: `futures-util` is in the lock as
+> others' dependency) names it, pins it exactly and says so in its note, as EP-24a and EP-26
+> did. *Alternatives.* The protocol crate moved to
+> 2.1.325 in a row of its own at P5's start; `qrcode` 0.14.1 cleared for the link's QR code.
 
 ## Sessions
 
@@ -1166,6 +1269,11 @@ tool. *Alternatives.* Polling only; hooks only.
 > *Alternatives.* F5 after each session (the owner's ask, IN-13, was to be rid of it); a watcher
 > on every project's `roadmap/` folder, which reads at each write of a session rather than at
 > its end; a re-read at every Stop hook.
+
+> **Addendum (2026-11-15, EP-29).** At the P4 walk the owner found the prompt hook's context as
+> EP-39 ordered it (the next row first, the rules in short) to work as wanted in their own
+> sessions, and the end hook's re-read of a project (EP-25a) shows in the window's log after
+> each session's end; both points close.
 
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
@@ -1556,6 +1664,42 @@ committing and recording hashes; one model and effort per project; usage thresho
 > column); the mark at 30 or 70; no five-hour gate, the wording alone; the policy as the tool's
 > defaults in code, or both.
 
+> **Addendum (2026-11-15, EP-29).** P4's chains, 2026-11-11 … 2026-11-14, from the ledger's
+> `autopilot` rows, and what the walk settled.
+>
+> - **The chains.** Ten chained starts, all this project's (the five other projects with the
+>   autopilot on ran no brief), among fourteen headless runs of briefs. Four chain ends: two
+>   at the day's cap of four in all projects, one for a run that failed (EP-26a's first, at the
+>   five-hour limit), one before this re-plan's row. Nine holds for the window's restart into
+>   an installed build, each taken within about twenty seconds by the chained start in the new
+>   window, none refused; one restart asked by an install was refused while its own run still
+>   worked, as built, and the window reached that build at the next sign-in. No gate refused a
+>   chain for a changed tree or an open task, no run was capped, and no chain ran into a
+>   re-plan.
+> - **The first five-hour hold.** On 2026-11-13 the gate held the chain after EP-26a at 57 % of
+>   the session window against the mark of 50 %, wrote the hold three times between 15:13 and
+>   16:34, and chained EP-27 at 17:04, four minutes after the window's reset: it held and let
+>   go as built.
+> - **The mark per chain** (the owner's ask; EP-41 builds it). One setting for every chain is
+>   too blunt: the launch dialog's Chain plan gains the mark this chain holds at, filled from
+>   `autopilot_five_hour_percent`, carried with the chain across the window's restarts and
+>   ending with it, and the Autopilot section shows a running chain's mark and changes it. The
+>   setting stays the default.
+> - **Parked** (the owner's choice): notifications at 80 % and 95 % of the session window, a
+>   five-hour line in the usage sparkline, and a predictive gate from the ledger's attribution.
+> - **The push guard** (risk 17). Thirteen more autopilot runs completed and none pushed; none
+>   is known to have tried. EP-42 gives `crw doctor` and the Diagnostics pane a line saying that
+>   an autopilot run's launch carries the deny rule, built from the function the launch uses
+>   (`session::launch::PUSH_DENY_RULE`, `Launch::deny_push`): it shows the rule is passed, not
+>   that Claude Code honours it, which stays the risk's other half.
+> - **The Keep pins** (EP-19c) are still unused on the real registry, the owner's rules of
+>   EP-40 choosing every run's model since; carried once more, to EP-32's walk.
+>
+> *Alternatives.* The global mark made editable in the Autopilot section and no value per
+> chain, or both; the five-hour notifications built now, with the per-session rise recorded in
+> the ledger for a later gate; the push guard carried as it is, or probed in a supervised run
+> on a scratch repository.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1804,6 +1948,18 @@ archive mechanism; editing `index.html`.
 > would postpone the others' daily look; `crw act --yes`; finding the missing scope only when
 > Delete fails.
 
+> **Addendum (2026-11-15, EP-29).** The actions after their first days, and a scan before Make
+> public (the owner's choice at the P4 walk; EP-42 builds it). The first real action from the
+> window was Back up now on 2026-11-15 (OT-28; the ledger's `backup` row reads "backed up");
+> no hosting action has run from the window yet, which EP-32's walk asks again. Make public
+> flips a repository at once and cannot be taken back, and only the dialog's words warned of
+> private names in its history. Before its confirmation the dialog will run one read-only pass
+> over the project's whole history, the added lines against a word list the owner names (this
+> project's is rule 3's `private/public-check.txt`), list the commits that hit without showing
+> or logging the words, and ask for a second tick to go on when any did; without a list it
+> says so and goes on as today. *Alternatives.* The dialog's words alone; the scan as a
+> command's preview that the dialog points at.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with
@@ -1982,6 +2138,18 @@ state; graphs only in the detail tile or a separate window.
 > pointer; the heatmap in the expanded row as D-25 first said; Expand all over every project,
 > the filtered ones included; cards of a fixed height, which clip a long title or a second line
 > of badges; the autopilot box and Start on each card.
+
+> **Addendum (2026-11-15, EP-29).** The list and the graphs under the owner's hands (the P4
+> walk's live steps). The cards view, the expanded rows, Expand all and Collapse all, the row
+> menu's "Refresh this project" and the Detail pane's History, Progress and Analytics sections
+> read right on the real portfolio. One fix (EP-41): under Expand all the expanded rows'
+> sparklines start at different places, each beside its row's phases block, whose shared
+> minimum width a long phase name outgrows; they will share one left edge. Kept as built (the
+> owner's
+> choice): the title stops shrinking at its floor of 80 points before the CI badge's column
+> goes (EP-38), and a double click on a row or a card selects it and brings the Detail pane
+> forward, as Enter does. *Alternatives.* The title's floor at zero with an ellipsis; a double
+> click that opens the launch dialog.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
@@ -2338,6 +2506,18 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > 2026-11-11) lists the choices acceptEdits, auto, bypassPermissions, manual, dontAsk and plan,
 > so `default` is the CLI's own name for the mode it takes as `manual`, not another mode.
 
+> **Addendum (2026-11-15, EP-29).** The chat and the plugin at the P4 walk. The first real
+> conversation (OT-26, 2026-11-11) held on every boundary it tried and its three findings were
+> fixed at EP-25; ten chat runs stand in the ledger. The owner finds the chat fine and has
+> barely used it, so two routes stay unseen and are carried to EP-32's walk: a chat's own
+> question answered in the tile, and a deferred question's resume. A headless run does load the
+> build's own copy of the plugin (EP-22a's point): asked in a live step which skills it holds,
+> a chat run named the four. The plugin's `replan` skill gains the sentence the P3 walk asked
+> for, in its third step: settle from the records first what they can say, take to the owner
+> only what needs their eyes, hands or judgement, and carry by name what nothing has exercised.
+> *Alternatives.* The sentence left to a P5 fix row with any other wording for the four skills;
+> the skill left as it is, the roadmap's own note carrying the method.
+
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and
 8443 belong to another project), tailnet only, never Funnel; the tool checks `tailscale serve status` and
@@ -2360,6 +2540,58 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > 127.0.0.1. A second window finds the port taken and says so in its status bar. The phone's
 > routes (EP-30) take the identity check in the loopback guard's place. *Alternatives.* No guard
 > beyond the loopback bind; a shared secret in the hook entries.
+
+> **Addendum (2026-11-15, EP-29).** The phone view's shape, settled before P5 (the owner's
+> choices at the P4 re-plan; EP-30 … EP-31a build it).
+>
+> - **Pages**, all under `/m/`: the project list, with a strip for the usage (weekly, Fable
+>   and the session window with their resets) and a block for the autopilot (its state, the
+>   held chains with their reason, the latest lines of the chain log); a project's page (the
+>   next brief's note, the owner tasks, the inbox, its sessions) and the page that confirms a
+>   start; the decisions page; the sessions list and a session's page with its transcript
+>   streaming; and two read-only pages the owner added, the latest notifications and the
+>   doctor's report.
+> - **Actions**, the plan's list spelled out and nothing more: tick an owner task; tick an
+>   inbox message with its disposition; compose a message into a project's inbox; answer a
+>   waiting question, or allow or deny a permission request; start a project's next brief
+>   headless with the model and effort the rules resolve, a chain then following the gate as on
+>   the desktop; stop a headless run; pause and resume the autopilot. Not from the phone:
+>   revert (the question the charter left; a revert's preview wants a desk and is never
+>   urgent), kill, the hosting and backup actions, formalise, adopt and migrate, registry
+>   settings, the chat, a project's autopilot switch, install and restart. The session page
+>   sends answers only: a Resume with a typed message is free text into a session, which is
+>   the free chat this decision parked.
+> - **Identity.** A request that arrives through Serve must carry `Tailscale-User-Login` equal
+>   to the registry's new setting `owner_login`; a request from the machine itself (a loopback
+>   `Host`, no Tailscale header) is local; anything else is refused, as every request through
+>   Serve is until the setting exists. Enable remote view reads this machine's own user from
+>   `tailscale status --json`, shows the login in its confirmation and writes the setting only
+>   on the owner's click; `crw setting owner_login` changes it by hand. A form's POST must also
+>   name the page's own origin, which the loopback guard of the relays' routes (no `Origin` at
+>   all) cannot ask of a browser.
+> - **Serve.** Enable mounts the phone's path alone, `--set-path=/m` on the HTTPS port this
+>   decision names, so the relays' routes, the restart's and the guard's are never proxied; it
+>   reads `tailscale serve status --json` first and never resets the node's Serve
+>   configuration, which other services share. The brief reads the installed client's `serve
+>   --help` for the exact form and finds out how `Host` arrives through the proxy.
+> - **The link.** The dialog and the Diagnostics pane show the URL as text with Copy, and
+>   "Send the link to my phone" pushes it through ntfy when ntfy is set; no QR code and no QR
+>   crate. While remote view is on, each notification's push carries the link of its page (a
+>   waiting question the decisions page, a finished or failed run its session's, a chain's
+>   change the list, an urgent letter the project's); with it off the pushes stay plain.
+> - **The log.** Every remote action writes an `event` row of a kind of its own with the
+>   identity, the path and the time, before it runs.
+> - **Order.** Enable remote view comes last (EP-31a), the pages being checked until then
+>   through the server in tests (D-29 addendum of this date); the owner may open one in a
+>   browser on the machine itself, where the loopback counts as local. The first real Enable
+>   is the owner's task, since it changes their Tailscale configuration, and EP-32's walk is
+>   the phone's.
+>
+> *Alternatives.* The project's autopilot switch from the phone; read, answer and tick only;
+> the revert's preview read-only, or a revert behind a typed confirmation; Resume with a
+> message from the session page; the login typed by hand only; the URL with a QR code as
+> planned, or both; links on waiting pushes only, or none; Enable right after the base, each
+> page then watched on the phone; the whole port proxied as first written.
 
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's
@@ -2689,6 +2921,43 @@ an opt-in live smoke test; documented AV exclusions.
 > seen only by shells started afterwards); a `crw.cmd` shim (Git Bash finds no `.cmd` by its bare
 > name, and cmd.exe changes `%`, `^` and `&` in arguments). For the icon: egui's logo kept; an
 > icon drawn in a separate file.
+
+> **Addendum (2026-11-15, EP-29).** Operations at the P4 walk.
+>
+> - **The start at login** first ran on 2026-11-15 at 12:40 (the log's start line reads "at
+>   login"), which is also how the window reached EP-28a's build: the install at that brief's
+>   close asked for a restart and was refused while the brief's own run worked. What the start
+>   looked like, hidden or a flash, the owner did not notice: carried to EP-32's walk with
+>   File > Start at login, which no one has opened.
+> - **The reconciliation** first ran 35 seconds later and closed the two rows no window heard
+>   end (a manual one of 2026-11-02, a visual one of 2026-11-10), each at its transcript's last
+>   write, with a `reconcile` event row each; `crw sessions --all` reads both completed.
+> - **The single-instance guard** answered a second start that day in two seconds, as at EP-40's
+>   live check; its two gaps (a hand-started window binding in a restart's gap, the quit before
+>   the meter's first poll held by timing) go to the v2 notes.
+> - **The icon** shows on the desktop shortcut, the Start-menu entry, the taskbar and the title
+>   bar, and **the Diagnostics pane** filled in the real window as its tab was easy to find
+>   (the owner's look and live step).
+> - **The rolling log** settled several of the walk's points by itself: the starts, the
+>   restarts, the refused restart, the reconciliation, each re-read and each tick are in its
+>   day files.
+> - **Parked** (the owner's choice): an entry turned off in Task Manager's Startup apps, which
+>   the doctor and the File menu do not read; `crw.previous-<stamp>.exe` files left in the PATH
+>   copy's folder until the next pass (none was there on 2026-11-15).
+> - **The tray's Pause while hidden** (found by reading the code for P5): the tray's orders are
+>   read in the hidden pass, but Pause only queues an action, and queued actions run in a drawn
+>   frame, so a pause from the tray took effect when the window was next shown. EP-30 runs the
+>   queue in the hidden pass, which the phone's actions need too (the owner's choice).
+> - **The launch dialog's Install and restart** (EP-39) has not come up, the chains restarting
+>   the window themselves: carried to EP-32's walk.
+> - **How the phone pages are tested** (P5; `CLAUDE.md` rule 5). As a request into the window's
+>   own server and HTML or events out, with the fixtures' names; no test and no session drives
+>   a browser or runs `tailscale`, whose Serve goes through a fake runner as `gh` does. What
+>   that leaves unseen, the script in a real browser and a request as Serve really passes it,
+>   is the owner's first Enable and EP-32's walk (risk 18).
+>
+> *Alternatives.* The Startup-apps flag read by the doctor, the leftover copies removed at any
+> `crw` command's start; the tray's Pause left queued and only the phone's actions run hidden.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

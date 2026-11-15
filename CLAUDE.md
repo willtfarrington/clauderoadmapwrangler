@@ -49,7 +49,11 @@
    at a time, and `CRW_SCREENSHOT_ROOT=<folder>` (or the setup flag `root=<folder>`) points a run at the
    copy under the same guards, so a layout is checked on real content. The copy and the pictures never
    enter git, and the brief names what was checked, never the projects (rule 3). A brief that changes
-   a list or a pane makes such a run before its close (D-10 addendum, 2026-11-11).
+   a list or a pane makes such a run before its close (D-10 addendum, 2026-11-11). The phone pages
+   (P5) are tested as requests into the window's own server and HTML or events out, with the fixtures'
+   names and `owner@example.com`; no test and no session drives a browser or runs `tailscale serve`, which
+   goes through a fake runner as `gh` does, and the owner's login, the machine's tailnet name and the
+   remote view's URL never enter a tracked file (D-29 and D-28 addenda of 2026-11-15, D-3; EP-29).
 6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
    --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
    (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M or L brief a

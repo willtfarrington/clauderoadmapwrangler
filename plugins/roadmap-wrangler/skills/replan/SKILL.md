@@ -28,9 +28,13 @@ the first round an owner task with steps a later session can rely on, rather tha
 ## 3. The walk, first
 
 Compile the **Residual risk** paragraphs that close the phase's briefs into steps: where to look,
-what to do, the expected result. Take them with the owner live, one or a few per question, each
-question standing alone (the owner sees only the dialog). Each finding becomes, at once, a new
-row, an addendum or a v2 note.
+what to do, the expected result. Settle from the records first what they can say (the commits,
+the logs and ledgers the project's tools keep, the files a brief said it would write), and say in
+the brief what settled each point. Take the rest with the owner live, only what needs their eyes,
+hands or judgement, one or a few per question, each question standing alone (the owner sees only
+the dialog) with its place, its steps and its expected result inside it. Each finding becomes, at
+once, a new row, an addendum or a v2 note; a point nothing has exercised yet is carried to the
+next walk by name, or closed as unexercised on the owner's word.
 
 ## 4. The retro
 
