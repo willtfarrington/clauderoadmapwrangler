@@ -163,3 +163,21 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   **Triaged at EP-25 (2026-11-11):** outside a history brief and about an S of window work; on
   the owner's choice a new S row, EP-25a, right after EP-25 in P4: a project's files and git
   re-read on their own when its session or its chain's run ends, and from its row's menu.
+- [ ] IN-14 (from the owner, 2026-11-15) A registry key written during a run is unreadable to the
+  window that started the run, and that window's gate reads the registry first. Seen after EP-42:
+  the session set `private_words` once its install's restart had been refused (the run still
+  worked), and when the run ended the window, on EP-41's build, logged "The autopilot could not
+  read the registry: … unknown field `private_words`" from `weigh_run`
+  (`crates/app/src/autopilot.rs`), which returns before `read_gate`. So nothing after it ran: no
+  chain-log line (the chain stopped without one), the run-ended re-read said the project was "not
+  read again: the registry does not list it", and, had the chain gone on, the restart a held chain
+  takes at the gate's moment (EP-37a) would have been lost too, the one restart that brings in the
+  build that knows the key. File > Install and restart by hand is the way out, as EP-42's
+  completion note foresaw. The held chains' re-read (`let Ok(loaded) = … else { return; }`) and
+  `start_queued` fail the same way, the first silently. Only a later build can soften this, for
+  keys added after it: when the gate's registry read fails while a newer installed build waits,
+  take the restart anyway and let the new window weigh the gate with the chain carried over; or at
+  least write the chain log's line and a notice naming File > Install and restart. A convention
+  would also do: a brief that adds a registry key leaves setting it to an owner task once the
+  window runs the new build (EP-42's recommended option). Low priority, about an S. Suggested home:
+  a brief that touches the gate or the install, else EP-32's v2 notes.
