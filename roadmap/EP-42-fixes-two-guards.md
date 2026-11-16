@@ -152,9 +152,10 @@ window's preflight, which the launch dialog reads first; the line is tested with
 help, and `crw doctor` prints it from the real CLI at this session's close. It shows the rule is
 passed, not that Claude Code honours it (risk 17 keeps that half).
 
-> **Completion note (2026-11-15; claude-opus-5-5/max; about 1 h 55 min of wall time).** A
-> chained headless run (ledger row `7bd1f110`, from 18:26), under the autopilot's standing yes
-> and M's cap; one question was put to the owner.
+> **Completion note (2026-11-15; claude-opus-5-5/max; about 2 hours of wall time).** A chained
+> headless run (ledger row `7bd1f110`, from 18:26; the work commit `05cd5e2` at 20:19, the record
+> commit at 20:21, then the install), under the autopilot's standing yes and M's cap; one
+> question was put to the owner, answered while the tests ran.
 >
 > **Built.**
 >
