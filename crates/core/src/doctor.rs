@@ -17,10 +17,16 @@ use crate::badges::{backup, online, short_age};
 use crate::inbox::mailman;
 use crate::ledger::{self, Ledger};
 use crate::process::{self, TIMEOUT, output_of};
-use crate::registry::{Registry, Store};
+use crate::prompt::{Draft, Parts, Prompt};
+use crate::registry::{self as registry_file, Project, Registry, Settings, State, Store};
+use crate::roadmap::{EpId, Size};
+use crate::session::PUSH_DENY_RULE;
+use crate::session::cli::Flags;
+use crate::session::launch::{CommandLine, command_line};
 use crate::signals::install::{self as entries, Hooked, Line as StatusLine};
 use crate::version::{MIN_CLAUDE_CODE, Version};
 use crate::{actions, autostart, install, log, notify, plugin, usage, visual};
+use crate::{autopilot, rules};
 
 /// The protocol crate's pin (D-15): `claude-codes` moves only in a re-plan; a test holds this
 /// to `Cargo.lock`.
@@ -553,6 +559,106 @@ pub fn report(probed: &Probed, places: &Places, now: DateTime<Utc>) -> Report {
         }
     }
     report
+}
+
+/// The push guard's line's name (EP-42): under Headless in `crw doctor`, beside the preflight,
+/// and after the headless route's line among the Diagnostics pane's own.
+pub const PUSH_GUARD: &str = "push guard";
+
+/// The push guard as an autopilot run passes it (D-22 addenda of EP-19b and EP-29; EP-42): the
+/// launch [`autopilot::launch`] builds for a chained start of a stand-in project whose autopilot
+/// is on, its command line built with the CLI's `flags` as the runner builds it, and the deny
+/// rules read back from the `--settings` it would pass. It fails when a later change drops the
+/// rule unsaid. It shows that the rule is passed, not that Claude Code honours it (risk 17).
+pub fn push_guard(flags: &Flags) -> (Level, String) {
+    match stand_in(flags) {
+        Ok(line) => guard_words(&line),
+        Err(why) => (
+            Level::Warn,
+            format!("an autopilot run's launch did not build with this claude: {why}"),
+        ),
+    }
+}
+
+/// The command line of the stand-in's chained start: no folder of the owner's is named, and the
+/// effort is left to the CLI, so that a level its help does not list refuses nothing here.
+fn stand_in(flags: &Flags) -> Result<CommandLine, String> {
+    let folder = env::temp_dir();
+    let mut project = Project::new(PUSH_GUARD, &folder, State::Active);
+    project.autopilot.enabled = true;
+    let registry = Registry {
+        format: registry_file::FORMAT,
+        ignore: Vec::new(),
+        settings: Settings::default(),
+        rules: Vec::new(),
+        projects: vec![project.clone()],
+    };
+    let brief = rules::Brief {
+        size: Some(Size::M),
+        phase: None,
+        title: "the doctor's stand-in",
+    };
+    let usage = rules::Usage::unread(Utc::now());
+    let mut resolution = rules::resolve(&registry, &project, &brief, &[], &usage);
+    resolution.effort.value = None;
+    resolution.ultracode.value = false;
+    let draft = Draft {
+        ep: EpId::new(1),
+        title: brief.title.to_owned(),
+        size: brief.size,
+        phase: None,
+        resolution,
+        parts: Parts::default(),
+        prompt: Prompt::default(),
+    };
+    let launch = autopilot::launch(&draft, &project, &folder, &folder, None);
+    command_line(
+        &launch,
+        flags,
+        "00000000-0000-4000-8000-000000000000",
+        std::iter::empty(),
+    )
+}
+
+/// The push guard's line from a built command line: the rule among the `--settings` deny rules,
+/// dropped and said by a claude without settings, or missing unsaid.
+fn guard_words(line: &CommandLine) -> (Level, String) {
+    let denied: Vec<String> = line
+        .args
+        .iter()
+        .position(|arg| arg.as_os_str() == "--settings")
+        .and_then(|at| line.args.get(at + 1))
+        .and_then(|value| serde_json::from_str::<serde_json::Value>(&value.to_string_lossy()).ok())
+        .and_then(|value| value["permissions"]["deny"].as_array().cloned())
+        .map(|rules| {
+            rules
+                .iter()
+                .filter_map(|rule| rule.as_str().map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default();
+    if denied.iter().any(|rule| rule == PUSH_DENY_RULE) {
+        return (
+            Level::Ok,
+            format!(
+                "an autopilot run is passed the deny rule {PUSH_DENY_RULE} in its --settings; \
+                 whether Claude Code refuses a push by it is not checked here"
+            ),
+        );
+    }
+    if let Some(dropped) = line.dropped.iter().find(|why| why.contains("git push")) {
+        return (
+            Level::Warn,
+            format!("an autopilot run carries no push deny rule: {dropped}"),
+        );
+    }
+    (
+        Level::Fail,
+        format!(
+            "an autopilot run's launch passes no {PUSH_DENY_RULE} and says nothing of it: a \
+             change dropped the push guard (D-22)"
+        ),
+    )
 }
 
 fn tools(report: &mut Report, checks: &[Check]) {
@@ -1446,6 +1552,40 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// The push guard's line (EP-42): built through the autopilot's own launch, ok with a help
+    /// that lists `--settings`, a warning that quotes the runner's words without it, and a fail
+    /// when a command line passes no rule and says nothing.
+    #[test]
+    fn the_push_guard_is_read_back_from_the_autopilots_launch() {
+        use crate::session::launch::tests::HELP;
+        let (level, text) = push_guard(&Flags::parse(HELP));
+        assert_eq!(level, Level::Ok, "{text}");
+        assert!(text.contains("Bash(git push *)") && text.contains("not checked here"));
+        let without = Flags::parse(&HELP.replace("--settings", "--other"));
+        let (level, text) = push_guard(&without);
+        assert_eq!(level, Level::Warn, "{text}");
+        assert!(text.contains("this claude has no --settings"), "{text}");
+        // A claude that lacks a flag every run needs: the launch does not build, said.
+        let bare = Flags::parse(&HELP.replace("--permission-prompts", "--other-prompts"));
+        let (level, text) = push_guard(&bare);
+        assert_eq!(level, Level::Warn, "{text}");
+        assert!(text.contains("did not build"), "{text}");
+        // A command line with neither the rule nor a word on it: a change dropped it.
+        let line = stand_in(&Flags::parse(HELP)).unwrap();
+        let dropped = CommandLine {
+            args: line
+                .args
+                .iter()
+                .filter(|arg| !arg.to_string_lossy().contains("git push"))
+                .cloned()
+                .collect(),
+            ..line
+        };
+        let (level, text) = guard_words(&dropped);
+        assert_eq!(level, Level::Fail, "{text}");
+        assert!(text.contains("dropped the push guard"), "{text}");
     }
 
     const LIST: &str = r#"[

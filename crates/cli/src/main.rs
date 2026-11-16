@@ -73,8 +73,9 @@ commands:
                                  exe they run is there; gh's login; Tailscale's state; the backup
                                  drive and its label; the registry, the ledger, the crash log and
                                  the window's rolling log; the last readings; VS Code and its lock
-                                 files; then whether claude would start a headless session. Reads
-                                 only (no usage); fails on a failure
+                                 files; then whether claude would start a headless session, and
+                                 whether an autopilot run's launch passes the git push deny rule
+                                 in its --settings. Reads only (no usage); fails on a failure
   install [--no-restart]         copy the release build of the repository crw was built in (its
                                  target\\release: the window's exe and crw.exe) into the install
                                  folder, %LOCALAPPDATA%\\clauderoadmapwrangler\\bin, each exe there
@@ -192,7 +193,10 @@ commands:
                                  ntfy_host and ntfy_topic (your ntfy server, https:// unless
                                  written http://, and its topic: each notification the popup
                                  shows is pushed there too; none takes one out), site (the
-                                 registered project that receives the site export, or none)
+                                 registered project that receives the site export, or none),
+                                 private_words (a file of words that must not reach a public
+                                 repository, one a line, which make-public reads the history
+                                 against; never printed beyond their count; or none)
   export site [--yes]            preview the site export: projects.json and projects-cards.html
                                  for the projects whose remote is public in the account's list
                                  the window cached (name, stack badge, done of total, the next
@@ -211,8 +215,10 @@ commands:
                                  remote remove origin; GitHub left alone), archive or delete (an
                                  orphan's repository on GitHub): the command, what it does, the
                                  warnings and the refusals, from the account's list the window
-                                 cached (create-private and delete ask gh auth status); runs
-                                 nothing, the window's dialog runs it
+                                 cached (create-private and delete ask gh auth status);
+                                 make-public also reads the history against private_words and
+                                 names the commits that hit; runs nothing, the window's dialog
+                                 runs it
   act backup                     preview Back up now: the backup job's script run with -Force
   autopilot                      print the autopilot's state: your Pause, the mark, the day's caps,
                                  the projects with it on, their limits and permission modes and
@@ -515,6 +521,12 @@ fn doctor() -> ExitCode {
             format!("no {}", plugin::FLAG)
         };
         println!("  headless   ready: {efforts}; {ultracode}; {budget}; {plugin_flag}");
+        // The push guard an autopilot run is passed, read back from its launch (EP-42).
+        let (level, text) = doctor::push_guard(flags);
+        println!("  {:<10} {}: {text}", doctor::PUSH_GUARD, level.word());
+        if level == Level::Fail {
+            return ExitCode::FAILURE;
+        }
     }
     if meets {
         ExitCode::SUCCESS
@@ -2114,6 +2126,28 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 println!("note: the window weighs it at the next launch dialog it opens");
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "private_words" => {
+                match registry.private_words() {
+                    // The count alone: the words are never printed (D-3).
+                    Some(full) => {
+                        println!("private_words = {value}");
+                        match crw_core::wordcheck::List::read(&full) {
+                            Ok(list) => println!(
+                                "note: it holds {}; Make public's dialog reads a project's \
+                                 history against them before its confirmation",
+                                crw_core::wordcheck::plural(list.len(), "word")
+                            ),
+                            Err(why) => println!("note: {why}"),
+                        }
+                        println!(
+                            "note: a window older than EP-42's build refuses a registry that holds \
+                             this key until it restarts into the installed build"
+                        );
+                    }
+                    None => println!("private_words: none, Make public reads no history"),
+                }
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
@@ -2150,6 +2184,9 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 "none (the default: nothing is pushed to a phone)".to_owned()
             }
             (None, "site") => "none (the default: no site export)".to_owned(),
+            (None, "private_words") => {
+                "none (the default: Make public reads no history)".to_owned()
+            }
             (None, "fable_downshift_percent") => format!(
                 "{} (the default: above it an S brief on Fable is proposed Opus 5.5)",
                 rules::DEFAULT_DOWNSHIFT_PERCENT
@@ -2216,12 +2253,18 @@ fn act_preview(project: Option<&str>, verb: &str) -> ExitCode {
             None => println!("  github    no list cached: the window's GitHub pass keeps one (F5)"),
         }
     }
+    // Make public's word list (EP-42): read here, its words never printed.
+    let words = match verb {
+        Verb::MakePublic => crw_core::wordcheck::List::named(registry.private_words()),
+        _ => None,
+    };
     let facts = Facts {
         verb,
         target,
         account: account.map(|(list, _)| list),
         refusals: Vec::new(),
         backup: registry.backup_files().0,
+        words,
     };
     let plan = actions::plan(&facts, &actions::Real);
     println!("  question  {}", verb.question(&plan.target));
@@ -2233,6 +2276,20 @@ fn act_preview(project: Option<&str>, verb: &str) -> ExitCode {
     }
     for warning in &plan.warnings {
         println!("  warning   {warning}");
+    }
+    if let Some(check) = &plan.check {
+        println!("  history   {}", check.summary());
+        if let actions::Check::Read(scan) = check {
+            for hit in &scan.hits {
+                println!("  hit       {}", hit.words());
+            }
+        }
+        if check.asks_tick() {
+            println!(
+                "  asks      a second tick in the window's dialog before it runs: look at the \
+                 commits named first"
+            );
+        }
     }
     for problem in &plan.problems {
         println!("  refused   {problem}");

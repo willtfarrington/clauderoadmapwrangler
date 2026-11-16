@@ -321,6 +321,9 @@ pub enum Action {
     },
     /// The dialog's action button: the plan read again, and run if it is the one shown.
     ConfirmAct,
+    /// Make public's second tick, given or taken back (EP-42): asked when the scan of the
+    /// history found a listed word or could not read it.
+    TickActAnyway(bool),
     /// The dialog put away, or its result read.
     CloseAct,
     /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key. Turned
@@ -1544,6 +1547,11 @@ impl Board {
             }
             Action::OpenAct { project, verb } => self.open_act(project, verb),
             Action::ConfirmAct => self.confirm_act(),
+            Action::TickActAnyway(ticked) => {
+                if let Some(dialog) = &mut self.act {
+                    dialog.tick(ticked);
+                }
+            }
             Action::CloseAct => self.close_act(),
             Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
             Action::AutopilotOn { project, auto } => return self.autopilot_on(&project, auto),

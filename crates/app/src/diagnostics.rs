@@ -266,6 +266,7 @@ impl Board {
             ),
         });
         lines.push(self.headless_line());
+        lines.push(self.push_guard_line());
         // A screenshot run names a neutral path: a picture never shows the machine's (rule 3).
         let beside = if self.fixtures {
             Some(PathBuf::from(r"C:\Tools\Roadmap Wrangler\crw.exe"))
@@ -300,6 +301,29 @@ impl Board {
             ),
         });
         lines
+    }
+
+    /// The push guard an autopilot run is passed (D-22; EP-42), read back from the launch the
+    /// autopilot builds with the window's own preflight's flags; `crw doctor` prints the same.
+    fn push_guard_line(&self) -> WindowLine {
+        let Some(preflight) = self.sessions.preflight_ready() else {
+            return (
+                Level::Note,
+                doctor::PUSH_GUARD,
+                "not read yet in this window: the launch dialog reads the CLI's flags".to_owned(),
+            );
+        };
+        match &preflight.flags {
+            Ok(flags) => {
+                let (level, text) = doctor::push_guard(flags);
+                (level, doctor::PUSH_GUARD, text)
+            }
+            Err(e) => (
+                Level::Warn,
+                doctor::PUSH_GUARD,
+                format!("the CLI's flags did not read: {e}"),
+            ),
+        }
     }
 
     /// The headless runs' readiness and route, from the window's own preflight.
@@ -574,9 +598,18 @@ mod tests {
                 "usage meter",
                 "mailman",
                 "headless",
+                "push guard",
                 "defer route",
                 "log"
             ]
         );
+        // Before the window has read the CLI's flags, the push guard's line says so (EP-42).
+        let lines = board.window_lines(Utc::now());
+        let guard = lines
+            .iter()
+            .find(|(_, name, _)| *name == doctor::PUSH_GUARD)
+            .unwrap();
+        assert_eq!(guard.0, Level::Note);
+        assert!(guard.2.contains("not read yet"), "{}", guard.2);
     }
 }

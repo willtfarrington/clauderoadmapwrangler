@@ -100,7 +100,12 @@ the command, reads the plan again at the press and runs it only if it is the pla
 while a session works or waits in the project, never for a project marked a data repository
 where it would put it on GitHub or make it public; each run is an `event` row of the ledger, a
 failure is shown in the tool's own words and never retried, and the project's readings are asked
-again after it. `crw act <project> <action>` and `crw act backup` preview the same plans and run
+again after it. Before Make public's confirmation (EP-42) the dialog reads the project's whole
+history once with `git log`: every commit's message and added lines, file paths included, against
+a list of words that must not be published, one fixed string a line, named by `crw setting
+private_words <file>`. It lists the commits that hit by short hash and subject, never a word or
+a line, and asks for a second tick before it goes on when any did; without a list it says so.
+`crw act <project> <action>` and `crw act backup` preview the same plans and run
 nothing. The Diagnostics pane and `crw doctor` (EP-28) give the same checks: the tools' versions
 against Claude Code's minimum, the extension's beside the standalone CLI's and the protocol
 crate's pin; this exe, the installed copy and the plugin's; each hook and the status line, which
@@ -286,7 +291,9 @@ box of a project whose runs would wait offers `auto` first, with what it means; 
 dialog's pin beside Permissions keeps a mode for the project or takes it back, and `crw set
 <project> permission_mode <mode|default>` does the same from a shell. Since `auto` lets a plain
 push to the project's own remote through, every headless run of a project whose autopilot is on
-also gets a deny rule that refuses `git push` as written. If the gate passes, the next brief starts headless as the owner's
+also gets a deny rule that refuses `git push` as written; `crw doctor` and the Diagnostics pane
+build the launch a chained run gets and say whether its settings still pass that rule (EP-42).
+If the gate passes, the next brief starts headless as the owner's
 chain plan says: the launch dialog of a project whose autopilot is on lists the briefs a chain
 may run after the one being started, each with a Chain box and the same Model and Effort
 pickers, the rules' resolution the default, so the chain runs a brief as the owner set it, the

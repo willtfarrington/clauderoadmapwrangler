@@ -75,6 +75,17 @@ instead of a central registry; everything under `%LOCALAPPDATA%` including plann
 > name a neutral data root. *Alternatives.* Publishing as written; rewriting the history before the
 > flip; a pre-commit hook script (v2 notes).
 
+> **Addendum (2026-11-15, EP-42).** A second guard beside rule 3's check. Before Make public the
+> window reads a project's whole history against the owner's word list (`settings.private_words`;
+> D-24 addendum of this date). The list's words, the lines that hold them and the list's contents
+> are shown only as counts. They are never logged, never written to the ledger and never passed
+> to a child: git prints the history and the tool reads it in its own process. A commit that hits
+> is named by its short hash and its subject, and a subject that holds a word is masked. Rule 3's
+> check of each commit stays this repository's own, and this project's list stays in `private/`.
+> *Alternatives.* The words shown beside the commits (the dialog would display what the list
+> exists to keep out of sight); the words passed to `git log -G` (a command line other processes
+> can read).
+
 **D-4 Cadence, horizon and sizes.** Two to three sessions a week, six to nine hours. Sizes S ≈ 30 min,
 M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger is split at pickup; L is
 reserved for six engines (the tile shell, the session runner, the decisions tile, the autopilot, the chat
@@ -1728,6 +1739,20 @@ committing and recording hashes; one model and effort per project; usage thresho
 > Autopilot section's header and the tray still say what the setting holds. *Alternatives.* The
 > mark kept in the ledger for `crw autopilot` to read; the chain's state read back from the log.
 
+> **Addendum (2026-11-15, EP-42).** The push guard's line as built. `crw_core::doctor::push_guard`
+> builds the launch `autopilot::launch` gives a chained start of a stand-in project whose
+> autopilot is on, its effort left to the CLI. It builds that launch's command line with the
+> CLI's flags as the runner does, and reads the deny rules back from the `--settings` it would
+> pass. The line is ok when `Bash(git push *)` is among them; a warning when the CLI has no
+> `--settings` (the runner's own words) or the line does not build; a failure when no rule is
+> passed and nothing says why, which a later change dropping it would cause. `crw doctor` prints
+> it under Headless beside the preflight, and its failure fails the command; the Diagnostics pane
+> shows it after the headless route's line, from the window's own preflight. It shows the rule is
+> passed, not that Claude Code honours it (risk 17 keeps that half). It builds the chained
+> start's launch, not the dialog's start of an autopilot project, which sets the guard in the
+> window. *Alternatives.* A line in the Readings group without the CLI's flags (ok for a CLI
+> that drops the rule); a supervised probe of a push.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -1987,6 +2012,34 @@ archive mechanism; editing `index.html`.
 > or logging the words, and ask for a second tick to go on when any did; without a list it
 > says so and goes on as today. *Alternatives.* The dialog's words alone; the scan as a
 > command's preview that the dialog points at.
+
+> **Addendum (2026-11-15, EP-42).** The scan before Make public as built (`crw_core::wordcheck`,
+> `actions::Check`).
+>
+> - **The list.** The registry's `private_words` names it: a path under the data root or a full
+>   one, set by `crw setting private_words <file|none>`. It holds one fixed string a line,
+>   matched with case ignored as rule 3's `grep -iFf` does; a byte-order mark and a line
+>   ending's `\r` are dropped, and blank lines are skipped. A UTF-16 file is read by its mark,
+>   and one with NUL bytes and no mark is refused as unread. A build before EP-42 refuses a
+>   registry that holds the key (`deny_unknown_fields`).
+> - **The pass.** Make public's plan, when nothing else refuses it, runs one `git log --branches
+>   --tags --remotes --root -p -U0 --cc --no-renames` in its turn through the actions' runner,
+>   given two minutes (this repository's 141 commits take two seconds). It reads each commit's
+>   raw message and the lines of its diff that rule 3's `grep '^+'` takes, the `+++ b/<path>`
+>   line included. Each file's `diff --git` header counts too, so a binary or empty file's path
+>   is read, and a merge's dense combined diff is counted by its columns. A failure is worded
+>   from git's errors alone, a line holding a word left out. The press reads the plan again,
+>   the pass with it, so a commit made since the preview changes the plan, which then runs
+>   nothing.
+> - **The dialog.** It names each commit that hit by short hash and subject, with its count of
+>   lines. When any hit, or the history did not read, it asks for a second tick ("Make it public
+>   anyway: I have looked at these commits") before its button works, and a plan shown afresh
+>   clears the tick. Without a list, or with one that does not read, it says the history is not
+>   checked and goes on as before. `crw act <project> make-public` prints the same.
+>
+> *Alternatives.* The added lines alone, as rule 3's check reads (a private name in a message
+> would pass); renames followed (a renamed file's new path would pass unread); the stash and the
+> notes read too (never pushed); a scan before Create a private remote.
 
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a

@@ -622,13 +622,14 @@ fn within(inner: &Path, outer: &Path) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use std::fs;
 
     use super::*;
     use crate::files::tests::Scratch;
 
-    const HELP: &str = "Options:
+    /// A recorded help's flags, shared with the doctor's push guard tests (EP-42).
+    pub(crate) const HELP: &str = "Options:
   --add-dir <directories...>  Additional directories
   --effort <level>  Effort level (low, medium, high, xhigh, max)
   --include-partial-messages  Partial chunks

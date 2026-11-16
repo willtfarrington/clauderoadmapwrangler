@@ -59,7 +59,9 @@
 //!   plan from the canned readings with a canned `gh` whose token lacks `delete_repo`:
 //!   `lantern:make-public`, `harbor:make-private`, `quarry:create-private`, `compass:delete`,
 //!   `compass:archive`, `harbor:remove-remote`); `act=backup` (Back up now with a neutral script);
-//!   each action button refused, as every write is (EP-34);
+//!   each action button refused, as every write is (EP-34); Make public's history is the canned
+//!   runner's synthetic log read against a synthetic list, two commits hitting, so its second
+//!   tick is asked (EP-42);
 //! - `sessions` (canned sessions that Claude Code reports: lantern's visual one waiting on a
 //!   permission prompt, orchard's manual one busy with its status line's figures though every
 //!   row of orchard's is checked, beacon's tab open with no prompt yet, one outside the registry,

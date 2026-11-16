@@ -10,6 +10,11 @@
 //! the plan shown. A run is logged in the ledger, then the project is read again with its GitHub
 //! reading asked afresh, or the backup job is read again. A screenshot run's runner and a test's
 //! are canned: nothing real runs (rule 5).
+//!
+//! Make public's preview also holds the word check of the project's history (EP-42): the commits
+//! that hold a word of the owner's list, by short hash and subject, never a word or a line. When
+//! any hit, or the history did not read, a second tick is needed before its button works; a plan
+//! shown afresh clears it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -17,7 +22,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 use std::time::Duration;
 
-use crw_core::actions::{self, Command, End, Exit, Facts, Plan, Ran, Runner, Target, Verb};
+use crw_core::actions::{self, Check, Command, End, Exit, Facts, Plan, Ran, Runner, Target, Verb};
+use crw_core::wordcheck;
 use eframe::egui::{self, RichText};
 
 use crate::board::{Action, Board};
@@ -30,6 +36,10 @@ const POLL: Duration = Duration::from_millis(250);
 /// The dialog's widest, in points, and the share of the window's height its body may take.
 const WIDTH: f32 = 720.0;
 const BODY_SHARE: f32 = 0.55;
+
+/// How many of the commits that hit Make public's check the dialog lists (EP-42's review): a
+/// common word would otherwise lay out thousands of lines in every frame.
+const HITS_SHOWN: usize = 100;
 
 /// What the window refuses while the dialog's action runs: a quit (EP-34).
 pub const ACTING: &str = "An action on GitHub or the backup job is running: quit once it has \
@@ -54,8 +64,9 @@ pub fn hint(verb: Verb) -> &'static str {
              commits: the command, then Create and push or Cancel"
         }
         Verb::MakePublic => {
-            "Preview making the GitHub repository public, with gh's warning and what a push to a \
-             public remote means: the command, then Make public or Cancel"
+            "Preview making the GitHub repository public, with gh's warning, what a push to a \
+             public remote means and its history read against your word list: the command, then \
+             Make public or Cancel"
         }
         Verb::MakePrivate => {
             "Preview making the GitHub repository private, with gh's warning: the command, then \
@@ -95,8 +106,24 @@ fn grave(verb: Verb) -> bool {
     matches!(verb, Verb::MakePublic | Verb::Delete)
 }
 
+/// A screenshot run's word list for Make public's check (EP-42), synthetic as the fixtures are.
+const CANNED_WORDS: &str = "moonstone\n";
+
+/// The history the canned runner's `git log` prints for a screenshot run (EP-42): four commits,
+/// one holding the canned word in a file's path, one in its subject.
+const CANNED_LOG: &str = "\0d4c3b2a\u{1f}Moonstone notes for the release\u{1f}Moonstone notes \
+for the release\n\u{1e}\ndiff --git a/notes.md b/notes.md\n--- a/notes.md\n+++ b/notes.md\n\
+@@ -1,0 +2 @@\n+plain words\n\0c3b2a19\u{1f}Tidy the parser\u{1f}Tidy the parser\n\u{1e}\n\
+diff --git a/src/parser.rs b/src/parser.rs\n--- a/src/parser.rs\n+++ b/src/parser.rs\n\
+@@ -3 +3 @@\n-old\n+new\n\0b2a1908\u{1f}Add the release checklist\u{1f}Add the release \
+checklist\n\u{1e}\ndiff --git a/moonstone/checklist.md b/moonstone/checklist.md\nnew file mode \
+100644\n--- /dev/null\n+++ b/moonstone/checklist.md\n@@ -0,0 +1,2 @@\n+# Checklist\n+one\n\
+\0a190817\u{1f}Start\u{1f}Start\n\u{1e}\ndiff --git a/README.md b/README.md\nnew file mode \
+100644\n--- /dev/null\n+++ b/README.md\n@@ -0,0 +1 @@\n+# A project\n";
+
 /// The runner of a screenshot run and of a test given none: `gh auth status` answers with a fake
-/// account whose token has `scopes`, and every other command is refused, so nothing runs.
+/// account whose token has `scopes`, `git log` with a synthetic history (EP-42), and every other
+/// command is refused, so nothing runs.
 pub struct Canned {
     pub scopes: String,
 }
@@ -118,6 +145,13 @@ impl Runner for Canned {
                     r#"{{"hosts":{{"github.com":[{{"state":"success","active":true,"host":"github.com","login":"example","scopes":"{}"}}]}}}}"#,
                     self.scopes
                 ),
+                stderr: String::new(),
+            });
+        }
+        if command.args.iter().any(|arg| arg == "log") {
+            return Ok(Exit {
+                code: Some(0),
+                stdout: CANNED_LOG.to_owned(),
                 stderr: String::new(),
             });
         }
@@ -208,6 +242,9 @@ pub struct Dialog {
     pub project: Option<String>,
     pub stage: Stage,
     receiver: Option<Receiver<Answer>>,
+    /// Make public's second tick (EP-42): given by the owner, cleared whenever a plan is shown
+    /// afresh.
+    anyway: bool,
 }
 
 /// Runs `work` on a thread named `name`, waking the window when it answers.
@@ -245,6 +282,7 @@ impl Dialog {
             project,
             stage,
             receiver,
+            anyway: false,
         }
     }
 
@@ -258,6 +296,15 @@ impl Dialog {
                 changed: false,
             },
             receiver: None,
+            anyway: false,
+        }
+    }
+
+    /// Make public's second tick, given or taken back (EP-42); only a plan shown that asks for
+    /// it takes it.
+    pub fn tick(&mut self, ticked: bool) {
+        if matches!(&self.stage, Stage::Ready { plan, .. } if plan.asks_tick()) {
+            self.anyway = ticked;
         }
     }
 
@@ -280,10 +327,15 @@ impl Dialog {
         self.receiver.take().map(Detached)
     }
 
-    /// The plan shown, when the owner may run it.
+    /// The plan shown, when the owner may run it: not refused, and ticked a second time when its
+    /// word check asks for it (EP-42).
     pub fn confirmable(&self) -> Option<&Plan> {
         match &self.stage {
-            Stage::Ready { plan, .. } if !plan.is_refused() => Some(plan),
+            Stage::Ready { plan, .. }
+                if !plan.is_refused() && (self.anyway || !plan.asks_tick()) =>
+            {
+                Some(plan)
+            }
             _ => None,
         }
     }
@@ -332,6 +384,7 @@ impl Dialog {
         self.receiver = None;
         match answer {
             Answer::Planned(plan) => {
+                self.anyway = false;
                 self.stage = Stage::Ready {
                     plan,
                     changed: false,
@@ -339,6 +392,8 @@ impl Dialog {
                 None
             }
             Answer::Changed(plan) => {
+                // A plan shown afresh is looked at afresh (EP-42).
+                self.anyway = false;
                 self.stage = Stage::Ready {
                     plan,
                     changed: true,
@@ -411,21 +466,40 @@ impl Dialog {
                 if plan.is_refused() {
                     close(ui, &mut chosen);
                 } else {
+                    // Make public's second tick, when its word check asks for one (EP-42).
+                    if plan.asks_tick() {
+                        let words = match &plan.check {
+                            Some(Check::Failed(_)) => {
+                                "Make it public unchecked: I have looked at its history myself"
+                            }
+                            _ => "Make it public anyway: I have looked at these commits",
+                        };
+                        let mut ticked = self.anyway;
+                        if ui.checkbox(&mut ticked, words).changed() {
+                            chosen = Some(Action::TickActAnyway(ticked));
+                        }
+                        ui.add_space(4.0);
+                    }
+                    let ready = self.anyway || !plan.asks_tick();
                     buttons(ui, |ui| {
                         if ui.button("Cancel").clicked() {
                             chosen = Some(Action::CloseAct);
                         }
                         let label = RichText::new(button(plan.verb));
-                        let label = if grave(plan.verb) {
+                        let label = if grave(plan.verb) && ready {
                             label.color(style::red(ui))
                         } else {
                             label
                         };
                         if ui
-                            .button(label)
+                            .add_enabled(ready, egui::Button::new(label))
                             .on_hover_text(
                                 "The plan is read again first: the command runs only if the \
                                  project is as this preview shows it",
+                            )
+                            .on_disabled_hover_text(
+                                "Read what the history check says above, then tick the box to \
+                                 go on",
                             )
                             .clicked()
                         {
@@ -491,6 +565,10 @@ fn preview(ui: &mut egui::Ui, plan: &Plan, height: f32) {
             for words in &plan.words {
                 ui.add(egui::Label::new(words.as_str()).wrap());
             }
+            if let Some(check) = &plan.check {
+                ui.add_space(4.0);
+                check_lines(ui, check);
+            }
             for warning in &plan.warnings {
                 ui.add_space(2.0);
                 ui.add(
@@ -508,6 +586,51 @@ fn preview(ui: &mut egui::Ui, plan: &Plan, height: f32) {
                 );
             }
         });
+}
+
+/// Make public's word check (EP-42): the history's summary, in amber when nothing was checked or
+/// something asks to be looked at, then each commit that hit by short hash and subject. A word or
+/// a line that holds one is never shown (D-3).
+fn check_lines(ui: &mut egui::Ui, check: &Check) {
+    let colour = match check {
+        Check::Read(scan) if scan.hits.is_empty() => ui.visuals().text_color(),
+        _ => style::amber(ui),
+    };
+    ui.add(egui::Label::new(RichText::new(check.summary()).color(colour)).wrap())
+        .on_hover_text(
+            "One read of the history with git log, which writes nothing: every commit's message \
+             and added lines against the word list that crw setting private_words names. The \
+             words and the lines that hold them are never shown, logged or kept.",
+        );
+    if let Check::Read(scan) = check
+        && !scan.hits.is_empty()
+    {
+        egui::Frame::group(ui.style()).show(ui, |ui| {
+            ui.set_width(ui.available_width());
+            for hit in scan.hits.iter().take(HITS_SHOWN) {
+                ui.add(egui::Label::new(RichText::new(hit.words()).monospace()).wrap());
+            }
+            if scan.hits.len() > HITS_SHOWN {
+                ui.label(
+                    RichText::new(format!(
+                        "and {} more: crw act <project> make-public lists them all",
+                        scan.hits.len() - HITS_SHOWN
+                    ))
+                    .weak(),
+                );
+            }
+        });
+        ui.add(
+            egui::Label::new(
+                RichText::new(
+                    "The words and the lines that hold them are not shown here: git show <hash> \
+                     in a terminal shows each commit.",
+                )
+                .weak(),
+            )
+            .wrap(),
+        );
+    }
 }
 
 /// What a run did: how it ended, what it printed, and whether the ledger took its line.
@@ -567,15 +690,21 @@ impl Board {
             .as_ref()
             .and_then(|fetched| fetched.value.as_ref().ok())
             .cloned();
+        let registry = || {
+            self.store()
+                .load()
+                .map(|loaded| loaded.registry)
+                .map_err(|e| format!("the registry could not be read: {e}"))
+        };
         let backup = match verb {
-            Verb::BackUpNow => {
-                self.store()
-                    .load()
-                    .map_err(|e| format!("the registry could not be read: {e}"))?
-                    .registry
-                    .backup_files()
-                    .0
-            }
+            Verb::BackUpNow => registry()?.backup_files().0,
+            _ => None,
+        };
+        // Make public's word list (EP-42), read again for each plan; a screenshot run's is
+        // synthetic, as its runner's history is.
+        let words = match verb {
+            Verb::MakePublic if self.fixtures => Some(Ok(wordcheck::List::parse(CANNED_WORDS))),
+            Verb::MakePublic => wordcheck::List::named(registry()?.private_words()),
             _ => None,
         };
         let (target, refusals) = match project {
@@ -630,6 +759,7 @@ impl Board {
                 account,
                 refusals,
                 backup,
+                words,
             },
             runner: self.act_runner(),
             ledger: self.ledger().map(Path::to_owned),
@@ -841,10 +971,96 @@ mod tests {
                 account: Some(account),
                 refusals: Vec::new(),
                 backup: None,
+                words: None,
             },
             runner,
             ledger: Some(scratch.0.join("ledger.sqlite")),
         }
+    }
+
+    /// Make public's second tick (EP-42): the commits that hit listed, the button refused until
+    /// the tick, which a plan shown afresh clears; the history read with the canned runner and a
+    /// synthetic list, so nothing real runs.
+    #[test]
+    fn make_public_asks_a_second_tick_when_the_history_hits() {
+        let scratch = Scratch::new("act-tick");
+        let mut listed = asked(&scratch, Verb::MakePublic, Arc::new(Canned::default()));
+        listed.facts.words = Some(Ok(wordcheck::List::parse(CANNED_WORDS)));
+        let ctx = egui::Context::default();
+        let mut dialog = Dialog::open(listed.clone(), &ctx);
+        wait(&mut dialog);
+        let Stage::Ready { plan, .. } = &dialog.stage else {
+            panic!("{:?}", dialog.stage);
+        };
+        assert!(plan.asks_tick(), "{:?}", plan.check);
+        assert!(dialog.confirmable().is_none(), "not before the tick");
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            dialog.ui(ui, 700.0, 900.0);
+        });
+        assert!(shows(
+            &output,
+            "The history: 4 commits read against a list of 1 word: 2 hit."
+        ));
+        assert!(shows(
+            &output,
+            "b2a1908 Add the release checklist (2 lines)"
+        ));
+        assert!(shows(
+            &output,
+            "d4c3b2a (its subject holds a listed word) (1 line)"
+        ));
+        assert!(
+            !output.shapes.iter().any(|clipped| matches!(
+                &clipped.shape,
+                egui::Shape::Text(text) if text.galley.text().to_lowercase().contains("moonstone")
+            )),
+            "no word is shown"
+        );
+        assert_eq!(press(&dialog, "Make public"), None, "the button waits");
+        assert_eq!(
+            press(
+                &dialog,
+                "Make it public anyway: I have looked at these commits"
+            ),
+            Some(Action::TickActAnyway(true))
+        );
+        dialog.tick(true);
+        assert!(dialog.confirmable().is_some());
+        assert_eq!(press(&dialog, "Make public"), Some(Action::ConfirmAct));
+        // The press reads the plan again, the history with it: unchanged, the command runs (the
+        // canned runner refuses it, so it fails in its words), which shows the pass is stable.
+        dialog.confirm(listed.clone(), &ctx);
+        let Some(Outcome::Ran(ran)) = wait(&mut dialog) else {
+            panic!("ran: {:?}", dialog.stage);
+        };
+        assert!(matches!(&ran.end, End::Failed(why) if why.contains("runs nothing")));
+        // A history changed since the preview shows afresh, unticked, and runs nothing.
+        let mut dialog = Dialog::open(listed.clone(), &ctx);
+        wait(&mut dialog);
+        dialog.tick(true);
+        let mut changed = listed.clone();
+        changed.facts.words = Some(Ok(wordcheck::List::parse("moonstone\nchecklist\n")));
+        dialog.confirm(changed, &ctx);
+        assert!(matches!(wait(&mut dialog), Some(Outcome::Changed)));
+        assert!(dialog.confirmable().is_none(), "the tick is cleared");
+        // Without a list, the dialog says so and asks for no tick.
+        let mut plain = Dialog::open(
+            asked(&scratch, Verb::MakePublic, Arc::new(Canned::default())),
+            &ctx,
+        );
+        wait(&mut plain);
+        assert!(plain.confirmable().is_some());
+        let output = screen.pass(Vec::new(), |ui| {
+            plain.ui(ui, 700.0, 900.0);
+        });
+        assert!(
+            output.shapes.iter().any(|clipped| matches!(
+                &clipped.shape,
+                egui::Shape::Text(text) if text.galley.text().starts_with("No word list is named")
+            )),
+            "said"
+        );
     }
 
     /// Presses the button that reads `label` in the dialog; what it chose.
@@ -1067,6 +1283,7 @@ mod tests {
                 account: None,
                 refusals: Vec::new(),
                 backup: Some(settings),
+                words: None,
             },
             runner: runner.clone(),
             ledger: Some(scratch.0.join("ledger.sqlite")),
@@ -1124,11 +1341,15 @@ mod tests {
         let lantern = board.portfolio.project("lantern").unwrap();
         assert_eq!(offered(lantern), [Verb::MakePublic, Verb::RemoveRemote]);
         board.open_act(Some("lantern".to_owned()), Verb::MakePublic);
+        // The canned history hits the canned list (EP-42): the tick comes first.
+        assert!(board.act.as_ref().unwrap().confirmable().is_none());
+        board.run(Action::TickActAnyway(true));
         let dialog = board.act.as_ref().expect("the dialog");
         let plan = dialog
             .confirmable()
             .expect("lantern is private and listed")
             .clone();
+        assert!(matches!(&plan.check, Some(Check::Read(scan)) if scan.hits.len() == 2));
         assert_eq!(
             plan.command.as_ref().unwrap().args[..3],
             ["repo", "edit", "example/lantern"]

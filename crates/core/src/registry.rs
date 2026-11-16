@@ -214,11 +214,15 @@ pub struct Settings {
     /// The registered project that receives the site export, `projects.json` and the cards'
     /// snippet in its `assets/data` (D-24; EP-27); none, the default, until the owner names it.
     pub site: Option<String>,
+    /// The owner's list of words that must not reach a public repository, one fixed string a
+    /// line, which Make public's scan of the history reads (D-24, D-3; EP-42); relative to the
+    /// data root or a full path. None, the default, leaves the history unchecked, said so.
+    pub private_words: Option<PathBuf>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 18] = [
+    pub const KEYS: [&str; 19] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -237,6 +241,7 @@ impl Settings {
         "ntfy_host",
         "ntfy_topic",
         "site",
+        "private_words",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
@@ -332,6 +337,7 @@ impl Settings {
             "ntfy_host" => self.ntfy_host.clone(),
             "ntfy_topic" => self.ntfy_topic.clone(),
             "site" => self.site.clone(),
+            "private_words" => path(&self.private_words),
             _ => None,
         }
     }
@@ -525,6 +531,12 @@ impl Registry {
             full(&self.settings.backup_settings),
             full(&self.settings.backup_log),
         )
+    }
+
+    /// The word list Make public's scan reads, as a full path, when one is set (D-24; EP-42).
+    pub fn private_words(&self) -> Option<PathBuf> {
+        let file = self.settings.private_words.as_ref()?;
+        Some(self.data_root().join(file))
     }
 
     /// The project called `name`, in any case.
@@ -1257,10 +1269,10 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours`, `ntfy_host` and `ntfy_topic` set to `none`, `usage_endpoint` set to `on`,
-    /// `autopilot_paused` set to `off` and the percents and the day's total set to `default`
-    /// (the defaults, which the builds before EP-17, EP-18, EP-19 and EP-20a would refuse to
-    /// read) are taken out.
+    /// `quiet_hours`, `ntfy_host`, `ntfy_topic`, `site` and `private_words` set to `none`,
+    /// `usage_endpoint` set to `on`, `autopilot_paused` set to `off` and the percents and the
+    /// day's total set to `default` (the defaults, which the builds before EP-17, EP-18, EP-19,
+    /// EP-20a, EP-27 and EP-42 would refuse to read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -1269,7 +1281,7 @@ impl Changes<'_> {
             )));
         }
         let default = match key {
-            "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" => {
+            "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" | "private_words" => {
                 value.trim().eq_ignore_ascii_case("none")
             }
             "usage_endpoint" => match value.trim() {
@@ -1989,6 +2001,27 @@ state = "paused"
             registry.settings.get("backup_log").as_deref(),
             Some(r"D:\logs\backup.jsonl")
         );
+        // Make public's word list (EP-42): a path under the data root, and none takes it out.
+        assert!(Settings::is_path("private_words"));
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("private_words", r"beta\private\words.txt")
+            })
+            .unwrap();
+        assert_eq!(
+            registry.private_words(),
+            Some(PathBuf::from(r"C:\Data\beta\private\words.txt"))
+        );
+        assert_eq!(
+            registry.settings.get("private_words").as_deref(),
+            Some(r"beta\private\words.txt")
+        );
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("private_words", "none"))
+            .unwrap();
+        assert_eq!(registry.private_words(), None);
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(!text.contains("private_words"), "{text}");
         assert!(
             store
                 .change(TODAY, |c| c.set_setting("colour", "red"))

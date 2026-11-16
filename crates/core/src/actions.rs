@@ -6,7 +6,10 @@
 //! reads it again at the owner's word and runs it only when it is the plan shown; [`run`] runs it
 //! through a [`Runner`], each child in its turn (D-29), and [`log`] keeps an `event` row of kind
 //! [`HOSTING`] or [`BACKUP`] with the command and its outcome. A failure is shown, never retried.
-//! Tests run a fake runner: never `gh`, `git`, PowerShell or the job (D-29).
+//! Make public's plan also holds the word check of the project's history ([`Check`], EP-42): one
+//! read-only pass through the same runner against the owner's list, whose words are never shown,
+//! logged or kept ([`crate::wordcheck`]). Tests run a fake runner: never `gh`, PowerShell or the
+//! job, and git only over a scratch repository (D-29).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -15,7 +18,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::badges::backup;
 use crate::badges::hosting::{self, Hosting, Listed, Visibility};
-use crate::{git, process};
+use crate::{git, process, wordcheck};
 
 /// The `event` rows of the six actions on GitHub and the origin.
 pub const HOSTING: &str = "hosting";
@@ -220,6 +223,42 @@ pub struct Facts {
     pub refusals: Vec<String>,
     /// The registry's `backup_settings`, in full; `None` when it sets none.
     pub backup: Option<PathBuf>,
+    /// Make public's word list, read from the file the registry's `private_words` names: `None`
+    /// when it names none, an error when the file did not read (EP-42). Its `Debug` shows the
+    /// count of its words alone.
+    pub words: Option<Result<wordcheck::List, String>>,
+}
+
+/// What Make public's word check of the history found (D-24, D-3; EP-42).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Check {
+    /// No list to read it against (none named, its file unread, or no word in it), in words:
+    /// the dialog says so and goes on as before.
+    NoList(String),
+    /// The history did not read, in git's words: the dialog asks for the second tick.
+    Failed(String),
+    /// The history read: its commits and those that hit.
+    Read(wordcheck::Scan),
+}
+
+impl Check {
+    /// Whether the owner must tick a second time before the action runs: a commit hit, or the
+    /// history did not read.
+    pub fn asks_tick(&self) -> bool {
+        match self {
+            Check::NoList(_) => false,
+            Check::Failed(_) => true,
+            Check::Read(scan) => !scan.hits.is_empty(),
+        }
+    }
+
+    /// The check in one line, for the dialog and `crw act`.
+    pub fn summary(&self) -> String {
+        match self {
+            Check::NoList(why) | Check::Failed(why) => why.clone(),
+            Check::Read(scan) => format!("The history: {}.", scan.summary()),
+        }
+    }
 }
 
 /// A command an action runs.
@@ -308,11 +347,18 @@ pub struct Plan {
     pub warnings: Vec<String>,
     /// What refuses it; the owner can only close the dialog then.
     pub problems: Vec<String>,
+    /// Make public's word check of the history, read when nothing else refuses the plan (EP-42).
+    pub check: Option<Check>,
 }
 
 impl Plan {
     pub fn is_refused(&self) -> bool {
         !self.problems.is_empty() || self.command.is_none()
+    }
+
+    /// Whether the dialog asks for a second tick before it runs the plan (EP-42).
+    pub fn asks_tick(&self) -> bool {
+        self.check.as_ref().is_some_and(Check::asks_tick)
     }
 
     fn new(verb: Verb, project: Option<&str>, target: impl Into<String>) -> Self {
@@ -324,6 +370,7 @@ impl Plan {
             words: Vec::new(),
             warnings: Vec::new(),
             problems: Vec::new(),
+            check: None,
         }
     }
 }
@@ -482,7 +529,9 @@ fn pwsh() -> PathBuf {
 }
 
 /// The plan of `facts`' action: the origin read again from `.git/config`, the hosting from it
-/// and the cached list, and, for Create and Delete, `gh`'s account asked through `runner`.
+/// and the cached list, and, for Create and Delete, `gh`'s account asked through `runner`. Make
+/// public's plan that nothing refuses also reads the history against the word list through
+/// `runner` (EP-42), so a refused plan, a data repository's among them, never reads it.
 pub fn plan(facts: &Facts, runner: &dyn Runner) -> Plan {
     let mut plan = match (&facts.target, facts.verb) {
         (_, Verb::BackUpNow) => back_up_now(facts.backup.as_deref()),
@@ -494,7 +543,38 @@ pub fn plan(facts: &Facts, runner: &dyn Runner) -> Plan {
         }
     };
     plan.problems.extend(facts.refusals.iter().cloned());
+    if plan.verb == Verb::MakePublic
+        && !plan.is_refused()
+        && let Some(target) = &facts.target
+    {
+        plan.check = Some(check(&target.folder, facts.words.as_ref(), runner));
+    }
     plan
+}
+
+/// The word check of the history at `folder` against `words` (EP-42): one pass through `runner`
+/// when there is a list with a word in it.
+fn check(
+    folder: &Path,
+    words: Option<&Result<wordcheck::List, String>>,
+    runner: &dyn Runner,
+) -> Check {
+    let unchecked = "so the history is not checked for private words before it is published";
+    match words {
+        None => Check::NoList(format!(
+            "No word list is named (crw setting private_words <file>), {unchecked}."
+        )),
+        Some(Err(why)) => Check::NoList(format!("The word list: {why}, {unchecked}.")),
+        Some(Ok(list)) if list.is_empty() => {
+            Check::NoList(format!("The word list holds no word, {unchecked}."))
+        }
+        Some(Ok(list)) => match wordcheck::history(folder, list, runner) {
+            Ok(scan) => Check::Read(scan),
+            Err(why) => Check::Failed(format!(
+                "The history did not read against the word list: {why}."
+            )),
+        },
+    }
 }
 
 fn on_project(
@@ -897,6 +977,8 @@ pub mod tests {
         pub asked: Mutex<Vec<String>>,
         pub auth: Result<String, String>,
         pub exit: Exit,
+        /// What `git log` answers, when set (EP-42's word check); else `exit`.
+        pub log: Option<Exit>,
     }
 
     impl Fake {
@@ -909,6 +991,7 @@ pub mod tests {
                     stdout: "done\n".to_owned(),
                     stderr: String::new(),
                 },
+                log: None,
             }
         }
 
@@ -926,6 +1009,11 @@ pub mod tests {
                     stdout,
                     stderr: String::new(),
                 });
+            }
+            if let Some(log) = &self.log
+                && command.args.iter().any(|arg| arg == "log")
+            {
+                return Ok(log.clone());
             }
             Ok(self.exit.clone())
         }
@@ -981,7 +1069,118 @@ pub mod tests {
             account: Some(account()),
             refusals: Vec::new(),
             backup: None,
+            words: None,
         }
+    }
+
+    /// Make public reads the history against the list through the runner, once nothing else
+    /// refuses it, and the words never reach the child (EP-42).
+    #[test]
+    fn make_public_reads_the_history_against_the_list_unless_refused() {
+        let scratch = Scratch::new("actions-check");
+        let beta = project(&scratch, "beta", Some("git@github.com:example/beta.git"));
+        let log = |code: i32, stdout: &str, stderr: &str| Exit {
+            code: Some(code),
+            stdout: stdout.to_owned(),
+            stderr: stderr.to_owned(),
+        };
+        let history = "\0a1b2c3d\u{1f}Add notes\u{1f}Add notes\n\u{1e}\ndiff --git a/n.md b/n.md\n\
+                       --- /dev/null\n+++ b/n.md\n@@ -0,0 +1 @@\n+the Harbour plan\n\
+                       \0b2c3d4e\u{1f}Start\u{1f}Start\n\u{1e}\n";
+        let mut runner = Fake::new("repo");
+        runner.log = Some(log(0, history, ""));
+        // No list: said, and no child.
+        let plain = plan(&facts(Verb::MakePublic, beta.clone()), &runner);
+        assert!(
+            matches!(&plain.check, Some(Check::NoList(why)) if why.contains("crw setting private_words")),
+            "{:?}",
+            plain.check
+        );
+        assert!(!plain.asks_tick() && !plain.is_refused());
+        assert!(runner.asked().is_empty());
+        // A list: one git child, the hit named, the tick asked.
+        let mut listed = facts(Verb::MakePublic, beta.clone());
+        listed.words = Some(Ok(wordcheck::List::parse("harbour\n")));
+        let hit = plan(&listed, &runner);
+        let Some(Check::Read(scan)) = &hit.check else {
+            panic!("{:?}", hit.check);
+        };
+        assert_eq!(scan.commits, 2);
+        assert_eq!(scan.hits.len(), 1);
+        assert_eq!(scan.hits[0].words(), "a1b2c3d Add notes (1 line)");
+        assert!(hit.asks_tick() && !hit.is_refused());
+        assert!(
+            hit.check
+                .as_ref()
+                .unwrap()
+                .summary()
+                .contains("2 commits read against a list of 1 word: 1 hit")
+        );
+        let asked = runner.asked();
+        assert_eq!(asked.len(), 1);
+        assert!(
+            asked[0].starts_with("git -C ")
+                && asked[0].contains(" log --branches --tags --remotes"),
+            "{asked:?}"
+        );
+        assert!(
+            !asked[0].to_lowercase().contains("harbour"),
+            "the words never reach a child"
+        );
+        assert!(!format!("{hit:?}").to_lowercase().contains("harbour"));
+        // No hit: no tick.
+        let mut other = listed.clone();
+        other.words = Some(Ok(wordcheck::List::parse("lighthouse\n")));
+        assert!(!plan(&other, &runner).asks_tick());
+        // A list that did not read, or holds no word: said, and no child.
+        let quiet = Fake::new("repo");
+        let mut unread = listed.clone();
+        unread.words = Some(Err(r"C:\Lists\words.txt did not read: gone".to_owned()));
+        let unread = plan(&unread, &quiet);
+        assert!(
+            matches!(&unread.check, Some(Check::NoList(why)) if why.contains("did not read: gone"))
+        );
+        let mut empty = listed.clone();
+        empty.words = Some(Ok(wordcheck::List::parse("\n\n")));
+        assert!(matches!(
+            plan(&empty, &quiet).check,
+            Some(Check::NoList(why)) if why.contains("holds no word")
+        ));
+        assert!(quiet.asked().is_empty());
+        // A pass that failed: in git's words, and the tick asked.
+        let mut failing = Fake::new("repo");
+        failing.log = Some(log(128, "", "fatal: not a git repository"));
+        let failed = plan(&listed, &failing);
+        assert!(
+            matches!(&failed.check, Some(Check::Failed(why)) if why.contains("not a git repository")),
+            "{:?}",
+            failed.check
+        );
+        assert!(failed.asks_tick());
+        // A refused plan never reads: a data repository, a session at work; nor Make private.
+        let data = Facts {
+            target: Some(Target {
+                data: true,
+                ..beta.clone()
+            }),
+            ..listed.clone()
+        };
+        assert!(plan(&data, &quiet).check.is_none());
+        let mut busy = listed.clone();
+        busy.refusals = vec!["a session works there".to_owned()];
+        assert!(plan(&busy, &quiet).check.is_none());
+        let alpha = project(
+            &scratch,
+            "alpha",
+            Some("https://github.com/example/alpha.git"),
+        );
+        let private = Facts {
+            verb: Verb::MakePrivate,
+            target: Some(alpha),
+            ..listed.clone()
+        };
+        assert!(plan(&private, &quiet).check.is_none());
+        assert!(quiet.asked().is_empty());
     }
 
     fn args(plan: &Plan) -> Vec<String> {
@@ -1260,6 +1459,7 @@ pub mod tests {
             account: None,
             refusals: Vec::new(),
             backup: Some(settings.clone()),
+            words: None,
         };
         let plan = plan(&facts, &Fake::new(""));
         assert!(!plan.is_refused(), "{:?}", plan.problems);
@@ -1375,6 +1575,7 @@ pub mod tests {
                 account: None,
                 refusals: Vec::new(),
                 backup: Some(settings),
+                words: None,
             },
             &runner,
         );

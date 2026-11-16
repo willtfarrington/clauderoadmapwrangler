@@ -50,4 +50,5 @@ pub mod tasks;
 pub mod usage;
 pub mod version;
 pub mod visual;
+pub mod wordcheck;
 pub mod workspace;
