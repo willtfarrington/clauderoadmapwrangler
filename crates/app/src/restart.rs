@@ -998,6 +998,33 @@ pub(crate) mod tests {
             Err("an ended run's tab offers Commit: alpha EP-3".to_owned())
         );
         assert!(board.restart.closing_at.is_none());
+        // A chat's completed run has no tab and no Commit, so it holds no restart (EP-31b: one
+        // held the real window's on 2026-11-17).
+        let mut launch = crw_core::session::Launch::new(
+            crw_core::chat::PROJECT,
+            std::path::Path::new("chat"),
+            "fable",
+            "Why did the chain stop?",
+        );
+        launch.conversation = Some("why did the chain stop?".to_owned());
+        let chat = crate::sessions::Live::canned(
+            7,
+            launch,
+            "high",
+            vec![crate::sessions::tests::exit(
+                crw_core::session::Outcome::Completed,
+                None,
+            )],
+        );
+        assert!(chat.is_chat() && chat.ended.is_some());
+        assert!(!chat.offers_commit());
+        board.sessions.live.insert(0, chat);
+        assert_eq!(
+            board.gate_refusals(),
+            ["an ended run's tab offers Commit: alpha EP-3"],
+            "the brief's run alone"
+        );
+        board.sessions.live.remove(0);
         // A finished migration offers no Commit, and still holds the restart (EP-21a's review).
         let done = &mut board.sessions.live[0];
         done.migration = true;

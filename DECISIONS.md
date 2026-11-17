@@ -1895,6 +1895,32 @@ committing and recording hashes; one model and effort per project; usage thresho
 > owner tasks due, which the dialog leaves to the owner; the registry's failure ending the
 > chain with a line, its plan lost.
 
+> **Addendum (2026-11-17, EP-31b).** The total a day in the window, and a chat's run at the
+> gate's moment.
+>
+> - **The day's line.** The Sessions pane's Autopilot section says, above the projects' lines,
+>   "N of M chained runs today in all projects". N is counted as the gate counts it
+>   (`autopilot::chained_in_all` over the chain log's latest `DAY_LINES`, 500, on the local
+>   day); M is `settings.autopilot_daily_total`, which a picker of its own sets beside the
+>   projects' pickers (0 to 20 offered, a total set another way offered as it stands), through
+>   `set_setting`, the write `crw setting` makes, its default taken out of the registry. The
+>   words say that a chain ends at this total or at its project's own runs a day, whichever it
+>   meets first; once the count is at the total, the line is amber and says the total is reached
+>   for today. The window reads the count and the total every 30 s and after each line it
+>   writes, hidden too. The phone's autopilot block says the same line, read-only (D-28 keeps the
+>   registry's settings off the phone). Before, only `crw setting` set the total and only `crw
+>   autopilot`'s first line said it, and on 2026-11-16 the owner found from a chat that their
+>   chain's ceiling was a total they could not see.
+> - **A chat's run at the gate's moment.** A completed chat conversation's run counted as "an
+>   ended run's tab offers Commit", though a chat has no tab in the Sessions pane and no Commit,
+>   so the gate's restart into an installed build waited for as long as the chat stayed in the
+>   window: on 2026-11-17 the window stayed on the build of 2026-11-16 and chained EP-31b in it
+>   (the field check's finding). A chat's run offers no Commit now, and holds no such restart.
+>
+> *Alternatives.* Each project's own count beside its runs-a-day picker too; the total set from
+> the phone; `crw autopilot`'s first line with the day's count; a chain the total ended taken up
+> again when the total is raised (the gate ends a chain at a daily cap rather than holding it).
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time

@@ -249,6 +249,10 @@ struct AutopilotView {
     state: &'static str,
     class: &'static str,
     projects: String,
+    /// The day's chained runs against the total in all projects, in the section's words, and
+    /// its classes, `warn` once the total is reached (EP-31b); read-only (D-28).
+    today: String,
+    today_class: &'static str,
     /// Paused by the owner: the form resumes; else it pauses.
     paused: bool,
     held_by_usage: Vec<String>,
@@ -275,10 +279,14 @@ impl AutopilotView {
             [one] => format!("on in {one}"),
             all => format!("on in {} projects: {}", all.len(), all.join(", ")),
         };
+        let (today, reached) =
+            crate::autopilot::day_line(autopilot.chained_today, autopilot.daily_total);
         Self {
             state,
             class,
             projects,
+            today,
+            today_class: if reached { "small warn" } else { "small" },
             paused: autopilot.paused,
             held_by_usage: autopilot.held_by_usage.clone(),
             held: autopilot.held.clone(),
@@ -1822,6 +1830,8 @@ mod tests {
             paused: true,
             held_by_usage: Vec::new(),
             on: vec!["harbor".to_owned()],
+            daily_total: 8,
+            chained_today: Some(3),
             held: vec![(
                 "harbor".to_owned(),
                 "held after EP-3 until the pause lifts: <your Pause>".to_owned(),
@@ -1875,12 +1885,39 @@ mod tests {
         );
         assert!(html.contains("this chain holds at 70 % of the session (five-hour) window."));
         assert!(html.contains("chained EP-4 after EP-3"));
+        // The day's line (EP-31b), the section's words, read-only: no form sets the total.
+        assert!(
+            html.contains(
+                r#"<p class="small">3 of 8 chained runs today in all projects; a chain ends at this total or at its project"#
+            ),
+            "{html}"
+        );
+        assert!(html.contains("own runs a day, whichever it meets first.</p>"));
+        assert!(!html.contains("The total is reached"));
+        assert!(!html.contains("autopilot_daily_total"), "no setting's form");
+        assert_eq!(html.matches("<form").count(), 1, "the Pause's alone");
         // Not paused: the form pauses.
         page.list.autopilot.paused = false;
         let html = list(&page, None).unwrap();
         assert!(html.contains(r#"<input type="hidden" name="pause" value="on">"#));
         assert!(html.contains("<button type=\"submit\">Pause</button>"));
         assert!(html.contains(r#"<span class="mark good">on</span>"#));
+        // The total reached: the line warns; a count that did not read says so.
+        page.list.autopilot.chained_today = Some(8);
+        let html = list(&page, None).unwrap();
+        assert!(
+            html.contains(r#"<p class="small warn">8 of 8 chained runs today in all projects; "#),
+            "{html}"
+        );
+        assert!(
+            html.contains("The total is reached for today: a chain ends at its next gate.</p>")
+        );
+        page.list.autopilot.chained_today = None;
+        let html = list(&page, None).unwrap();
+        assert!(
+            html.contains(r#"<p class="small">8 chained runs a day in all projects (today"#),
+            "{html}"
+        );
         // The meter off: the strip says so.
         page.list.usage = published::Usage::default();
         assert!(

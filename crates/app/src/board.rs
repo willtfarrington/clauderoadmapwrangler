@@ -353,6 +353,9 @@ pub enum Action {
     },
     /// One of a project's autopilot limits set in the Autopilot section (D-22; EP-19b).
     SetAutopilotLimit(String, Limit),
+    /// The chained runs a day in all projects set in the Autopilot section (D-22; EP-31b), or
+    /// taken back to the default with `None`.
+    SetDailyTotal(Option<u32>),
     /// A running chain's own five-hour mark set in the Autopilot section (EP-41), or taken
     /// back to the setting with `None`.
     SetChainMark(String, Option<u8>),
@@ -1652,6 +1655,7 @@ impl Board {
             Action::SetAutopilotLimit(project, limit) => {
                 return self.set_autopilot_limit(&project, &limit);
             }
+            Action::SetDailyTotal(total) => return self.set_daily_total(total),
             Action::SetChainMark(project, mark) => return self.set_chain_mark(&project, mark),
             Action::PauseAutopilot(paused) => return self.pause_autopilot(paused),
             Action::CommitSession(key) => self.commit_session(key),

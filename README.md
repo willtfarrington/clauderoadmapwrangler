@@ -123,8 +123,9 @@ restarts, a panic's head line and a child that did not start; a start that faile
 security software causes (the file flagged, access denied, a file gone) says where to look. The
 window's loopback server also answers the phone's pages under `/m/` (EP-30 … EP-31). The
 project list shows the usage strip (the weekly, Fable and session figures with their resets), the
-autopilot's block (its state with Pause or Resume, the held chains, the chain plans and the chain
-log's latest lines), then the state groups, and each project's next brief, progress, what waits
+autopilot's block (its state with Pause or Resume, the day's chained runs against the total in
+all projects, the held chains, the chain plans and the chain log's latest lines), then the state
+groups, and each project's next brief, progress, what waits
 on the owner, its sessions and its badges in words. A project's page shows its next brief's note,
 what waits on the owner, its inbox and its sessions, and ticks an owner task, ticks an inbox
 message with its disposition and writes a message into its inbox; it stops a headless run of the
@@ -324,7 +325,10 @@ rules' way where they left it alone, and ends before a brief they unticked. If o
 refuses, the chain is held until the pause lifts. Each such run has a cap by size (S 45 min, M 90
 min, L 3 h) counted in working time, a question's wait left out, and is stopped gracefully at it.
 Pause, in the Sessions pane or the tray, holds every chain; the runs that work go on. The
-Sessions pane's All tab opens with the chain log, the plans in hand and a line for each project
+Sessions pane's All tab opens with the chain log, the plans in hand, the day's line (the chained
+runs today in all projects, counted as the gate counts them, against the total a day, which a
+picker beside it sets as `crw setting autopilot_daily_total <n|default>` does; amber once it is
+reached, since a chain ends at either cap, EP-31b) and a line for each project
 whose autopilot is on: its permission mode, what the gate would refuse it for between runs (runs
 that would wait, sessions open there) and its limits as pickers, the largest brief, the runs a day
 and a budget a run (`crw set <project> max_size|daily|max_budget_usd` takes any figure). `crw

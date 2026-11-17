@@ -366,10 +366,12 @@ impl Live {
     }
 
     /// Whether its tab offers Commit (D-22): the run completed under the rule that stops before
-    /// committing, and nothing told it to commit since.
+    /// committing, and nothing told it to commit since. A chat's run has no such tab (it is the
+    /// Chat pane's), so it offers none and holds no gate's restart (EP-31b's field check).
     pub fn offers_commit(&self) -> bool {
         !self.commits
             && !self.migration
+            && !self.is_chat()
             && self
                 .ended
                 .as_ref()

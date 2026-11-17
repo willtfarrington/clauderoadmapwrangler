@@ -31,6 +31,7 @@
 <section class="block autopilot" data-part="autopilot">
 <h2>Autopilot <span class="mark {{ autopilot.class }}">{{ autopilot.state }}</span></h2>
 <p class="weak small">{{ autopilot.projects }}</p>
+<p class="{{ autopilot.today_class }}">{{ autopilot.today }}</p>
 <form method="post" action="/m/autopilot" class="inline">
 {% if autopilot.paused %}<input type="hidden" name="pause" value="off">
 <button type="submit">Resume</button> <span class="weak small">Let the chains go on: the held ones are read again.</span>

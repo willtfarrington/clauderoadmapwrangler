@@ -52,6 +52,18 @@ const CONFIRM_FOR: chrono::TimeDelta = chrono::TimeDelta::seconds(75);
 /// The runs a day and the budgets the section's pickers offer (EP-19b); `crw set` takes any.
 const DAILY_CHOICES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 8];
 const BUDGET_CHOICES: [f64; 6] = [5.0, 10.0, 15.0, 20.0, 30.0, 50.0];
+/// The chained runs a day in all projects the section's own picker offers (EP-31b); `crw
+/// setting autopilot_daily_total` takes any up to `registry::MAX_DAILY`.
+const TOTAL_CHOICES: [u32; 12] = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20];
+/// The day's line (EP-31b), the Autopilot section's and the phone's block's: the words after
+/// the day's count and the total, what they say of the two caps (D-22), and the words once the
+/// count is at or over the total.
+pub(crate) const TODAY_WORDS: &str = "chained runs today in all projects";
+pub(crate) const BOTH_CAPS: &str = "a chain ends at this total or at its project's own runs a \
+    day, whichever it meets first";
+pub(crate) const REACHED: &str = "The total is reached for today: a chain ends at its next gate.";
+/// The words after the total while the day's count did not read.
+const UNREAD_TODAY: &str = "chained runs a day in all projects (today's count did not read)";
 /// The marks a chain's own picker offers (EP-41), in percent of the session (five-hour) window,
 /// beside the setting's.
 const MARK_CHOICES: [u8; 7] = [30, 40, 50, 60, 70, 80, 90];
@@ -149,6 +161,12 @@ pub struct Pilot {
     pub paused: bool,
     pub mark: u8,
     pub five_hour_mark: u8,
+    /// The chained runs a day in all projects, as the registry last said it, and the day's
+    /// chained starts in all projects as the gate counts them, from the chain log's latest
+    /// [`autopilot::DAY_LINES`] lines at its last read: none while the log does not read
+    /// (EP-31b).
+    pub daily_total: u32,
+    pub chained_today: Option<u32>,
     /// A screenshot run's log: nothing is read or written.
     pub canned: bool,
     /// The chain plans (EP-19a), by project in lower case: each kept from Start headless until
@@ -183,6 +201,8 @@ impl Default for Pilot {
             paused: false,
             mark: autopilot::DEFAULT_PAUSE_PERCENT,
             five_hour_mark: autopilot::DEFAULT_FIVE_HOUR_PERCENT,
+            daily_total: autopilot::DEFAULT_DAILY_TOTAL,
+            chained_today: None,
             canned: false,
             plans: BTreeMap::new(),
             recheck_after: BTreeSet::new(),
@@ -891,8 +911,9 @@ impl Board {
         }
     }
 
-    /// Reads the log, the registry's pause and the gate's standing verdicts again when they
-    /// changed or every half minute; a screenshot run keeps its canned log and pause.
+    /// Reads the log, the registry's pause, marks and day's total, the day's chained runs and the
+    /// gate's standing verdicts again when they changed or every half minute; a screenshot run
+    /// keeps its canned log, pause and count.
     fn read_pilot(&mut self) {
         let pilot = &mut self.autopilot;
         let due = pilot.stale || pilot.read_at.is_none_or(|at| at.elapsed() >= READ_EVERY);
@@ -913,14 +934,21 @@ impl Board {
             self.autopilot.paused = settings.autopilot_paused();
             self.autopilot.mark = settings.autopilot_pause_percent();
             self.autopilot.five_hour_mark = settings.autopilot_five_hour_percent();
+            self.autopilot.daily_total = settings.autopilot_daily_total();
         }
         if let Some(ledger) = self.ledger().map(PathBuf::from) {
-            match autopilot::recent(&ledger, LOG_LINES) {
-                Ok(rows) => {
+            // One read for the section's lines and the day's count, which the gate makes of the
+            // same lines on the same local day (EP-31b).
+            match autopilot::recent(&ledger, autopilot::DAY_LINES) {
+                Ok(mut rows) => {
+                    let day = Local::now().date_naive();
+                    self.autopilot.chained_today = Some(autopilot::chained_in_all(&rows, day));
+                    rows.truncate(LOG_LINES);
                     self.autopilot.log = rows;
                     self.autopilot.problem = None;
                 }
                 Err(why) => {
+                    self.autopilot.chained_today = None;
                     self.autopilot.problem = Some(format!("The chain log did not read: {why}"))
                 }
             }
@@ -1208,6 +1236,26 @@ impl Board {
         true
     }
 
+    /// Sets the chained runs a day in all projects from the Autopilot section (D-22; EP-31b),
+    /// with the write `crw setting autopilot_daily_total` makes: `None` takes the setting out of
+    /// the registry, the default then holding, as the other pickers do with theirs.
+    pub fn set_daily_total(&mut self, total: Option<u32>) -> bool {
+        let value = total.map_or_else(|| "default".to_owned(), |runs| runs.to_string());
+        let changed = self.store().change(&files::today(), |c| {
+            c.set_setting("autopilot_daily_total", &value)
+        });
+        match changed {
+            Ok(_) => {
+                // A screenshot run reads no setting again, so the section follows the click here.
+                self.autopilot.daily_total = total.unwrap_or(autopilot::DEFAULT_DAILY_TOTAL);
+                self.autopilot.stale = true;
+                self.notify(total_words(total));
+            }
+            Err(e) => self.fail(e.to_string()),
+        }
+        true
+    }
+
     /// A running chain's own five-hour mark changed in the Autopilot section (EP-41): its plan
     /// takes it from now, the change is a line of the chain log, and a chain held by the pause is
     /// read again at once, since a higher mark may let it go; a gate read while the change came
@@ -1457,6 +1505,7 @@ impl Board {
                             .color(style::amber(ui)),
                     );
                 }
+                self.day_total(ui, &mut actions);
                 self.autopilot_projects(ui, &mut actions);
                 for held in &self.autopilot.held {
                     ui.label(
@@ -1510,6 +1559,38 @@ impl Board {
             });
         ui.separator();
         self.actions.extend(actions);
+    }
+
+    /// The day's line above the projects' (D-22; EP-31b): the day's chained runs in all
+    /// projects as the gate counts them, of the total, which a picker of its own sets, and what
+    /// the two caps do; amber, with a line of its own, once the count is at the total.
+    fn day_total(&self, ui: &mut egui::Ui, actions: &mut Vec<Action>) {
+        let total = self.autopilot.daily_total;
+        let count = self.autopilot.chained_today;
+        let reached = count.is_some_and(|count| count >= total);
+        let colour = if reached {
+            style::amber(ui)
+        } else {
+            ui.visuals().text_color()
+        };
+        ui.horizontal_wrapped(|ui| {
+            if let Some(count) = count {
+                ui.label(RichText::new(format!("{count} of")).small().color(colour));
+            }
+            if let Some(chosen) = total_picker(ui, total) {
+                actions.push(Action::SetDailyTotal(chosen));
+            }
+            let after = if count.is_some() {
+                TODAY_WORDS
+            } else {
+                UNREAD_TODAY
+            };
+            ui.label(RichText::new(format!("{after};")).small().color(colour));
+            ui.label(RichText::new(BOTH_CAPS).small().weak());
+        });
+        if reached {
+            verdict(ui, REACHED.to_owned(), style::amber(ui));
+        }
     }
 
     /// One entry for each project whose autopilot is on (EP-19b): its permission mode and where
@@ -1688,7 +1769,8 @@ fn limit_pickers(
         })
         .response
         .on_hover_text(
-            "The chained runs a day in this project (D-22); the day's total is a setting",
+            "The chained runs a day in this project (D-22); the total in all projects, set \
+             above, holds too: a chain ends at whichever it meets first",
         );
     if chosen != daily {
         let limit = Limit::Daily((chosen != autopilot::DEFAULT_DAILY).then_some(chosen));
@@ -1722,6 +1804,66 @@ fn limit_pickers(
             Limit::Budget(chosen),
         ));
     }
+}
+
+/// The chained runs a day in all projects as a small picker (D-22; EP-31b): the choices, the
+/// default labelled, a total set another way (`crw setting autopilot_daily_total`) offered as it
+/// stands. The new total when the owner chose another, `Some(None)` for the default, which the
+/// write takes out of the registry.
+fn total_picker(ui: &mut egui::Ui, total: u32) -> Option<Option<u32>> {
+    let mut chosen = total;
+    egui::ComboBox::from_id_salt("autopilot-daily-total")
+        .width(48.0)
+        .selected_text(total.to_string())
+        .show_ui(ui, |ui| {
+            let mut options = TOTAL_CHOICES.to_vec();
+            if !options.contains(&total) {
+                options.push(total);
+                options.sort_unstable();
+            }
+            for option in options {
+                let label = if option == autopilot::DEFAULT_DAILY_TOTAL {
+                    format!("{option} (default)")
+                } else {
+                    option.to_string()
+                };
+                ui.selectable_value(&mut chosen, option, label);
+            }
+        })
+        .response
+        .on_hover_text(
+            "The chained runs a day in all projects (D-22), counted from the chain log on the \
+             local day as the gate counts them: a chain ends once the day's total is reached, \
+             as it ends at its project's own runs a day; raising it later does not bring an \
+             ended chain back. crw setting autopilot_daily_total <n|default> sets it too.",
+        );
+    (chosen != total).then_some((chosen != autopilot::DEFAULT_DAILY_TOTAL).then_some(chosen))
+}
+
+/// The day's line as one sentence (EP-31b), the phone's block's, and whether the count is at or
+/// over the total: the Autopilot section draws the same words around its picker.
+pub(crate) fn day_line(count: Option<u32>, total: u32) -> (String, bool) {
+    match count {
+        Some(count) if count >= total => (
+            format!("{count} of {total} {TODAY_WORDS}; {BOTH_CAPS}. {REACHED}"),
+            true,
+        ),
+        Some(count) => (
+            format!("{count} of {total} {TODAY_WORDS}; {BOTH_CAPS}."),
+            false,
+        ),
+        None => (format!("{total} {UNREAD_TODAY}; {BOTH_CAPS}."), false),
+    }
+}
+
+/// The day's total's change in words, for the status bar (EP-31b).
+fn total_words(total: Option<u32>) -> String {
+    let runs = total.unwrap_or(autopilot::DEFAULT_DAILY_TOTAL);
+    let default = if total.is_none() { ", the default" } else { "" };
+    format!(
+        "The autopilot: {runs} chained runs a day at most in all projects{default}; each \
+         project's own runs a day holds too."
+    )
 }
 
 /// A budget as the picker says it: `no budget`, `$20 a run`.
@@ -2362,6 +2504,122 @@ mod tests {
         assert_eq!(harbor(&board).autopilot.daily, None);
     }
 
+    /// The day's total (EP-31b): the day's chained starts in all projects read from the chain
+    /// log as the gate counts them, and the total from the registry; the section's line with its
+    /// picker, amber with a line of its own once the total is reached; the picker's action writes
+    /// the setting as `crw setting` does, its default taken out, and a total set from a terminal
+    /// counts at the next read.
+    #[test]
+    fn the_days_total_is_read_said_and_set() {
+        let scratch = Scratch::new("autopilot-day-total");
+        let ledger = scratch.0.join("ledger.sqlite");
+        let places = Places {
+            store: fake_store(&scratch),
+            ledger: Some(ledger.clone()),
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        board.fixtures = true;
+        let set = |board: &Board, value: &str| {
+            board
+                .store()
+                .change(&files::today(), |c| {
+                    c.set_setting("autopilot_daily_total", value)
+                })
+                .unwrap();
+        };
+        set(&board, "3");
+        let line = |project: &str, words: &str, at: DateTime<Utc>| {
+            autopilot::log(&ledger, Some(project), words, at).unwrap();
+        };
+        let now = Utc::now();
+        line(
+            "harbor",
+            "chained EP-4 after EP-3: fable at xhigh, M's cap of 1 h 30 min",
+            now - chrono::TimeDelta::days(2),
+        );
+        line(
+            "harbor",
+            "chained EP-5 after EP-4: claude-opus-5-5 at max, the rules' choice, M's cap of 1 h \
+             30 min",
+            now,
+        );
+        line(
+            "lantern",
+            "chained EP-2 after EP-1: fable at high, the rules' choice, S's cap of 45 min",
+            now,
+        );
+        line(
+            "harbor",
+            "the chain ends after EP-5: EP-6 is a re-plan, the owner's to run",
+            now,
+        );
+        board.read_pilot();
+        assert_eq!(
+            board.autopilot.chained_today,
+            Some(2),
+            "the day's two starts"
+        );
+        assert_eq!(board.autopilot.daily_total, 3);
+        assert_eq!(board.autopilot.log.len(), 4);
+        assert_eq!(board.autopilot.problem, None);
+
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_section(ui));
+        assert!(testing::text_at(&output, "2 of").is_some());
+        assert!(
+            testing::text_at(&output, "3").is_some(),
+            "the picker's total"
+        );
+        assert!(testing::text_at(&output, "chained runs today in all projects;").is_some());
+        assert!(testing::text_at(&output, BOTH_CAPS).is_some());
+        assert!(testing::text_at(&output, REACHED).is_none());
+
+        // A third start today reaches the total: the line is amber and says so.
+        line(
+            "quarry",
+            "chained EP-7 after EP-6: fable at high, the rules' choice, M's cap of 1 h 30 min",
+            Utc::now(),
+        );
+        board.autopilot.stale = true;
+        board.read_pilot();
+        assert_eq!(board.autopilot.chained_today, Some(3));
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_section(ui));
+        assert!(testing::text_at(&output, "3 of").is_some());
+        assert!(testing::text_at(&output, REACHED).is_some(), "reached");
+
+        // The picker's action: the setting written, then its default taken out.
+        assert!(board.run(Action::SetDailyTotal(Some(6))));
+        let total = |board: &Board| {
+            board
+                .store()
+                .load()
+                .unwrap()
+                .registry
+                .settings
+                .autopilot_daily_total
+        };
+        assert_eq!(total(&board), Some(6));
+        assert_eq!(board.autopilot.daily_total, 6);
+        assert_eq!(
+            board.notice_text(),
+            Some(
+                "The autopilot: 6 chained runs a day at most in all projects; each project's own \
+                 runs a day holds too."
+            )
+        );
+        assert!(board.run(Action::SetDailyTotal(None)));
+        assert_eq!(total(&board), None, "the default taken out of the registry");
+        assert_eq!(board.autopilot.daily_total, autopilot::DEFAULT_DAILY_TOTAL);
+        // A total set from a terminal counts at the next read.
+        set(&board, "7");
+        board.autopilot.stale = true;
+        board.read_pilot();
+        assert_eq!(board.autopilot.daily_total, 7);
+    }
+
     #[test]
     fn a_kept_model_or_effort_is_written_and_taken_back() {
         use rules::{Kept, Key, Scope};
@@ -2689,6 +2947,33 @@ mod tests {
         assert_eq!(
             limit_words(&Limit::Budget(None)),
             "the autopilot's runs have no budget"
+        );
+        // The day's line and the total's change (EP-31b).
+        assert_eq!(
+            day_line(Some(2), 8),
+            (
+                "2 of 8 chained runs today in all projects; a chain ends at this total or at its \
+                 project's own runs a day, whichever it meets first."
+                    .to_owned(),
+                false
+            )
+        );
+        let (line, reached) = day_line(Some(9), 8);
+        assert!(reached && line.starts_with("9 of 8 ") && line.ends_with(REACHED));
+        assert!(day_line(Some(0), 0).1, "a total of none is reached at once");
+        assert_eq!(
+            day_line(None, 4),
+            (
+                "4 chained runs a day in all projects (today's count did not read); a chain ends \
+                 at this total or at its project's own runs a day, whichever it meets first."
+                    .to_owned(),
+                false
+            )
+        );
+        assert_eq!(
+            total_words(None),
+            "The autopilot: 4 chained runs a day at most in all projects, the default; each \
+             project's own runs a day holds too."
         );
     }
 }

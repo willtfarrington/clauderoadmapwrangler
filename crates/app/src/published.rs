@@ -1028,6 +1028,11 @@ pub struct Autopilot {
     pub held_by_usage: Vec<String>,
     /// The projects whose autopilot is on.
     pub on: Vec<String>,
+    /// The chained runs a day in all projects, and the day's chained starts in all projects as
+    /// the gate counts them, none while the chain log does not read (EP-31b): the section's
+    /// line, read-only here (D-28).
+    pub daily_total: u32,
+    pub chained_today: Option<u32>,
     /// The held chains: the project and the log's words for the hold.
     pub held: Vec<(String, String)>,
     /// The chain plans: the project, the plan in words, and the mark the chain holds at.
@@ -1090,6 +1095,8 @@ impl Autopilot {
                 .filter(|row| row.project.autopilot.enabled)
                 .map(|row| row.name().to_owned())
                 .collect(),
+            daily_total: pilot.daily_total,
+            chained_today: pilot.chained_today,
             held: pilot
                 .held
                 .iter()
@@ -2076,8 +2083,12 @@ mod tests {
             project: Some("harbor".to_owned()),
             detail: Some("chained EP-4 after EP-3".to_owned()),
         });
+        // The day's count and the total as the window read them (EP-31b).
+        board.autopilot.daily_total = 8;
+        board.autopilot.chained_today = Some(3);
         let now = Utc::now();
         let block = Autopilot::of(&board, now);
+        assert_eq!((block.chained_today, block.daily_total), (Some(3), 8));
         assert!(block.paused);
         assert_eq!(block.held.len(), 1);
         assert!(block.held[0].1.starts_with("held after EP-3"));
@@ -2111,6 +2122,9 @@ mod tests {
             list.steady(),
             List::of(&board, now + chrono::TimeDelta::minutes(5)).steady()
         );
+        // A new chained start moves the list: the stream names `/m/` (EP-31b).
+        board.autopilot.chained_today = Some(4);
+        assert_ne!(list.steady(), List::of(&board, now).steady());
     }
 
     /// A page with an old snapshot asks the window and takes its answer; a fresh one is taken

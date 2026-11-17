@@ -54,6 +54,9 @@ pub const WAITING_MODES: [&str; 4] = ["acceptEdits", "manual", "plan", "default"
 
 /// The first word of a chained start's line in the log, by which the day's runs are counted.
 const CHAINED: &str = "chained ";
+/// The chain log's latest lines the day's chained runs are counted from: the gate's reading,
+/// which the window's Autopilot section reads too (EP-31b).
+pub const DAY_LINES: usize = 500;
 
 /// The owner's Pause and its end, as the log says them.
 pub const PAUSED_BY_OWNER: &str = "paused by the owner: no chain goes on until the Resume";
@@ -713,6 +716,14 @@ pub fn chained_on(events: &[EventRow], project: &str, day: NaiveDate) -> (u32, u
     (mine, all)
 }
 
+/// The chained starts the log records on `day` (local time) in every project: what the gate
+/// weighs against `settings.autopilot_daily_total`, which the window's Autopilot section and the
+/// phone's block say beside the total (EP-31b).
+pub fn chained_in_all(events: &[EventRow], day: NaiveDate) -> u32 {
+    // The second count does not depend on the project named.
+    chained_on(events, "", day).1
+}
+
 /// A chained start, as the log says it.
 pub fn chained_words(next: EpId, after: Option<EpId>, chosen: &str, cap: &Cap) -> String {
     let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
@@ -1121,7 +1132,7 @@ pub fn read(ask: &Ask<'_>) -> Reading {
     let day = ask.now.with_timezone(&Local).date_naive();
     let (chained_today, chained_total) = ask
         .ledger
-        .and_then(|ledger| recent(ledger, 500).ok())
+        .and_then(|ledger| recent(ledger, DAY_LINES).ok())
         .map_or((0, 0), |events| chained_on(&events, &ask.project.name, day));
     let mail_since_run = ask
         .ledger
@@ -1787,6 +1798,11 @@ mod tests {
         let day = NaiveDate::from_ymd_opt(2026, 11, 6).unwrap();
         assert_eq!(chained_on(&events, "alpha", day), (2, 3));
         assert_eq!(chained_on(&events, "gamma", day), (0, 3));
+        // Every project's count, the window's line beside the total (EP-31b): the day's three
+        // chained starts, the day before's and the chain's end left out.
+        assert_eq!(chained_in_all(&events, day), 3);
+        assert_eq!(chained_in_all(&events, day.pred_opt().unwrap()), 1);
+        assert_eq!(chained_in_all(&[], day), 0);
     }
 
     #[test]

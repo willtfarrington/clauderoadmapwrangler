@@ -685,6 +685,9 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         ),
         row(160, "", autopilot::RESUMED_BY_OWNER),
     ];
+    // The day's line (EP-31b): counted from the canned log as the gate counts the real one.
+    let today = chrono::Local::now().date_naive();
+    board.autopilot.chained_today = Some(autopilot::chained_in_all(&board.autopilot.log, today));
     board.autopilot.held = vec![crate::autopilot::Held {
         project: "quarry".to_owned(),
         after: "EP-2".parse().ok(),
