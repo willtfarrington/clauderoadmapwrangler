@@ -179,9 +179,10 @@ Nothing odd to triage.
    tested on the window's side and the words over HTTP for a form answered at once; no test
    waits the ten seconds through the server.
 
-> **Completion note (2026-11-16; claude-opus-5-5/max; about 1 h 10 min).** A chained headless
-> run from the window (ledger row `c304fa80`, from 19:57), the work commit and the record commit
-> after it, then the install. No question was put to the owner: the brief kept to its scope,
+> **Completion note (2026-11-16; claude-opus-5-5/max; about 50 min).** A chained headless run
+> from the window (ledger row `c304fa80`, from 19:57), the work commit `e29cbf3` at 20:46 and the
+> record commit after it, then the install at 20:47, whose restart the window refused while this
+> run worked. No question was put to the owner: the brief kept to its scope,
 > added no crate, changed no setting and nothing outward-facing.
 >
 > **Built.**
