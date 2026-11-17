@@ -120,6 +120,9 @@
 //!   `keeprule=<project>:<model|effort>[@<phase>]=<value>` (from EP-19c: a model or an effort
 //!   kept as the Keep menu beside Model or Effort writes it, for every brief or for one phase,
 //!   into the run's registry, before `launch=` opens the dialog);
+//! - `pages=<file.html>` (from EP-30: once the picture is taken, the phone's list page of the
+//!   run's portfolio written there as the window's server would send it, since a run binds no
+//!   port; over a copy of real roadmaps the page stays in the scratchpad, out of git);
 //! - `size=<width>x<height>` (the window's inner size in points; 1600x1000 by default).
 //!
 //! The fake projects are not repositories and have no remote, so their git, GitHub and backup
@@ -189,6 +192,7 @@ const KEYS_FROM_FRAME: u32 = 4;
 static FRAMES: AtomicU32 = AtomicU32::new(0);
 static CAPTURING: AtomicBool = AtomicBool::new(false);
 static BUSY: AtomicBool = AtomicBool::new(true);
+static PAGES_WRITTEN: AtomicBool = AtomicBool::new(false);
 
 /// A screenshot run: its home folder, its setup and the data root it reads; [`tick`] reads the
 /// picture's path.
@@ -560,7 +564,8 @@ impl Run {
                     }
                     None => eprintln!("screenshot: no hosting class called {value}"),
                 },
-                "keys" | "size" | "root" => {} // read by `inject_keys`, `main` and `from_env`
+                // Read by `inject_keys`, `main`, `from_env` and `write_pages`.
+                "keys" | "size" | "root" | "pages" => {}
                 _ => eprintln!("screenshot: unknown setup flag {flag}"),
             }
         }
@@ -2018,6 +2023,34 @@ pub fn tick(ctx: &egui::Context) {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             ctx.request_repaint();
         });
+    }
+}
+
+/// The `pages=<file.html>` flag (EP-30): once the picture is being taken, the run's projects read
+/// and their readings canned, the phone's list page of the board written to the file, once.
+pub fn write_pages(board: &Board) {
+    if !CAPTURING.load(Ordering::Relaxed) || PAGES_WRITTEN.load(Ordering::Relaxed) {
+        return;
+    }
+    let setup = flags(&std::env::var(SETUP_VAR).unwrap_or_default());
+    let Some(path) = setup
+        .iter()
+        .find_map(|flag| flag.strip_prefix("pages="))
+        .map(PathBuf::from)
+    else {
+        return;
+    };
+    PAGES_WRITTEN.store(true, Ordering::Relaxed);
+    let now = Utc::now();
+    let published = crate::published::Published {
+        at: now,
+        version: 1,
+        list: crate::published::List::of(board, now),
+    };
+    match crate::pages::list(&published).map(|html| fs::write(&path, html)) {
+        Ok(Ok(())) => eprintln!("screenshot: wrote the list page {}", path.display()),
+        Ok(Err(e)) => eprintln!("screenshot: {}: {e}", path.display()),
+        Err(e) => eprintln!("screenshot: the list page did not render: {e}"),
     }
 }
 

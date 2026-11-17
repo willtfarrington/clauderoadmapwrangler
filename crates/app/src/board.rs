@@ -11,7 +11,9 @@
 //! too (`attend`, from eframe's `App::logic`, D-29); from EP-15c a session's revert, previewed
 //! in a dialog and run on a worker thread (`revert`, D-11), which Quit waits for; from EP-17 the
 //! usage meter (`meter`, D-23): its strip in the status bar, its pane and its notifications; from
-//! EP-37 File's Install and restart (`restart`, D-29), the restart into the installed build.
+//! EP-37 File's Install and restart (`restart`, D-29), the restart into the installed build; from
+//! EP-30 the queued actions run in the hidden pass too, and each pass publishes what the phone's
+//! pages read (`published`, D-28).
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -464,6 +466,8 @@ pub struct Board {
     pub compose: Option<crate::compose::Dialog>,
     /// The Chat tile's conversation (D-27; EP-24).
     pub chat: crate::chat::Chat,
+    /// What the window publishes for the phone's pages (D-28; EP-30), built in each pass.
+    pub pages: crate::published::Publisher,
     /// A compose dialog to open once the files are read, with its text canned (a screenshot
     /// run's `compose=<project>[:urgent]`).
     pub compose_when_read: Option<(String, bool)>,
@@ -552,6 +556,7 @@ impl Board {
             diagnostics: crate::diagnostics::Diagnostics::default(),
             compose: None,
             chat: crate::chat::Chat::default(),
+            pages: crate::published::Publisher::default(),
             compose_when_read: None,
             formalise: None,
             #[cfg(feature = "screenshot")]
@@ -973,19 +978,7 @@ impl Board {
         }
         let orders = self.tray.as_ref().map(Tray::orders).unwrap_or_default();
         for order in orders {
-            match order {
-                Order::Show => self.show(),
-                Order::Start(name) => {
-                    self.show();
-                    self.actions.push(Action::OpenLaunch(name));
-                }
-                Order::Quit => self.ask_quit(),
-                Order::Pause => {
-                    let paused = !self.autopilot.paused;
-                    self.actions.push(Action::PauseAutopilot(paused));
-                }
-                Order::Restart => self.restart_from_window(),
-            }
+            self.obey(order);
         }
         // The restart's share (EP-37), the window shown or hidden.
         self.restart_pass(ctx);
@@ -1040,6 +1033,47 @@ impl Board {
             }
         }
         self.update_tray(ctx);
+    }
+
+    /// One of the tray's orders: Show and Quit at once, Start with the window shown, Pause queued
+    /// as the Sessions pane's is (it runs in the same pass when the window is hidden, EP-30).
+    pub(crate) fn obey(&mut self, order: Order) {
+        match order {
+            Order::Show => self.show(),
+            Order::Start(name) => {
+                self.show();
+                self.actions.push(Action::OpenLaunch(name));
+            }
+            Order::Quit => self.ask_quit(),
+            Order::Pause => {
+                let paused = !self.autopilot.paused;
+                self.actions.push(Action::PauseAutopilot(paused));
+            }
+            Order::Restart => self.restart_from_window(),
+        }
+    }
+
+    /// The window's pass before each frame and, while it is hidden in the tray, without one
+    /// (`Dashboard::logic`, D-29): what came in, the notifications' share; then, while hidden, the
+    /// queued actions, which no frame will run (EP-30: the tray's Pause acts at once, and so will
+    /// the phone's actions); then what the phone's pages read.
+    pub fn pass(&mut self, ctx: &egui::Context) {
+        self.receive(ctx);
+        self.attend(ctx);
+        if self.hidden {
+            self.run_queued();
+        }
+        self.publish();
+    }
+
+    /// The phone's pages' snapshot (EP-30), built when a page asked or a second has passed, and
+    /// sent when it changed or was asked for.
+    fn publish(&mut self) {
+        if self.pages.due() {
+            let now = chrono::Utc::now();
+            let list = crate::published::List::of(self, now);
+            self.pages.offer(list, now);
+        }
     }
 
     /// Whether the owner has the window in front: shown, not minimized, with the focus.
@@ -1436,15 +1470,23 @@ impl Board {
         }
     }
 
-    /// Runs the queued actions; the writes read the files again after them.
+    /// Runs the queued actions and brings forward the pane one of them asked for, the one use of
+    /// the tiles' tree: at the end of a drawn frame.
     pub fn run_actions(&mut self, tree: &mut Tree<Pane>) {
+        self.run_queued();
+        if let Some(pane) = self.bring.take() {
+            layout::show(tree, pane);
+        }
+    }
+
+    /// Runs the queued actions; the writes read the files again after them. A pane one of them
+    /// brings forward waits for the next drawn frame (`run_actions`), so this runs while the
+    /// window is hidden too (EP-30).
+    pub fn run_queued(&mut self) {
         let actions = std::mem::take(&mut self.actions);
         let mut wrote = false;
         for action in actions {
             wrote |= self.run(action);
-        }
-        if let Some(pane) = self.bring.take() {
-            layout::show(tree, pane);
         }
         if wrote {
             self.loader.read_files();
@@ -2841,16 +2883,18 @@ impl Dashboard {
 
 impl eframe::App for Dashboard {
     /// Runs before each frame and, while the window is hidden in the tray, without one (eframe
-    /// 0.37): the window's work goes on in the tray (D-29; EP-15).
+    /// 0.37): the window's work goes on in the tray (D-29; EP-15), its queued actions with it
+    /// (EP-30).
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.board.receive(ctx);
-        self.board.attend(ctx);
+        self.board.pass(ctx);
     }
 
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         #[cfg(feature = "screenshot")]
         crate::screenshot::tick(&ctx);
+        #[cfg(feature = "screenshot")]
+        crate::screenshot::write_pages(&self.board);
         // The popup is a window of its own: drawn whether this one shows or not.
         self.board.popup(&ctx);
         if self.board.hidden {
@@ -2946,6 +2990,44 @@ mod tests {
             "the day turned: every project read again"
         );
         assert!(!board.loader.day_turned());
+    }
+
+    /// The tray's Pause while the window is hidden (EP-30; the P4 walk's finding): the pass with
+    /// no frame runs the queued action, so the registry's pause is written and the window's is on
+    /// at once. Shown, the queue still waits for the drawn frame's `run_actions`.
+    #[test]
+    fn the_trays_pause_acts_in_a_hidden_pass() {
+        let scratch = crate::portfolio::tests::Scratch::new("board-hidden-pause");
+        let places = Places {
+            store: crate::portfolio::tests::fake_store(&scratch),
+            ledger: None,
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        board.hidden = true;
+        board.obey(Order::Pause);
+        assert_eq!(board.actions, vec![Action::PauseAutopilot(true)]);
+        board.pass(&ctx);
+        assert!(board.actions.is_empty(), "the queue ran with no frame");
+        assert!(board.autopilot.paused);
+        assert!(
+            board
+                .store()
+                .load()
+                .unwrap()
+                .registry
+                .settings
+                .autopilot_paused(),
+            "the pause is in the registry"
+        );
+        board.hidden = false;
+        board.obey(Order::Pause);
+        board.pass(&ctx);
+        assert_eq!(board.actions, vec![Action::PauseAutopilot(false)]);
+        board.run_queued();
+        assert!(!board.autopilot.paused);
     }
 
     #[test]

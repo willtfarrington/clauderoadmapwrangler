@@ -836,6 +836,29 @@ with modules; hand-written protocol types; another community client.
 > its SSE extension; the handlers reading the registry and the ledger themselves rather than a
 > snapshot the window publishes.
 
+> **Addendum (2026-11-16, EP-30).** The pages' base.
+>
+> - **The templates.** askama renders the pages from `crates/app/templates`: `base.html`,
+>   `list.html` and `message.html`. `app.css` sits beside them and is served from the exe.
+> - **The snapshot.** The pages read what the window publishes. `app::published` holds the
+>   project list as plain data: each row's name, state, next brief, counts, what waits, the
+>   sessions' words, and the badges in words from the same marks the row draws.
+> - **The publishing.** In each pass, shown or hidden, the window builds the snapshot at most
+>   once a second, and at once when a page asks. It goes through a `tokio::sync::watch` channel:
+>   sent when the content changed (the version rises) or when a page asked (only the time is
+>   renewed). A build that finds the same content renews the time without telling the
+>   receivers. A page asks when the snapshot it holds is older than two seconds, and waits at
+>   most two seconds for the answer. The version's change is the event EP-30b's stream will
+>   name. A line's badge sentences carry relative ages, so the version also rises about once a
+>   minute with nothing new: EP-30b's stream renders ages when a page is drawn, or compares
+>   without them.
+> - **No request channel yet.** No form needs one, so the first form builds it (EP-30a).
+>
+> *Alternatives.* The snapshot built and compared at every pass, frames included while a
+> session streams; a page served whatever was last sent, its relative ages stale while the
+> window idles in the tray; a request channel for the snapshot in place of the ask and the
+> wake.
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -921,6 +944,15 @@ everything.
 > others' dependency) names it, pins it exactly and says so in its note, as EP-24a and EP-26
 > did. *Alternatives.* The protocol crate moved to
 > 2.1.325 in a row of its own at P5's start; `qrcode` 0.14.1 cleared for the link's QR code.
+
+> **Addendum (2026-11-16, EP-30).** askama joins the app crate at `=0.16.1`. Its workspace
+> entry now names its features: `derive` and `std` alone, with no `config` (no `askama.toml`
+> and no TOML parser of its own) and no `urlencode`. The lock gained four packages, askama's
+> own (`askama`, `askama_derive`, `askama_macros` and `askama_parser`, each 0.16.1). Everything
+> they build on was locked already. axum keeps `http1`, `json` and `tokio`, since its
+> middleware needs no feature. *Alternatives.* askama's default features, whose TOML parser
+> reads a configuration file the crate does not have; `urlencode` now, for the links EP-30a
+> adds.
 
 ## Sessions
 
@@ -2681,6 +2713,51 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > planned, or both; links on waiting pushes only, or none; Enable right after the base, each
 > page then watched on the phone; the whole port proxied as first written.
 
+> **Addendum (2026-11-16, EP-30).** The pages' guard, as built. The window's server serves the
+> pages under `/m/`, beside the relays' five routes, which keep their own guard. A middleware
+> runs `crw_core::remote::check` on every page.
+>
+> - **Through Serve** means the request carries `Tailscale-User-Login`. It passes when the login
+>   is the registry's `owner_login`, ASCII case aside, and its `Host` names a tailnet machine
+>   (`<machine>.<tailnet>.ts.net`, as Serve hands it on) or the loopback. Without the `Host`
+>   rule, a page that reached the loopback through a name of its own (DNS rebinding) is
+>   same-origin to the browser and could send the owner's login itself (the review's finding);
+>   nobody can point a tailnet name at 127.0.0.1. The registry is read at that request, so `crw
+>   setting owner_login <login|none>` counts at once. A registry that names no owner, or does
+>   not read, refuses every such request.
+> - **Local** means the `Host` names the loopback at the window's port, and the request carries
+>   no login and no header a proxy adds (`X-Forwarded-*`, `Forwarded`, `Via`, `X-Real-IP`,
+>   another `Tailscale-*`). Tailscale's source has Serve add `X-Forwarded-Host` and
+>   `X-Forwarded-For` to what it proxies. So a request through Serve from a device with no user
+>   (a tagged one) is refused whichever `Host` Serve passes. EP-31a's first Enable shows the
+>   real request.
+> - **The origin.** An `Origin` other than the page's own is refused. A form (any method but GET
+>   and HEAD) must carry its own origin: `http://` and the loopback `Host` when local; through
+>   Serve, `https://` (or `X-Forwarded-Proto`) and the tailnet `Host`, or `X-Forwarded-Host`
+>   behind Serve's loopback `Host`.
+> - **Serve's mode.** The guard assumes Serve's HTTPS proxy, which sets the login and the
+>   forwarding headers. A `--tcp` or `--tls-terminated-tcp` forward passes raw requests with
+>   neither, so a tailnet client naming the loopback in `Host` would pass as local, on the
+>   relays' routes too. EP-31a's Enable uses `--https … --set-path=/m` alone, and refuses a TCP
+>   forward to the window's port.
+> - **The log.** An action through Serve is an `event` row of kind `remote`, written before its
+>   handler runs; a failed write refuses the action with a 503. A refusal is one too, at most
+>   once a minute for an identity (a login, or "no login"), and for at most 64 identities a
+>   minute. A row names the identity, the method, the path and the verdict. Of the headers it
+>   names only which proxy headers were there. Reads and the machine's own requests are not
+>   logged.
+> - **The answer.** A refused request gets a page that names no reason. Every page answers with
+>   `Cache-Control: no-store`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: same-origin`
+>   (so a form still sends its origin), `X-Frame-Options: DENY`, and a Content-Security-Policy
+>   that allows the page's own stylesheet and forms only.
+>
+> `Settings` refuses unknown fields, so a build before this one refuses a registry that holds
+> `owner_login`. Nothing sets it before EP-31a's Enable, which runs from a window that knows the
+> key. *Alternatives.* Local by the loopback `Host` alone, as first written (a tagged device's
+> request through Serve would pass if Serve handed on the loopback's `Host`); every read logged
+> too (EP-30b's fetches would fill the ledger); the owner's login published with the window's
+> snapshot (a `crw setting` change would wait for the window's next read of the registry).
+
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's
 Autorun Organizer); single instance by probing the loopback port and focusing the running window; closing
@@ -3046,6 +3123,17 @@ an opt-in live smoke test; documented AV exclusions.
 >
 > *Alternatives.* The Startup-apps flag read by the doctor, the leftover copies removed at any
 > `crw` command's start; the tray's Pause left queued and only the phone's actions run hidden.
+
+> **Addendum (2026-11-16, EP-30).** The queue in the hidden pass. While the window is hidden in
+> the tray, eframe calls `App::logic` and no `ui` (unless the popup asks to paint). So an action
+> queued then waited for the window to be shown: the tray's Pause (the P4 walk's finding), and
+> from EP-30b the phone's actions. `Board::pass`, which `Dashboard::logic` calls, now runs the
+> queue while the window is hidden (`run_queued`), after the notifications' share. A pane one of
+> those actions brings forward waits for the next drawn frame (`run_actions`, the one use of the
+> tiles' tree). While the window is shown, the queue still runs at the end of the drawn frame. A
+> test holds the tray's Pause acting in a hidden pass. *Alternatives.* The queue run at the start
+> of every pass, shown too, where a frame's own actions would wait for the next pass, a change of
+> order for every click; only the phone's actions run hidden.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

@@ -121,7 +121,13 @@ signals, the notifications, the meter, the mailman, the headless route, the defe
 with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
 restarts, a panic's head line and a child that did not start; a start that failed for reasons
 security software causes (the file flagged, access denied, a file gone) says where to look. The
-roadmap is
+window's loopback server also answers the phone's pages under `/m/` (EP-30). So far there is one
+page, the project list, read-only: the state groups, and each project's next brief, progress,
+what waits on the owner, its sessions and its badges in words. It is rendered from a snapshot the
+window publishes. A request from the machine itself is local. One through Tailscale Serve must
+carry the login that `crw setting owner_login` names, and any other is refused; each action
+through Serve and each refusal is logged in the ledger. The window's queued actions now run while
+it is hidden in the tray too, so the tray's Pause acts at once. The roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

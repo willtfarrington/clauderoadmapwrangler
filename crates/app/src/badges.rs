@@ -37,6 +37,17 @@ impl Tone {
             Tone::Bad => style::red(ui),
         }
     }
+
+    /// The phone's pages' class for the tone (EP-30), which their stylesheet colours.
+    pub fn class(self) -> &'static str {
+        match self {
+            Tone::Good => "good",
+            Tone::Plain => "plain",
+            Tone::Weak => "weak",
+            Tone::Warn => "warn",
+            Tone::Bad => "bad",
+        }
+    }
 }
 
 /// What a sign looks like: an icon of the symbol font, or a few characters.
@@ -595,6 +606,98 @@ pub fn usage(row: &ProjectRow) -> Option<Mark> {
             of_points(&points)
         ),
     ))
+}
+
+/// One badge in words, for the phone's list (EP-30): the column it stands in, a few words where
+/// the row draws an icon, the mark's whole sentence and its tone.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Word {
+    pub column: &'static str,
+    pub word: String,
+    pub sentence: String,
+    pub tone: Tone,
+}
+
+impl Word {
+    fn of(column: &'static str, mark: &Mark, word: String) -> Self {
+        Self {
+            column,
+            word,
+            sentence: mark.hover.clone(),
+            tone: mark.sign.tone,
+        }
+    }
+}
+
+/// The row's badges in words (EP-30), from the same marks its badge column draws and in that
+/// column's order: the stack, the hosting, the sync with its counts, the last commit's age and a
+/// dirty tree, CI and the license, the backup, then the week's usage, which needs no folder.
+pub fn words(row: &ProjectRow, now: DateTime<Utc>) -> Vec<Word> {
+    let mut words = Vec::new();
+    if row.folder.is_some() {
+        if !row.badges.stack.is_empty() {
+            words.push(Word {
+                column: "Stack",
+                word: row
+                    .badges
+                    .stack
+                    .iter()
+                    .map(|chip| chip.text())
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                sentence: row
+                    .badges
+                    .stack
+                    .iter()
+                    .map(|chip| format!("{} ({})", chip.text(), chip.source))
+                    .collect::<Vec<_>>()
+                    .join("; "),
+                tone: Tone::Plain,
+            });
+        }
+        let mark = hosting(row, now);
+        words.push(Word::of("Hosting", &mark, mark.sign.meaning.to_owned()));
+        if let Some(mark) = sync(row, now) {
+            // `↑3 not pushed` from `↑n` and `n not pushed`; `↑2↓5 diverged`.
+            let word = match &mark.text {
+                Some(text) => {
+                    let meaning = mark.sign.meaning;
+                    format!("{text} {}", meaning.strip_prefix("n ").unwrap_or(meaning))
+                }
+                None => mark.sign.meaning.to_owned(),
+            };
+            words.push(Word::of("Sync", &mark, word));
+        }
+        if let Some((age, dirty)) = activity(row, now) {
+            let word = match age.text.as_deref() {
+                Some("now") => "last commit just now".to_owned(),
+                Some(text) => format!("last commit {text} ago"),
+                None => age.sign.meaning.to_owned(),
+            };
+            words.push(Word::of("Age", &age, word));
+            if let Some(dirty) = dirty {
+                words.push(Word::of("Age", &dirty, dirty.sign.meaning.to_owned()));
+            }
+        }
+        if let Some(mark) = ci(row, now) {
+            words.push(Word::of("CI", &mark, mark.sign.meaning.to_owned()));
+        }
+        if let Some(mark) = license_warning(row) {
+            words.push(Word::of("License", &mark, mark.sign.meaning.to_owned()));
+        }
+        if let Some(mark) = backup(row, now) {
+            let word = format!("backup: {}", mark.sign.meaning);
+            words.push(Word::of("Backup", &mark, word));
+        }
+    }
+    if let Some(mark) = usage(row) {
+        let word = format!(
+            "{} of the weekly limit",
+            mark.text.as_deref().unwrap_or_default()
+        );
+        words.push(Word::of("Usage", &mark, word));
+    }
+    words
 }
 
 /// `1 point`, `2.5 points`.

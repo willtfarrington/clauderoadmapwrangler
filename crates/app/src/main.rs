@@ -5,8 +5,9 @@
 //! for the hooks and the status line and the sessions they report, EP-15 the notifications'
 //! popup and the tray icon, which the window closes to, EP-15c a session's revert behind its
 //! preview, EP-17 the usage meter's strip and tile, EP-37 the restart into the installed build
-//! (a window started with `--restarted <pid>` waits for the old one to end before it opens);
-//! later briefs fill the other tiles.
+//! (a window started with `--restarted <pid>` waits for the old one to end before it opens),
+//! EP-30 the phone's pages, which the loopback server renders from a snapshot the window
+//! publishes; later briefs fill the other tiles.
 
 // Release builds open without a console window; debug builds keep one for diagnostics.
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
@@ -29,8 +30,10 @@ mod list;
 mod mail;
 mod markup;
 mod meter;
+mod pages;
 mod popup;
 mod portfolio;
+mod published;
 mod restart;
 mod revert;
 #[cfg(feature = "screenshot")]
@@ -148,6 +151,13 @@ fn main() -> eframe::Result {
             board.restart.local = paths::local_dir();
             board.restart.path_dir = install::path_dir();
             let backups = board.store().backups.clone();
+            // The phone's pages read what the window publishes, the owner's login from the
+            // registry and write their log to the ledger (EP-30).
+            board.watch.pages = Some(server::Pages {
+                published: board.pages.reader(),
+                store: board.loader.shared_store(),
+                ledger: board.ledger().map(std::path::Path::to_path_buf),
+            });
             // A window started by a restart never yields to another (EP-40): it binds once the
             // old one ended, and it holds the handover. A start at login yields without asking
             // the running window to show itself (EP-28a).

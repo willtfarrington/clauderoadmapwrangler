@@ -218,11 +218,16 @@ pub struct Settings {
     /// line, which Make public's scan of the history reads (D-24, D-3; EP-42); relative to the
     /// data root or a full path. None, the default, leaves the history unchecked, said so.
     pub private_words: Option<PathBuf>,
+    /// The Tailscale login the phone's pages answer through Serve (D-28; EP-30): a request that
+    /// arrives through Serve passes only when its `Tailscale-User-Login` is this one, ASCII case
+    /// aside. None, the default, refuses every request through Serve; Enable remote view writes
+    /// it (EP-31a).
+    pub owner_login: Option<String>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 19] = [
+    pub const KEYS: [&str; 20] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -242,11 +247,13 @@ impl Settings {
         "ntfy_topic",
         "site",
         "private_words",
+        "owner_login",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
     /// two times, `usage_endpoint` and `autopilot_paused` on or off, the percents and the
-    /// day's total numbers, `ntfy_host` a server, `ntfy_topic` a word and `site` a project.
+    /// day's total numbers, `ntfy_host` a server, `ntfy_topic` a word, `site` a project and
+    /// `owner_login` a login.
     pub fn is_path(key: &str) -> bool {
         !matches!(
             key,
@@ -262,6 +269,7 @@ impl Settings {
                 | "ntfy_host"
                 | "ntfy_topic"
                 | "site"
+                | "owner_login"
         )
     }
 
@@ -338,6 +346,7 @@ impl Settings {
             "ntfy_topic" => self.ntfy_topic.clone(),
             "site" => self.site.clone(),
             "private_words" => path(&self.private_words),
+            "owner_login" => self.owner_login.clone(),
             _ => None,
         }
     }
@@ -1269,10 +1278,10 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours`, `ntfy_host`, `ntfy_topic`, `site` and `private_words` set to `none`,
-    /// `usage_endpoint` set to `on`, `autopilot_paused` set to `off` and the percents and the
-    /// day's total set to `default` (the defaults, which the builds before EP-17, EP-18, EP-19,
-    /// EP-20a, EP-27 and EP-42 would refuse to read) are taken out.
+    /// `quiet_hours`, `ntfy_host`, `ntfy_topic`, `site`, `private_words` and `owner_login` set to
+    /// `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to `off` and the percents and
+    /// the day's total set to `default` (the defaults, which the builds before EP-17, EP-18,
+    /// EP-19, EP-20a, EP-27, EP-42 and EP-30 would refuse to read) are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -1281,9 +1290,8 @@ impl Changes<'_> {
             )));
         }
         let default = match key {
-            "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" | "private_words" => {
-                value.trim().eq_ignore_ascii_case("none")
-            }
+            "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" | "private_words"
+            | "owner_login" => value.trim().eq_ignore_ascii_case("none"),
             "usage_endpoint" => match value.trim() {
                 "on" => true,
                 "off" => false,
@@ -1379,6 +1387,10 @@ impl Changes<'_> {
             "site" => match self.registry.project(value.trim()) {
                 Some(project) => Value::from(project.name.as_str()),
                 None => return Err(Error::UnknownProject(value.trim().to_owned())),
+            },
+            "owner_login" => match crate::remote::check_login(value) {
+                Ok(login) => Value::from(login),
+                Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             _ if value.trim().is_empty() => {
                 return Err(Error::Invalid(format!("{key} needs a path")));
@@ -2282,6 +2294,50 @@ state = "paused"
             .unwrap();
         assert_eq!(registry.settings.site, None);
         assert!(!Settings::is_path("site"));
+    }
+
+    /// The phone's owner (D-28; EP-30): one word, kept as typed less its spaces; a login with a
+    /// space or a control character is refused and nothing is written; `none` takes it out.
+    #[test]
+    fn the_owner_login_is_one_word_and_none_takes_it_out() {
+        let scratch = Scratch::new("registry-owner-login");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        assert_eq!(store.load().unwrap().registry.settings.owner_login, None);
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("owner_login", " owner@example.com ")
+            })
+            .unwrap();
+        assert_eq!(
+            registry.settings.get("owner_login").as_deref(),
+            Some("owner@example.com")
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains("owner_login = \"owner@example.com\""),
+            "{text}"
+        );
+        for wrong in ["two words", "", "tab\there", "owner@example.com\u{7}"] {
+            let refused = store.change(TODAY, |c| c.set_setting("owner_login", wrong));
+            assert!(
+                matches!(refused, Err(Error::Invalid(_))),
+                "{wrong:?}: {refused:?}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("owner_login", "None"))
+            .unwrap();
+        assert_eq!(registry.settings.owner_login, None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("owner_login")
+        );
+        assert!(!Settings::is_path("owner_login"));
+        assert!(Settings::KEYS.contains(&"owner_login"));
     }
 
     #[test]

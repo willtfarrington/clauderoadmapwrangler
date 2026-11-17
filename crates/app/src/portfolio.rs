@@ -831,6 +831,12 @@ impl Loader {
         &self.store
     }
 
+    /// The store, shared with another thread: the server's, which reads the owner's login at a
+    /// request through Serve (EP-30).
+    pub fn shared_store(&self) -> Arc<Store> {
+        Arc::clone(&self.store)
+    }
+
     /// Whether the local day turned since the latest read of every project's files (EP-41), as
     /// it does at midnight with the window up or when the machine wakes in a new day: the caller
     /// reads them again.

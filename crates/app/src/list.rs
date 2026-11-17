@@ -833,7 +833,7 @@ fn group_header(
         .clicked()
 }
 
-fn heading(kind: GroupKind) -> &'static str {
+pub(crate) fn heading(kind: GroupKind) -> &'static str {
     match kind {
         GroupKind::State(State::Active) => "Active",
         GroupKind::State(State::Paused) => "Paused",
@@ -918,11 +918,8 @@ fn project_row(
         (None, _) => {
             plan.draw(ui, rect, Column::Title, |ui| {
                 ui.add(
-                    egui::Label::new(
-                        RichText::new(format!("Folder missing: {}", row.path.display()))
-                            .color(style::red(ui)),
-                    )
-                    .truncate(),
+                    egui::Label::new(RichText::new(missing_folder(row)).color(style::red(ui)))
+                        .truncate(),
                 );
             });
         }
@@ -934,13 +931,7 @@ fn project_row(
             });
         }
         (Some(_), None) => {
-            let text = if counts.all_checked() {
-                "Every row is checked"
-            } else if row.snapshot.current().is_none() {
-                "No roadmap/README.md"
-            } else {
-                "No phase table read"
-            };
+            let text = no_next(row);
             if let (Some(next), Some(title)) = (
                 plan.rect(Column::Next, rect),
                 plan.rect(Column::Title, rect),
@@ -1223,6 +1214,23 @@ fn house_hint(house: &crate::portfolio::House) -> String {
     }
 }
 
+/// Why a project with its folder shows no next brief, in the row's words; the phone's list says
+/// the same (EP-30).
+pub(crate) fn no_next(row: &ProjectRow) -> &'static str {
+    if row.counts().all_checked() {
+        "Every row is checked"
+    } else if row.snapshot.current().is_none() {
+        "No roadmap/README.md"
+    } else {
+        "No phase table read"
+    }
+}
+
+/// A registered project whose folder is gone, in the row's words.
+pub(crate) fn missing_folder(row: &ProjectRow) -> String {
+    format!("Folder missing: {}", row.path.display())
+}
+
 fn name_label(ui: &mut egui::Ui, name: &str) {
     ui.add(egui::Label::new(RichText::new(name).strong()).truncate());
 }
@@ -1376,16 +1384,21 @@ fn usage_cell(ui: &mut egui::Ui, row: &ProjectRow) {
 /// own words: the window's headless runs and those Claude Code reports, EP-12); else a
 /// repository git has not been asked about yet.
 fn session_cell(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>) {
-    let texts: Vec<String> = live
-        .map(str::to_owned)
-        .into_iter()
-        .chain(row.in_progress().iter().map(ToString::to_string))
-        .collect();
+    let texts = session_words(row, live);
     if !texts.is_empty() {
         SESSION.show(ui, &format!("Session in progress: {}", texts.join("; ")));
     } else if row.awaits_git() {
         GIT_PENDING.show(ui, "Git has not been asked yet");
     }
+}
+
+/// What says a session is in progress: the sessions' own words (`live`), then the files'
+/// evidence (D-9); the row's Session cell and the phone's list (EP-30).
+pub(crate) fn session_words(row: &ProjectRow, live: Option<&str>) -> Vec<String> {
+    live.map(str::to_owned)
+        .into_iter()
+        .chain(row.in_progress().iter().map(ToString::to_string))
+        .collect()
 }
 
 fn size_hint(size: crw_core::roadmap::Size) -> &'static str {
@@ -1616,11 +1629,7 @@ fn project_card(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>, drawing
     match (&row.folder, row.next()) {
         (None, _) => {
             ui.add(
-                egui::Label::new(
-                    RichText::new(format!("Folder missing: {}", row.path.display()))
-                        .color(style::red(ui)),
-                )
-                .wrap(),
+                egui::Label::new(RichText::new(missing_folder(row)).color(style::red(ui))).wrap(),
             );
         }
         (Some(_), Some(next)) => {
@@ -1630,14 +1639,7 @@ fn project_card(ui: &mut egui::Ui, row: &ProjectRow, live: Option<&str>, drawing
             ui.add(egui::Label::new(title).wrap());
         }
         (Some(_), None) => {
-            let text = if counts.all_checked() {
-                "Every row is checked"
-            } else if row.snapshot.current().is_none() {
-                "No roadmap/README.md"
-            } else {
-                "No phase table read"
-            };
-            ui.label(RichText::new(text).weak());
+            ui.label(RichText::new(no_next(row)).weak());
         }
     }
     if counts.total > 0 {

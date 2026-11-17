@@ -14,7 +14,10 @@ publish.workspace = true
 screenshot = ["dep:image"]
 
 [dependencies]
-# The loopback server the hooks and the status line post to (D-14, D-20, D-28; EP-12).
+# The phone's pages, rendered from `templates` (D-14, D-28; EP-30).
+askama.workspace = true
+# The loopback server the hooks and the status line post to (D-14, D-20, D-28; EP-12), and from
+# EP-30 the phone's pages.
 axum.workspace = true
 # The age of a project's last commit, the date of a write's copies.
 chrono.workspace = true

@@ -57,6 +57,8 @@ struct Poller {
 pub struct Watch {
     pub model: Sessions,
     server: Option<Server>,
+    /// What the server serves the phone's pages from (EP-30), set by `main` before the start.
+    pub pages: Option<crate::server::Pages>,
     poller: Option<Poller>,
     /// Where the server stands; none before it starts (a screenshot run's is canned).
     pub listening: Option<Listening>,
@@ -171,7 +173,9 @@ impl Watch {
     /// (the review's finding: the holder may have changed since the last probe).
     fn bind(&mut self, ctx: &egui::Context) {
         let wake = ctx.clone();
-        let server = Server::start(self.port, move || wake.request_repaint());
+        let server = Server::serve(self.port, self.pages.clone(), move || {
+            wake.request_repaint()
+        });
         self.listening = Some(server.listening.clone());
         self.server = Some(server);
         self.probe = None;

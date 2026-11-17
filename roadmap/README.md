@@ -2159,6 +2159,30 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   afterwards are `decisions::answer_words`. Sessions that wait in VS Code are listed
   read-only, and a chat's questions stay in the Chat pane (`Sessions::waiting` leaves them
   out). A request answered at the desk meanwhile answers the form with "already answered".
+  **From EP-30:** the base serves `GET /m/`, `GET /m/app.css`, `GET /m` (a 303 to `/m/`, by
+  path alone so it holds through Serve) and a 404 page for any other `/m/…` path
+  (`app/src/server.rs`: `Server::serve(port, Some(Pages), wake)`, `Pages { published, store,
+  ledger }`; the routes on a sub-router whose `guard` middleware runs `crw_core::remote::check`).
+  A route added to that sub-router is guarded with no more work, and its handler finds the
+  caller as `remote::Caller` among the request's extensions (`identity()` for the window's
+  words). Every POST through Serve is already written to the ledger (`remote::allowed_line`)
+  before its handler runs, a failed write answering 503; a local POST is not logged. A form's
+  POST must carry its own `Origin`. The base has no request channel to the window: the
+  snapshot's ask is an `AtomicBool` and the server's `wake`. The first form builds that channel
+  on `RestartRequest`'s pattern (a struct with a `oneshot` reply through `Shared`, drained in
+  `Board::pass`, which runs while hidden, then `run_queued`), since a channel with no order
+  would be dead code. The page's data is `published::List` (groups of `Line`s, built by
+  `List::of(&Board, now)` at most once a second in `Board::publish`): a project's page extends
+  it or adds a part of its own, and a test of the publisher holds the version rising only with
+  the content. Templates extend `templates/base.html` (blocks `title`, `as_of`, `content`);
+  the view structs are made in `app/src/pages.rs` so the templates stay plain, and
+  `pages::message(heading, words)` draws a one-line page. askama is built with `derive` and
+  `std` alone: a link's project name needs its `urlencode` feature (a feature change, said in
+  the note) or `percent-encoding`, which the lock holds. axum still lacks `form`. Every page
+  answers with `server::secured`'s headers, whose Content-Security-Policy allows the page's own
+  stylesheet and forms (`form-action 'self'`). The screenshot feature's `pages=<file.html>`
+  writes the list page of a run's portfolio (a copy of real roadmaps under `root=` included):
+  the way to look at a page on real content, since a run binds no port.
 - **EP-30b.** Added at EP-29 (2026-11-15) by EP-30's cut: the three actions that run things,
   the two blocks the owner asked for on the list page, and the live updates.
   (1) **Start.** No action starts a brief without the launch dialog today
@@ -2185,6 +2209,28 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   or names and pins what it adds (D-15 addendum). No stream survives
   the window's quit; the script tries again. (6) **`crw remote`** prints the remote-action
   log, as `crw mail` prints the mailman's.
+  **From EP-30:** the event stream's change is the published snapshot's `version`
+  (`published::Published`), which rises only when the list's content changes. A page's ask for
+  a fresh snapshot renews `at` alone, so the stream sends an event only when `version` moved.
+  `Reader` holds a `watch::Receiver`, and a stream clones it and awaits `changed()`. The version
+  also rises about once a minute with nothing new, since a line's badge sentences and its age
+  word carry relative times (`badges::ago`, `short_age`; EP-30's review). So the snapshot
+  carries timestamps and the page renders the ages when it is drawn, or the stream compares the
+  content without them. The
+  script's file joins `server::CONTENT_POLICY` as `script-src 'self'`, and the stream's as
+  `connect-src 'self'`. Pause and Resume from the phone run through the action queue, which runs
+  in the hidden pass since EP-30 (`Board::pass`, `run_queued`), as the tray's Pause does. The
+  log's rows are `event` rows of kind `remote` (`remote::EVENT_KIND`), each `<identity> ·
+  <method> <path> · allowed` or `· refused: <reason>`, a refusal at most once a minute for an
+  identity. **From IN-14 (2026-11-15, triaged at EP-30, the owner's choice):** the gate's
+  registry read fails softly. `weigh_run`, the held chains' re-read and `start_queued` all
+  return on a registry that does not read, the second silently. After EP-42, a key written
+  during a run (`private_words`) made the window's older build refuse the registry. The chain
+  then stopped with no chain-log line, its plan outliving it, and without the restart a held
+  chain takes at the gate's moment (EP-37a), the one restart that brings in the build that
+  knows the key. So: on such a failure, write the chain log's line and a notice naming File >
+  Install and restart; and when a newer installed build waits (`install::restart_due`), take
+  the restart with the chain carried, for the new window to weigh the gate. About an S.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
@@ -2243,6 +2289,17 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   (8) **The README** gains the phone view's section and its security words, in generic terms
   (D-3: no login, no tailnet name; a phone whose other VPN displaces the tailnet cannot reach
   the page, said as a hint).
+  **From EP-30:** the guard (`crw_core::remote::check`) assumes Serve's HTTPS proxy. That proxy
+  sets the login and the forwarding headers (`X-Forwarded-Host`, `-For`, `-Proto`) and, by
+  Tailscale's source, hands on the tailnet name as `Host`. A request with the login passes only
+  with a tailnet machine's name (`remote::is_tailnet_name`: any `*.ts.net` machine) or the
+  loopback in `Host`, which keeps out a page that reached the loopback through a name of its
+  own. Enable may write the machine's own name (`Self.DNSName`) to the registry and narrow the
+  check to it. A `--tcp` or `--tls-terminated-tcp` forward passes raw requests with neither
+  login nor forwarding headers, so a tailnet client naming the loopback in `Host` would pass as
+  local, on the relays' routes too (EP-30's review). So Enable uses `--https … --set-path=/m`
+  alone, and the status read before it refuses a TCP forward to the window's port. The
+  remote-action log's refused line already names which proxy headers came, never their values.
 - **EP-32.** Timings for every EP of v1, the README's "State of the app" and screenshots refreshed,
   addenda, `v2-notes.md` compiled into themes (launch modes, analytics, chat, phone, hosting, conventions),
   the v2 direction (the first candidates: `--bg` background sessions with Attach, worktree-per-session,

@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}Projects · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block content %}
+<p class="summary">{{ summary }} · <a href="/m/">Reload</a></p>
+{% if let Some(problem) = problem %}<p class="problem">{{ problem }}</p>{% endif %}
+{% if reading %}<p class="weak">Reading the projects…</p>{% endif %}
+{% for group in groups %}
+<details class="group"{% if group.open %} open{% endif %}>
+<summary><h2>{{ group.heading }} <span class="count">{{ group.projects.len() }}</span></h2></summary>
+{% for p in group.projects %}
+<article class="project">
+<div class="head">
+<strong class="name">{{ p.name }}</strong>
+<span class="chip state-{{ p.state }}">{{ p.state }}</span>
+{% for mark in p.marks %}<span class="mark {{ mark.1 }}">{{ mark.0 }}</span>
+{% endfor %}
+</div>
+{% if let Some(id) = p.next_id %}
+<p class="next"><span class="ep">{{ id }}</span>{% if let Some(size) = p.size %} <span class="size">{{ size }}</span>{% endif %}
+<span class="title">{% for run in p.title %}{% if run.tag.is_empty() %}{{ run.text }}{% else %}<{{ run.tag }}>{{ run.text }}</{{ run.tag }}>{% endif %}{% endfor %}</span></p>
+{% endif %}
+{% if let Some(words) = p.no_next %}<p class="next {% if p.missing %}bad{% else %}weak{% endif %}">{{ words }}</p>{% endif %}
+{% if p.total > 0 %}
+<p class="progress"><progress value="{{ p.done }}" max="{{ p.total }}"></progress> {{ p.progress }}</p>
+{% endif %}
+{% if !p.waits.is_empty() %}<p class="waits">{% for wait in p.waits %}<span class="mark {{ wait.1 }}">{{ wait.0 }}</span>
+{% endfor %}</p>{% endif %}
+{% for words in p.sessions %}<p class="session">{{ words }}</p>
+{% endfor %}
+{% if !p.badges.is_empty() %}
+<p class="badges">{% for badge in p.badges %}<span class="badge {{ badge.tone }}">{{ badge.word }}</span>
+{% endfor %}</p>
+<details class="more"><summary>The badges in full</summary>
+<dl>{% for badge in p.badges %}<dt>{{ badge.column }}</dt><dd>{{ badge.sentence }}</dd>
+{% endfor %}</dl>
+</details>
+{% endif %}
+</article>
+{% endfor %}
+</details>
+{% endfor %}
+{% if !unadopted.is_empty() %}
+<details class="group">
+<summary><h2>Unadopted folders <span class="count">{{ unadopted.len() }}</span></h2></summary>
+<ul class="folders">{% for name in unadopted %}<li>{{ name }}</li>
+{% endfor %}</ul>
+</details>
+{% endif %}
+<p class="foot weak">This page reads only. Adopt a folder, tick, answer and start from the window.</p>
+{% endblock %}

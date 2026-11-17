@@ -196,7 +196,10 @@ commands:
                                  registered project that receives the site export, or none),
                                  private_words (a file of words that must not reach a public
                                  repository, one a line, which make-public reads the history
-                                 against; never printed beyond their count; or none)
+                                 against; never printed beyond their count; or none),
+                                 owner_login (the Tailscale login the phone's pages answer
+                                 through Serve; none, the default, refuses every request through
+                                 Serve, while one from this machine needs no login)
   export site [--yes]            preview the site export: projects.json and projects-cards.html
                                  for the projects whose remote is public in the account's list
                                  the window cached (name, stack badge, done of total, the next
@@ -2148,6 +2151,25 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
                 }
                 ExitCode::SUCCESS
             }
+            Ok((registry, ())) if key == "owner_login" => {
+                match registry.settings.get(key) {
+                    Some(login) => {
+                        println!("owner_login = {login}");
+                        println!(
+                            "note: the phone's pages answer this login through Tailscale Serve \
+                             once remote view is on; a request from this machine needs none"
+                        );
+                        println!(
+                            "note: a window older than EP-30's build refuses a registry that holds \
+                             this key until it restarts into the installed build"
+                        );
+                    }
+                    None => println!(
+                        "owner_login: none, the phone's pages refuse every request through Serve"
+                    ),
+                }
+                ExitCode::SUCCESS
+            }
             Ok((registry, ())) => {
                 println!("{key} = {value}");
                 let full = registry.data_root().join(value);
@@ -2186,6 +2208,10 @@ fn setting(key: Option<&str>, value: Option<&str>) -> ExitCode {
             (None, "site") => "none (the default: no site export)".to_owned(),
             (None, "private_words") => {
                 "none (the default: Make public reads no history)".to_owned()
+            }
+            (None, "owner_login") => {
+                "none (the default: the phone's pages refuse every request through Serve)"
+                    .to_owned()
             }
             (None, "fable_downshift_percent") => format!(
                 "{} (the default: above it an S brief on Fable is proposed Opus 5.5)",

@@ -163,7 +163,7 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   **Triaged at EP-25 (2026-11-11):** outside a history brief and about an S of window work; on
   the owner's choice a new S row, EP-25a, right after EP-25 in P4: a project's files and git
   re-read on their own when its session or its chain's run ends, and from its row's menu.
-- [ ] IN-14 (from the owner, 2026-11-15) A registry key written during a run is unreadable to the
+- [x] IN-14 (from the owner, 2026-11-15) A registry key written during a run is unreadable to the
   window that started the run, and that window's gate reads the registry first. Seen after EP-42:
   the session set `private_words` once its install's restart had been refused (the run still
   worked), and when the run ended the window, on EP-41's build, logged "The autopilot could not
@@ -180,4 +180,10 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   least write the chain log's line and a notice naming File > Install and restart. A convention
   would also do: a brief that adds a registry key leaves setting it to an owner task once the
   window runs the new build (EP-42's recommended option). Low priority, about an S. Suggested home:
-  a brief that touches the gate or the install, else EP-32's v2 notes.
+  a brief that touches the gate or the install, else EP-32's v2 notes. **Triaged at EP-30
+  (2026-11-16):** about an S and outside that brief, which does not touch the gate; on the owner's
+  choice parked in EP-30b's brief notes, since EP-30b builds the phone's Start from the gate's two
+  halves (`Board::gated`, `Board::start_queued`). EP-30's field check saw one more effect: the
+  chain plan outlived its chain (the owner's restart at 23:15 carried it), since the gate that
+  ends a chain never ran. EP-30 adds `owner_login` and leaves it unset in the owner's registry,
+  so the trap does not recur there.

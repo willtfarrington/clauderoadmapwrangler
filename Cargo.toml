@@ -82,8 +82,10 @@ toml_edit = "=0.25.17"
 tray-icon = { version = "=0.26.1", default-features = false }
 
 # The loopback server and the phone pages (D-14, D-28). From EP-12, axum serves the signals with
-# HTTP/1.1 and JSON only, on tokio's `net`.
-askama = "=0.16.1"
+# HTTP/1.1 and JSON only, on tokio's `net`. From EP-30, askama renders the phone's pages from the
+# app crate's `templates`: its derive and std alone, no `config` (no askama.toml, no TOML parser of
+# its own) and no `urlencode` (D-15 addendum, 2026-11-16).
+askama = { version = "=0.16.1", default-features = false, features = ["derive", "std"] }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
 
 anyhow = "=1.0.104"
