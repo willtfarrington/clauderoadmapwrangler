@@ -237,10 +237,10 @@ window first meets the key through EP-31a's Enable, in a build that knows it.
    window runs `logic` while hidden when a repaint is asked (eframe 0.37's documented
    behaviour), which the tray's orders and the server's requests both ask for.
 
-> **Completion note (2026-11-16; claude-opus-5-5/max; about 1 h 5 min of wall time).** Started
-> headless from the window by the owner (ledger row `22d628f5`, from 18:57); the work commit at
-> about 20:00, the record commit after it, then the install. One question was put to the owner,
-> answered within minutes while the first gate ran.
+> **Completion note (2026-11-16; claude-opus-5-5/max; about 1 hour of wall time).** Started
+> headless from the window by the owner (ledger row `22d628f5`, from 18:57); the work commit
+> `4c5dd3a` at 19:54, the record commit after it, then the install. One question was put to the
+> owner, answered within minutes while the first gate ran.
 >
 > **Built.**
 >
