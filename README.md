@@ -121,10 +121,15 @@ signals, the notifications, the meter, the mailman, the headless route, the defe
 with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
 restarts, a panic's head line and a child that did not start; a start that failed for reasons
 security software causes (the file flagged, access denied, a file gone) says where to look. The
-window's loopback server also answers the phone's pages under `/m/` (EP-30). So far there is one
-page, the project list, read-only: the state groups, and each project's next brief, progress,
-what waits on the owner, its sessions and its badges in words. It is rendered from a snapshot the
-window publishes. A request from the machine itself is local. One through Tailscale Serve must
+window's loopback server also answers the phone's pages under `/m/` (EP-30, EP-30a). The project
+list shows the state groups, and each project's next brief, progress, what waits on the owner, its
+sessions and its badges in words. A project's page shows its next brief's note, what waits on the
+owner, its inbox and its sessions, and ticks an owner task, ticks an inbox message with its
+disposition and writes a message into its inbox. The decisions page answers a headless session's
+questions and permission requests, a deferred run's too. Each form goes to the window, which runs
+it as the desk would and says what came of it on the page, in its status bar and in its log. The
+pages are rendered from a snapshot the window publishes. A request from the machine itself is
+local. One through Tailscale Serve must
 carry the login that `crw setting owner_login` names, and any other is refused; each action
 through Serve and each refusal is logged in the ledger. The window's queued actions now run while
 it is hidden in the tray too, so the tray's Pause acts at once. The roadmap is

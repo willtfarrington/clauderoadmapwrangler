@@ -3,6 +3,7 @@
 {% block as_of %}{{ as_of }}{% endblock %}
 {% block content %}
 <p class="summary">{{ summary }} · <a href="/m/">Reload</a></p>
+<p class="summary"><a href="/m/decisions">Decisions</a>: {{ decisions }}</p>
 {% if let Some(problem) = problem %}<p class="problem">{{ problem }}</p>{% endif %}
 {% if reading %}<p class="weak">Reading the projects…</p>{% endif %}
 {% for group in groups %}
@@ -11,7 +12,7 @@
 {% for p in group.projects %}
 <article class="project">
 <div class="head">
-<strong class="name">{{ p.name }}</strong>
+<a class="name" href="{{ p.link }}">{{ p.name }}</a>
 <span class="chip state-{{ p.state }}">{{ p.state }}</span>
 {% for mark in p.marks %}<span class="mark {{ mark.1 }}">{{ mark.0 }}</span>
 {% endfor %}
@@ -47,5 +48,5 @@
 {% endfor %}</ul>
 </details>
 {% endif %}
-<p class="foot weak">This page reads only. Adopt a folder, tick, answer and start from the window.</p>
+<p class="foot weak">A project's page ticks its owner tasks and inbox messages and takes a message; the decisions page answers. Adopt a folder and start from the window.</p>
 {% endblock %}

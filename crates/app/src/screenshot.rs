@@ -2042,15 +2042,46 @@ pub fn write_pages(board: &Board) {
     };
     PAGES_WRITTEN.store(true, Ordering::Relaxed);
     let now = Utc::now();
+    let parts = crate::published::Parts::of(board, now);
     let published = crate::published::Published {
         at: now,
         version: 1,
-        list: crate::published::List::of(board, now),
+        list: parts.list,
+        projects: parts.projects,
+        decisions: parts.decisions,
     };
     match crate::pages::list(&published).map(|html| fs::write(&path, html)) {
         Ok(Ok(())) => eprintln!("screenshot: wrote the list page {}", path.display()),
         Ok(Err(e)) => eprintln!("screenshot: {}: {e}", path.display()),
         Err(e) => eprintln!("screenshot: the list page did not render: {e}"),
+    }
+    // Each project's page and the decisions page beside it (EP-30a): `<stem>-<project>.html`.
+    let stem = path
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "pages".to_owned());
+    let beside = |name: &str| path.with_file_name(format!("{stem}-{name}.html"));
+    for project in &published.projects {
+        let file = beside(&crate::form::segment(&project.name));
+        match crate::pages::project(&published, &project.name, None) {
+            Some(Ok(html)) => {
+                if let Err(e) = fs::write(&file, html) {
+                    eprintln!("screenshot: {}: {e}", file.display());
+                }
+            }
+            Some(Err(e)) => eprintln!("screenshot: {}'s page did not render: {e}", project.name),
+            None => {}
+        }
+    }
+    let file = beside("decisions");
+    match crate::pages::decisions(&published, None).map(|html| fs::write(&file, html)) {
+        Ok(Ok(())) => eprintln!(
+            "screenshot: wrote {} project pages and {}",
+            published.projects.len(),
+            file.display()
+        ),
+        Ok(Err(e)) => eprintln!("screenshot: {}: {e}", file.display()),
+        Err(e) => eprintln!("screenshot: the decisions page did not render: {e}"),
     }
 }
 

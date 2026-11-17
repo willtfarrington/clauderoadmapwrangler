@@ -766,6 +766,16 @@ urgent messages into running headless sessions.
 > undo and kept the work in the backups folder. *Alternatives.* The five listed at the
 > close-out as built and never met; a staged pass over each on scratch projects.
 
+> **Addendum (2026-11-16, EP-30a).** The owner's side of the mail from the phone (D-28). A
+> project's page ticks an inbox message with the disposition its form carries, which the write
+> refuses when empty, and ticks an owner task (D-10). Both are logged as the Detail pane's ticks
+> are, for a revert to redo. Its compose form writes the owner's message through the compose
+> dialog's own write, on a worker thread, with the dialog's refusals (a screenshot run's
+> projects, a revert open there, a message of the flag alone). A session at work there is said
+> on the page and in the answer, as the dialog says it, and does not hold the message.
+> *Alternatives.* The message delivered by the mailman's next round; a session at work there
+> holding it.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,
@@ -1220,6 +1230,19 @@ protocol is what community tools use and what `claude-codes` types; the docs gua
 > A plain refusal at the time limit, the session going on without the answer; one limit for every
 > project; a defer hook that asks the window at run time; restarting a run whose handshake is
 > refused.
+
+> **Addendum (2026-11-16, EP-30a).** The phone answers too, on its decisions page (D-28). The page
+> shows what the Decisions tile holds: each request a window's headless session waits on, each
+> deferred run's open request, and the sessions waiting elsewhere, read-only. A form names its
+> session's key, the request's id and its button. The window builds the response from the form
+> by the tile's rules (`decisions::Draft`) against the request as it holds it: one pick for a
+> question of one answer, several for one of several, the owner's own words, at least one answer
+> to send, a reason to decline, a denial's reason optional. A request no longer waiting, answered
+> at the desk meanwhile, answers the form "already answered". A deferred run resumes as the tile's
+> Answer and resume does. A chat's questions stay the Chat pane's, and the tool still never
+> answers for a session waiting elsewhere. *Alternatives.* The response built by the server from
+> the published request (a request answered at the desk meanwhile could be answered twice); a
+> chat's questions on the page too.
 
 **D-20 Signals.** The tool installs **user-level hooks** (Notification, Stop, SessionStart, SessionEnd) in
 `~/.claude/settings.json` that run its `cli` binary, which posts the event to the loopback server and exits
@@ -2757,6 +2780,41 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > request through Serve would pass if Serve handed on the loopback's `Host`); every read logged
 > too (EP-30b's fetches would fill the ledger); the owner's login published with the window's
 > snapshot (a `crw setting` change would wait for the window's next read of the registry).
+
+> **Addendum (2026-11-16, EP-30a).** The pages that tick and answer, as built.
+>
+> - **The pages.** `GET /m/p/<project>` shows the next brief's note in the Detail pane's blocks
+>   (labels, numbered parts, a long item a sentence to a line), what waits on the owner, the older
+>   forms uncounted, the inbox and the sessions. `GET /m/decisions` shows each waiting request as a
+>   form, the deferred runs' too, and the sessions waiting elsewhere read-only. The list links each
+>   project to its page and counts what waits for an answer. A project's name in a link is
+>   percent-encoded, and a form's body is decoded, by a few lines of the tool's own.
+> - **The forms.** Four POSTs: `/m/p/<project>/tick`, `/message` and `/send`, and
+>   `/m/decisions/answer`. Each passes the guard as every page does, so a form through Serve is
+>   logged before it runs and a form without its own origin is refused.
+> - **The request channel.** A form's handler hands the window a `PageRequest` (the order, the
+>   caller's identity, a `oneshot` reply, a hand-over state) and waits at most ten seconds. The
+>   window drains the channel in its pass, shown or hidden, before the queue. It runs each order
+>   with the desk's own calls, and says what came of it in the status bar and the rolling log
+>   with the identity. The window and the page each move the hand-over state once: a form not
+>   taken in ten seconds is let go and never run, and one the window took is said to be under
+>   way. A form whose page closed its connection is dropped unrun.
+> - **The writes' guards.** A revert open or running in the project refuses the phone's ticks
+>   and messages there, since at the desk its dialog is modal. The same words to the same
+>   project are written once within five minutes (a second tap, a page not reloaded).
+> - **The line after a form.** The handler keeps the outcome under a number (five minutes, at most
+>   32, numbered from the process's start, drawn only on its own page) and answers a 303 to the
+>   form's page with `?done=<n>`, after waiting up to three seconds for the snapshot to show a
+>   write. A reload never posts again, and a page never draws words that a link carries.
+> - **The snapshot.** It now holds each project's page and the decisions beside the list. Their
+>   times are clock times (a request's arrival is kept as one), never ages, so an idle window
+>   publishes no new version for them. It is built at once when the files land and after a form.
+>
+> No untick from the phone, which this decision's list of actions does not name. A restart waits
+> while a message from the phone is being written. *Alternatives.* The outcome's words in the
+> redirect's query (a crafted link could put words on the owner's page); axum's `form` feature,
+> or askama's `urlencode` (a feature change for a few lines); orders queued as the window's
+> actions (their words would reach the status bar and not the page).
 
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's

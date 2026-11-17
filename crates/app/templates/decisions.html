@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Decisions · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block content %}
+{% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
+<h1>Decisions</h1>
+<p class="weak"><a href="/m/">All projects</a> · <a href="/m/decisions">Reload</a></p>
+{% if waiting.is_empty() && deferred.is_empty() && elsewhere.is_empty() %}
+<p class="weak">Nothing waits for you. A headless session's questions and permission requests come here while it waits, and a run deferred at its time limit or by the defer route stays here until you answer it.</p>
+{% endif %}
+{% if !waiting.is_empty() %}
+<h2>Waiting here <span class="count">the session holds until you answer</span></h2>
+{% for ask in waiting %}{% include "ask.html" %}
+{% endfor %}
+{% endif %}
+{% if !deferred.is_empty() %}
+<h2>Deferred <span class="count">your answer resumes the session</span></h2>
+{% for ask in deferred %}{% include "ask.html" %}
+{% endfor %}
+{% endif %}
+{% if !elsewhere.is_empty() %}
+<h2>Waiting elsewhere <span class="count">the tool never answers for them</span></h2>
+{% for seen in elsewhere %}
+<article class="item">
+<div class="head"><strong>{{ seen.project }}</strong> <span class="mark weak">{{ seen.mode }}</span> <span class="mark warn">waiting</span></div>
+<p class="warn">It {{ seen.words }}.</p>
+{% if !seen.name.is_empty() %}<p class="weak small">{{ seen.name }}</p>{% endif %}
+</article>
+{% endfor %}
+{% endif %}
+<p class="foot weak">A chat's questions stay in the window's Chat pane, and Focus for a session in VS Code is the window's too.</p>
+{% endblock %}

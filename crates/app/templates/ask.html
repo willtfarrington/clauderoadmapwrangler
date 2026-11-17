@@ -1,0 +1,29 @@
+<article class="item ask">
+<div class="head"><strong>{{ ask.title }}</strong> <span class="mark warn">{{ ask.tool }}</span></div>
+<p class="weak small">{{ ask.wait }}</p>
+{% if !ask.reason.is_empty() %}<p class="weak small">{{ ask.reason }}</p>{% endif %}
+<form method="post" action="/m/decisions/answer" class="stack">
+<input type="hidden" name="key" value="{{ ask.key }}">
+<input type="hidden" name="request" value="{{ ask.id }}">
+{% if ask.questions.is_empty() %}
+<p><code>{{ ask.summary }}</code></p>
+{% if !ask.input.is_empty() %}<details class="more"><summary>Input</summary><pre>{{ ask.input }}</pre></details>{% endif %}
+<input type="text" name="reason" placeholder="A reason, if you deny it" aria-label="A reason">
+<div class="buttons"><button type="submit" name="do" value="allow">{% if ask.resumes %}Allow and resume{% else %}Allow{% endif %}</button> <button type="submit" name="do" value="deny" class="deny">{% if ask.resumes %}Deny and resume{% else %}Deny{% endif %}</button></div>
+{% else %}
+{% for q in ask.questions %}
+<fieldset>
+<legend><span class="mark weak">{{ q.header }}</span>{% if q.several %} <span class="weak small">pick several</span>{% endif %}</legend>
+<p class="question">{{ q.text }}</p>
+{% for o in q.options %}
+<label class="choice"><input type="{% if q.several %}checkbox{% else %}radio{% endif %}" name="pick{{ q.index }}" value="{{ o.index }}"> {{ o.label }}{% if !o.description.is_empty() %}<span class="weak small description">{{ o.description }}</span>{% endif %}</label>
+{% endfor %}
+<input type="text" name="other{{ q.index }}" placeholder="{% if q.several %}Other: more, in your own words{% else %}Other: your own answer{% endif %}" aria-label="Your own words">
+</fieldset>
+{% endfor %}
+<div class="buttons"><button type="submit" name="do" value="answer">{% if ask.resumes %}Answer and resume{% else %}Send answers{% endif %}</button></div>
+<input type="text" name="reason" placeholder="Or decline them, saying why" aria-label="Why you decline">
+<div class="buttons"><button type="submit" name="do" value="decline" class="deny">{% if ask.resumes %}Decline and resume{% else %}Decline{% endif %}</button></div>
+{% endif %}
+</form>
+</article>

@@ -134,3 +134,72 @@ details.more dd { margin: 0 0 4px; overflow-wrap: anywhere; }
 ul.folders { margin: 4px 0; padding-left: 22px; }
 
 .error-page { padding: 24px 4px; }
+
+/* A project's page and the decisions (EP-30a). */
+
+header.top .nav { margin-right: auto; margin-left: 12px; }
+a.name { color: var(--text); font-weight: 600; text-decoration: none; }
+h1 { font-size: 1.25em; margin: 10px 0 4px; overflow-wrap: anywhere; }
+h2 { font-size: 1.05em; margin: 18px 0 6px; }
+.page-head h1 { margin: 0; }
+.small { font-size: 0.86em; }
+.warn { color: var(--warn); }
+
+.said {
+  margin: 10px 0;
+  padding: 8px 10px;
+  border-radius: 8px;
+  border-left: 4px solid var(--good);
+  background: var(--card);
+}
+.said.failed { border-left-color: var(--warn); }
+
+article.item {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin: 8px 0;
+}
+article.item.older { opacity: 0.9; }
+.item .meta { margin-top: 4px; overflow-wrap: anywhere; }
+
+.note p { margin: 4px 0; overflow-wrap: anywhere; }
+.note .label { font-weight: 600; color: var(--warn); margin-top: 8px; }
+.note .part { padding-left: 1.6em; text-indent: -1.6em; }
+.note .part .n { font-weight: 600; }
+.note .step { padding-left: 1.1em; text-indent: -1.1em; }
+.note .step::before { content: "• "; color: var(--weak); }
+.note .gap { height: 6px; }
+div.note { margin-top: 6px; }
+
+form.stack { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+form.inline { margin-top: 6px; }
+input[type="text"], textarea {
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+button {
+  font: inherit;
+  min-height: 40px;
+  padding: 6px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--accent);
+  background: var(--accent);
+  color: #ffffff;
+  cursor: pointer;
+}
+button.deny { background: transparent; color: var(--bad); border-color: var(--bad); }
+.buttons { display: flex; flex-wrap: wrap; gap: 8px; }
+fieldset { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; margin: 0; }
+legend { padding: 0 4px; }
+.question { font-weight: 600; }
+label.choice { display: block; padding: 6px 0; }
+label.choice .description { display: block; margin-left: 1.7em; }
+label.check { display: flex; align-items: center; gap: 6px; }
+pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; }

@@ -277,6 +277,14 @@ impl Watch {
             .unwrap_or_default()
     }
 
+    /// The pages' forms since the last call (EP-30a), for the window's hand.
+    pub fn take_orders(&mut self) -> Vec<crate::server::PageRequest> {
+        self.server
+            .as_mut()
+            .map(Server::take_orders)
+            .unwrap_or_default()
+    }
+
     /// The status lines heard since the last call, for the usage meter (EP-17).
     pub fn take_lines(&mut self) -> Vec<StatusLine> {
         std::mem::take(&mut self.lines)

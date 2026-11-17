@@ -327,6 +327,11 @@ impl Board {
             (self.offer.is_some(), "the offer of auto is open"),
             // A message being written would be lost (EP-21a's finding: EP-20c left it out).
             (self.compose.is_some(), "the compose dialog is open"),
+            // So would the phone's, and its page's answer (EP-30a).
+            (
+                self.phone.is_sending(),
+                "a message from the phone's page is being written",
+            ),
             (self.formalise.is_some(), "the formalise preview is open"),
             // A run cut short would leave GitHub or the backup half done, unlogged (EP-34).
             (

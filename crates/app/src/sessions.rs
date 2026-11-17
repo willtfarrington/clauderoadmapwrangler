@@ -125,11 +125,13 @@ pub enum News {
     Ended(Outcome, String),
 }
 
-/// A request a window's session waits on (D-19), and since when.
+/// A request a window's session waits on (D-19), and since when: by the window's clock, and by
+/// the wall clock for the phone's page, which says the time and never an age (EP-30a).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Waiting {
     pub request: Request,
     pub since: Instant,
+    pub at: DateTime<Utc>,
 }
 
 /// A request an ended run left open (D-19; EP-14).
@@ -297,6 +299,7 @@ impl Live {
                 self.waiting.push(Waiting {
                     request,
                     since: Instant::now(),
+                    at: Utc::now(),
                 });
             }
             Event::Withdrawn(id) => {

@@ -981,7 +981,7 @@ fn status(
 
 /// The item's meta line: its form, file and line, state and origin; its gate is the chip beside
 /// its id (EP-15a).
-fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
+pub(crate) fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
     let mut parts: Vec<String> = Vec::new();
     if item.form != Form::Task {
         parts.push(item.form.to_string());
@@ -1002,7 +1002,7 @@ fn meta(item: &OwnerItem, folder: &std::path::Path) -> String {
 
 /// `text` without the `[before EP-m]` it ends with when the chip beside the item's id says it
 /// (EP-15a, the owner's choice); any other text as written.
-fn without_gate<'a>(text: &'a str, gate: Option<&Gate>) -> &'a str {
+pub(crate) fn without_gate<'a>(text: &'a str, gate: Option<&Gate>) -> &'a str {
     let Some(Gate::Before(id)) = gate else {
         return text;
     };

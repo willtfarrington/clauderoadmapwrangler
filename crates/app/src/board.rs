@@ -398,6 +398,25 @@ fn closing(
     }
 }
 
+/// Why an answer did not resume a deferred run (EP-30a): nothing the tile says (a start on its
+/// way, no such run), a warning, or a failure; each in words for the phone's form.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NoResume {
+    Quiet(&'static str),
+    Warn(String),
+    Fail(String),
+}
+
+impl NoResume {
+    /// The words, whatever the kind.
+    pub fn words(&self) -> String {
+        match self {
+            NoResume::Quiet(words) => format!("The session did not resume: {words}."),
+            NoResume::Warn(words) | NoResume::Fail(words) => words.clone(),
+        }
+    }
+}
+
 /// How a status-bar line reads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -468,6 +487,8 @@ pub struct Board {
     pub chat: crate::chat::Chat,
     /// What the window publishes for the phone's pages (D-28; EP-30), built in each pass.
     pub pages: crate::published::Publisher,
+    /// The phone's messages being written, each answered once written (EP-30a).
+    pub phone: crate::phone::Phone,
     /// A compose dialog to open once the files are read, with its text canned (a screenshot
     /// run's `compose=<project>[:urgent]`).
     pub compose_when_read: Option<(String, bool)>,
@@ -557,6 +578,7 @@ impl Board {
             compose: None,
             chat: crate::chat::Chat::default(),
             pages: crate::published::Publisher::default(),
+            phone: crate::phone::Phone::default(),
             compose_when_read: None,
             formalise: None,
             #[cfg(feature = "screenshot")]
@@ -687,9 +709,15 @@ impl Board {
     /// changes settles, reads the files again; once an hour, looks at the GitHub cache's age.
     /// The sessions' events and a start that came back are taken in too.
     pub fn receive(&mut self, ctx: &egui::Context) {
+        let reading = self.loader.reading_files;
         if self.loader.receive(&mut self.portfolio) {
             self.settle_until = Some(Instant::now() + SETTLE);
             ctx.request_repaint_after(SETTLE);
+        }
+        // The files landed: the phone's pages are built from them in this pass, so the page a
+        // form's redirect brings shows what its write changed (EP-30a's review).
+        if reading && !self.loader.reading_files {
+            self.pages.refresh();
         }
         if let Some(why) = self.loader.history_problem.take() {
             self.warn(why);
@@ -1054,12 +1082,13 @@ impl Board {
     }
 
     /// The window's pass before each frame and, while it is hidden in the tray, without one
-    /// (`Dashboard::logic`, D-29): what came in, the notifications' share; then, while hidden, the
-    /// queued actions, which no frame will run (EP-30: the tray's Pause acts at once, and so will
-    /// the phone's actions); then what the phone's pages read.
+    /// (`Dashboard::logic`, D-29): what came in, the notifications' share; the phone's forms
+    /// (EP-30a); then, while hidden, the queued actions, which no frame will run (EP-30: the
+    /// tray's Pause acts at once); then what the phone's pages read.
     pub fn pass(&mut self, ctx: &egui::Context) {
         self.receive(ctx);
         self.attend(ctx);
+        self.obey_pages();
         if self.hidden {
             self.run_queued();
         }
@@ -1071,8 +1100,8 @@ impl Board {
     fn publish(&mut self) {
         if self.pages.due() {
             let now = chrono::Utc::now();
-            let list = crate::published::List::of(self, now);
-            self.pages.offer(list, now);
+            let parts = crate::published::Parts::of(self, now);
+            self.pages.offer(parts, now);
         }
     }
 
@@ -1706,17 +1735,12 @@ impl Board {
                 let Some(folder) = self.folder_for_write(&project) else {
                     return false;
                 };
-                match inbox::tick(&folder, &id, &disposition, &self.store().backups, &today) {
-                    Ok(copy) => {
+                match self.tick_message_in(&folder, &project, &id, &disposition, &today) {
+                    Ok(words) => {
                         self.drafts.remove(&key);
-                        let logged = self.log_tick(&project, &id, true, Some(&disposition));
-                        self.notify(format!(
-                            "Ticked {id} in {project} with its disposition; the file as it was \
-                             is kept as {}.{logged}",
-                            copy.display()
-                        ));
+                        self.notify(words);
                     }
-                    Err(e) => self.fail(format!("{project} {id}: {e}")),
+                    Err(why) => self.fail(why),
                 }
                 return true;
             }
@@ -1737,46 +1761,102 @@ impl Board {
     /// The folder of `project` when the tool may write into it; a screenshot run's fixtures
     /// are never written.
     fn folder_for_write(&mut self, project: &str) -> Option<PathBuf> {
+        match self.writable_folder(project) {
+            Ok((_, folder)) => Some(folder),
+            Err(why) if self.fixtures => {
+                self.warn(why);
+                None
+            }
+            Err(why) => {
+                self.fail(why);
+                None
+            }
+        }
+    }
+
+    /// The registry's name of `project` and its folder when the tool may write into it, or why
+    /// not in words: a screenshot run's fixtures are never written (the phone's forms, EP-30a).
+    pub(crate) fn writable_folder(&self, project: &str) -> Result<(String, PathBuf), String> {
         if self.fixtures {
-            self.warn(format!(
+            return Err(format!(
                 "A screenshot run writes nothing into its projects: {project} is a fixture or a \
                  copy."
             ));
-            return None;
         }
-        let folder = self
+        let row = self
             .portfolio
             .project(project)
-            .and_then(|row| row.folder.as_ref())
-            .map(|folder| folder.path.clone());
-        if folder.is_none() {
-            self.fail(format!("{project}: its folder is missing."));
-        }
-        folder
+            .ok_or_else(|| format!("{project} is not a registered project."))?;
+        let folder = row
+            .folder
+            .as_ref()
+            .map(|folder| folder.path.clone())
+            .ok_or_else(|| format!("{project}: its folder is missing."))?;
+        Ok((row.name().to_owned(), folder))
     }
 
     fn tick(&mut self, project: &str, id: &str, checked: bool, today: &str) -> bool {
         let Some(folder) = self.folder_for_write(project) else {
             return false;
         };
+        match self.tick_in(&folder, project, id, checked, today) {
+            Ok(words) => self.notify(words),
+            Err(why) => self.fail(why),
+        }
+        true
+    }
+
+    /// Ticks (or clears) owner task `id` in `folder`, logged for a revert to redo: the notice's
+    /// words, or why not (the Detail pane's box and the phone's form, EP-30a).
+    pub(crate) fn tick_in(
+        &self,
+        folder: &Path,
+        project: &str,
+        id: &str,
+        checked: bool,
+        today: &str,
+    ) -> Result<String, String> {
         let backups = self.store().backups.clone();
         let done = if checked {
-            tasks::tick(&folder, id, &backups, today)
+            tasks::tick(folder, id, &backups, today)
         } else {
-            tasks::untick(&folder, id, &backups, today)
+            tasks::untick(folder, id, &backups, today)
         };
         match done {
             Ok(copy) => {
                 let logged = self.log_tick(project, id, checked, None);
-                self.notify(format!(
+                Ok(format!(
                     "{} {id} in {project}; the file as it was is kept as {}.{logged}",
                     if checked { "Ticked" } else { "Cleared" },
                     copy.display()
-                ));
+                ))
             }
-            Err(e) => self.fail(format!("{project} {id}: {e}")),
+            Err(e) => Err(format!("{project} {id}: {e}")),
         }
-        true
+    }
+
+    /// Ticks inbox message `id` in `folder` with `disposition`, which the write refuses when it
+    /// is empty, logged for a revert to redo: the notice's words, or why not (the Detail pane's
+    /// Tick and the phone's form, EP-30a).
+    pub(crate) fn tick_message_in(
+        &self,
+        folder: &Path,
+        project: &str,
+        id: &str,
+        disposition: &str,
+        today: &str,
+    ) -> Result<String, String> {
+        match inbox::tick(folder, id, disposition, &self.store().backups, today) {
+            Ok(copy) => {
+                let logged = self.log_tick(project, id, true, Some(disposition));
+                Ok(format!(
+                    "Ticked {id} in {project} with its disposition; the file as it was is kept \
+                     as {}.{logged}",
+                    copy.display()
+                ))
+            }
+            Err(e) => Err(format!("{project} {id}: {e}")),
+        }
     }
 
     /// Logs a tick the window made in the ledger, for a revert to redo (EP-15b): nothing to add
@@ -2159,6 +2239,20 @@ impl Board {
             self.warn("A screenshot run answers nothing: its sessions are canned.");
             return;
         }
+        match self.answer_live(key, request, response) {
+            Ok(words) => self.notify(words),
+            Err(why) => self.fail(why),
+        }
+    }
+
+    /// Sends the owner's answer to the request `request` the window's session `key` waits on: the
+    /// notice's words, or why it was not sent (the Decisions tile and the phone's form, EP-30a).
+    pub(crate) fn answer_live(
+        &mut self,
+        key: u64,
+        request: &str,
+        response: Response,
+    ) -> Result<String, String> {
         let title = self
             .sessions
             .live
@@ -2167,23 +2261,38 @@ impl Board {
             .map(|live| live.title())
             .unwrap_or_default();
         match self.sessions.respond(key, request, response) {
-            Ok(words) => self.notify(format!(
+            Ok(words) => Ok(format!(
                 "{title}: {}; the session goes on.",
                 one_line(&words, ANSWER_CHARS)
             )),
-            Err(why) => self.fail(format!("{title}: the answer was not sent: {why}.")),
+            Err(why) => Err(format!("{title}: the answer was not sent: {why}.")),
         }
     }
 
     /// Resumes the window's deferred run `key` with the owner's answer to its open request (D-19;
     /// EP-14), off the UI thread as a start is; a screenshot run starts nothing.
     fn answer_deferred(&mut self, key: u64, response: Response) {
+        match self.resume_deferred(key, response) {
+            Ok(()) | Err(NoResume::Quiet(_)) => {}
+            Err(NoResume::Warn(why)) => self.warn(why),
+            Err(NoResume::Fail(why)) => self.fail(why),
+        }
+    }
+
+    /// The resume of [`Board::answer_deferred`], or why it did not start: a start already on its
+    /// way or no such run (which the tile says nothing of), a warning or a failure (the phone's
+    /// form says each, EP-30a).
+    pub(crate) fn resume_deferred(&mut self, key: u64, response: Response) -> Result<(), NoResume> {
         if self.fixtures {
-            self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
-            return;
+            return Err(NoResume::Warn(
+                "A screenshot run starts no session: its projects are fixtures or a copy."
+                    .to_owned(),
+            ));
         }
         if self.sessions.is_starting() {
-            return;
+            return Err(NoResume::Quiet(
+                "a session is starting: answer again in a moment",
+            ));
         }
         let Some(program) = self
             .sessions
@@ -2192,23 +2301,24 @@ impl Board {
             .find(|live| live.key == key)
             .map(|live| live.program().to_owned())
         else {
-            return;
+            return Err(NoResume::Quiet("no such session"));
         };
         let Some(preflight) = self.sessions.preflight(&program, &self.ctx) else {
-            self.warn("claude has not answered yet: press the button again in a moment.");
-            return;
+            return Err(NoResume::Warn(
+                "claude has not answered yet: press the button again in a moment.".to_owned(),
+            ));
         };
         let refusals = preflight.refusals();
         if !refusals.is_empty() {
-            self.fail(format!(
+            return Err(NoResume::Fail(format!(
                 "The session cannot resume: {}",
                 refusals.join("; ")
-            ));
-            return;
+            )));
         }
         let Some(answers) = paths::local_dir().map(|dir| dir.join("answers")) else {
-            self.fail("No profile folder for the answer: LOCALAPPDATA is not set.");
-            return;
+            return Err(NoResume::Fail(
+                "No profile folder for the answer: LOCALAPPDATA is not set.".to_owned(),
+            ));
         };
         let route = self
             .sessions
@@ -2232,9 +2342,13 @@ impl Board {
             &self.ctx,
         );
         match answered {
-            Ok(()) if chat => self.chat.starting = self.sessions.is_starting(),
-            Ok(()) => {}
-            Err(why) => self.fail(format!("The session cannot resume: {why}.")),
+            Ok(()) => {
+                if chat {
+                    self.chat.starting = self.sessions.is_starting();
+                }
+                Ok(())
+            }
+            Err(why) => Err(NoResume::Fail(format!("The session cannot resume: {why}."))),
         }
     }
 

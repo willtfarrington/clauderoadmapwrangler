@@ -2231,6 +2231,17 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   knows the key. So: on such a failure, write the chain log's line and a notice naming File >
   Install and restart; and when a newer installed build waits (`install::restart_due`), take
   the restart with the chain carried, for the new window to weigh the gate. About an S.
+  **From EP-30a:** the request channel exists. `server::Order` (tick a task, tick a message,
+  send, answer) goes to the window as a `PageRequest` with a `oneshot` reply of a `Said`
+  (`Result<String, String>`), drained by `Board::obey_pages` in `Board::pass` (`app/src/phone.rs`);
+  Start, Stop and Pause join `Order`, and their handlers reuse `Shared::order` and `Shared::back`
+  (the 303 with `?done=<n>`, the outcome kept five minutes). An order whose page stopped waiting
+  is dropped unrun. The snapshot is `published::Parts` (the list, each project's page, the
+  decisions), compared whole: the event stream can name which part changed by comparing them
+  apart. The projects' pages and the decisions carry clock times only, so only the list's badge
+  ages still move the version with nothing new. A project's page is `pages::project`, the
+  decisions `pages::decisions`; `templates/ask.html` is one request's form, which EP-31's
+  session page can include.
 - **EP-31.** `/m/session/<id>`: the transcript streamed over SSE with an input box for answers and
   messages to a headless session; the Enable remote view action: `tailscale serve --bg --https=9443
   http://127.0.0.1:<port>` after the owner's confirmation, `tailscale serve status --json` parsed into
@@ -2257,6 +2268,12 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   (`Diagnostics::check` in `app/src/diagnostics.rs` runs `doctor::probe` on a worker thread,
   six children in their turn), with its age; whether the page may ask the window for a fresh
   one is the brief's first question, since Check again is not among the phone's actions.
+  **From EP-30a:** a waiting request's form is `templates/ask.html` (it reads one
+  `pages::AskView` named `ask`), posting to `/m/decisions/answer`, whose redirect goes back to
+  the decisions page; a session page that shows the form either passes its own path to go back
+  to (a field the handler would check against `/m/` paths) or leaves the answer to the decisions
+  page. The window answers through `Board::answer_live` and `Board::resume_deferred`, which return
+  their words.
 - **EP-31a.** Added at EP-29 (2026-11-15) by EP-31's cut: the one brief that touches Tailscale,
   placed last (the owner's choice), with the link and the pushes that use it.
   (1) **Enable remote view**, a confirmation dialog in the form of EP-34's actions (`app::act`:

@@ -8,7 +8,7 @@
 //! chat conversation's questions are left to the Chat tile, which draws them with the same form
 //! (EP-24a).
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Local};
@@ -107,6 +107,85 @@ impl Draft {
         } else {
             reason.to_owned()
         })
+    }
+
+    /// The form a phone's page sent for `request` (EP-30a), as the tile's own draft: the options
+    /// picked by question (one kept for a question of one answer, the first; an option or a
+    /// question the request does not have left out), the owner's words by question, the reason.
+    pub fn from_form(
+        request: &Request,
+        picks: &BTreeMap<usize, BTreeSet<usize>>,
+        other: &BTreeMap<usize, String>,
+        reason: &str,
+    ) -> Self {
+        let mut draft = Self::new(request);
+        for (q, question) in request.questions.iter().enumerate() {
+            let chosen = picks
+                .get(&q)
+                .into_iter()
+                .flatten()
+                .copied()
+                .filter(|&i| i < question.options.len());
+            draft.picks[q] = if question.multi_select {
+                chosen.collect()
+            } else {
+                chosen.take(1).collect()
+            };
+            if let Some(words) = other.get(&q) {
+                draft.other[q] = words.clone();
+            }
+        }
+        draft.reason = reason.to_owned();
+        draft
+    }
+
+    /// What the form's button `verb` answers `request` by the tile's rules (EP-30a): Allow or
+    /// Deny, a reason optional, for a permission; for a question, the answers when at least one
+    /// is given, or a decline with its reason. Why not, in words, otherwise.
+    pub fn response(&self, request: &Request, verb: Verb) -> Result<Response, String> {
+        let permission = request.questions.is_empty();
+        match (verb, permission) {
+            (Verb::Allow, true) => Ok(Response::Allow),
+            (Verb::Deny, true) => Ok(self.refusal()),
+            (Verb::Answer, false) if self.answered(request) == 0 => Err(
+                "no answer was given: pick an option or write your own, or decline it with a \
+                 reason"
+                    .to_owned(),
+            ),
+            (Verb::Answer, false) => Ok(Response::Answers(self.answers(request))),
+            (Verb::Decline, false) if self.reason.trim().is_empty() => {
+                Err("a decline needs its reason".to_owned())
+            }
+            (Verb::Decline, false) => Ok(self.refusal()),
+            (Verb::Allow | Verb::Deny, false) => {
+                Err("it is a question: answer it or decline it".to_owned())
+            }
+            (Verb::Answer | Verb::Decline, true) => {
+                Err("it is a permission request: allow it or deny it".to_owned())
+            }
+        }
+    }
+}
+
+/// The button a phone's answer form was sent with (EP-30a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Verb {
+    Allow,
+    Deny,
+    Answer,
+    Decline,
+}
+
+impl Verb {
+    /// The form's `do` value.
+    pub fn parse(word: &str) -> Option<Self> {
+        match word {
+            "allow" => Some(Self::Allow),
+            "deny" => Some(Self::Deny),
+            "answer" => Some(Self::Answer),
+            "decline" => Some(Self::Decline),
+            _ => None,
+        }
     }
 }
 
@@ -226,7 +305,7 @@ impl Board {
     }
 
     /// The sessions Claude Code reports waiting for the owner outside the window (EP-12).
-    fn waiting_elsewhere(&self) -> Vec<&Seen> {
+    pub(crate) fn waiting_elsewhere(&self) -> Vec<&Seen> {
         self.seen_sessions()
             .into_iter()
             .filter(|seen| seen.status == SeenStatus::Waiting)
@@ -523,7 +602,7 @@ fn question_form(
 }
 
 /// Where a session waits, in words, and whether Focus can bring it forward: VS Code's can.
-fn place(seen: &Seen) -> (&'static str, bool) {
+pub(crate) fn place(seen: &Seen) -> (&'static str, bool) {
     match seen.entrypoint.as_deref() {
         Some("claude-vscode") => ("in VS Code", true),
         _ if seen.mode == Mode::Visual => ("in VS Code", true),
@@ -657,6 +736,50 @@ mod tests {
             partly.refusal(),
             Response::Deny("Ask again tomorrow.".to_owned())
         );
+    }
+
+    /// A phone's form read as the tile's draft (EP-30a): one pick kept for a question of one
+    /// answer, an option or a question the request lacks left out; the buttons by the rules.
+    #[test]
+    fn a_phones_form_answers_by_the_tiles_rules() {
+        let request = asked();
+        let picks = BTreeMap::from([
+            (0, BTreeSet::from([1, 0])),
+            (1, BTreeSet::from([2, 0, 7])),
+            (5, BTreeSet::from([0])),
+        ]);
+        let other = BTreeMap::from([(1, "delta".to_owned()), (9, "x".to_owned())]);
+        let draft = Draft::from_form(&request, &picks, &other, "");
+        assert_eq!(draft.answers(&request), ["Top", "alpha, gamma, delta"]);
+        assert_eq!(
+            draft.response(&request, Verb::Answer),
+            Ok(Response::Answers(vec![
+                "Top".to_owned(),
+                "alpha, gamma, delta".to_owned()
+            ]))
+        );
+        let blank = Draft::from_form(&request, &BTreeMap::new(), &BTreeMap::new(), "  ");
+        assert!(blank.response(&request, Verb::Answer).is_err());
+        assert!(blank.response(&request, Verb::Decline).is_err());
+        assert!(blank.response(&request, Verb::Allow).is_err());
+        let declined = Draft::from_form(&request, &BTreeMap::new(), &BTreeMap::new(), "Not now.");
+        assert_eq!(
+            declined.response(&request, Verb::Decline),
+            Ok(Response::Deny("Not now.".to_owned()))
+        );
+        let push = Request {
+            questions: Vec::new(),
+            ..asked()
+        };
+        let none = Draft::from_form(&push, &BTreeMap::new(), &BTreeMap::new(), "");
+        assert_eq!(none.response(&push, Verb::Allow), Ok(Response::Allow));
+        assert_eq!(
+            none.response(&push, Verb::Deny),
+            Ok(Response::Deny(DENIED.to_owned()))
+        );
+        assert!(none.response(&push, Verb::Answer).is_err());
+        assert_eq!(Verb::parse("decline"), Some(Verb::Decline));
+        assert_eq!(Verb::parse("Allow"), None);
     }
 
     #[test]

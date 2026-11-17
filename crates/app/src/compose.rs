@@ -266,7 +266,7 @@ impl Dialog {
 }
 
 /// `words` with a capital first letter.
-fn capital(words: &str) -> String {
+pub(crate) fn capital(words: &str) -> String {
     let mut chars = words.chars();
     match chars.next() {
         Some(first) => first.to_uppercase().chain(chars).collect(),
