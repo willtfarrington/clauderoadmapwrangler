@@ -5,7 +5,9 @@
 //! (the versions, `gh auth status`, `tailscale status --json`), [`report`] reads the files (the
 //! hooks and the status line, the installed copy, the backup drive, the registry, the ledger,
 //! the crash log, the rolling log, the last readings, VS Code's lock files) and words each line.
-//! EP-28a adds the start-at-login entry and what PATH finds for `crw` to the exes' group.
+//! EP-28a adds the start-at-login entry and what PATH finds for `crw` to the exes' group. EP-31a
+//! adds Serve's configuration (`tailscale serve status --json`) to the probe and the remote view
+//! line ([`serve::line`]) to the Network group.
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -25,8 +27,8 @@ use crate::session::cli::Flags;
 use crate::session::launch::{CommandLine, command_line};
 use crate::signals::install::{self as entries, Hooked, Line as StatusLine};
 use crate::version::{MIN_CLAUDE_CODE, Version};
-use crate::{actions, autostart, install, log, notify, plugin, usage, visual};
-use crate::{autopilot, rules};
+use crate::{actions, autostart, install, log, notify, plugin, serve, usage, visual};
+use crate::{autopilot, rules, signals};
 
 /// The protocol crate's pin (D-15): `claude-codes` moves only in a re-plan; a test holds this
 /// to `Cargo.lock`.
@@ -319,7 +321,8 @@ impl Report {
     }
 }
 
-/// What the children said (EP-28): the tools' versions, `gh auth status` and `tailscale status`.
+/// What the children said (EP-28): the tools' versions, `gh auth status`, `tailscale status` and
+/// `tailscale serve status` (EP-31a).
 #[derive(Debug, Clone, Default)]
 pub struct Probed {
     pub tools: Vec<Check>,
@@ -327,11 +330,13 @@ pub struct Probed {
     pub gh: Option<Result<actions::Account, String>>,
     /// `None` when Tailscale is not found.
     pub tailscale: Option<Result<Tailnet, String>>,
+    /// Serve's configuration; `None` when Tailscale is not found.
+    pub serve: Option<Result<serve::Status, String>>,
 }
 
-/// Asks the children, one at a time in their turn: the versions ([`run`]), then `gh auth status`
-/// and `tailscale status --json` where those tools were found. The `claude` CLI is asked its
-/// version only (the preflight is the caller's).
+/// Asks the children, one at a time in their turn: the versions ([`run`]), then `gh auth status`,
+/// `tailscale status --json` and `tailscale serve status --json` where those tools were found. The
+/// `claude` CLI is asked its version only (the preflight is the caller's).
 pub fn probe() -> Probed {
     let tools = run();
     let found = |name: &str| {
@@ -349,15 +354,36 @@ pub fn probe() -> Probed {
         let _turn = process::turn();
         gh_account(&program)
     });
-    let tailscale = found("tailscale").map(|program| {
-        let _turn = process::turn();
-        tailnet(&program)
-    });
+    let (tailscale, serve) = match found("tailscale") {
+        Some(program) => {
+            let tailnet = {
+                let _turn = process::turn();
+                tailnet(&program)
+            };
+            let serve = {
+                let _turn = process::turn();
+                serve_status(&program)
+            };
+            (Some(tailnet), Some(serve))
+        }
+        None => (None, None),
+    };
     Probed {
         tools,
         gh,
         tailscale,
+        serve,
     }
+}
+
+/// Serve's configuration as `tailscale serve status --json` gives it (EP-31a): a failure in its
+/// errors' words.
+fn serve_status(program: &Path) -> Result<serve::Status, String> {
+    let exit = process::exit_of(program, ["serve", "status", "--json"], &[], TIMEOUT)?;
+    if exit.code != Some(0) {
+        return Err(actions::said("tailscale serve status", &exit));
+    }
+    serve::parse_status(&exit.stdout)
 }
 
 /// `gh auth status` for the active account on github.com (EP-34's reader): it exits with an
@@ -537,15 +563,15 @@ impl Places {
 /// only, nothing is written or deleted.
 pub fn report(probed: &Probed, places: &Places, now: DateTime<Utc>) -> Report {
     let mut report = Report::default();
-    tools(&mut report, &probed.tools);
-    exes(&mut report, places);
-    accounts(&mut report, probed.gh.as_ref());
-    network(&mut report, probed.tailscale.as_ref());
     let loaded = places.store.as_ref().map(Store::load);
     let registry = loaded
         .as_ref()
         .and_then(|loaded| loaded.as_ref().ok())
         .map(|loaded| &loaded.registry);
+    tools(&mut report, &probed.tools);
+    exes(&mut report, places);
+    accounts(&mut report, probed.gh.as_ref());
+    network(&mut report, probed, registry);
     backup_drive(&mut report, registry, now);
     records(&mut report, places, loaded.as_ref(), now);
     readings(&mut report, places.ledger.as_deref(), registry, now);
@@ -1063,8 +1089,10 @@ fn accounts(report: &mut Report, gh: Option<&Result<actions::Account, String>>) 
     report.push(Group::Accounts, "gh", level, text);
 }
 
-fn network(report: &mut Report, tailnet: Option<&Result<Tailnet, String>>) {
-    let (level, text) = match tailnet {
+/// The tailnet's line, then the remote view's: Serve's mount of the phone's path against the
+/// registry's `remote_view`, at the window's port (EP-31a).
+fn network(report: &mut Report, probed: &Probed, registry: Option<&Registry>) {
+    let (level, text) = match probed.tailscale.as_ref() {
         None => (Level::Note, "Tailscale not found".to_owned()),
         Some(Err(e)) => (Level::Warn, e.clone()),
         Some(Ok(state)) if state.backend == "Running" => match state.online {
@@ -1084,6 +1112,10 @@ fn network(report: &mut Report, tailnet: Option<&Result<Tailnet, String>>) {
         ),
     };
     report.push(Group::Network, "tailscale", level, text);
+    let machine = registry.and_then(|registry| registry.settings.remote_view());
+    let port = registry.map_or(signals::DEFAULT_PORT, Registry::port);
+    let (level, text) = serve::line(probed.serve.as_ref(), machine, port);
+    report.push(Group::Network, serve::LINE, level, text);
 }
 
 /// The backup drive's line from what was found: mounted or not, and its label against the job's
@@ -1808,6 +1840,7 @@ mod tests {
                 backend: "Stopped".to_owned(),
                 online: None,
             })),
+            serve: Some(Ok(serve::Status::default())),
         };
         let report = report(&probed, &places, Utc::now());
         let line = |name: &str| report.line(name).unwrap_or_else(|| panic!("{name}"));
@@ -1842,6 +1875,8 @@ mod tests {
         let network = report.group(Group::Network).next().unwrap();
         assert_eq!(network.level, Level::Warn);
         assert!(network.text.starts_with("Stopped"));
+        assert_eq!(report.group(Group::Network).count(), 2);
+        assert!(line(serve::LINE).text.starts_with("off: "));
         assert_eq!(line("drive").level, Level::Note);
         assert_eq!(line("registry").level, Level::Note);
         let ledger = line("ledger");
@@ -1858,6 +1893,100 @@ mod tests {
         // Every group answers.
         for group in Group::ALL {
             assert!(report.group(group).next().is_some(), "{group:?}");
+        }
+    }
+
+    /// The remote view line follows the tailscale line in the Network group, read from Serve's
+    /// status and the registry's `remote_view` at the window's port (EP-31a): off, on at its URL,
+    /// and on in the registry while Serve says otherwise; names synthetic.
+    #[test]
+    fn the_remote_view_line_sets_serve_against_the_registry() {
+        use crate::registry::Defaults;
+        let scratch = Scratch::new("doctor-remote-view");
+        let store = || {
+            Store::new(
+                scratch.0.join("registry.toml"),
+                scratch.0.join("backups"),
+                Defaults {
+                    data_root: scratch.0.join("data"),
+                    repository: scratch.0.join("data").join("tool"),
+                },
+            )
+        };
+        let probed = |serve: Option<Result<serve::Status, String>>| Probed {
+            tools: Vec::new(),
+            gh: None,
+            tailscale: Some(Ok(Tailnet {
+                backend: "Running".to_owned(),
+                online: Some(true),
+            })),
+            serve,
+        };
+        let read = |probed: &Probed| {
+            let places = Places {
+                store: Some(store()),
+                ..Places::default()
+            };
+            let report = super::report(probed, &places, Utc::now());
+            let names: Vec<String> = report
+                .group(Group::Network)
+                .map(|line| line.name.clone())
+                .collect();
+            assert_eq!(names, ["tailscale", serve::LINE]);
+            report.line(serve::LINE).unwrap().clone()
+        };
+        let ours = serve::parse_status(
+            r#"{"TCP":{"9443":{"HTTPS":true}},
+                "Web":{"box.example.ts.net:9443":{"Handlers":{"/m":{"Proxy":"http://127.0.0.1:47831/m"}}}}}"#,
+        );
+        assert!(ours.is_ok(), "{ours:?}");
+        let empty = || Some(Ok(serve::Status::default()));
+        // Off: no mount, no record.
+        let off = read(&probed(empty()));
+        assert_eq!(off.level, Level::Note, "{}", off.text);
+        assert!(
+            off.text.starts_with("off: Enable remote view"),
+            "{}",
+            off.text
+        );
+        // Tailscale not found: Serve's status not asked.
+        let unasked = read(&Probed {
+            tailscale: None,
+            ..probed(None)
+        });
+        assert_eq!(unasked.level, Level::Note, "{}", unasked.text);
+        assert!(
+            unasked.text.contains("Tailscale not found"),
+            "{}",
+            unasked.text
+        );
+        // On: Serve's mount, and the registry names this machine.
+        store()
+            .change("2026-11-17", |c| {
+                c.set_setting("remote_view", "box.example.ts.net")
+            })
+            .unwrap();
+        let on = read(&probed(Some(ours.clone())));
+        assert_eq!(on.level, Level::Ok, "{}", on.text);
+        assert_eq!(
+            on.text,
+            "on at https://box.example.ts.net:9443/m/: Serve proxies the phone's path alone"
+        );
+        // On in the registry while Serve holds no mount, or its status did not read.
+        let apart = read(&probed(empty()));
+        assert_eq!(apart.level, Level::Warn, "{}", apart.text);
+        assert!(
+            apart.text.contains("Serve holds no mount"),
+            "{}",
+            apart.text
+        );
+        let unread = read(&probed(Some(Err(
+            "tailscale serve status failed (exit code 1): not running".to_owned(),
+        ))));
+        assert_eq!(unread.level, Level::Warn, "{}", unread.text);
+        assert!(unread.text.contains("not running"), "{}", unread.text);
+        for line in [&off, &unasked, &apart, &unread] {
+            assert!(!line.text.contains("box.example"), "{}", line.text);
         }
     }
 

@@ -239,11 +239,17 @@ pub struct Settings {
     /// aside. None, the default, refuses every request through Serve; Enable remote view writes
     /// it (EP-31a).
     pub owner_login: Option<String>,
+    /// This machine's tailnet name (`<machine>.<tailnet>.ts.net`) while remote view is on (D-28;
+    /// EP-31a): Enable remote view writes it once Serve mounts the phone's path, Disable takes it
+    /// out. The pages' links and the pushes' are built from it, and a request through Serve then
+    /// passes the guard only with this name or the loopback in its `Host`. None, the default:
+    /// remote view off, and any tailnet name passes as before.
+    pub remote_view: Option<String>,
 }
 
 impl Settings {
     /// The keys `crw setting` reads and sets.
-    pub const KEYS: [&str; 20] = [
+    pub const KEYS: [&str; 21] = [
         "data_root",
         "workspace_file",
         "backup_settings",
@@ -264,12 +270,13 @@ impl Settings {
         "site",
         "private_words",
         "owner_login",
+        "remote_view",
     ];
 
     /// The keys whose value is a path; `port` is a number, `decisions` a word, `quiet_hours`
     /// two times, `usage_endpoint` and `autopilot_paused` on or off, the percents and the
-    /// day's total numbers, `ntfy_host` a server, `ntfy_topic` a word, `site` a project and
-    /// `owner_login` a login.
+    /// day's total numbers, `ntfy_host` a server, `ntfy_topic` a word, `site` a project,
+    /// `owner_login` a login and `remote_view` a machine's tailnet name.
     pub fn is_path(key: &str) -> bool {
         !matches!(
             key,
@@ -286,7 +293,16 @@ impl Settings {
                 | "ntfy_topic"
                 | "site"
                 | "owner_login"
+                | "remote_view"
         )
+    }
+
+    /// The remote view's machine name, trimmed, while remote view is on (EP-31a).
+    pub fn remote_view(&self) -> Option<&str> {
+        self.remote_view
+            .as_deref()
+            .map(str::trim)
+            .filter(|name| !name.is_empty())
     }
 
     /// The ntfy publisher the settings name (D-21; EP-20a): `None` while the host or the topic is
@@ -363,6 +379,7 @@ impl Settings {
             "site" => self.site.clone(),
             "private_words" => path(&self.private_words),
             "owner_login" => self.owner_login.clone(),
+            "remote_view" => self.remote_view.clone(),
             _ => None,
         }
     }
@@ -1294,10 +1311,11 @@ impl Changes<'_> {
     }
 
     /// Sets one of [`Settings::KEYS`] in the `[settings]` table, keeping its comment;
-    /// `quiet_hours`, `ntfy_host`, `ntfy_topic`, `site`, `private_words` and `owner_login` set to
-    /// `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to `off` and the percents and
-    /// the day's total set to `default` (the defaults, which the builds before EP-17, EP-18,
-    /// EP-19, EP-20a, EP-27, EP-42 and EP-30 would refuse to read) are taken out.
+    /// `quiet_hours`, `ntfy_host`, `ntfy_topic`, `site`, `private_words`, `owner_login` and
+    /// `remote_view` set to `none`, `usage_endpoint` set to `on`, `autopilot_paused` set to `off`
+    /// and the percents and the day's total set to `default` (the defaults, which the builds
+    /// before EP-17, EP-18, EP-19, EP-20a, EP-27, EP-42, EP-30 and EP-31a would refuse to read)
+    /// are taken out.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<(), Error> {
         if !Settings::KEYS.contains(&key) {
             return Err(Error::Invalid(format!(
@@ -1307,7 +1325,7 @@ impl Changes<'_> {
         }
         let default = match key {
             "quiet_hours" | "ntfy_host" | "ntfy_topic" | "site" | "private_words"
-            | "owner_login" => value.trim().eq_ignore_ascii_case("none"),
+            | "owner_login" | "remote_view" => value.trim().eq_ignore_ascii_case("none"),
             "usage_endpoint" => match value.trim() {
                 "on" => true,
                 "off" => false,
@@ -1406,6 +1424,10 @@ impl Changes<'_> {
             },
             "owner_login" => match crate::remote::check_login(value) {
                 Ok(login) => Value::from(login),
+                Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
+            },
+            "remote_view" => match crate::remote::check_machine(value) {
+                Ok(name) => Value::from(name),
                 Err(why) => return Err(Error::Invalid(format!("{why}, or none"))),
             },
             _ if value.trim().is_empty() => {
@@ -2354,6 +2376,58 @@ state = "paused"
         );
         assert!(!Settings::is_path("owner_login"));
         assert!(Settings::KEYS.contains(&"owner_login"));
+    }
+
+    /// The remote view's machine (D-28; EP-31a): a tailnet machine's name, kept without the final
+    /// dot `tailscale status` gives it; a port, a name outside a tailnet or a bare tailnet is
+    /// refused and nothing is written; `none` takes it out.
+    #[test]
+    fn the_remote_view_is_a_tailnet_machines_name_and_none_takes_it_out() {
+        let scratch = Scratch::new("registry-remote-view");
+        let store = store(&scratch);
+        fs::create_dir_all(store.path.parent().unwrap()).unwrap();
+        fs::write(&store.path, HAND_WRITTEN).unwrap();
+        assert_eq!(store.load().unwrap().registry.settings.remote_view(), None);
+        let (registry, ()) = store
+            .change(TODAY, |c| {
+                c.set_setting("remote_view", " box.example.ts.net. ")
+            })
+            .unwrap();
+        assert_eq!(registry.settings.remote_view(), Some("box.example.ts.net"));
+        assert_eq!(
+            registry.settings.get("remote_view").as_deref(),
+            Some("box.example.ts.net")
+        );
+        let text = fs::read_to_string(&store.path).unwrap();
+        assert!(
+            text.contains("remote_view = \"box.example.ts.net\""),
+            "{text}"
+        );
+        for wrong in [
+            "box.example.ts.net:9443",
+            "example.ts.net",
+            "box.example.org",
+            "",
+            "two words.ts.net",
+        ] {
+            let refused = store.change(TODAY, |c| c.set_setting("remote_view", wrong));
+            assert!(
+                matches!(refused, Err(Error::Invalid(_))),
+                "{wrong:?}: {refused:?}"
+            );
+        }
+        assert_eq!(fs::read_to_string(&store.path).unwrap(), text);
+        let (registry, ()) = store
+            .change(TODAY, |c| c.set_setting("remote_view", "none"))
+            .unwrap();
+        assert_eq!(registry.settings.remote_view(), None);
+        assert!(
+            !fs::read_to_string(&store.path)
+                .unwrap()
+                .contains("remote_view")
+        );
+        assert!(!Settings::is_path("remote_view"));
+        assert!(Settings::KEYS.contains(&"remote_view"));
     }
 
     #[test]

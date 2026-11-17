@@ -143,7 +143,10 @@ one small script of the tool's own listens to the window's event stream and fetc
 parts of a page that changed, leaving alone one being typed in; the pages work without it. A
 request from the machine itself is local. One through Tailscale Serve must
 carry the login that `crw setting owner_login` names, and any other is refused; each action
-through Serve and each refusal is logged in the ledger, which `crw remote` prints. The window's
+through Serve and each refusal is logged in the ledger, which `crw remote` prints. Enable remote
+view (EP-31a), in the tray's menu and the Diagnostics pane, mounts the pages' path alone on the
+tailnet with Tailscale Serve after a confirmation, and Disable takes it off again (see
+[The phone view](#the-phone-view) below). The window's
 queued actions now run while it is hidden in the tray too, so the tray's Pause acts at once. The
 roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
@@ -201,6 +204,9 @@ target\release\crw.exe notifications [--all]      # the window's notifications a
 target\release\crw.exe setting quiet_hours 22:00-07:00  # hold notifications back at night; none undoes it
 target\release\crw.exe setting ntfy_host ntfy.example  # push each popup to this ntfy server too
 target\release\crw.exe setting ntfy_topic <topic>      # ...on this topic; none for either turns it off
+target\release\crw.exe remote           # the phone's remote-action log: actions, refusals, arrivals
+target\release\crw.exe setting owner_login <login>  # the login the phone's pages answer through Serve
+target\release\crw.exe setting remote_view none     # take remote view's record out by hand
 target\release\crw.exe usage            # the usage meter's readings and changes of state; reads only
 target\release\crw.exe setting usage_endpoint off  # keep the meter on the status lines; on undoes it
 target\release\crw.exe setting fable_downshift_percent 70  # the downshift's mark; default undoes it
@@ -447,6 +453,53 @@ with and without `--features screenshot`, `cargo clippy --all-targets` with and 
 --check`. Tests never run the real `claude` CLI and never spend usage: the session runner's tests start
 `stub-claude`, a stand-in built with the core crate that replays recorded stream-json with fake names,
 and the signals' tests bind a free loopback port and write scratch settings files.
+
+## The phone view
+
+The window's server listens on the loopback only. Enable remote view, in the tray's menu or under
+the Network group of the Diagnostics pane, puts its phone pages on your tailnet with
+[Tailscale Serve](https://tailscale.com/kb/1312/serve), and nothing else of it:
+
+- **The confirmation** names the command before it runs:
+  `tailscale serve --bg --https=9443 --set-path=/m http://127.0.0.1:<port>/m`, so Serve answers
+  `https://<this machine's tailnet name>:9443/m/` over HTTPS and proxies that path alone; the
+  routes the hooks and the status line use stay on the machine. It first reads `tailscale status
+  --json` (this machine's state, its user's login and its name) and `tailscale serve status
+  --json`, and refuses when the tailnet is not up, the machine is a tagged device, the tailnet
+  gives it no HTTPS certificate, port 9443 or the path is held by another service, Funnel is on
+  for that port (the pages stay on the tailnet), or Serve already passes the window's port
+  anywhere else (a raw TCP forward would let requests through without the login Serve adds). It
+  shows your login, which it writes to the registry's `owner_login` when you press Enable, beside
+  this machine's name (`remote_view`), and Serve's own words afterwards; it reads Serve's
+  configuration again after the command and writes the registry only when the mount is there. It
+  never runs `tailscale serve reset` and leaves the node's other Serve entries alone.
+- **The link** shows in the dialog with Copy and Send the link to my phone, which pushes it
+  through ntfy when ntfy is set, and on the Diagnostics pane's "remote view" line, which says
+  whether Serve and the registry agree (off; on at its link; on in the registry while Serve holds
+  no mount; Serve's mount with no record). `crw doctor` prints the same line. While remote view
+  is on, each notification pushed to the phone opens its page when tapped: a waiting question the
+  decisions page, a finished or failed run its session's page, a chain's change and a usage mark
+  the list, an urgent letter the project's page.
+- **Disable remote view** runs `tailscale serve --https=9443 --set-path=/m off` and takes the
+  registry's record out; the login stays for the next Enable.
+
+What guards the pages:
+
+- every request through Serve must carry `Tailscale-User-Login` equal to the registry's
+  `owner_login` (Serve removes any such header a request brings and sets it for a device with a
+  user, never for a tagged one), and, while remote view is on, name this machine's tailnet name or
+  the loopback in its `Host`;
+- a form must name the page's own origin, the pages load nothing from elsewhere, and every answer
+  forbids caching and framing;
+- the phone's actions are the list D-28 names (tick, answer, compose, start, stop, pause, check
+  again) and nothing more: no revert, no kill, no hosting action, no free text into a session;
+- each action through Serve, each refusal and the first request through Serve after each start of
+  the window are lines of the ledger, which `crw remote` prints, naming the login, the request and
+  which proxy headers came, never their values;
+- Disable, or removing the phone from the tailnet, ends the access.
+
+A phone that runs another VPN beside Tailscale may lose the tailnet while that VPN is up, and then
+cannot reach the page: the link answers again once the tailnet is the phone's VPN.
 
 ## The roadmap house style
 

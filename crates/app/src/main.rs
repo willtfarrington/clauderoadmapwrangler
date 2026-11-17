@@ -36,6 +36,7 @@ mod phone;
 mod popup;
 mod portfolio;
 mod published;
+mod remote_view;
 mod restart;
 mod revert;
 #[cfg(feature = "screenshot")]

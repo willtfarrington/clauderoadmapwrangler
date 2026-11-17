@@ -36,7 +36,7 @@ use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -52,7 +52,7 @@ use axum::routing::{any, get, post};
 use axum::{Extension, Json, Router};
 use crw_core::ledger::Ledger;
 use crw_core::registry::Store;
-use crw_core::remote::{self, Asked, Caller, Throttle};
+use crw_core::remote::{self, Asked, Caller, Owner, Throttle};
 use crw_core::signals::{self, Hook, RestartAnswer, RestartAsk, Signal, StatusLine};
 use futures_util::StreamExt;
 use serde::Serialize;
@@ -332,6 +332,9 @@ struct Shared {
     refused: Mutex<Throttle>,
     /// The forms' outcomes for their pages (EP-30a).
     outcomes: Mutex<Outcomes>,
+    /// A request through Serve was allowed since the window started: the first is logged with
+    /// how Serve passed `Host` (EP-31a).
+    arrived: AtomicBool,
 }
 
 impl Server {
@@ -399,6 +402,7 @@ impl Server {
                         pages,
                         refused: Mutex::new(Throttle::default()),
                         outcomes: Mutex::new(Outcomes::default()),
+                        arrived: AtomicBool::new(false),
                     });
                     // It serves until the window closes, which ends the process.
                     let _ = axum::serve(listener, router(shared)).await;
@@ -494,19 +498,37 @@ async fn guard(State(shared): State<Arc<Shared>>, mut request: Request, next: Ne
             .iter()
             .map(|(name, value)| (name.as_str(), value.to_str().unwrap_or_default())),
     );
+    // The registry is read only for a request through Serve; its machine name is kept for the
+    // arrival's line (EP-31a).
+    let mut machine = None;
     let owner = || {
         let pages = shared
             .pages
             .as_ref()
             .ok_or_else(|| "the pages are not served".to_owned())?;
-        pages
+        let settings = pages
             .store
             .load()
-            .map(|loaded| loaded.registry.settings.owner_login)
-            .map_err(|e| e.to_string())
+            .map(|loaded| loaded.registry.settings)
+            .map_err(|e| e.to_string())?;
+        machine = settings.remote_view().map(str::to_owned);
+        Ok(Owner {
+            login: settings.owner_login,
+            machine: machine.clone(),
+        })
     };
     match remote::check(&asked, shared.port, owner) {
         Ok(caller) => {
+            // The first request through Serve since the window started says how Serve passed
+            // `Host` and which proxy headers came (EP-31a): the owner's first real request shows
+            // which of the two readings the guard keeps is Serve's.
+            // Awaited, so that it comes before an action's own line; a failed write refuses
+            // nothing, the arrival being a record and no action.
+            if caller.is_remote() && !shared.arrived.swap(true, Ordering::AcqRel) {
+                let arrival =
+                    remote::arrival_line(&caller, &asked, shared.port, machine.as_deref());
+                shared.log(arrival).await;
+            }
             if caller.is_remote() && !asked.is_safe() {
                 let line = remote::allowed_line(&caller, &asked);
                 if !shared.log(line).await {
@@ -2113,9 +2135,17 @@ mod tests {
             .and_then(|ledger| ledger.events(remote::EVENT_KIND, None))
             .map(|rows| rows.into_iter().filter_map(|row| row.detail).collect())
             .unwrap_or_default();
+        // The newest first: the action's line, after the first arrival's (EP-31a).
+        assert_eq!(lines.len(), 2, "{lines:#?}");
         assert_eq!(
-            lines,
-            ["owner@example.com · POST /m/p/harbor/send · allowed"],
+            lines[0], "owner@example.com · POST /m/p/harbor/send · allowed",
+            "{lines:#?}"
+        );
+        assert!(
+            lines[1].starts_with(
+                "owner@example.com · POST /m/p/harbor/send · allowed, the first request through \
+                 Serve since the window started: Host a tailnet name with a port"
+            ),
             "{lines:#?}"
         );
         assert_eq!(request.caller, "owner@example.com");
@@ -2134,6 +2164,59 @@ mod tests {
         let answer = sending.join().unwrap();
         assert_eq!(answer.status, 303);
         assert!(location(&answer).starts_with("/m/p/harbor?done="));
+    }
+
+    /// While the registry names this machine for remote view (EP-31a), a request through Serve
+    /// with another tailnet machine's name is refused and its own passes; the first one allowed
+    /// is logged once, saying how Serve passed `Host`, and reads are not logged after it.
+    #[test]
+    fn remote_view_narrows_serve_to_this_machine_and_logs_the_first_arrival() {
+        let scratch = crate::portfolio::tests::Scratch::new("server-pages-remote-view");
+        let (_server, port, ledger, _publisher) = serving(&scratch, Some("owner@example.com"));
+        // The guard reads the registry at each request through Serve.
+        std::fs::write(
+            scratch.0.join("registry.toml"),
+            "format = 1\n\n[settings]\nowner_login = \"owner@example.com\"\nremote_view = \
+             \"box.example.ts.net\"\n",
+        )
+        .unwrap();
+        let through = |host: &str| {
+            exchange(
+                port,
+                "GET",
+                "/m/",
+                &[
+                    ("Host", host),
+                    ("X-Forwarded-Host", host),
+                    ("X-Forwarded-For", "100.64.0.2"),
+                    ("X-Forwarded-Proto", "https"),
+                    ("Tailscale-User-Login", "owner@example.com"),
+                ],
+            )
+        };
+        assert_eq!(through("other.example.ts.net:9443").status, 403);
+        assert_eq!(through("box.example.ts.net:9443").status, 200);
+        assert_eq!(through("box.example.ts.net:9443").status, 200);
+        let lines = remote_lines(&ledger, 2);
+        assert_eq!(lines.len(), 2, "{lines:#?}");
+        assert!(
+            lines.iter().any(|line| line.ends_with(
+                "refused: a login with another tailnet machine's name in Host than this one's"
+            )),
+            "{lines:#?}"
+        );
+        assert!(
+            lines.iter().any(|line| line.contains(
+                "allowed, the first request through Serve since the window started: Host this \
+                 machine's tailnet name with a port, proxy headers x-forwarded-host, \
+                 x-forwarded-for, x-forwarded-proto"
+            )),
+            "{lines:#?}"
+        );
+        assert!(
+            lines.iter().all(|line| !line.contains("box.example")),
+            "no header's value beyond the login: {lines:#?}"
+        );
     }
 
     /// The start page asks the window for its preview and draws it, a project the window does

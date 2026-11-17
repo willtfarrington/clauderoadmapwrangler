@@ -328,6 +328,17 @@ pub enum Action {
     TickActAnyway(bool),
     /// The dialog put away, or its result read.
     CloseAct,
+    /// The confirmation of Enable or Disable remote view (D-28; EP-31a): the tray's entry, the
+    /// Diagnostics pane's Network group.
+    OpenRemoteView(crw_core::serve::Verb),
+    /// The dialog's Enable or Disable: the plan read again, and run if it is the one shown.
+    ConfirmRemoteView,
+    /// The dialog put away, or its result read.
+    CloseRemoteView,
+    /// The remote view's link copied to the clipboard (EP-31a).
+    CopyRemoteLink,
+    /// The remote view's link pushed to the owner's phone through ntfy (EP-31a).
+    SendRemoteLink,
     /// A project's autopilot turned on or off (D-22; EP-19): the list's box, the A key. Turned
     /// on where its runs would wait at each shell command, it opens the offer of `auto` first
     /// (EP-19b).
@@ -427,6 +438,16 @@ pub enum Tone {
     Warning,
 }
 
+/// What a delivery of notifications reads of the registry (D-21): the quiet hours, ntfy, and
+/// this machine's tailnet name while remote view is on, on which the pushes' links are built
+/// (EP-31a).
+#[derive(Debug, Default)]
+pub(crate) struct Channels {
+    pub quiet: Option<QuietHours>,
+    pub ntfy: Option<Result<crw_core::notify::ntfy::Ntfy, String>>,
+    pub remote: Option<String>,
+}
+
 /// Everything the panes show and change.
 pub struct Board {
     pub loader: Loader,
@@ -511,6 +532,9 @@ pub struct Board {
     /// `act=<project>:<verb>` or `act=backup`).
     #[cfg(feature = "screenshot")]
     pub act_when_read: Option<(Option<String>, crw_core::actions::Verb)>,
+    /// Remote view (D-28; EP-31a): its dialog while open, the registry's record as last read,
+    /// and a test's or a screenshot run's runner.
+    pub remote: crate::remote_view::RemoteView,
     /// Quit goes ahead: the close is let through.
     quitting: bool,
     /// When the delayed test notification is due (EP-15d).
@@ -591,6 +615,7 @@ impl Board {
             act_detached: None,
             #[cfg(feature = "screenshot")]
             act_when_read: None,
+            remote: crate::remote_view::RemoteView::default(),
             quitting: false,
             test_due: None,
             catalog_folder: Catalog::folder(),
@@ -796,6 +821,7 @@ impl Board {
         self.receive_revert(ctx);
         self.receive_formalise(ctx);
         self.receive_act(ctx);
+        self.receive_remote_view(ctx);
         let portfolio = &self.portfolio;
         let registered = || {
             portfolio
@@ -984,7 +1010,7 @@ impl Board {
                 self.fixtures,
                 self.tray.is_some(),
                 stoppable,
-                self.reverting() || self.formalising() || self.acting(),
+                self.reverting() || self.formalising() || self.acting() || self.serving(),
             ) {
                 Closing::Hide => {
                     ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
@@ -1036,7 +1062,13 @@ impl Board {
         let mut moments = Vec::new();
         for (key, news) in news {
             if let Some(live) = self.sessions.live.iter().find(|live| live.key == key) {
-                moments.extend(toasts::from_news(key, &live.project, &live.title(), &news));
+                moments.extend(toasts::from_news(
+                    key,
+                    &live.session_id,
+                    &live.project,
+                    &live.title(),
+                    &news,
+                ));
             }
         }
         let (sessions, model) = (&self.sessions, &self.watch.model);
@@ -1059,11 +1091,15 @@ impl Board {
             moments.extend(self.toasts.urgent(&self.portfolio));
         }
         if !moments.is_empty() {
-            let (quiet, ntfy) = self.notify_settings();
-            for toast in self
-                .toasts
-                .deliver(moments, quiet, in_front, ntfy.as_ref(), ctx)
-            {
+            let channels = self.notify_settings();
+            for toast in self.toasts.deliver(
+                moments,
+                channels.quiet,
+                in_front,
+                channels.ntfy.as_ref(),
+                channels.remote.as_deref(),
+                ctx,
+            ) {
                 self.mention(&toast);
             }
         }
@@ -1085,6 +1121,12 @@ impl Board {
                 self.actions.push(Action::PauseAutopilot(paused));
             }
             Order::Restart => self.restart_from_window(),
+            // A confirmation wants the window: shown first, the dialog over it (EP-31a).
+            Order::RemoteView => {
+                self.show();
+                let verb = self.remote.verb_offered();
+                self.actions.push(Action::OpenRemoteView(verb));
+            }
         }
     }
 
@@ -1094,6 +1136,9 @@ impl Board {
     /// tray's Pause acts at once); then what the phone's pages read.
     pub fn pass(&mut self, ctx: &egui::Context) {
         self.receive(ctx);
+        // The registry's remote view record for the tray and the Diagnostics pane (EP-31a),
+        // read every half minute and after Enable or Disable.
+        self.read_remote_view();
         self.attend(ctx);
         self.obey_pages();
         if self.hidden {
@@ -1137,18 +1182,17 @@ impl Board {
 
     /// The registry's quiet hours and its ntfy publisher (EP-20a), read in one go when a toast is
     /// due, so that `crw setting` counts at once.
-    fn notify_settings(
-        &self,
-    ) -> (
-        Option<QuietHours>,
-        Option<Result<crw_core::notify::ntfy::Ntfy, String>>,
-    ) {
+    pub(crate) fn notify_settings(&self) -> Channels {
         match self.store().load() {
             Ok(loaded) => {
                 let settings = &loaded.registry.settings;
-                (settings.quiet_hours, settings.ntfy())
+                Channels {
+                    quiet: settings.quiet_hours,
+                    ntfy: settings.ntfy(),
+                    remote: settings.remote_view().map(str::to_owned),
+                }
             }
-            Err(_) => (None, None),
+            Err(_) => Channels::default(),
         }
     }
 
@@ -1200,6 +1244,7 @@ impl Board {
             starts,
             paused: self.autopilot.paused,
             held: (!held.is_empty()).then(|| held.join(", ")),
+            remote: self.remote.is_on(),
             restart: self.restart.standing != Standing::Newest,
             size: (16.0 * scale).round() as u32,
         };
@@ -1236,7 +1281,8 @@ impl Board {
             let toast = Toast::tray(self.sessions.stoppable().len());
             let ctx = self.ctx.clone();
             // The tool's own word stays in the popup: it is no moment for the phone.
-            self.toasts.deliver(vec![toast], quiet, false, None, &ctx);
+            self.toasts
+                .deliver(vec![toast], quiet, false, None, None, &ctx);
         }
     }
 
@@ -1340,12 +1386,15 @@ impl Board {
             .is_some_and(crate::formalise::Dialog::is_writing)
     }
 
-    /// What quitting says while it waits: for a revert, a formalise's write or an action.
+    /// What quitting says while it waits: for a revert, a formalise's write, an action or a
+    /// change of Serve.
     fn waiting_words(&self) -> &'static str {
         if self.reverting() {
             REVERTING
         } else if self.formalising() {
             FORMALISING
+        } else if self.serving() {
+            crate::remote_view::SERVING
         } else {
             crate::act::ACTING
         }
@@ -1353,9 +1402,9 @@ impl Board {
 
     /// Lets the window close: the process ends, and the runs it holds with it; not while a revert
     /// runs (EP-15c), nor while a formalise writes (EP-21a's review), nor while a hosting or
-    /// backup action runs (EP-34).
+    /// backup action runs (EP-34), nor while Enable or Disable remote view runs (EP-31a).
     fn quit(&mut self) {
-        if self.reverting() || self.formalising() || self.acting() {
+        if self.reverting() || self.formalising() || self.acting() || self.serving() {
             self.quit_asked = false;
             self.show();
             self.warn(self.waiting_words());
@@ -1374,10 +1423,18 @@ impl Board {
             return;
         }
         let ctx = self.ctx.clone();
-        // Pushed to ntfy too when the registry names a server (EP-20a): the owner's check of it.
-        let (_, ntfy) = self.notify_settings();
-        self.toasts
-            .deliver(vec![Toast::test()], None, false, ntfy.as_ref(), &ctx);
+        // Pushed to ntfy too when the registry names a server (EP-20a): the owner's check of it,
+        // with the list's link while remote view is on (EP-31a).
+        let channels = self.notify_settings();
+        let ntfy = channels.ntfy;
+        self.toasts.deliver(
+            vec![Toast::test()],
+            None,
+            false,
+            ntfy.as_ref(),
+            channels.remote.as_deref(),
+            &ctx,
+        );
         let phone = match &ntfy {
             Some(Ok(ntfy)) => format!(
                 " It goes to ntfy at {} too; the status bar's hover says how the push went.",
@@ -1415,7 +1472,7 @@ impl Board {
                     self.show();
                     self.bring = Some(Pane::Decisions);
                 }
-                Target::Session(key) => {
+                Target::Session { key, .. } => {
                     self.show();
                     self.sessions.tab = Some(key);
                     self.bring = Some(Pane::Sessions);
@@ -1454,6 +1511,7 @@ impl Board {
             || self.compose.is_some()
             || self.formalise.is_some()
             || self.act.is_some()
+            || self.remote.dialog.is_some()
         {
             return;
         }
@@ -1640,6 +1698,11 @@ impl Board {
                 }
             }
             Action::CloseAct => self.close_act(),
+            Action::OpenRemoteView(verb) => self.open_remote_view(verb),
+            Action::ConfirmRemoteView => self.confirm_remote_view(),
+            Action::CloseRemoteView => self.close_remote_view(),
+            Action::CopyRemoteLink => self.copy_remote_link(),
+            Action::SendRemoteLink => self.send_remote_link(),
             Action::SetAutopilot(name, on) => return self.set_autopilot(&name, on),
             Action::AutopilotOn { project, auto } => return self.autopilot_on(&project, auto),
             Action::CloseOffer => self.offer = None,
@@ -2618,7 +2681,8 @@ impl Board {
             None if self.toasts.is_on() => "no tray icon: closing the window quits".to_owned(),
             None => "no tray icon".to_owned(),
         };
-        let (quiet, ntfy) = self.notify_settings();
+        let channels = self.notify_settings();
+        let (quiet, ntfy) = (channels.quiet, channels.ntfy);
         let line = format!("{}; {tray}", self.toasts.line(quiet, ntfy.as_ref()));
         (line, self.toasts.line_warns(ntfy.as_ref()))
     }
@@ -3048,6 +3112,7 @@ impl eframe::App for Dashboard {
         self.board.revert_dialog(&ctx);
         self.board.formalise_dialog(&ctx);
         self.board.act_dialog(&ctx);
+        self.board.remote_view_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
     }
 

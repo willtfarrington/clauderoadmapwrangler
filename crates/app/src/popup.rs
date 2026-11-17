@@ -269,7 +269,7 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                 let hover = match &item.toast.target {
                     Target::VsCode(_) => "Bring its VS Code window forward",
                     Target::Decisions => "Show the window on the Decisions pane",
-                    Target::Session(_) => "Show the window on the session's tab",
+                    Target::Session { .. } => "Show the window on the session's tab",
                     Target::Usage => "Show the window on the Usage pane",
                     Target::ChainLog => {
                         "Show the window on the Sessions pane's All tab, where the chain log is"

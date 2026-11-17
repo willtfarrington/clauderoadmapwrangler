@@ -342,6 +342,11 @@ impl Board {
                 self.act_detached.is_some(),
                 "a backup the window started is still running, its end to be logged",
             ),
+            // A change of Serve cut short would leave the registry's record unwritten (EP-31a).
+            (
+                self.remote.dialog.is_some(),
+                "the dialog of Enable or Disable remote view is open",
+            ),
             (self.quit_asked, "the question before Quit is open"),
         ] {
             if open {

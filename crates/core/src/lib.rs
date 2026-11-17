@@ -10,7 +10,8 @@
 //! the installed copy of the exes and the window's restart into it, EP-20 the mailman, EP-21 the
 //! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin,
 //! EP-24 the chat's hosted session and its digest, EP-28 the doctor's report and the window's
-//! rolling log, EP-30 the phone's pages' guard and the words of their log.
+//! rolling log, EP-30 the phone's pages' guard and the words of their log, EP-31a Tailscale Serve
+//! for the phone's path.
 
 pub mod actions;
 pub mod autopilot;
@@ -44,6 +45,7 @@ pub mod remote;
 pub mod revert;
 pub mod roadmap;
 pub mod rules;
+pub mod serve;
 pub mod session;
 pub mod sessions;
 pub mod signals;

@@ -11,7 +11,8 @@
 //! through ntfy when the registry names a server and a topic (EP-20a), on a thread of its own.
 //! Each toast, toast held back, push, badge arrival and Show is a line of the ledger's `event`
 //! table. Nothing is shown, pushed or logged before `main` turns them on: never in a test or a
-//! screenshot run.
+//! screenshot run. While remote view is on (the registry's `remote_view`, EP-31a), each push
+//! carries the link of its phone page, which a tap on the phone opens ([`Toast::page`]).
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -26,6 +27,7 @@ use crw_core::inbox::Message;
 use crw_core::ledger::{self, Ledger};
 use crw_core::notify::ntfy::{Ntfy, Push};
 use crw_core::notify::{self, Fate, Kind, QuietHours};
+use crw_core::serve;
 use crw_core::session::Outcome;
 use crw_core::sessions::{Mode, Seen, Status};
 use crw_core::tasks::legacy::is_owner;
@@ -34,6 +36,7 @@ use eframe::egui;
 
 use crate::popup::Popup;
 use crate::portfolio::Portfolio;
+use crate::server;
 use crate::sessions::News;
 
 /// A session elsewhere toasts a second wait only after this rest.
@@ -58,8 +61,10 @@ const TEXT: usize = 200;
 pub enum Target {
     /// The window, its Decisions pane in front.
     Decisions,
-    /// The window, the Sessions pane in front with a window's session's tab.
-    Session(u64),
+    /// The window, the Sessions pane in front with a window's session's tab: its key in the
+    /// window, and the run's session id, which names its phone page (EP-31: the keys start again
+    /// at each restart).
+    Session { key: u64, id: String },
     /// The VS Code window of the project a session waits in (Focus).
     VsCode(String),
     /// The window, the Usage pane in front (EP-17).
@@ -158,8 +163,9 @@ impl Toast {
     }
 
     /// What its push to the owner's phone says (EP-20a): its title, its text and how hard it
-    /// asks; `None` for the tool's own words but the owner's test.
-    fn push(&self) -> Option<Push> {
+    /// asks, and, while remote view is on at `remote` (this machine's tailnet name, EP-31a), the
+    /// link of its phone page; `None` for the tool's own words but the owner's test.
+    fn push(&self, remote: Option<&str>) -> Option<Push> {
         let priority = match self.kind {
             Some(kind) => kind.priority(),
             None if self.what == "test" => notify::ntfy::Priority::Default,
@@ -169,6 +175,27 @@ impl Toast {
             title: self.title.clone(),
             text: self.text.clone(),
             priority,
+            click: remote.and_then(|name| Some(serve::link(name, &self.page()?))),
+        })
+    }
+
+    /// The phone page a tap on its push opens while remote view is on (D-21, D-28; EP-31a): a
+    /// waiting request the decisions page, which lists a VS Code session's wait too; a window's
+    /// run that ended its session's page, by its session id; a session elsewhere that ended the
+    /// sessions page; a chain's moment, a usage mark and the test the list; an urgent letter the
+    /// project's page. A chat's question has none: the chat is not on the phone.
+    pub fn page(&self) -> Option<String> {
+        let ended = matches!(self.kind, Some(Kind::Finished | Kind::Failed));
+        Some(match &self.target {
+            Target::Decisions => server::DECISIONS_ROUTE.to_owned(),
+            Target::Session { id, .. } if !id.is_empty() => server::session_path(id),
+            Target::Session { .. } => server::SESSIONS_ROUTE.to_owned(),
+            Target::VsCode(_) if ended => server::SESSIONS_ROUTE.to_owned(),
+            Target::VsCode(_) => server::DECISIONS_ROUTE.to_owned(),
+            Target::Window if ended => server::SESSIONS_ROUTE.to_owned(),
+            Target::Window | Target::Usage | Target::ChainLog => server::PAGES_ROOT.to_owned(),
+            Target::Project(name) => server::project_path(name),
+            Target::Chat => return None,
         })
     }
 
@@ -260,8 +287,13 @@ impl Toast {
 
 /// The toast a window's run's news calls for (D-21): its request, its end; none for a stop.
 /// `title` is the session's, `<project> <EP>`, or a conversation's `chat: <title>`, whose
-/// question is answered in the Chat pane (EP-24a).
-pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<Toast> {
+/// question is answered in the Chat pane (EP-24a); `id` the run's session id, which names its
+/// phone page (EP-31a).
+pub fn from_news(key: u64, id: &str, project: &str, title: &str, news: &News) -> Option<Toast> {
+    let session = || Target::Session {
+        key,
+        id: id.to_owned(),
+    };
     let toast = match news {
         News::Asked(summary) => Toast::new(
             Kind::Waiting,
@@ -283,14 +315,14 @@ pub fn from_news(key: u64, project: &str, title: &str, news: &News) -> Option<To
             } else {
                 line.clone()
             },
-            Target::Session(key),
+            session(),
         ),
         News::Ended(Outcome::Failed, why) => Toast::new(
             Kind::Failed,
             project,
             format!("{title} has failed"),
             why.clone(),
-            Target::Session(key),
+            session(),
         ),
         News::Ended(Outcome::Deferred, summary) => Toast::new(
             Kind::Waiting,
@@ -335,9 +367,9 @@ pub fn canned() -> Vec<Toast> {
     );
     [
         Some(Toast::test()),
-        from_news(902, "compass", "compass EP-3", &failed),
-        from_news(901, "quarry", "quarry EP-2", &finished),
-        from_news(900, "harbor", "harbor EP-4", &asked),
+        from_news(902, "c0ffee02", "compass", "compass EP-3", &failed),
+        from_news(901, "c0ffee01", "quarry", "quarry EP-2", &finished),
+        from_news(900, "c0ffee00", "harbor", "harbor EP-4", &asked),
         Some(in_vs_code),
         Some(chain),
         urgent,
@@ -930,14 +962,16 @@ impl Toasts {
 
     /// Shows this pass's toasts in the popup, or holds them back (`quiet`, `in_front`), each
     /// logged; each one shown is pushed to `ntfy` as well (EP-20a, the owner's choice), when the
-    /// registry names a server. Returns those held back because the window is in front, for its
-    /// status bar to say.
+    /// registry names a server, with its phone page's link while remote view is on at `remote`
+    /// (EP-31a). Returns those held back because the window is in front, for its status bar to
+    /// say.
     pub fn deliver(
         &mut self,
         toasts: Vec<Toast>,
         quiet: Option<QuietHours>,
         in_front: bool,
         ntfy: Option<&Result<Ntfy, String>>,
+        remote: Option<&str>,
         ctx: &egui::Context,
     ) -> Vec<Toast> {
         if !self.on {
@@ -953,7 +987,7 @@ impl Toasts {
             );
             match fate {
                 None => {
-                    self.push(&toast, ntfy);
+                    self.push(&toast, ntfy, remote);
                     self.shown += 1;
                     self.popup.push(toast);
                     ctx.request_repaint();
@@ -966,15 +1000,62 @@ impl Toasts {
     }
 
     /// Hands a toast the popup shows to the pushes' thread, or logs why it cannot go.
-    fn push(&mut self, toast: &Toast, ntfy: Option<&Result<Ntfy, String>>) {
-        let (Some(ntfy), Some(push)) = (ntfy, toast.push()) else {
+    fn push(&mut self, toast: &Toast, ntfy: Option<&Result<Ntfy, String>>, remote: Option<&str>) {
+        let (Some(ntfy), Some(push)) = (ntfy, toast.push(remote)) else {
+            return;
+        };
+        self.send(push, Some(ntfy), toast.project.clone(), toast.what);
+    }
+
+    /// The owner's "Send the link to my phone" (EP-31a): one push of the remote view's link,
+    /// whose tap opens it, logged as the toasts' pushes are; its outcome in the status bar's
+    /// hover, as theirs. Refused while the toasts are off (a test, a screenshot run) or ntfy is
+    /// not set.
+    pub fn send_link(
+        &mut self,
+        url: &str,
+        ntfy: Option<&Result<Ntfy, String>>,
+    ) -> Result<(), String> {
+        if !self.on {
+            return Err("Notifications are off in this window: nothing is pushed.".to_owned());
+        }
+        match ntfy {
+            None => {
+                return Err(
+                    "ntfy is not set: crw setting ntfy_host and ntfy_topic name the server and \
+                     its topic"
+                        .to_owned(),
+                );
+            }
+            Some(Err(why)) => return Err(format!("ntfy's settings do not read: {why}")),
+            Some(Ok(_)) => {}
+        }
+        let push = Push {
+            title: "Roadmap Wrangler's remote view".to_owned(),
+            text: format!("Tap to open the phone pages: {url}"),
+            priority: notify::ntfy::Priority::Default,
+            click: Some(url.to_owned()),
+        };
+        self.send(push, ntfy, None, "link");
+        Ok(())
+    }
+
+    /// Hands `push` to the pushes' thread, started at the first push, or says why it cannot go.
+    fn send(
+        &mut self,
+        push: Push,
+        ntfy: Option<&Result<Ntfy, String>>,
+        project: Option<String>,
+        what: &'static str,
+    ) {
+        let Some(ntfy) = ntfy else {
             return;
         };
         let ntfy = match ntfy {
             Ok(ntfy) => ntfy.clone(),
             Err(why) => {
-                let line = notify::line(&Fate::PushFailed, toast.what, &toast.title, why);
-                self.log(toast.project.as_deref(), &line);
+                let line = notify::line(&Fate::PushFailed, what, &push.title, why);
+                self.log(project.as_deref(), &line);
                 return;
             }
         };
@@ -988,8 +1069,8 @@ impl Toasts {
         let pending = Pending {
             ntfy,
             push,
-            project: toast.project.clone(),
-            what: toast.what,
+            project,
+            what,
         };
         if pusher.tx.send(pending).is_err() {
             // Its thread has ended: the next push starts another.
@@ -1101,10 +1182,14 @@ mod tests {
         elsewhere(tracks, &refs, |id| id == "own", true, at)
     }
 
+    /// A run's session id, as the window holds it (synthetic).
+    const RUN: &str = "0e1d2c3b-4a59-4687-9a0b-1c2d3e4f5a6b";
+
     #[test]
     fn a_runs_news_makes_its_toast() {
         let asked = from_news(
             7,
+            RUN,
             "harbor",
             "harbor EP-4",
             &News::Asked("Which colour?".into()),
@@ -1121,6 +1206,7 @@ mod tests {
         assert_eq!(asked.target, Target::Decisions);
         let done = from_news(
             7,
+            RUN,
             "harbor",
             "harbor EP-4",
             &News::Ended(Outcome::Completed, String::new()),
@@ -1128,9 +1214,16 @@ mod tests {
         let done = done.unwrap();
         assert_eq!(done.kind, Some(Kind::Finished));
         assert_eq!(done.text, "Its headless run is complete.");
-        assert_eq!(done.target, Target::Session(7));
+        assert_eq!(
+            done.target,
+            Target::Session {
+                key: 7,
+                id: RUN.to_owned()
+            }
+        );
         let failed = from_news(
             7,
+            RUN,
             "harbor",
             "harbor EP-4",
             &News::Ended(Outcome::Failed, "exit 1".into()),
@@ -1138,6 +1231,7 @@ mod tests {
         assert_eq!(failed.unwrap().title, "harbor EP-4 has failed");
         let deferred = from_news(
             7,
+            RUN,
             "harbor",
             "harbor EP-4",
             &News::Ended(Outcome::Deferred, "Ship?".into()),
@@ -1148,12 +1242,73 @@ mod tests {
         assert_eq!(
             from_news(
                 7,
+                RUN,
                 "harbor",
                 "harbor EP-4",
                 &News::Ended(Outcome::Stopped, String::new())
             ),
             None
         );
+    }
+
+    /// Each toast's phone page (EP-31a): what a tap on its push opens while remote view is on.
+    #[test]
+    fn each_toast_names_the_phone_page_its_push_opens() {
+        let news = |news: News| from_news(7, RUN, "harbor", "harbor EP-4", &news).unwrap();
+        let asked = news(News::Asked("Q?".into()));
+        assert_eq!(asked.page().as_deref(), Some("/m/decisions"));
+        let done = news(News::Ended(Outcome::Completed, String::new()));
+        assert_eq!(done.page(), Some(format!("/m/s/{RUN}")));
+        let failed = news(News::Ended(Outcome::Failed, "exit 1".into()));
+        assert_eq!(failed.page(), Some(format!("/m/s/{RUN}")));
+        let deferred = news(News::Ended(Outcome::Deferred, "Ship?".into()));
+        assert_eq!(deferred.page().as_deref(), Some("/m/decisions"));
+        // A chat's question stays in the Chat pane, which the phone has not.
+        let chat = from_news(
+            8,
+            RUN,
+            crw_core::chat::PROJECT,
+            "chat: a question",
+            &News::Asked("Q?".into()),
+        )
+        .unwrap();
+        assert_eq!(chat.page(), None);
+        let chain = Toast::chain(
+            "harbor",
+            "chained EP-5 after EP-4: the rules' choice",
+            false,
+        );
+        assert_eq!(chain.page().as_deref(), Some("/m/"));
+        assert_eq!(Toast::test().page().as_deref(), Some("/m/"));
+        let (messages, _) = crw_core::inbox::parse(
+            "- [ ] IN-2 (from quarry EP-3, 2026-11-10) Read this. [urgent]\n",
+        );
+        let urgent = Toast::urgent("Harbor Two", &messages[0]);
+        assert_eq!(urgent.page().as_deref(), Some("/m/p/Harbor%20Two"));
+        let waiting_elsewhere = Toast::new(
+            Kind::Waiting,
+            "lantern",
+            "lantern waits for you in VS Code".to_owned(),
+            String::new(),
+            Target::VsCode("lantern".to_owned()),
+        );
+        assert_eq!(waiting_elsewhere.page().as_deref(), Some("/m/decisions"));
+        let ended_elsewhere = Toast::new(
+            Kind::Finished,
+            "lantern",
+            "lantern: a session's turn is over".to_owned(),
+            String::new(),
+            Target::Window,
+        );
+        assert_eq!(ended_elsewhere.page().as_deref(), Some("/m/sessions"));
+        // The push carries the page's link only while remote view is on.
+        assert_eq!(done.push(None).unwrap().click, None);
+        assert_eq!(
+            done.push(Some("box.example.ts.net")).unwrap().click,
+            Some(format!("https://box.example.ts.net:9443/m/s/{RUN}"))
+        );
+        assert_eq!(chat.push(Some("box.example.ts.net")).unwrap().click, None);
+        assert_eq!(Toast::tray(0).push(Some("box.example.ts.net")), None);
     }
 
     #[test]
@@ -1292,7 +1447,7 @@ mod tests {
     #[test]
     fn a_toast_is_held_back_by_the_hours_and_the_focus_but_not_when_asked_for() {
         let night = QuietHours::parse("22:00-07:00").ok();
-        let toast = from_news(1, "harbor", "harbor EP-4", &News::Asked("Q?".into())).unwrap();
+        let toast = from_news(1, RUN, "harbor", "harbor EP-4", &News::Asked("Q?".into())).unwrap();
         let at = |text| NaiveTime::parse_from_str(text, "%H:%M").unwrap();
         assert_eq!(held(&toast, night, at("23:00"), false), Some(Fate::Quiet));
         assert_eq!(held(&toast, night, at("12:00"), false), None);
@@ -1311,9 +1466,12 @@ mod tests {
 
     #[test]
     fn one_sessions_moments_of_one_pass_make_one_toast() {
-        let one = from_news(1, "harbor", "harbor EP-4", &News::Asked("First?".into())).unwrap();
-        let two = from_news(1, "harbor", "harbor EP-4", &News::Asked("Second?".into())).unwrap();
-        let other = from_news(2, "quarry", "quarry EP-2", &News::Asked("Third?".into())).unwrap();
+        let ask = |key, project: &str, title: &str, words: &str| {
+            from_news(key, RUN, project, title, &News::Asked(words.into())).unwrap()
+        };
+        let one = ask(1, "harbor", "harbor EP-4", "First?");
+        let two = ask(1, "harbor", "harbor EP-4", "Second?");
+        let other = ask(2, "quarry", "quarry EP-2", "Third?");
         let merged = coalesce(vec![one, two, other]);
         assert_eq!(merged.len(), 2);
         assert_eq!(merged[0].text, "First? (and 1 more)");
@@ -1434,8 +1592,8 @@ mod tests {
 
     #[test]
     fn what_the_popup_shows_is_what_a_push_says() {
-        let asked = from_news(1, "harbor", "harbor EP-4", &News::Asked("Q?".into())).unwrap();
-        let push = asked.push().unwrap();
+        let asked = from_news(1, RUN, "harbor", "harbor EP-4", &News::Asked("Q?".into())).unwrap();
+        let push = asked.push(None).unwrap();
         assert_eq!(
             (push.title.as_str(), push.text.as_str(), push.priority),
             (
@@ -1446,21 +1604,40 @@ mod tests {
         );
         let done = from_news(
             1,
+            RUN,
             "harbor",
             "harbor EP-4",
             &News::Ended(Outcome::Completed, "EP-4 is done.".into()),
         )
         .unwrap();
         assert_eq!(
-            done.push().unwrap().priority,
+            done.push(None).unwrap().priority,
             notify::ntfy::Priority::Default
         );
         assert_eq!(
-            Toast::test().push().unwrap().priority,
+            Toast::test().push(None).unwrap().priority,
             notify::ntfy::Priority::Default
         );
         // The tool's own word about the tray is no moment: it is not pushed.
-        assert_eq!(Toast::tray(0).push(), None);
+        assert_eq!(Toast::tray(0).push(None), None);
+    }
+
+    /// "Send the link to my phone" pushes nothing while the toasts are off or ntfy is not set,
+    /// and says why (EP-31a).
+    #[test]
+    fn the_link_is_sent_only_with_the_toasts_on_and_ntfy_set() {
+        let mut toasts = Toasts::default();
+        let url = "https://box.example.ts.net:9443/m/";
+        let off = toasts.send_link(url, None).unwrap_err();
+        assert!(off.contains("off in this window"), "{off}");
+        toasts.on = true;
+        let unset = toasts.send_link(url, None).unwrap_err();
+        assert!(unset.contains("ntfy is not set"), "{unset}");
+        let wrong = toasts
+            .send_link(url, Some(&Err("ntfy_topic takes letters".to_owned())))
+            .unwrap_err();
+        assert!(wrong.contains("do not read"), "{wrong}");
+        assert!(toasts.pusher.is_none(), "nothing was handed to a thread");
     }
 
     #[test]

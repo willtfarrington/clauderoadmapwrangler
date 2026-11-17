@@ -133,6 +133,7 @@ impl Board {
             .map(|(_, lines)| lines.clone())
             .unwrap_or_default();
         let mut again = false;
+        let mut chosen = None;
         egui::ScrollArea::vertical()
             .auto_shrink(false)
             .show(ui, |ui| {
@@ -170,6 +171,11 @@ impl Board {
                             for line in lines {
                                 line_ui(ui, line.level, &line.name, &line.text);
                             }
+                            // Under Serve's status, what changes it (EP-31a): Enable or Disable,
+                            // and while on the link's Copy and Send.
+                            if group == Group::Network {
+                                chosen = self.remote_view_buttons(ui).or(chosen.take());
+                            }
                         }
                     }
                 }
@@ -184,6 +190,9 @@ impl Board {
             });
         if again {
             self.check_diagnostics();
+        }
+        if let Some(action) = chosen {
+            self.actions.push(action);
         }
     }
 
@@ -207,8 +216,9 @@ impl Board {
         )
     }
 
-    /// Reads the registry's route setting, then gathers the report.
-    fn check_diagnostics(&mut self) {
+    /// Reads the registry's route setting, then gathers the report: at the pane's first showing
+    /// and its Check again, the phone's, and after Enable or Disable remote view (EP-31a).
+    pub(crate) fn check_diagnostics(&mut self) {
         if self.diagnostics.live {
             self.diagnostics.setting = self.decisions_setting();
         }
@@ -538,6 +548,13 @@ pub fn canned() -> Report {
                 "tailscale",
                 Level::Warn,
                 "Stopped: the tailnet is not up",
+            ),
+            line(
+                Group::Network,
+                crw_core::serve::LINE,
+                Level::Note,
+                "off: Enable remote view (the Diagnostics pane or the tray's menu) mounts the \
+                 phone's path on the tailnet",
             ),
             line(
                 Group::Backup,

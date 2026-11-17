@@ -24,6 +24,12 @@
 //! once a minute for each identity ([`Throttle`]). A line names the identity, the method, the path
 //! and what became of the request, and of the headers only whether a proxy's were present, never
 //! a value beyond the login (D-3).
+//!
+//! EP-31a: while the registry's `remote_view` names this machine (Enable remote view wrote it), a
+//! request with the login passes only with that name or the loopback in its `Host`, no other
+//! tailnet machine's; and the first request through Serve a window allows is a line of its own
+//! ([`arrival_line`]) saying how Serve passed `Host` and which proxy headers came, so that the
+//! owner's first real request shows which of the two readings the guard keeps is Serve's.
 
 use std::collections::HashMap;
 use std::fmt;
@@ -156,6 +162,26 @@ pub fn is_tailnet_name(host: &str) -> bool {
         })
 }
 
+/// Whether `host`, a `Host` header, names `machine` (a tailnet name without a port), with or
+/// without a port, ASCII case aside; a final dot on either side is no difference (EP-31a).
+pub fn names_machine(host: &str, machine: &str) -> bool {
+    let host = host.trim();
+    let name = match host.rsplit_once(':') {
+        Some((name, port)) if port.bytes().all(|b| b.is_ascii_digit()) => name,
+        _ => host,
+    };
+    let bare = |name: &str| name.trim().trim_end_matches('.').to_ascii_lowercase();
+    !machine.trim().is_empty() && bare(name) == bare(machine)
+}
+
+/// What the guard reads of the registry for a request through Serve: the owner's login, and
+/// this machine's tailnet name while remote view is on (`remote_view`, EP-31a).
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Owner {
+    pub login: Option<String>,
+    pub machine: Option<String>,
+}
+
 /// Who a request comes from, once it passed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Caller {
@@ -193,6 +219,9 @@ pub enum Refusal {
     /// name: a page that reached the loopback through a name of its own (DNS rebinding) and set
     /// the header itself.
     ForeignHost,
+    /// A login with another tailnet machine's name in `Host` than the one the registry's
+    /// `remote_view` names (EP-31a).
+    OtherMachine,
     /// No login, and not from the machine itself: the `Host` is not the loopback at the window's
     /// port, or a proxy's headers came with it (by name).
     NotLocal {
@@ -215,6 +244,9 @@ impl fmt::Display for Refusal {
             }
             Refusal::ForeignHost => {
                 f.write_str("a login with a Host neither the loopback nor a tailnet name")
+            }
+            Refusal::OtherMachine => {
+                f.write_str("a login with another tailnet machine's name in Host than this one's")
             }
             Refusal::NotLocal {
                 loopback_host,
@@ -239,12 +271,12 @@ impl fmt::Display for Refusal {
 }
 
 /// The guard: who `asked` comes from, `port` being the window's. `owner` reads the registry's
-/// `owner_login` (an error when the registry does not read), and is asked only for a request
-/// through Serve.
+/// `owner_login` and `remote_view` (an error when the registry does not read), and is asked only
+/// for a request through Serve.
 pub fn check(
     asked: &Asked,
     port: u16,
-    owner: impl FnOnce() -> Result<Option<String>, String>,
+    owner: impl FnOnce() -> Result<Owner, String>,
 ) -> Result<Caller, Refusal> {
     let caller = match asked.login.as_deref() {
         Some(login) => {
@@ -255,9 +287,22 @@ pub fn check(
             if !is_loopback(host, port) && !is_tailnet_name(host) {
                 return Err(Refusal::ForeignHost);
             }
-            let owner = owner()
-                .map_err(|_| Refusal::RegistryUnread)?
-                .ok_or(Refusal::NoOwner)?;
+            let owner = owner().map_err(|_| Refusal::RegistryUnread)?;
+            // While remote view is on, this machine's own name alone (EP-31a): Serve hands on the
+            // name the phone asked for, which is this machine's, in `Host`, or in
+            // `X-Forwarded-Host` when it passes the loopback's `Host` (the review's: the
+            // narrowing must hold whichever way Serve passes it).
+            if let Some(machine) = owner.machine.as_deref() {
+                let named = if is_tailnet_name(host) {
+                    Some(host)
+                } else {
+                    asked.forwarded_host.as_deref()
+                };
+                if named.is_some_and(|name| !names_machine(name, machine)) {
+                    return Err(Refusal::OtherMachine);
+                }
+            }
+            let owner = owner.login.ok_or(Refusal::NoOwner)?;
             let login = login.trim();
             if login.is_empty() || !login.eq_ignore_ascii_case(owner.trim()) {
                 return Err(Refusal::NotTheOwner);
@@ -332,6 +377,19 @@ pub fn check_login(value: &str) -> Result<&str, String> {
     Ok(login)
 }
 
+/// The name the registry's `remote_view` takes (EP-31a): a tailnet machine's name with no port,
+/// trimmed, without the final dot `tailscale status` writes.
+pub fn check_machine(value: &str) -> Result<String, String> {
+    let name = value.trim().trim_end_matches('.');
+    if name.contains(':') || !is_tailnet_name(name) {
+        return Err(format!(
+            "remote_view takes this machine's tailnet name with no port, such as \
+             box.example.ts.net, not {value:?}"
+        ));
+    }
+    Ok(name.to_owned())
+}
+
 /// The log's line: the identity, the method and the path, and what became of the request.
 fn line(identity: &str, asked: &Asked, verdict: &str) -> String {
     format!("{identity} · {} {} · {verdict}", asked.method, asked.path)
@@ -340,6 +398,44 @@ fn line(identity: &str, asked: &Asked, verdict: &str) -> String {
 /// The line of an action through Serve, written before it runs.
 pub fn allowed_line(caller: &Caller, asked: &Asked) -> String {
     line(caller.identity(), asked, "allowed")
+}
+
+/// The line of the first request through Serve a window allows (EP-31a): how Serve passed `Host`
+/// (this machine's name as the registry's `remote_view` names it, another tailnet name, the
+/// loopback), with or without a port, and which proxy headers came, by name. No value beyond the
+/// login: the owner task's first step reads which reading the real request showed.
+pub fn arrival_line(caller: &Caller, asked: &Asked, port: u16, machine: Option<&str>) -> String {
+    let host = asked.host.as_deref().unwrap_or_default().trim();
+    let form = if is_loopback(host, port) {
+        "the loopback"
+    } else if machine.is_some_and(|machine| names_machine(host, machine)) {
+        "this machine's tailnet name"
+    } else if is_tailnet_name(host) {
+        "a tailnet name"
+    } else {
+        "another name"
+    };
+    let with_port = host
+        .rsplit_once(':')
+        .is_some_and(|(_, port)| !port.is_empty() && port.bytes().all(|b| b.is_ascii_digit()));
+    let port_words = if with_port {
+        "with a port"
+    } else {
+        "with no port"
+    };
+    let headers = if asked.proxied.is_empty() {
+        "no proxy header".to_owned()
+    } else {
+        format!("proxy headers {}", asked.proxied.join(", "))
+    };
+    line(
+        caller.identity(),
+        asked,
+        &format!(
+            "allowed, the first request through Serve since the window started: Host \
+             {form} {port_words}, {headers}"
+        ),
+    )
 }
 
 /// The identity a refused request is logged and throttled under: its login, or `no login`.
@@ -390,11 +486,14 @@ mod tests {
         Asked::new(method, "/m/", headers.iter().copied())
     }
 
-    fn owner() -> Result<Option<String>, String> {
-        Ok(Some(OWNER.to_owned()))
+    fn owner() -> Result<Owner, String> {
+        Ok(Owner {
+            login: Some(OWNER.to_owned()),
+            machine: None,
+        })
     }
 
-    fn never() -> Result<Option<String>, String> {
+    fn never() -> Result<Owner, String> {
         panic!("the registry is read only for a request through Serve")
     }
 
@@ -599,11 +698,158 @@ mod tests {
                 ("Tailscale-User-Login", OWNER),
             ],
         );
-        assert_eq!(check(&through, PORT, || Ok(None)), Err(Refusal::NoOwner));
+        assert_eq!(
+            check(&through, PORT, || Ok(Owner::default())),
+            Err(Refusal::NoOwner)
+        );
         assert_eq!(
             check(&through, PORT, || Err("unknown field".to_owned())),
             Err(Refusal::RegistryUnread)
         );
+    }
+
+    /// While the registry's `remote_view` names this machine (EP-31a), another tailnet machine's
+    /// name is refused with the owner's login; the machine's own passes with or without its port,
+    /// and so does the loopback, the other way Serve may pass `Host`.
+    #[test]
+    fn remote_view_narrows_the_host_to_this_machines_own_name() {
+        let narrowed = || {
+            Ok(Owner {
+                login: Some(OWNER.to_owned()),
+                machine: Some("box.example.ts.net".to_owned()),
+            })
+        };
+        let through = |host: &str| {
+            asked(
+                "GET",
+                &[
+                    ("Host", host),
+                    ("X-Forwarded-Host", "box.example.ts.net:9443"),
+                    ("Tailscale-User-Login", OWNER),
+                ],
+            )
+        };
+        for host in [
+            "box.example.ts.net:9443",
+            "BOX.example.ts.net",
+            "127.0.0.1:47831",
+        ] {
+            assert_eq!(
+                check(&through(host), PORT, narrowed),
+                Ok(Caller::Owner(OWNER.to_owned())),
+                "{host}"
+            );
+        }
+        for host in ["other.example.ts.net:9443", "box.another.ts.net"] {
+            assert_eq!(
+                check(&through(host), PORT, narrowed),
+                Err(Refusal::OtherMachine),
+                "{host}"
+            );
+            // Without the record, any tailnet name passes, as before EP-31a.
+            assert!(check(&through(host), PORT, owner).is_ok(), "{host}");
+        }
+        assert_eq!(
+            Refusal::OtherMachine.to_string(),
+            "a login with another tailnet machine's name in Host than this one's"
+        );
+        // Serve passing the loopback's `Host`: the forwarded host names the machine, and is
+        // narrowed the same way (the review's finding); with no forwarded host, as before.
+        let behind_loopback = |forwarded: Option<&str>| {
+            let mut headers = vec![("Host", "127.0.0.1:47831"), ("Tailscale-User-Login", OWNER)];
+            headers.extend(forwarded.map(|host| ("X-Forwarded-Host", host)));
+            asked("GET", &headers)
+        };
+        assert_eq!(
+            check(
+                &behind_loopback(Some("other.example.ts.net:9443")),
+                PORT,
+                narrowed
+            ),
+            Err(Refusal::OtherMachine)
+        );
+        assert!(
+            check(
+                &behind_loopback(Some("box.example.ts.net:9443")),
+                PORT,
+                narrowed
+            )
+            .is_ok()
+        );
+        assert!(check(&behind_loopback(None), PORT, narrowed).is_ok());
+    }
+
+    #[test]
+    fn a_machine_name_is_compared_without_its_port_case_or_final_dot() {
+        assert!(names_machine(
+            "box.example.ts.net:9443",
+            "box.example.ts.net"
+        ));
+        assert!(names_machine("Box.Example.TS.NET", "box.example.ts.net."));
+        assert!(!names_machine(
+            "box.example.ts.net.evil.example",
+            "box.example.ts.net"
+        ));
+        assert!(!names_machine("box.example.ts.net", ""));
+        assert_eq!(
+            check_machine(" box.example.ts.net. ").as_deref(),
+            Ok("box.example.ts.net")
+        );
+        for wrong in [
+            "box.example.ts.net:9443",
+            "example.ts.net",
+            "box.example.org",
+            "",
+        ] {
+            assert!(check_machine(wrong).is_err(), "{wrong:?}");
+        }
+    }
+
+    /// The first request through Serve says how Serve passed `Host` and which proxy headers came,
+    /// never a value beyond the login (EP-31a).
+    #[test]
+    fn the_arrival_line_says_how_serve_passed_the_host() {
+        let caller = Caller::Owner(OWNER.to_owned());
+        let through = |host: &str| {
+            Asked::new(
+                "GET",
+                "/m/",
+                [
+                    ("Host", host),
+                    ("X-Forwarded-Host", "box.example.ts.net:9443"),
+                    ("X-Forwarded-For", "100.64.0.9"),
+                    ("X-Forwarded-Proto", "https"),
+                    ("Tailscale-User-Login", OWNER),
+                    ("Tailscale-User-Name", "Owner"),
+                ],
+            )
+        };
+        let machine = Some("box.example.ts.net");
+        let named = arrival_line(&caller, &through("box.example.ts.net:9443"), PORT, machine);
+        assert_eq!(
+            named,
+            "owner@example.com · GET /m/ · allowed, the first request through Serve since the \
+             window started: Host this machine's tailnet name with a port, proxy headers \
+             x-forwarded-host, x-forwarded-for, x-forwarded-proto, tailscale-user-name"
+        );
+        let loopback = arrival_line(&caller, &through("127.0.0.1:47831"), PORT, machine);
+        assert!(
+            loopback.contains("Host the loopback with a port"),
+            "{loopback}"
+        );
+        let other = arrival_line(&caller, &through("box.example.ts.net"), PORT, None);
+        assert!(
+            other.contains("Host a tailnet name with no port"),
+            "{other}"
+        );
+        for line in [named, loopback, other] {
+            assert!(
+                !line.contains("box.example")
+                    && !line.contains("100.64")
+                    && !line.contains("Owner"),
+                "no header's value beyond the login: {line}"
+            );
+        }
     }
 
     #[test]

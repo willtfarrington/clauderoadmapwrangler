@@ -4,7 +4,9 @@
 //! settings; the publisher is off while either is missing. The request goes through WinHTTP
 //! (`usage::http`), as the meter's does, so TLS, the certificate store and the proxy settings are
 //! the system's. The topic, which on a server open to others works as a password, is never logged:
-//! the log says `ntfy` or `ntfy failed` and why.
+//! the log says `ntfy` or `ntfy failed` and why. A push may carry a link (EP-31a): ntfy's `Click`
+//! header, which the phone opens when the notification is tapped, a phone page's address while
+//! remote view is on.
 
 use std::time::Duration;
 
@@ -35,15 +37,36 @@ impl Priority {
     }
 }
 
-/// One message: a toast's title and text, and how hard it asks.
+/// One message: a toast's title and text, how hard it asks, and the page a tap opens.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Push {
     pub title: String,
     pub text: String,
     pub priority: Priority,
+    /// The address a tap on the notification opens (ntfy's `Click`, EP-31a): a phone page's
+    /// while remote view is on; none, a plain push.
+    pub click: Option<String>,
 }
 
 impl Push {
+    /// The request's headers: the title, the priority, the type, and the link when it is an
+    /// `http` or `https` address of printable characters (a link that is not is left out, never
+    /// sent broken).
+    fn headers(&self) -> String {
+        let mut headers = format!(
+            "Title: {}\r\nPriority: {}\r\nContent-Type: text/plain; charset=utf-8\r\n",
+            header_value(&self.title),
+            self.priority.as_str()
+        );
+        if let Some(link) = self.click.as_deref().map(str::trim).filter(|link| {
+            (link.starts_with("https://") || link.starts_with("http://"))
+                && link.bytes().all(|b| (0x21..0x7f).contains(&b))
+        }) {
+            headers.push_str(&format!("Click: {link}\r\n"));
+        }
+        headers
+    }
+
     /// What the message says: its text, or its title when it has none (ntfy says "triggered"
     /// for an empty body).
     fn body(&self) -> &str {
@@ -106,11 +129,7 @@ impl Ntfy {
     /// never hold the topic. ntfy answers a publish with the message as a JSON object; any other
     /// answer, such as a web page a redirect led to, published nothing (EP-20a's review).
     pub fn publish(&self, push: &Push) -> Result<u16, String> {
-        let headers = format!(
-            "Title: {}\r\nPriority: {}\r\nContent-Type: text/plain; charset=utf-8\r\n",
-            header_value(&push.title),
-            push.priority.as_str()
-        );
+        let headers = push.headers();
         let response = http::send(
             "POST",
             &self.url,
@@ -297,6 +316,33 @@ mod tests {
         assert_eq!(Priority::Default.as_str(), "default");
     }
 
+    /// A push's link is ntfy's `Click` header (EP-31a), sent only as a printable `http(s)` address.
+    #[test]
+    fn a_link_is_the_click_header_and_only_a_plain_address() {
+        let push = |click: Option<&str>| Push {
+            title: "harbor EP-4 waits for you".to_owned(),
+            text: "Q?".to_owned(),
+            priority: Priority::High,
+            click: click.map(str::to_owned),
+        };
+        let plain = push(None).headers();
+        assert!(!plain.contains("Click"), "{plain}");
+        let linked = push(Some(" https://box.example.ts.net:9443/m/decisions ")).headers();
+        assert!(
+            linked.ends_with("\r\nClick: https://box.example.ts.net:9443/m/decisions\r\n"),
+            "{linked}"
+        );
+        for broken in [
+            "javascript:alert(1)",
+            "https://box.example.ts.net/m/\r\nX-Evil: 1",
+            "https://box.example.ts.net/m/ space",
+            "",
+        ] {
+            let headers = push(Some(broken)).headers();
+            assert!(!headers.contains("Click"), "{broken:?}: {headers}");
+        }
+    }
+
     /// ntfy's answer to a publish: the message as JSON.
     #[cfg(windows)]
     const ANSWER: &str = r#"{"id":"hwQ2YpKdmg6p","time":1762816800,"event":"message","topic":"crw-alerts","message":"Q?"}"#;
@@ -315,6 +361,7 @@ mod tests {
             title: "harbor EP-4 waits for you".to_owned(),
             text: "Which colour · the berth's?".to_owned(),
             priority: Priority::High,
+            click: Some("https://box.example.ts.net:9443/m/decisions".to_owned()),
         };
         assert_eq!(ntfy.publish(&push), Ok(200));
         let sent = server.join().unwrap();
@@ -325,6 +372,10 @@ mod tests {
             "{sent}"
         );
         assert!(lower.contains("\r\npriority: high\r\n"), "{sent}");
+        assert!(
+            lower.contains("\r\nclick: https://box.example.ts.net:9443/m/decisions\r\n"),
+            "{sent}"
+        );
         assert!(
             sent.ends_with("\r\n\r\nWhich colour · the berth's?"),
             "{sent}"
@@ -338,6 +389,7 @@ mod tests {
             title: "harbor: the chain ends after EP-5".to_owned(),
             text: String::new(),
             priority: Priority::Default,
+            click: None,
         };
         assert_eq!(
             ntfy.publish(&bare),

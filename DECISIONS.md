@@ -1509,6 +1509,18 @@ pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; e
 > ntfy's JSON form posted to the server's root; an access token setting; the result's last
 > paragraph, or its first paragraph whole; an urgent toast for the owner's own messages.
 
+> **Addendum (2026-11-17, EP-31a).** Pushes that open their page (D-28's addendum of 2026-11-15).
+> While the registry's `remote_view` is set, each push carries ntfy's `Click` header with its
+> toast's phone page: a waiting request, a deferred run and a session waiting in VS Code the
+> decisions page; a window's run that finished or failed its session's page, by the run's
+> session id, which the toast's target now carries beside the window's key; a session elsewhere
+> that ended the sessions page; a chain's moment, a usage mark and the test the list; an urgent
+> letter the project's page; a chat's question none, the chat not being on the phone. The link is
+> sent only as a printable `http(s)` address, else left out. Send the link to my phone pushes the
+> remote view's link itself, logged as a push under its title alone. With `remote_view` unset the
+> pushes stay plain. *Alternatives.* Links on waiting pushes only; the link in the push's text
+> alone; a session elsewhere's end linking the list.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:
@@ -2989,6 +3001,69 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > name a new row); a page for a chat's run (the free chat this decision parks); the answer always
 > back to the decisions page; the doctor's page read-only, or gathering by itself when its report
 > is old.
+
+> **Addendum (2026-11-17, EP-31a).** Enable remote view, as built (`crw_core::serve`,
+> `app::remote_view`).
+>
+> - **The command.** The installed client's `tailscale serve --help` (1.104.7) confirmed the
+>   form: Enable runs `tailscale serve --bg --https=9443 --set-path=/m
+>   http://127.0.0.1:<port>/m`, Disable `tailscale serve --https=9443 --set-path=/m off`, the
+>   `off` of Tailscale's own source, which the help's usage lines do not name. No `--yes`: the
+>   child's input is empty, so a prompt the tool did not see ends the command with its words.
+>   Each runs in the children's turn with a minute's limit, on the hosting actions' runner;
+>   tests and screenshot runs run a canned one.
+> - **What it reads first.** `tailscale status --json`, narrowly: the backend's state, this
+>   machine's user's login (`User[Self.UserID].LoginName`), its name (`Self.DNSName` without
+>   its final dot), whether it is tagged and whether the tailnet gives it a certificate domain;
+>   nothing of the peers. Then `tailscale serve status --json`: each TCP port's kind and each
+>   web mount, foreground sessions' too. Enable is refused when the tailnet is not up, the
+>   machine is tagged or names no login or name, the tailnet gives it no certificate, the
+>   window's server does not listen, port 9443 or the path `/m` is held otherwise, Funnel is on
+>   for port 9443 (it would put the pages on the internet), or Serve already passes the window's
+>   port anywhere else: a raw or TLS-terminated forward, which lets requests through with no
+>   login and no proxy header (EP-30's review), or another web mount, which would put the
+>   relays' routes on the tailnet. The mount is the tool's only under the exact key `/m` that
+>   Disable's `off` reaches; one shaped so but to another loopback port is an earlier window's,
+>   from before its port changed, when the registry's record names its host, and Disable takes
+>   it off; without the record it may be another service's and is left alone. The tool never
+>   resets Serve's configuration and touches no other entry of it.
+> - **The confirmation** shows the command, the owner's login (written at the click alone), the
+>   link `https://<name>:9443/m/`, what it does and leaves alone, its warnings (another login in
+>   the registry, Funnel elsewhere on the node, a phone's other VPN) and what refuses it. The
+>   plan is read again at the click and runs only when it is the plan shown; Serve's words are
+>   shown whole, and a failure writes nothing. A command that exits well is not taken at its
+>   word: Serve's configuration is read again, and the registry is written only when it shows
+>   the mount (Enable) or no longer does (Disable), since a prompt answered by the child's empty
+>   input can end the command well with nothing changed (the review's).
+> - **The registry's record.** A successful Enable writes `owner_login` and a new setting,
+>   `remote_view`, this machine's tailnet name, in one change; Disable takes `remote_view` out
+>   and keeps the login. With the mount already there, Enable writes the registry alone; with
+>   none, Disable clears the record alone. Each run is an `event` row of kind `remote` naming the
+>   verb, the outcome and the command, never the name. A build before this one refuses a
+>   registry that holds `remote_view`.
+> - **The guard narrowed** (EP-30's note allowed it). While `remote_view` is set, a request
+>   through Serve passes only with that name in its `Host`, or with the loopback's `Host` and,
+>   when it carries one, that name in `X-Forwarded-Host` (the review's: the narrowing holds
+>   whichever way Serve passes `Host`); without the record, any tailnet name as before.
+> - **The arrival.** The first request through Serve a window allows is a line of the
+>   remote-action log of its own, saying how Serve passed `Host` (this machine's name, another
+>   tailnet name, the loopback; with a port or none) and which proxy headers came, by name. The
+>   owner's first real request thus says which of the guard's two readings is Serve's; both
+>   stay tested by their headers until EP-32's walk decides.
+> - **Where.** The tray's Enable or Disable remote view… before Install and restart; under the
+>   Diagnostics pane's Network group its buttons, with Copy the link and Send the link to my
+>   phone while on; and the doctor's "remote view" line, in `crw doctor` and on the phone's
+>   doctor's page too: off; on at its link; on in the registry while Serve holds no mount;
+>   Serve's mount with no record, or under another name; a forward to the window's port (a
+>   failure) or another mount to it. The window reads the record every half minute and after a
+>   run. The restart is refused while the dialog is open, and Quit waits while its command
+>   runs.
+>
+> *Alternatives.* `--yes` passed (a prompt answered unseen); the guard left at any tailnet name;
+> the arrival's form logged at every request (reads are not logged since EP-30); a forward to
+> the window's port refused alone (another mount passes the relays' routes through Serve's
+> proxy, whose `Host` their own guard refuses, but this decision proxies the phone's path alone);
+> Enable and Disable from `crw` too.
 
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's

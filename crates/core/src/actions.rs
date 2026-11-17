@@ -458,7 +458,7 @@ fn gh_account(runner: &dyn Runner) -> Result<Account, String> {
 }
 
 /// A failed child in words: its errors' words, else its output's, else its exit code.
-fn said(what: &str, exit: &Exit) -> String {
+pub(crate) fn said(what: &str, exit: &Exit) -> String {
     let words = |text: &str| text.split_whitespace().collect::<Vec<_>>().join(" ");
     let text = [words(&exit.stderr), words(&exit.stdout)]
         .into_iter()

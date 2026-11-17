@@ -1963,7 +1963,7 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
 | EP-30b | [Phone pages, the actions and live updates: start the next brief as the rules resolve it, stop a headless run, pause and resume the autopilot; the usage strip and the autopilot block; one event stream and the tool's own script](EP-30b-phone-pages-actions-and-live-updates.md) (D-28, D-22, D-14) | M | EP-30a, EP-40 | core | ☑ `e23da6a` |
 | EP-31 | [Phone pages, the sessions: a session's page with its transcript streaming and its answers, the sessions list, the notifications page and the doctor's report](EP-31-phone-pages-the-sessions.md) (D-28, D-26, D-29) | M | EP-30b, EP-13, EP-28 | core | ☑ `7c9278a` |
 | EP-31b | [The overall daily cap in the window: the Autopilot section says today's chained runs against `autopilot_daily_total` and sets it beside the per-project pickers; the phone's autopilot block says the same](EP-31b-overall-daily-cap.md) (D-22, D-28) | S | EP-31 | core | ☑ `cbffaa2` |
-| EP-31a | Enable remote view: `tailscale serve` on the phone's path alone behind a confirmation, the owner's login read and confirmed, Serve's status in Diagnostics, the link shown and pushed through ntfy, pushes that open their page, Disable, the tray's entry (D-28, D-21) | M | EP-31, EP-20a | core | ☐ |
+| EP-31a | [Enable remote view: `tailscale serve` on the phone's path alone behind a confirmation, the owner's login read and confirmed, Serve's status in Diagnostics, the link shown and pushed through ntfy, pushes that open their page, Disable, the tray's entry](EP-31a-enable-remote-view.md) (D-28, D-21) | M | EP-31, EP-20a | core | ☐ |
 | EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31b, EP-31a | core | ☐ |
 
 Ordering rationale *(EP-29, 2026-11-15, the owner's choices)*: EP-41 and EP-42 open the phase,
@@ -2533,6 +2533,12 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
     request really arrives through Serve (its `Host`, its headers) and the script on a real
     phone: both wait for the owner's first Enable (EP-31a's task) and EP-32's walk. The node's
     Serve configuration is shared with the owner's other services, so the tool never resets it.
+    *(EP-31a, 2026-11-17.)* Enable remote view exists: Serve mounts the phone's path alone after
+    a confirmation that reads Tailscale's status and Serve's configuration first, refusing a
+    forward or another mount to the window's port; while the registry's `remote_view` is set,
+    a request through Serve passes only with this machine's name or the loopback in `Host`; the
+    first request through Serve after each start of the window is logged with how Serve passed
+    `Host`. The first real Enable is OT-29, ungated; EP-32's walk takes what it showed.
 
 ## Decision record
 

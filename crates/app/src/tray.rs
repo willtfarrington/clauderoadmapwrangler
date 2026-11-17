@@ -5,7 +5,8 @@
 //! last in front (`toasts::Attention`). The tooltip says both in words. A left click shows the
 //! window. The menu says what waits and what is new, and holds Show, Start next for each pinned
 //! project (the launch dialog on its next brief, D-17), Pause autopilot or Resume autopilot (the
-//! owner's Pause of every chain, D-22; EP-19) and Quit. The icon and the menu change only when what they show does: the menu's texts are set
+//! owner's Pause of every chain, D-22; EP-19), Enable or Disable remote view (the phone's path on
+//! the tailnet, D-28; EP-31a), Install and restart and Quit. The icon and the menu change only when what they show does: the menu's texts are set
 //! in place, and a menu replaced for a new list of pinned projects is kept a minute longer, in
 //! case it was open. `main` starts it once, on the main thread, whose message loop serves it:
 //! never in a test or a screenshot run.
@@ -35,6 +36,9 @@ pub enum Order {
     Start(String),
     /// The owner's Pause of every chain, or its Resume (D-22; EP-19).
     Pause,
+    /// The confirmation of Enable or Disable remote view, whichever the window offers (D-28;
+    /// EP-31a), over the window shown.
+    RemoteView,
     /// The newer build installed and opened in place of the window (EP-37).
     Restart,
     Quit,
@@ -45,6 +49,7 @@ impl Order {
         match id {
             "show" => Some(Order::Show),
             "pause" => Some(Order::Pause),
+            "remote" => Some(Order::RemoteView),
             "restart" => Some(Order::Restart),
             "quit" => Some(Order::Quit),
             _ => id
@@ -68,6 +73,8 @@ pub struct State {
     pub paused: bool,
     /// Why the chains hold meanwhile when usage holds them, in a few words.
     pub held: Option<String>,
+    /// Remote view is on, as the registry's record says (EP-31a): the entry offers Disable.
+    pub remote: bool,
     /// A newer build is built or installed, to restart into (EP-37).
     pub restart: bool,
     /// The icon's side in pixels.
@@ -184,6 +191,7 @@ impl Tray {
             starts: Vec::new(),
             paused: false,
             held: None,
+            remote: false,
             restart: false,
             size: SIZE,
         };
@@ -380,9 +388,15 @@ fn entries(state: &State) -> Vec<Entry> {
         (false, Some(held)) => format!("Pause autopilot (held now: {held})"),
         (false, None) => "Pause autopilot".to_owned(),
     };
+    let remote = if state.remote {
+        "Disable remote view…"
+    } else {
+        "Enable remote view…"
+    };
     entries.extend([
         Entry::item("pause", pause, true),
         Entry::Separator,
+        Entry::item("remote", remote, true),
         Entry::item("restart", "Install and restart", state.restart),
         Entry::item("quit", "Quit Roadmap Wrangler", true),
     ]);
@@ -400,6 +414,7 @@ mod tests {
             starts: Vec::new(),
             paused: false,
             held: None,
+            remote: false,
             restart: false,
             size: 24,
         }
@@ -471,6 +486,7 @@ mod tests {
                 ),
                 ("start:R&D", "R&D: no brief to start", false),
                 ("pause", "Pause autopilot", true),
+                ("remote", "Enable remote view…", true),
                 ("restart", "Install and restart", false),
                 ("quit", "Quit Roadmap Wrangler", true),
             ]
@@ -478,6 +494,10 @@ mod tests {
         // A newer build to restart into enables the restart (EP-37).
         with.restart = true;
         assert!(entries(&with).contains(&Entry::item("restart", "Install and restart", true)));
+        // Remote view on offers its Disable, in the same place (EP-31a).
+        with.remote = true;
+        assert!(entries(&with).contains(&Entry::item("remote", "Disable remote view…", true)));
+        assert_eq!(Order::from_id("remote"), Some(Order::RemoteView));
         // The item says the owner's Pause, and usage's hold meanwhile.
         let pause_text = |paused: bool, held: Option<&str>| {
             let mut state = state(0, "");

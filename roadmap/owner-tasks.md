@@ -316,3 +316,19 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   project), and that `target\release\crw.exe act <project> <action>` previews the same plan.
   The orphan's Delete stays refused until you run `gh auth refresh -s delete_repo` in a terminal
   (it opens a browser). Anything odd goes to `roadmap/inbox.md`.
+- [ ] OT-29 (EP-31a, 2026-11-17) The first real Enable remote view (the first run of a new
+  route; nothing waits on it). Once the window runs EP-31a's build (it restarts into it after the
+  install, or File > Install and restart): (1) the tray's menu, Enable remote view… (or the
+  button under the Diagnostics pane's Network group): the dialog names `tailscale serve --bg
+  --https=9443 --set-path=/m http://127.0.0.1:47831/m`, your Tailscale login and the link; press
+  Enable, and it shows Serve's words, then the link with Copy and Send the link to my phone.
+  (2) Send the link to your phone and open it with Tailscale as the phone's VPN: the project list
+  shows. (3) In a terminal, `crw remote`: a line ending "the first request through Serve since the
+  window started: Host … , proxy headers …" says how Serve passed `Host` (this machine's tailnet
+  name, or the loopback), which EP-32's walk takes. (4) The phone's actions you would use: Pause
+  then Resume on the list, Check again on the doctor's page, an answer when a run waits, a start
+  or a stop when you mean one; each is a line of `crw remote`. (5) Tap a notification pushed
+  while remote view is on: it opens its page. (6) Disable remote view: the dialog names
+  `tailscale serve --https=9443 --set-path=/m off`; afterwards the link no longer answers, and
+  `tailscale serve status` shows your other entries as they were. Anything odd goes to
+  `roadmap/inbox.md`.

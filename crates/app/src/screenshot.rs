@@ -120,6 +120,11 @@
 //!   `keeprule=<project>:<model|effort>[@<phase>]=<value>` (from EP-19c: a model or an effort
 //!   kept as the Keep menu beside Model or Effort writes it, for every brief or for one phase,
 //!   into the run's registry, before `launch=` opens the dialog);
+//! - `remote=enable` (from EP-31a: Enable remote view's confirmation with a canned machine and
+//!   login, remote view off); `remote=disable` (remote view on, its record written into the run's
+//!   registry and the Diagnostics pane's report saying so, with Disable's confirmation);
+//!   `remote=done` (the same, with Enable's end, the link, Copy and Send the link to my phone);
+//!   `remote=on` (the same with no dialog: with `tile=diagnostics`, the pane's buttons);
 //! - `pages=<file.html>` (from EP-30: once the picture is taken, the phone's list page of the
 //!   run's portfolio written there as the window's server would send it, since a run binds no
 //!   port; over a copy of real roadmaps the page stays in the scratchpad, out of git);
@@ -405,6 +410,8 @@ impl Run {
                     let (project, flag) = value.split_once(':').unwrap_or((value, ""));
                     board.formalise_when_read = Some((project.to_owned(), flag.to_owned()));
                 }
+                // `remote=enable|disable|done|on`: Enable or Disable remote view (EP-31a).
+                "remote" => open_remote(board, value),
                 "act" => {
                     // `act=lantern:make-public` or `act=backup`, once the files are read (EP-34).
                     let (project, verb) = match value.split_once(':') {
@@ -1656,6 +1663,65 @@ pub fn open_act(board: &mut Board, project: Option<String>, verb: crw_core::acti
     // first, or the plan sees no origin and no account (the first picture's refusal).
     readings(&mut board.portfolio, chrono::Utc::now());
     board.open_act(project, verb);
+}
+
+/// What `remote=<enable|disable|done|on>` arranges (EP-31a), with the canned runner's synthetic
+/// machine and login: Enable's preview with remote view off; or remote view on, its record and
+/// the login written into the run's own registry and the Diagnostics pane's report saying so,
+/// with Disable's preview (`disable`), Enable's end with the link (`done`) or no dialog (`on`,
+/// for the pane's buttons with `tile=diagnostics`). Nothing runs.
+pub fn open_remote(board: &mut Board, value: &str) {
+    use crate::remote_view::{CANNED_LOGIN, CANNED_MACHINE};
+    use crw_core::serve::{self, Verb};
+    if !matches!(value, "enable" | "disable" | "done" | "on") {
+        eprintln!("screenshot: remote takes enable, disable, done or on, not {value}");
+        return;
+    }
+    if value != "enable" {
+        let today = crw_core::files::today();
+        let written = board.store().change(&today, |c| {
+            c.set_setting("owner_login", CANNED_LOGIN)?;
+            c.set_setting("remote_view", CANNED_MACHINE)
+        });
+        if let Err(e) = written {
+            eprintln!("screenshot: the remote view's record was not written: {e}");
+        }
+        board.remote.machine = Some(CANNED_MACHINE.to_owned());
+        let mut report = crate::diagnostics::canned();
+        for line in &mut report.lines {
+            if line.name == serve::LINE {
+                line.level = crw_core::doctor::Level::Ok;
+                line.text = format!(
+                    "on at {}: Serve proxies the phone's path alone",
+                    serve::url(CANNED_MACHINE)
+                );
+            }
+        }
+        board.diagnostics.can(report, chrono::Utc::now());
+    }
+    match value {
+        "enable" => board.open_remote_view(Verb::Enable),
+        "disable" => board.open_remote_view(Verb::Disable),
+        "done" => {
+            let port = signals::DEFAULT_PORT;
+            board.remote.dialog = Some(crate::remote_view::Dialog::done(serve::Ran {
+                verb: Verb::Enable,
+                command: Some(format!(
+                    "tailscale serve --bg --https=9443 --set-path=/m http://127.0.0.1:{port}/m"
+                )),
+                end: crw_core::actions::End::Done,
+                printed: format!(
+                    "Available within your tailnet:\n\nhttps://{CANNED_MACHINE}:9443/m\n|-- proxy \
+                     http://127.0.0.1:{port}/m\n\nServe started and running in the background.\n\
+                     To disable the proxy, run: tailscale serve --https=9443 off"
+                ),
+                unwritten: None,
+                unlogged: None,
+                url: Some(serve::url(CANNED_MACHINE)),
+            }));
+        }
+        _ => {}
+    }
 }
 
 /// The tracked fake projects.
