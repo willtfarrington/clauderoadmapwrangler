@@ -1,5 +1,5 @@
-// Roadmap Wrangler's phone pages: the live updates (D-14, D-28; EP-30b). Every page works the same
-// without this script. The window's one event stream names each part of its state that changed,
+// Roadmap Wrangler's phone pages: the live updates (D-14, D-28; EP-30b, EP-31). Every page works
+// the same without this script. The window's one event stream names each part of its state that changed,
 // by the path of the page that shows it. A page that listens to that path (its main element's
 // data-listen) fetches itself again and puts in each part (data-part) that differs, leaving alone
 // a part that holds the focused field or text typed and not sent, which it fetches again once the
@@ -39,19 +39,46 @@
     }
   }
 
+  // A part of numbered children (data-append, EP-31: a session's transcript) is never put in
+  // whole: a child the page lacks is appended, one that changed is put in with its folds kept,
+  // one the window let go is taken out.
+  function appendTo(part, next) {
+    var mine = {}, kept = {};
+    for (var i = 0; i < part.children.length; i++) {
+      mine[part.children[i].getAttribute("data-n")] = part.children[i];
+    }
+    for (var j = 0; j < next.children.length; j++) {
+      var child = next.children[j], n = child.getAttribute("data-n"), old = mine[n];
+      kept[n] = true;
+      if (!old) { part.appendChild(document.importNode(child, true)); continue; }
+      keepFolds(old, child);
+      if (old.innerHTML !== child.innerHTML) old.replaceWith(document.importNode(child, true));
+    }
+    Object.keys(mine).forEach(function (n) { if (!kept[n]) mine[n].remove(); });
+  }
+
   function refresh() {
     if (fetching) { again = true; return; }
     fetching = true;
     fetch(location.pathname, { credentials: "same-origin", cache: "no-store" })
-      .then(function (answer) { return answer.ok ? answer.text() : null; })
+      .then(function (answer) {
+        // The page is gone (a session's tab dismissed, the window started again): say so rather
+        // than keep forms that would name another run (EP-31's review).
+        if (answer.status === 404) { location.reload(); return null; }
+        return answer.ok ? answer.text() : null;
+      })
       .then(function (text) {
         if (text === null) return;
         var fresh = new DOMParser().parseFromString(text, "text/html");
+        // A reader at the page's foot follows what comes in, measured before any part moves.
+        var root = document.documentElement, high = root.scrollHeight;
+        var atFoot = window.innerHeight + window.scrollY >= high - 48;
         var parts = document.querySelectorAll("[data-part]");
         for (var i = 0; i < parts.length; i++) {
           var part = parts[i], name = part.getAttribute("data-part");
           var next = fresh.querySelector('[data-part="' + name + '"]');
           if (!next) continue;
+          if (part.hasAttribute("data-append")) { appendTo(part, next); continue; }
           keepFolds(part, next);
           if (next.innerHTML === part.innerHTML) continue;
           if (typedIn(part)) { held = true; continue; }
@@ -59,6 +86,7 @@
         }
         var asOf = fresh.querySelector(".as-of"), here = document.querySelector(".as-of");
         if (asOf && here) here.textContent = asOf.textContent;
+        if (atFoot && root.scrollHeight > high) window.scrollTo(0, root.scrollHeight);
       })
       .catch(function () {})
       .then(function () {

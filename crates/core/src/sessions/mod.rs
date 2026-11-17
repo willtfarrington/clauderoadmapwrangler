@@ -278,18 +278,25 @@ impl Seen {
     }
 
     /// One line on it for a project's row: `a visual session waits for you: a permission prompt
-    /// (since 10:02)`.
+    /// (since 10:02)`; a start of another day says its day (EP-31's field check: a tab open since
+    /// the day before read "since 13:23" for two days).
     pub fn summary(&self) -> String {
         let since = self
             .started
-            .map(|at| {
-                format!(
-                    " (since {})",
-                    at.with_timezone(&chrono::Local).format("%H:%M")
-                )
-            })
+            .map(|at| format!(" (since {})", clock(at, chrono::Local::now())))
             .unwrap_or_default();
         format!("a {} session {}{since}", self.mode.as_str(), self.doing())
+    }
+}
+
+/// `at` as a clock time in local time, `13:23`, with its day when it is not `now`'s: `Sun 15 Nov
+/// 13:23`.
+pub fn clock(at: DateTime<Utc>, now: DateTime<chrono::Local>) -> String {
+    let local = at.with_timezone(&chrono::Local);
+    if local.date_naive() == now.date_naive() {
+        local.format("%H:%M").to_string()
+    } else {
+        local.format("%a %d %b %H:%M").to_string()
     }
 }
 
@@ -758,6 +765,34 @@ mod tests {
         assert!(interactive(Some("cli")));
         assert!(interactive(None));
         assert!(!interactive(Some("sdk-cli")));
+    }
+
+    /// A start of today by its clock time alone, one of another day with its day (EP-31's field
+    /// check), in a session's line too.
+    #[test]
+    fn a_start_of_another_day_says_its_day() {
+        let now = chrono::Local::now();
+        let today = now.with_timezone(&Utc);
+        let earlier = today - TimeDelta::days(2);
+        assert_eq!(
+            clock(today, now),
+            now.format("%H:%M").to_string(),
+            "today's"
+        );
+        let local = earlier.with_timezone(&chrono::Local);
+        assert_eq!(
+            clock(earlier, now),
+            local.format("%a %d %b %H:%M").to_string()
+        );
+        let mut seen = Seen::new("s1", Path::new(r"C:\Data\alpha"), None, today);
+        seen.started = Some(earlier);
+        assert_eq!(
+            seen.summary(),
+            format!(
+                "a manual session is idle (since {})",
+                local.format("%a %d %b %H:%M")
+            )
+        );
     }
 
     #[test]

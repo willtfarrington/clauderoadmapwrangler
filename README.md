@@ -121,7 +121,7 @@ signals, the notifications, the meter, the mailman, the headless route, the defe
 with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
 restarts, a panic's head line and a child that did not start; a start that failed for reasons
 security software causes (the file flagged, access denied, a file gone) says where to look. The
-window's loopback server also answers the phone's pages under `/m/` (EP-30, EP-30a, EP-30b). The
+window's loopback server also answers the phone's pages under `/m/` (EP-30 … EP-31). The
 project list shows the usage strip (the weekly, Fable and session figures with their resets), the
 autopilot's block (its state with Pause or Resume, the held chains, the chain plans and the chain
 log's latest lines), then the state groups, and each project's next brief, progress, what waits
@@ -130,7 +130,12 @@ what waits on the owner, its inbox and its sessions, and ticks an owner task, ti
 message with its disposition and writes a message into its inbox; it stops a headless run of the
 window's there, and links a page that starts its next brief headless with the model and effort
 the rules resolve, after showing what the run would be and what refuses it now. The decisions
-page answers a headless session's questions and permission requests, a deferred run's too. Each
+page answers a headless session's questions and permission requests, a deferred run's too. The
+sessions page lists the window's headless runs, the sessions open elsewhere and the ledger's
+latest rows; a run's own page shows its transcript as it comes in, with its waiting questions to
+answer and its Stop, and takes answers only: a message, Resume, Kill, Revert and Commit stay the
+window's. The notifications page lists the latest notifications, and the doctor's page shows the
+report the Diagnostics pane last gathered, with a Check again of its own. Each
 form goes to the window, which runs it as the desk would and says what came of it on the page, in
 its status bar and in its log. The pages are rendered from a snapshot the window publishes, and
 one small script of the tool's own listens to the window's event stream and fetches again the

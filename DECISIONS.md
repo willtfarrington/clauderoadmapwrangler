@@ -900,6 +900,17 @@ with modules; hand-written protocol types; another community client.
 > refactor of the marks the window draws too; one event per page rather than per part; a page
 > fetched whole and swapped whole, which would lose a message being typed.
 
+> **Addendum (2026-11-17, EP-31).** The script's append mode. A part marked `data-append` holds
+> numbered children (`data-n`: a transcript entry's place in its run). On a change the script
+> appends a child the page lacks, puts in one that changed with its folds kept, and takes out
+> one the window let go, never the whole part; a reader at the page's foot follows the new ones.
+> A session's page carries its transcript's latest 300 entries, the earlier ones counted, and the
+> text streaming in to its last whole line, so the snapshot's version rises with a line and not a
+> word, at most once a second as the window builds it. *Alternatives.* A fetch of the entries
+> after a number alone (a query of its own and a second rendering to keep alike); the streaming
+> text left out until its block is whole (a long reply would show nothing while it streams); all
+> 2,000 entries the window keeps (a page weighing a megabyte, fetched again at each change).
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -2918,6 +2929,41 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > (a draft each second, reading every project's `CLAUDE.md`); a Stop by number alone; a Pause
 > that toggles.
 
+> **Addendum (2026-11-17, EP-31).** The sessions' pages, as built.
+>
+> - **A session's page** is `GET /m/s/<session id>`, not the window's number as EP-29's note
+>   wrote: the numbers start again at 1 at each restart, and this project's chains restart the
+>   window after every brief, so a link (EP-31a's pushes) would name another run. A window
+>   session has one while its tab is in the window, a chat's run aside; any other is a page not
+>   found that points at the sessions page. It shows the run's head, its transcript as the
+>   Sessions pane draws it, its waiting requests and a deferred run's with their forms, and its
+>   Stop. Those forms carry a `back` field naming the page, which the answer's and the Stop's
+>   handlers take only in that form (`/m/s/` and an id of letters, digits and dashes); any other
+>   goes back where it did. Answers only: no message and no Resume, which the page says. A
+>   page whose session the window no longer holds reloads itself into the page not found.
+> - **A Stop names its session** too, on the project's page and the session's (the review's):
+>   the same brief run again after a restart can take the same number, which a stale page's
+>   number and brief alone would stop.
+> - **The sessions list** (`/m/sessions`): the window's runs, each linking its page; the
+>   sessions seen elsewhere in the All tab's words; how many run outside the registered projects;
+>   then the ledger's latest 20 rows in `crw sessions`' words, the window's own linked. The window
+>   reads the rows at most every 30 s or when the ledger changed, hidden or shown.
+> - **The notifications** (`/m/notifications`): the ledger's latest 20 rows of kind
+>   `notification`, as `crw notifications` reads them, read by the window at most every 15 s.
+> - **The doctor's report** (`/m/diagnostics`): the report the Diagnostics pane last gathered,
+>   by group, with when it was gathered; a check's report is also taken in the window's pass,
+>   since a hidden window draws no pane.
+> - **Check again from the phone** (the owner's choice at EP-31): one action joins this
+>   decision's list. The doctor's page posts `/m/diagnostics/check`, logged through Serve as
+>   every form is, and the window runs the pane's own check (D-29 addendum of this date).
+> - **The header** links Decisions and Sessions, and the list links the three new pages.
+>
+> The pages are reads behind the same guard, so only the two forms are logged. *Alternatives.*
+> The window's number in the path; the handlers reading the ledger themselves (no event would
+> name a new row); a page for a chat's run (the free chat this decision parks); the answer always
+> back to the decisions page; the doctor's page read-only, or gathering by itself when its report
+> is old.
+
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's
 Autorun Organizer); single instance by probing the loopback port and focusing the running window; closing
@@ -3294,6 +3340,17 @@ an opt-in live smoke test; documented AV exclusions.
 > test holds the tray's Pause acting in a hidden pass. *Alternatives.* The queue run at the start
 > of every pass, shown too, where a frame's own actions would wait for the next pass, a change of
 > order for every click; only the phone's actions run hidden.
+
+> **Addendum (2026-11-17, EP-31).** The doctor's report on the phone. The window gathers it as
+> before: when the Diagnostics pane is first shown and at its Check again, and since this brief
+> at the phone's Check again too (the owner's choice: the window starts hidden at login, so the
+> page would often have held no report or an old one). That check is the pane's own: the same
+> read-only children one at a time in their turn, refused where the window gathers none (a
+> screenshot run, a test), said when one is under way. A report is taken in the window's pass,
+> shown or hidden, and the phone's page shows it by group with when it was gathered. The pane's
+> own lines (the build, the signals, the meter, the routes) stay the pane's. *Alternatives.* The
+> page read-only with its age; a report gathered by itself when the page finds it older than ten
+> minutes; the checks at every start, which EP-28 declined.
 
 **D-30 Planning record.** This planning session is EP-0. Its record is `roadmap/planning-2026-10-31.md`
 (verified state, research pass, domain map, interview record) with the portfolio survey in the git-ignored

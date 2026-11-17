@@ -5,6 +5,8 @@
 <form method="post" action="/m/decisions/answer" class="stack">
 <input type="hidden" name="key" value="{{ ask.key }}">
 <input type="hidden" name="request" value="{{ ask.id }}">
+{% if !ask.back.is_empty() %}<input type="hidden" name="back" value="{{ ask.back }}">
+{% endif %}
 {% if ask.questions.is_empty() %}
 <p><code>{{ ask.summary }}</code></p>
 {% if !ask.input.is_empty() %}<details class="more"><summary>Input</summary><pre>{{ ask.input }}</pre></details>{% endif %}

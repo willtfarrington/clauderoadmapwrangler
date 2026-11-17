@@ -57,13 +57,25 @@ impl Diagnostics {
         self.running.is_some()
     }
 
+    /// The real window's: its checks may start children (the phone's doctor's page, EP-31).
+    pub fn is_live(&self) -> bool {
+        self.live
+    }
+
+    /// The last report and when it was gathered, when one was gathered or canned (EP-31).
+    pub fn last(&self) -> Option<(&Report, DateTime<Utc>)> {
+        self.report.as_ref().map(|(report, at)| (report, *at))
+    }
+
     /// The last report, when one was gathered or canned.
     #[cfg(test)]
     pub fn report(&self) -> Option<&Report> {
         self.report.as_ref().map(|(report, _)| report)
     }
 
-    fn receive(&mut self) {
+    /// Takes in a report gathered since: at the pane's drawing, and in the window's pass for the
+    /// phone's page, which may ask while the window is hidden (EP-31).
+    pub(crate) fn receive(&mut self) {
         if let Some(rx) = &self.running {
             match rx.try_recv() {
                 Ok(report) => {
@@ -173,6 +185,26 @@ impl Board {
         if again {
             self.check_diagnostics();
         }
+    }
+
+    /// The phone's Check again (EP-31, the owner's choice): the pane's own check on its worker
+    /// thread, refused where the window gathers none (a screenshot run, a test), said when one is
+    /// under way already. The report lands in a later pass, which the doctor's page then shows.
+    pub(crate) fn check_from_page(&mut self) -> Result<String, String> {
+        if !self.diagnostics.live {
+            return Err("This window gathers no report: a screenshot run or a test.".to_owned());
+        }
+        if self.diagnostics.checking() {
+            return Ok(
+                "A check is under way already: the page shows its report when it lands.".to_owned(),
+            );
+        }
+        self.check_diagnostics();
+        Ok(
+            "Checking: the tools answer one at a time in their turn, as at the pane's Check \
+            again, and the page shows the report when it lands."
+                .to_owned(),
+        )
     }
 
     /// Reads the registry's route setting, then gathers the report.

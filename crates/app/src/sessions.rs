@@ -494,7 +494,7 @@ fn ended_line(ended: &Ended, open: Option<&Open>) -> String {
 
 /// The last line of `text` that holds anything, cut to [`LINE`] characters: what a run says as it
 /// works.
-fn last_line(text: &str) -> Option<String> {
+pub(crate) fn last_line(text: &str) -> Option<String> {
     let line = text
         .lines()
         .rev()
@@ -506,12 +506,12 @@ fn last_line(text: &str) -> Option<String> {
 /// What a run's result says it did, cut to [`LINE`] characters: its gist, the first sentence of
 /// its first prose paragraph without markdown (EP-20a, the owner's choice; the last line before,
 /// often a list item or a link).
-fn result_line(text: &str) -> Option<String> {
+pub(crate) fn result_line(text: &str) -> Option<String> {
     crate::markup::gist(text).map(|gist| cut_line(&gist))
 }
 
 /// `line` cut to [`LINE`] characters with an ellipsis.
-fn cut_line(line: &str) -> String {
+pub(crate) fn cut_line(line: &str) -> String {
     if line.chars().count() > LINE {
         let cut: String = line.chars().take(LINE - 1).collect();
         format!("{cut}…")
@@ -601,6 +601,14 @@ pub struct History {
 }
 
 impl History {
+    /// For the phone's sessions page (EP-31): read again only when the ledger changed or was
+    /// never read, so that a window idle in the tray reads nothing for it (the review's).
+    pub(crate) fn refresh_when_changed(&mut self, ledger: Option<&Path>) {
+        if self.stale || self.read_at.is_none() {
+            self.refresh(ledger);
+        }
+    }
+
     fn refresh(&mut self, ledger: Option<&Path>) {
         let due = self.stale || self.read_at.is_none_or(|at| at.elapsed() >= HISTORY_EVERY);
         let Some(path) = ledger.filter(|_| due && !self.canned) else {
@@ -2255,7 +2263,7 @@ fn ledger_line(
 
 /// How a session ended, in one line: the outcome, the exit code, the turns, the time and the
 /// CLI's cost estimate (a subscription is not billed in dollars, D-23).
-fn ending(ended: &Ended) -> String {
+pub(crate) fn ending(ended: &Ended) -> String {
     let mut parts = vec![format!("ended {}", ended.outcome.as_str())];
     if let Some(code) = ended.exit_code {
         parts.push(format!("exit {code}"));

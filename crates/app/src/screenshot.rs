@@ -721,6 +721,7 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         let text = "EP-2's brief has its completion note; the commit waits for your yes.";
         let mut done =
             crate::sessions::Live::canned(90, launch, "high", vec![Event::Text(text.to_owned())]);
+        done.session_id = "0b9a8c7d-6e5f-4a3b-8c2d-1e0f9a8b7c6d".to_owned();
         done.end_canned(Ended {
             outcome: Outcome::Completed,
             exit_code: Some(0),
@@ -1297,6 +1298,8 @@ fn canned_deferred() -> Live {
         result: None,
         stderr: Vec::new(),
     });
+    // A session id of its own, so that its phone page is its own (EP-31's review).
+    live.session_id = "5e1d0c9b-2a38-4f47-8b56-6c7d8e9f0a12".to_owned();
     live
 }
 
@@ -1387,8 +1390,13 @@ fn canned_transcript() -> Live {
     for waiting in &mut live.waiting {
         waiting.since = asked;
     }
+    // The ledger's first canned row is this run's, linked to its phone page (EP-31).
+    live.session_id = CANNED_HARBOR.to_owned();
     live
 }
+
+/// The canned harbor run's session id, which a canned ledger row shares (EP-31).
+const CANNED_HARBOR: &str = "7a6b5c4d-3e2f-4a1b-9c8d-7e6f5a4b3c2d";
 
 /// The ledger's rows a picture shows (EP-13), one of each mode and outcome, the latest first.
 fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
@@ -1448,7 +1456,16 @@ fn canned_rows(now: DateTime<Utc>) -> Vec<SessionRow> {
     done.result =
         Some("EP-3 is done: the tide tables are read and cached, and the tests pass.".to_owned());
     done.usage = share(2.0, 21.0, 23.0, Some(0.0));
-    vec![quarry, lapsed, lantern, done, stopped]
+    // The canned harbor run's own row, open while it runs: the All tab lists the run above and
+    // leaves the row out; the phone's sessions page links it to the run's page (EP-31). Last, so
+    // that a canned revert's plan still finds harbor's EP-3 first.
+    let mut running = row(6, "harbor", Some("EP-4"), "headless", 18, 0);
+    running.session_id = Some(CANNED_HARBOR.to_owned());
+    running.ended_at = None;
+    running.outcome = None;
+    running.model = Some("claude-opus-5-5".to_owned());
+    running.effort = Some("high".to_owned());
+    vec![quarry, lapsed, lantern, done, stopped, running]
 }
 
 /// The plan a picture's preview shows (EP-15c): `project`'s latest session among the canned
@@ -2042,14 +2059,10 @@ pub fn write_pages(board: &mut Board) {
     };
     PAGES_WRITTEN.store(true, Ordering::Relaxed);
     let now = Utc::now();
+    // The notifications page reads a run's own canned rows, never a ledger (EP-31).
+    board.pages.can_notifications(canned_notifications(now));
     let parts = crate::published::Parts::of(board, now);
-    let published = crate::published::Published {
-        at: now,
-        version: 1,
-        list: parts.list,
-        projects: parts.projects,
-        decisions: parts.decisions,
-    };
+    let published = crate::published::Published::of(parts, now, 1);
     match crate::pages::list(&published, None).map(|html| fs::write(&path, html)) {
         Ok(Ok(())) => eprintln!("screenshot: wrote the list page {}", path.display()),
         Ok(Err(e)) => eprintln!("screenshot: {}: {e}", path.display()),
@@ -2098,6 +2111,64 @@ pub fn write_pages(board: &mut Board) {
         Ok(Err(e)) => eprintln!("screenshot: {}: {e}", file.display()),
         Err(e) => eprintln!("screenshot: the decisions page did not render: {e}"),
     }
+    // The sessions' pages (EP-31): the list, each canned session's page, the notifications and
+    // the doctor's report, `<stem>-sessions.html`, `<stem>-s-<session id>.html`, ….
+    let pages = [
+        ("sessions", crate::pages::sessions(&published)),
+        ("notifications", crate::pages::notifications(&published)),
+        ("diagnostics", crate::pages::diagnostics(&published, None)),
+    ];
+    for (name, html) in pages {
+        let file = beside(name);
+        match html.map(|html| fs::write(&file, html)) {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => eprintln!("screenshot: {}: {e}", file.display()),
+            Err(e) => eprintln!("screenshot: the {name} page did not render: {e}"),
+        }
+    }
+    for run in &published.runs {
+        let file = beside(&format!("s-{}", crate::form::segment(&run.id)));
+        if let Some(html) = crate::pages::session(&published, &run.id, None) {
+            match html.map(|html| fs::write(&file, html)) {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("screenshot: {}: {e}", file.display()),
+                Err(e) => eprintln!("screenshot: {}'s page did not render: {e}", run.title),
+            }
+        }
+    }
+    eprintln!(
+        "screenshot: wrote the sessions list, {} session pages, the notifications and the \
+         doctor's report",
+        published.runs.len()
+    );
+}
+
+/// The notifications a run's page shows (EP-31): a few of each kind, synthetic, the newest first.
+fn canned_notifications(now: DateTime<Utc>) -> Vec<crate::published::LogLine> {
+    let line = |minutes: i64, project: Option<&str>, words: &str| crate::published::LogLine {
+        at: Some(now - TimeDelta::minutes(minutes)),
+        project: project.map(str::to_owned),
+        words: words.to_owned(),
+    };
+    vec![
+        line(
+            2,
+            Some("harbor"),
+            "popup · waiting · harbor EP-4 waits for you · Which length band should the berth \
+             filter open on?",
+        ),
+        line(
+            2,
+            Some("harbor"),
+            "ntfy · waiting · harbor EP-4 waits for you",
+        ),
+        line(
+            41,
+            Some("meadow"),
+            "popup · finished · meadow EP-2 has finished · EP-2 is done, committed and installed.",
+        ),
+        line(95, None, "badge · inbox · a message arrived for lantern"),
+    ]
 }
 
 /// Feeds the `keys=` chords into the frame's input, one per frame.

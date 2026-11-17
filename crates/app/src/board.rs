@@ -1100,9 +1100,18 @@ impl Board {
     }
 
     /// The phone's pages' snapshot (EP-30), built when a page asked or a second has passed, and
-    /// sent when it changed or was asked for.
+    /// sent when it changed or was asked for. The records the sessions' pages read are taken in
+    /// first (EP-31): the ledger's latest rows when the ledger changed, its latest notifications
+    /// every 15 s, and a report the Diagnostics pane's check gathered, since a hidden window draws
+    /// no pane to take them.
     fn publish(&mut self) {
         if self.pages.due() {
+            let ledger = self.ledger().map(Path::to_owned);
+            self.sessions
+                .history
+                .refresh_when_changed(ledger.as_deref());
+            self.pages.read_notifications(ledger.as_deref());
+            self.diagnostics.receive();
             let now = chrono::Utc::now();
             let parts = crate::published::Parts::of(self, now);
             self.pages.offer(parts, now);

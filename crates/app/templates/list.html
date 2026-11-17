@@ -5,6 +5,7 @@
 {% block version %}{{ version }}{% endblock %}
 {% block content %}
 {% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
+<p class="summary"><a href="/m/sessions">Sessions</a> · <a href="/m/notifications">Notifications</a> · <a href="/m/diagnostics">Doctor's report</a></p>
 <div data-part="summary">
 <p class="summary">{{ summary }} · <a href="/m/">Reload</a></p>
 <p class="summary"><a href="/m/decisions">Decisions</a>: {{ decisions }}</p>

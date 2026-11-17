@@ -14,8 +14,15 @@
 //! badges' sentences, the last commit's age word and the figures' read times (`List::steady`),
 //! which a page still reads as of each build. The event stream (`Reader::changes`) names each
 //! part that changed by the path of the page that shows it.
+//!
+//! EP-31 adds the sessions' pages: each window session's page (its transcript's latest entries
+//! with their place in it, the text streaming in to its last whole line, what it waits on), the
+//! sessions list (the window's, those started elsewhere, the ledger's latest rows), the latest
+//! notifications and the doctor's report the Diagnostics pane last gathered. Their times are kept
+//! as instants, drawn when a page is drawn, so an idle window publishes no new version for them.
 
 use std::collections::{BTreeSet, VecDeque};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
@@ -24,9 +31,12 @@ use chrono::{DateTime, Utc};
 use crw_core::autopilot::{self as chains, Refusal};
 use crw_core::badges::hosting::Class;
 use crw_core::badges::stack::Kind;
+use crw_core::doctor::Report;
+use crw_core::ledger::{self, EventRow, Ledger, RowState, SessionRow};
 use crw_core::registry::State;
 use crw_core::roadmap::table::Counts;
 use crw_core::session::Request;
+use crw_core::sessions::{Seen, VISUAL_CLAIM};
 use crw_core::tasks::OwnerItem;
 use futures_util::Stream;
 use tokio::sync::watch;
@@ -34,6 +44,8 @@ use tokio::sync::watch;
 use crate::badges::{self, Tone};
 use crate::board::Board;
 use crate::portfolio::{Filter, GroupKind, Member, ProjectRow, SortKey};
+use crate::sessions::Live;
+use crate::transcript::{Entry, Transcript};
 
 /// The window builds the snapshot at most this often, unless a page asks.
 const EVERY: Duration = Duration::from_secs(1);
@@ -48,11 +60,24 @@ pub const WAIT: Duration = Duration::from_secs(2);
 /// every part, so the page fetches itself again.
 pub const EVERYTHING: &str = "*";
 
+/// The most entries a session's page carries (EP-31): the latest, the earlier ones counted. The
+/// window keeps 2,000, which the desk's tab shows.
+pub const PAGE_ENTRIES: usize = 300;
+
+/// The ledger's rows the sessions page lists, as `crw sessions` prints them (EP-31).
+pub const LEDGER_ROWS: usize = 20;
+
+/// The notifications the page lists, as `crw notifications` reads them (EP-31), and how often the
+/// window reads them again: they are written by the toasts and by the pushes' thread.
+pub const NOTIFICATIONS: usize = 20;
+const NOTIFICATIONS_EVERY: Duration = Duration::from_secs(15);
+
 static NO_STACKS: BTreeSet<Kind> = BTreeSet::new();
 static NO_CLASSES: BTreeSet<Class> = BTreeSet::new();
 
 /// One snapshot: when the window built it, its version (raised only when the content changes)
-/// and the content: the list, each project's page and the decisions (EP-30a).
+/// and the content: the list, each project's page and the decisions (EP-30a); the sessions list,
+/// each window session's page, the notifications and the doctor's report (EP-31).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Published {
     pub at: DateTime<Utc>,
@@ -60,6 +85,10 @@ pub struct Published {
     pub list: List,
     pub projects: Vec<Project>,
     pub decisions: Decisions,
+    pub sessions: SessionList,
+    pub runs: Vec<SessionPage>,
+    pub notifications: Notifications,
+    pub doctor: Doctor,
 }
 
 impl Published {
@@ -76,6 +105,10 @@ impl Published {
             },
             projects: Vec::new(),
             decisions: Decisions::default(),
+            sessions: SessionList::default(),
+            runs: Vec::new(),
+            notifications: Notifications::default(),
+            doctor: Doctor::default(),
         }
     }
 
@@ -84,6 +117,53 @@ impl Published {
         self.projects
             .iter()
             .find(|project| project.name.eq_ignore_ascii_case(name))
+    }
+
+    /// The page of the window's session `id` (EP-31), its case aside.
+    pub fn session(&self, id: &str) -> Option<&SessionPage> {
+        self.runs
+            .iter()
+            .find(|page| page.id.eq_ignore_ascii_case(id))
+    }
+
+    /// A snapshot of `parts` built at `at`, at `version`: the screenshot feature's pages and the
+    /// tests'.
+    #[cfg(any(test, feature = "screenshot"))]
+    pub fn of(parts: Parts, at: DateTime<Utc>, version: u64) -> Self {
+        let Parts {
+            list,
+            projects,
+            decisions,
+            sessions,
+            runs,
+            notifications,
+            doctor,
+        } = parts;
+        Self {
+            at,
+            version,
+            list,
+            projects,
+            decisions,
+            sessions,
+            runs,
+            notifications,
+            doctor,
+        }
+    }
+
+    /// Its content as parts again, for a test to change one and offer them.
+    #[cfg(test)]
+    pub fn parts(&self) -> Parts {
+        Parts {
+            list: self.list.clone(),
+            projects: self.projects.clone(),
+            decisions: self.decisions.clone(),
+            sessions: self.sessions.clone(),
+            runs: self.runs.clone(),
+            notifications: self.notifications.clone(),
+            doctor: self.doctor.clone(),
+        }
     }
 
     /// The parts that differ from `before`, each by the path of the page that shows it (EP-30b):
@@ -106,6 +186,26 @@ impl Published {
         if self.decisions != before.decisions {
             paths.push(crate::server::DECISIONS_ROUTE.to_owned());
         }
+        // The sessions' pages (EP-31): the list, each session's page (one added or gone too),
+        // the notifications, the doctor's report.
+        if self.sessions != before.sessions {
+            paths.push(crate::server::SESSIONS_ROUTE.to_owned());
+        }
+        let mut seen = BTreeSet::new();
+        for page in self.runs.iter().chain(&before.runs) {
+            if !seen.insert(page.id.to_lowercase()) {
+                continue;
+            }
+            if self.session(&page.id) != before.session(&page.id) {
+                paths.push(crate::server::session_path(&page.id));
+            }
+        }
+        if self.notifications != before.notifications {
+            paths.push(crate::server::NOTIFICATIONS_ROUTE.to_owned());
+        }
+        if self.doctor != before.doctor {
+            paths.push(crate::server::DIAGNOSTICS_ROUTE.to_owned());
+        }
         paths
     }
 }
@@ -116,6 +216,10 @@ pub struct Parts {
     pub list: List,
     pub projects: Vec<Project>,
     pub decisions: Decisions,
+    pub sessions: SessionList,
+    pub runs: Vec<SessionPage>,
+    pub notifications: Notifications,
+    pub doctor: Doctor,
 }
 
 impl Parts {
@@ -139,6 +243,380 @@ impl Parts {
             list: List::of(board, now),
             projects,
             decisions: Decisions::of(board),
+            sessions: SessionList::of(board, now),
+            runs: board
+                .sessions
+                .live
+                .iter()
+                .filter(|live| !live.is_chat())
+                .map(SessionPage::of)
+                .collect(),
+            notifications: board.pages.notifications().clone(),
+            doctor: Doctor::of(&board.diagnostics),
+        }
+    }
+}
+
+/// A window session's page (EP-31): its head, the latest entries of its transcript with their
+/// place in it, the text streaming in to its last whole line, and what it waits on. A chat's run
+/// has none: it is the Chat pane's.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SessionPage {
+    /// The run's session id, pre-assigned at its launch (D-16): the page's path, which outlives
+    /// the window's numbers, since those start again at 1 at each restart.
+    pub id: String,
+    /// The window's number for it, which the forms name.
+    pub key: u64,
+    pub project: String,
+    pub ep: String,
+    pub title: String,
+    /// Its state in words: running, waiting for an answer, stopping, how it ended.
+    pub state: String,
+    pub running: bool,
+    /// It works or waits and is not being stopped: Stop is offered.
+    pub stoppable: bool,
+    pub model: String,
+    pub effort: String,
+    pub started: DateTime<Utc>,
+    /// One, and one more for each resume.
+    pub runs: u32,
+    /// The autopilot's part in words: chained or on, its cap, where its cap stopped it.
+    pub autopilot: Option<String>,
+    /// What the launch asked for and the CLI could not take.
+    pub dropped: Vec<String>,
+    /// How it ended, in one line.
+    pub ended: Option<String>,
+    /// The transcript's latest entries, the first of them its `first`-th (from 0).
+    pub entries: Vec<Entry>,
+    pub first: usize,
+    /// How many of the `first` earlier ones the window let go, past its 2,000 (the review's):
+    /// the rest are in its tab.
+    pub let_go: usize,
+    /// The text streaming in, to its last whole line: the version rises with a line, not a word.
+    pub streaming: String,
+    /// The requests it waits on, and an ended run's deferred one.
+    pub waiting: Vec<Asking>,
+    pub deferred: Option<Asking>,
+}
+
+impl SessionPage {
+    /// The window's session `live` as its page shows it.
+    pub fn of(live: &Live) -> Self {
+        let transcript = &live.transcript;
+        let skip = transcript.entries.len().saturating_sub(PAGE_ENTRIES);
+        let (waiting, deferred) = Asking::of_live(live);
+        // The cap's words and where it stopped the run, never the work so far, which the clock
+        // alone moves.
+        let autopilot = live.cap.as_ref().map(|cap| {
+            let how = if live.chained {
+                "chained by the autopilot"
+            } else {
+                "autopilot on"
+            };
+            match live.capped {
+                Some(worked) => format!(
+                    "{how} · {} · stopped at its cap after {}",
+                    cap.words(),
+                    chains::length(worked)
+                ),
+                None => format!("{how} · {}", cap.words()),
+            }
+        });
+        Self {
+            id: live.session_id.clone(),
+            key: live.key,
+            project: live.project.clone(),
+            ep: live.ep.clone(),
+            title: live.title(),
+            state: live.state(),
+            running: live.is_running(),
+            stoppable: live.is_running() && !live.stopping,
+            model: live.model.clone(),
+            effort: live.effort.clone(),
+            started: live.started.with_timezone(&Utc),
+            runs: live.runs,
+            autopilot,
+            dropped: live.dropped.clone(),
+            ended: live.ended.as_ref().map(crate::sessions::ending),
+            entries: transcript.entries[skip..].to_vec(),
+            first: transcript.dropped + skip,
+            let_go: transcript.dropped,
+            streaming: whole_lines(&transcript.streaming).to_owned(),
+            waiting,
+            deferred,
+        }
+    }
+}
+
+/// `text` to its last whole line: what streams in, said a line at a time (EP-31).
+pub fn whole_lines(text: &str) -> &str {
+    text.rfind('\n').map_or("", |end| &text[..end])
+}
+
+/// The sessions page (EP-31): the window's sessions, those started elsewhere, then the ledger's
+/// latest rows as `crw sessions` prints them.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct SessionList {
+    /// A start waits its turn in the window.
+    pub starting: bool,
+    /// The window's sessions, a chat's aside, the latest first.
+    pub window: Vec<WindowSession>,
+    /// Those the hooks and the poll report in registered projects.
+    pub elsewhere: Vec<SeenSession>,
+    /// How many run outside the registered projects.
+    pub outside: usize,
+    /// Why the list of live sessions did not read.
+    pub poll_problem: Option<String>,
+    pub rows: Vec<LedgerRow>,
+    /// Why the ledger's rows did not read.
+    pub problem: Option<String>,
+}
+
+/// One of the window's sessions on the sessions page.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WindowSession {
+    /// Its page's id.
+    pub id: String,
+    pub title: String,
+    pub state: String,
+    pub model: String,
+    pub effort: String,
+    pub started: DateTime<Utc>,
+    pub runs: u32,
+    /// Its latest whole entry in one line: a text's last line, a tool call, a request.
+    pub last: String,
+    pub chained: bool,
+}
+
+/// A session started elsewhere on the sessions page (EP-12's `Seen`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct SeenSession {
+    pub project: String,
+    /// Its mode, or `new` for a tab open with no prompt yet.
+    pub mode: String,
+    pub status: &'static str,
+    pub waiting: bool,
+    /// What it does, after its subject: `waits for you in VS Code: a permission prompt`.
+    pub doing: String,
+    pub started: Option<DateTime<Utc>>,
+    pub name: Option<String>,
+    /// The status line's figures, its surface and its session.
+    pub figures: Vec<String>,
+}
+
+/// A ledger row on the sessions page, in `crw sessions`' words.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LedgerRow {
+    pub started: Option<DateTime<Utc>>,
+    /// As written, for a start that does not read as a time.
+    pub started_at: String,
+    /// The session id's short form, which `crw revert` takes.
+    pub short: String,
+    pub title: String,
+    pub mode: String,
+    pub model: String,
+    pub took: String,
+    pub state: String,
+    pub cost: String,
+    pub figures: Vec<String>,
+    /// The result's gist in one line.
+    pub result: Option<String>,
+    /// The window holds its session: its page's id.
+    pub page: Option<String>,
+}
+
+impl SessionList {
+    /// The window's sessions, those seen elsewhere and the ledger's rows as of `now`.
+    pub fn of(board: &Board, now: DateTime<Utc>) -> Self {
+        let lives: Vec<&Live> = board
+            .sessions
+            .live
+            .iter()
+            .filter(|live| !live.is_chat())
+            .collect();
+        let model = &board.watch.model;
+        let history = &board.sessions.history;
+        Self {
+            starting: board.sessions.is_starting(),
+            window: lives
+                .iter()
+                .map(|live| WindowSession {
+                    id: live.session_id.clone(),
+                    title: live.title(),
+                    state: live.state(),
+                    model: live.model.clone(),
+                    effort: live.effort.clone(),
+                    started: live.started.with_timezone(&Utc),
+                    runs: live.runs,
+                    last: last_words(&live.transcript),
+                    chained: live.chained,
+                })
+                .collect(),
+            elsewhere: board
+                .seen_sessions()
+                .into_iter()
+                .map(SeenSession::of)
+                .collect(),
+            outside: model.outside(),
+            poll_problem: model.poll_problem.clone(),
+            rows: history
+                .rows
+                .iter()
+                .take(LEDGER_ROWS)
+                .map(|row| {
+                    let page = row.session_id.as_deref().and_then(|id| {
+                        lives
+                            .iter()
+                            .find(|live| live.session_id.eq_ignore_ascii_case(id))
+                            .map(|live| live.session_id.clone())
+                    });
+                    LedgerRow::of(row, now, page)
+                })
+                .collect(),
+            problem: history.problem.clone(),
+        }
+    }
+}
+
+/// A transcript's latest whole entry in one line, as the All tab's card says what a run does.
+fn last_words(transcript: &Transcript) -> String {
+    transcript
+        .entries
+        .iter()
+        .rev()
+        .find_map(|entry| match entry {
+            Entry::Text(text) => crate::sessions::last_line(text),
+            Entry::Tool { call, .. } => Some(crate::sessions::cut_line(&call.summary)),
+            Entry::Denied(denied) => Some(crate::sessions::cut_line(&format!(
+                "refused: {} ({})",
+                denied.tool, denied.message
+            ))),
+            Entry::Asked { request, .. } => Some(crate::sessions::cut_line(&format!(
+                "asked: {}",
+                request.summary
+            ))),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
+impl SeenSession {
+    /// A session the hooks or the poll report, as the All tab's card reads it.
+    fn of(seen: &Seen) -> Self {
+        let mode = if seen.is_new() {
+            "new".to_owned()
+        } else {
+            seen.mode.as_str().to_owned()
+        };
+        let waiting = seen.status == crw_core::sessions::Status::Waiting;
+        let doing = if waiting {
+            let (place, _) = crate::decisions::place(seen);
+            seen.waits_for_you(place)
+        } else {
+            seen.doing()
+        };
+        let mut figures = Vec::new();
+        if let Some(line) = &seen.line {
+            if !line.model.display_name.is_empty() {
+                figures.push(line.model.display_name.clone());
+            }
+            if let Some(cost) = line.cost.total_cost_usd {
+                figures.push(format!("an estimated ${cost:.2}"));
+            }
+            if let Some(context) = line.context_window.used_percentage {
+                figures.push(format!("context {context:.0} %"));
+            }
+        }
+        if let Some(surface) = &seen.entrypoint {
+            figures.push(surface.clone());
+        }
+        figures.push(format!("session {}", seen.session_id));
+        Self {
+            project: seen.project.clone().unwrap_or_default(),
+            mode,
+            status: seen.status.as_str(),
+            waiting,
+            doing,
+            started: seen.started,
+            name: seen.name.clone(),
+            figures,
+        }
+    }
+}
+
+impl LedgerRow {
+    /// `row` at `now` in `crw sessions`' words, `page` the window's session it is, if any.
+    fn of(row: &SessionRow, now: DateTime<Utc>, page: Option<String>) -> Self {
+        let state = match row.state(now, VISUAL_CLAIM) {
+            RowState::Ended(outcome) => outcome.to_owned(),
+            RowState::Lapsed => "lapsed: no session took it up".to_owned(),
+            RowState::Launched => "handed to VS Code, not taken up yet".to_owned(),
+            RowState::Open if page.is_some() => "open: the window's own run".to_owned(),
+            RowState::Open => "open: no end recorded".to_owned(),
+        };
+        let title = match &row.ep {
+            Some(ep) => format!("{} {ep}", row.project),
+            None => row.project.clone(),
+        };
+        let model = match (&row.model, &row.effort) {
+            (Some(model), Some(effort)) => format!("{model}/{effort}"),
+            (Some(model), None) => model.clone(),
+            _ => String::new(),
+        };
+        Self {
+            started: row.started(),
+            started_at: row.started_at.clone(),
+            short: row
+                .session_id
+                .as_deref()
+                .map(|id| crw_core::revert::short(id).to_owned())
+                .unwrap_or_default(),
+            title,
+            mode: row.mode.clone(),
+            model,
+            took: row.took().map(ledger::length).unwrap_or_default(),
+            state,
+            cost: row
+                .cost_usd
+                .map(|cost| format!("${cost:.2}"))
+                .unwrap_or_default(),
+            figures: ledger::asked(row)
+                .into_iter()
+                .chain(ledger::shares(row))
+                .collect(),
+            result: row.result.as_deref().and_then(crate::sessions::result_line),
+            page,
+        }
+    }
+}
+
+/// The notifications page (EP-31): the ledger's latest rows of kind `notification`, as `crw
+/// notifications` reads them, the newest first.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Notifications {
+    /// The window keeps a ledger, which it has read.
+    pub read: bool,
+    pub rows: Vec<LogLine>,
+    /// Why the ledger did not read.
+    pub problem: Option<String>,
+}
+
+/// The doctor's page (EP-31): the report the Diagnostics pane last gathered with when, and
+/// whether a check runs; the real window's alone gathers.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Doctor {
+    pub live: bool,
+    pub checking: bool,
+    pub report: Option<(Report, DateTime<Utc>)>,
+}
+
+impl Doctor {
+    /// The Diagnostics pane's report as it stands.
+    pub fn of(diagnostics: &crate::diagnostics::Diagnostics) -> Self {
+        Self {
+            live: diagnostics.is_live(),
+            checking: diagnostics.checking(),
+            report: diagnostics.last().map(|(report, at)| (report.clone(), at)),
         }
     }
 }
@@ -179,9 +657,10 @@ pub struct Project {
 /// One of the window's own headless runs in a project (EP-30b), with its Stop.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Run {
-    /// The window's number for it, which a Stop names with its EP.
+    /// The window's number for it, which a Stop names with its EP and its session (EP-31).
     pub key: u64,
     pub ep: String,
+    pub session: String,
     /// Its state in words: running, waiting for an answer, stopping.
     pub state: String,
     pub started: DateTime<Utc>,
@@ -204,6 +683,7 @@ impl Run {
             .map(|live| Run {
                 key: live.key,
                 ep: live.ep.clone(),
+                session: live.session_id.clone(),
                 state: live.state(),
                 started: live.started.with_timezone(&Utc),
                 stoppable: !live.stopping,
@@ -367,29 +847,9 @@ impl Decisions {
     pub fn of(board: &Board) -> Self {
         let mut decisions = Decisions::default();
         for live in board.sessions.live.iter().filter(|live| !live.is_chat()) {
-            let limit = live.launch_timeout().map(|limit| limit.as_secs() / 60);
-            for waiting in &live.waiting {
-                decisions.waiting.push(Asking {
-                    key: live.key,
-                    title: live.title(),
-                    project: live.project.clone(),
-                    request: waiting.request.clone(),
-                    at: waiting.at,
-                    how: How::Live { limit },
-                });
-            }
-            if let Some(open) = live.open.as_ref().filter(|_| live.ended.is_some()) {
-                decisions.deferred.push(Asking {
-                    key: live.key,
-                    title: live.title(),
-                    project: live.project.clone(),
-                    request: open.request.clone(),
-                    at: open.at.with_timezone(&Utc),
-                    how: How::Deferred {
-                        hook: open.deferred.is_some(),
-                    },
-                });
-            }
+            let (waiting, deferred) = Asking::of_live(live);
+            decisions.waiting.extend(waiting);
+            decisions.deferred.extend(deferred);
         }
         decisions.elsewhere = board
             .waiting_elsewhere()
@@ -419,6 +879,42 @@ pub struct Asking {
     /// When it came, or when the run was deferred.
     pub at: DateTime<Utc>,
     pub how: How,
+}
+
+impl Asking {
+    /// What the window's session `live` waits on, as the Decisions tile reads it: its requests,
+    /// and an ended run's deferred one, which an answer resumes (EP-31: the decisions page's and
+    /// the session's page's).
+    fn of_live(live: &Live) -> (Vec<Asking>, Option<Asking>) {
+        let limit = live.launch_timeout().map(|limit| limit.as_secs() / 60);
+        let waiting = live
+            .waiting
+            .iter()
+            .map(|waiting| Asking {
+                key: live.key,
+                title: live.title(),
+                project: live.project.clone(),
+                request: waiting.request.clone(),
+                at: waiting.at,
+                how: How::Live { limit },
+            })
+            .collect();
+        let deferred = live
+            .open
+            .as_ref()
+            .filter(|_| live.ended.is_some())
+            .map(|open| Asking {
+                key: live.key,
+                title: live.title(),
+                project: live.project.clone(),
+                request: open.request.clone(),
+                at: open.at.with_timezone(&Utc),
+                how: How::Deferred {
+                    hook: open.deferred.is_some(),
+                },
+            });
+        (waiting, deferred)
+    }
 }
 
 /// How a request waits.
@@ -542,12 +1038,23 @@ pub struct Autopilot {
     pub problem: Option<String>,
 }
 
-/// One line of the chain log.
+/// One line of the chain log, or of the notifications' (EP-31).
 #[derive(Debug, Clone, PartialEq)]
 pub struct LogLine {
     pub at: Option<DateTime<Utc>>,
     pub project: Option<String>,
     pub words: String,
+}
+
+impl LogLine {
+    /// A ledger's event row.
+    pub fn of(row: &EventRow) -> Self {
+        Self {
+            at: row.at(),
+            project: row.project.clone(),
+            words: row.detail.clone().unwrap_or_default(),
+        }
+    }
 }
 
 impl Autopilot {
@@ -599,15 +1106,7 @@ impl Autopilot {
                     (plan.project.clone(), plan.words(), mark)
                 })
                 .collect(),
-            log: pilot
-                .log
-                .iter()
-                .map(|row| LogLine {
-                    at: row.at(),
-                    project: row.project.clone(),
-                    words: row.detail.clone().unwrap_or_default(),
-                })
-                .collect(),
+            log: pilot.log.iter().map(LogLine::of).collect(),
             problem: pilot.problem.clone(),
         }
     }
@@ -803,11 +1302,16 @@ impl Line {
     }
 }
 
-/// The window's half: the channel's sender, the pages' ask and when it last built.
+/// The window's half: the channel's sender, the pages' ask and when it last built; the ledger's
+/// latest notifications and when they were read (EP-31).
 pub struct Publisher {
     sender: watch::Sender<Arc<Published>>,
     asked: Arc<AtomicBool>,
     built: Option<Instant>,
+    notifications: Notifications,
+    notified: Option<Instant>,
+    /// A screenshot run's or a test's notifications, never read from a ledger.
+    canned: bool,
 }
 
 impl Default for Publisher {
@@ -817,11 +1321,67 @@ impl Default for Publisher {
             sender,
             asked: Arc::new(AtomicBool::new(false)),
             built: None,
+            notifications: Notifications::default(),
+            notified: None,
+            canned: false,
         }
     }
 }
 
 impl Publisher {
+    /// The ledger's latest notifications as last read (EP-31).
+    pub fn notifications(&self) -> &Notifications {
+        &self.notifications
+    }
+
+    /// Reads the ledger's latest notifications again once [`NOTIFICATIONS_EVERY`] has passed
+    /// (EP-31), without writing it: the toasts and the pushes' thread add them. A ledger that does
+    /// not read keeps the rows last read, with why.
+    pub fn read_notifications(&mut self, ledger: Option<&Path>) {
+        if self.canned
+            || self
+                .notified
+                .is_some_and(|at| at.elapsed() < NOTIFICATIONS_EVERY)
+        {
+            return;
+        }
+        self.notified = Some(Instant::now());
+        let Some(path) = ledger else {
+            self.notifications = Notifications::default();
+            return;
+        };
+        if !path.exists() {
+            self.notifications = Notifications {
+                read: true,
+                ..Notifications::default()
+            };
+            return;
+        }
+        let read = Ledger::open_read_only(path)
+            .and_then(|ledger| ledger.events(crw_core::notify::EVENT_KIND, Some(NOTIFICATIONS)));
+        match read {
+            Ok(rows) => {
+                self.notifications = Notifications {
+                    read: true,
+                    rows: rows.iter().map(LogLine::of).collect(),
+                    problem: None,
+                };
+            }
+            Err(e) => self.notifications.problem = Some(format!("The ledger did not read: {e}")),
+        }
+    }
+
+    /// A screenshot run's or a test's notifications, shown as they are (EP-31).
+    #[cfg(any(test, feature = "screenshot"))]
+    pub fn can_notifications(&mut self, rows: Vec<LogLine>) {
+        self.canned = true;
+        self.notifications = Notifications {
+            read: true,
+            rows,
+            problem: None,
+        };
+    }
+
     /// The server's half, for each page to read.
     pub fn reader(&self) -> Reader {
         Reader {
@@ -853,11 +1413,19 @@ impl Publisher {
             list,
             projects,
             decisions,
+            sessions,
+            runs,
+            notifications,
+            doctor,
         } = parts;
         self.sender.send_if_modified(|current| {
             let changed = current.list.steady() != list.steady()
                 || current.projects != projects
-                || current.decisions != decisions;
+                || current.decisions != decisions
+                || current.sessions != sessions
+                || current.runs != runs
+                || current.notifications != notifications
+                || current.doctor != doctor;
             let version = current.version + u64::from(changed);
             *current = Arc::new(Published {
                 at: now,
@@ -865,6 +1433,10 @@ impl Publisher {
                 list,
                 projects,
                 decisions,
+                sessions,
+                runs,
+                notifications,
+                doctor,
             });
             changed || asked
         });
@@ -1361,13 +1933,15 @@ mod tests {
         publisher.offer(parts(pushed.clone()), now + minute);
         assert_eq!(publisher.current().version, version + 1);
         // The paths: the list, a project changed, one added, the decisions; none for the clock.
-        let base = Published {
-            at: now,
-            version: 1,
-            list: first,
-            projects: vec![page("harbor & co")],
-            decisions: Decisions::default(),
-        };
+        let base = Published::of(
+            Parts {
+                list: first,
+                projects: vec![page("harbor & co")],
+                ..Parts::default()
+            },
+            now,
+            1,
+        );
         let mut aged = base.clone();
         aged.list = later;
         assert!(aged.changed_paths(&base).is_empty());
@@ -1431,7 +2005,7 @@ mod tests {
         let mut harbor = Parts {
             list: reading(),
             projects: vec![page("harbor")],
-            decisions: Decisions::default(),
+            ..Parts::default()
         };
         publisher.offer(harbor.clone(), Utc::now());
         assert_eq!(next(2000).as_deref(), Some("/m/p/harbor"));
@@ -1601,5 +2175,240 @@ mod tests {
             answer.at, answered_at,
             "the window's answer, not the old one"
         );
+    }
+
+    /// A window session of `project` with `events` taken in, canned.
+    fn live(key: u64, project: &str, events: Vec<crw_core::session::Event>) -> Live {
+        let mut launch =
+            crw_core::session::Launch::new(project, std::path::Path::new(project), "fable", "Go.");
+        launch.ep = Some("EP-4".to_owned());
+        Live::canned(key, launch, "high", events)
+    }
+
+    fn question(id: &str) -> crw_core::session::Event {
+        crw_core::session::Event::Request(Request {
+            id: id.to_owned(),
+            tool: "AskUserQuestion".to_owned(),
+            summary: "Which shelf?".to_owned(),
+            reason: None,
+            questions: Vec::new(),
+            input: String::new(),
+        })
+    }
+
+    /// A session's page (EP-31): the transcript's latest entries with their place in it, the
+    /// earlier ones counted; the streaming text to its last whole line, so a word more is the same
+    /// content and no new version, a line more a new one; what it waits on; its path named when
+    /// it changes, the sessions list's, the notifications' and the report's too.
+    #[test]
+    fn a_sessions_page_carries_its_latest_entries_and_whole_lines() {
+        use crw_core::session::Event;
+
+        let events: Vec<Event> = (0..PAGE_ENTRIES + 10)
+            .map(|n| Event::Text(format!("line {n}")))
+            .chain([question("req-1")])
+            .collect();
+        let mut run = live(3, "harbor", events);
+        let page = SessionPage::of(&run);
+        // The prompt, the texts and the request: the latest PAGE_ENTRIES of them.
+        assert_eq!(page.entries.len(), PAGE_ENTRIES);
+        assert_eq!(page.first, 12, "the prompt and eleven texts before");
+        assert_eq!(page.entries.last(), run.transcript.entries.last());
+        assert_eq!(page.waiting.len(), 1);
+        assert_eq!(page.waiting[0].request.id, "req-1");
+        assert_eq!(page.deferred, None);
+        assert_eq!((page.key, page.id.as_str()), (3, run.session_id.as_str()));
+        assert_eq!(page.title, "harbor EP-4");
+        assert!(page.stoppable && page.running);
+        assert_eq!(page.state, "waiting for an answer");
+        // The streaming text, a line at a time.
+        run.take(Event::TextDelta("The first line\nand the sec".to_owned()));
+        let streaming = SessionPage::of(&run);
+        assert_eq!(streaming.streaming, "The first line");
+        run.take(Event::TextDelta("ond".to_owned()));
+        assert_eq!(SessionPage::of(&run), streaming, "a word more is no change");
+        run.take(Event::TextDelta(" line\nthe third".to_owned()));
+        assert_eq!(
+            SessionPage::of(&run).streaming,
+            "The first line\nand the second line"
+        );
+        assert_eq!(whole_lines("no line yet"), "");
+        // Through the publisher: a word more keeps the version, a line more raises it.
+        let mut publisher = Publisher::default();
+        let mut parts = Parts {
+            runs: vec![SessionPage::of(&run)],
+            ..Parts::default()
+        };
+        publisher.offer(parts.clone(), Utc::now());
+        let version = publisher.current().version;
+        run.take(Event::TextDelta(" line".to_owned()));
+        parts.runs = vec![SessionPage::of(&run)];
+        publisher.offer(parts.clone(), Utc::now());
+        assert_eq!(publisher.current().version, version);
+        run.take(Event::TextDelta("\n".to_owned()));
+        parts.runs = vec![SessionPage::of(&run)];
+        publisher.offer(parts, Utc::now());
+        assert_eq!(publisher.current().version, version + 1);
+        // The paths: a session's page changed and one added, the list, the notifications and
+        // the report; none for a page the same.
+        let base = Published::of(
+            Parts {
+                runs: vec![SessionPage::of(&live(1, "harbor", Vec::new()))],
+                ..Parts::default()
+            },
+            Utc::now(),
+            1,
+        );
+        let mut changed = base.clone();
+        changed.runs[0]
+            .entries
+            .push(Entry::Notice("a notice".to_owned()));
+        let mut other = SessionPage::of(&live(2, "meadow", Vec::new()));
+        other.id = "0f1e2d3c-0000-4000-8000-000000000002".to_owned();
+        changed.runs.push(other);
+        changed.sessions.outside = 1;
+        changed.notifications.read = true;
+        changed.doctor.checking = true;
+        let id = base.runs[0].id.clone();
+        assert_eq!(
+            changed.changed_paths(&base),
+            [
+                "/m/sessions".to_owned(),
+                format!("/m/s/{id}"),
+                "/m/s/0f1e2d3c-0000-4000-8000-000000000002".to_owned(),
+                "/m/notifications".to_owned(),
+                "/m/diagnostics".to_owned(),
+            ]
+        );
+        assert!(base.changed_paths(&base.clone()).is_empty());
+        assert!(base.session(&id.to_uppercase()).is_some(), "its case aside");
+    }
+
+    /// The sessions list (EP-31): the window's sessions, a chat's aside, with their latest whole
+    /// entry; the ledger's rows, the window's own linked to its page.
+    #[test]
+    fn the_sessions_list_says_what_the_all_tab_says() {
+        use crw_core::session::{Event, ToolUse};
+
+        let scratch = Scratch::new("published-sessions");
+        let mut board = board(&scratch);
+        let mut chat = crw_core::session::Launch::new(
+            "chat",
+            std::path::Path::new("chat"),
+            "fable",
+            "What is next?",
+        );
+        chat.conversation = Some("What is next?".to_owned());
+        // The chat's own session id, so that a row wrongly linked to it would show (the
+        // review's: the canned runs share one).
+        let mut chat = Live::canned(2, chat, "high", Vec::new());
+        chat.session_id = "c4a7e2f0-0000-4000-8000-0000000000c4".to_owned();
+        board.sessions.live.extend([
+            live(
+                1,
+                "harbor",
+                vec![
+                    Event::Text("Reading the brief.\nThen the tests.".to_owned()),
+                    Event::ToolUse(ToolUse {
+                        id: "t1".to_owned(),
+                        tool: "Bash".to_owned(),
+                        summary: "Bash cargo test".to_owned(),
+                    }),
+                ],
+            ),
+            chat,
+        ]);
+        let id = board.sessions.live[0].session_id.clone();
+        let started = Utc::now() - chrono::TimeDelta::minutes(5);
+        let row = |session: &str, project: &str| SessionRow {
+            id: 1,
+            session_id: Some(session.to_owned()),
+            project: project.to_owned(),
+            ep: Some("EP-4".to_owned()),
+            mode: "headless".to_owned(),
+            model: Some("fable".to_owned()),
+            effort: Some("high".to_owned()),
+            ultracode: false,
+            started_at: started.to_rfc3339(),
+            ended_at: None,
+            outcome: None,
+            cost_usd: Some(1.5),
+            questions: 0,
+            result: None,
+            context_percent: None,
+            answer_latency_s: None,
+            start: None,
+            usage: crw_core::ledger::RowUsage::default(),
+        };
+        board.sessions.history.rows = vec![
+            row(&id, "harbor"),
+            row("aaaaaaaa-0000-4000-8000-000000000009", "meadow"),
+            row("c4a7e2f0-0000-4000-8000-0000000000c4", "chat"),
+        ];
+        board.sessions.history.canned = true;
+        let list = SessionList::of(&board, Utc::now());
+        assert_eq!(list.window.len(), 1, "the chat's run is the Chat pane's");
+        assert_eq!(list.window[0].id, id);
+        assert_eq!(list.window[0].last, "Bash cargo test");
+        assert_eq!(list.rows.len(), 3);
+        assert_eq!(list.rows[2].page, None, "a chat's row links no page");
+        assert_eq!(list.rows[0].page.as_deref(), Some(id.as_str()));
+        assert_eq!(list.rows[0].state, "open: the window's own run");
+        assert_eq!(list.rows[0].short, crw_core::revert::short(&id));
+        assert_eq!(list.rows[0].model, "fable/high");
+        assert_eq!(list.rows[0].cost, "$1.50");
+        assert_eq!(list.rows[1].page, None);
+        assert_eq!(list.rows[1].state, "open: no end recorded");
+        // The chat has no page; the harbor run has one.
+        let parts = Parts::of(&board, Utc::now());
+        assert_eq!(parts.runs.len(), 1);
+        assert_eq!(parts.runs[0].id, id);
+        // A test's board gathers no report and keeps no ledger: the parts say so.
+        assert!(!parts.doctor.live && parts.doctor.report.is_none());
+    }
+
+    /// The notifications (EP-31): the ledger's latest rows of kind `notification`, read again
+    /// after their 15 s, the rows kept with why when the ledger does not read; canned ones stay.
+    #[test]
+    fn the_notifications_are_read_from_the_ledger() {
+        let scratch = Scratch::new("published-notifications");
+        let path = scratch.0.join("ledger.sqlite");
+        let mut publisher = Publisher::default();
+        publisher.read_notifications(Some(&path));
+        assert!(publisher.notifications().read && publisher.notifications().rows.is_empty());
+        let ledger = Ledger::open(&path).unwrap();
+        ledger
+            .add_event(
+                Utc::now(),
+                crw_core::notify::EVENT_KIND,
+                Some("harbor"),
+                "popup · finished · harbor EP-4 has finished",
+            )
+            .unwrap();
+        ledger
+            .add_event(Utc::now(), "mail", None, "not a notification")
+            .unwrap();
+        // Within its 15 s it is not read again; afterwards it is.
+        publisher.read_notifications(Some(&path));
+        assert!(publisher.notifications().rows.is_empty());
+        publisher.notified = None;
+        publisher.read_notifications(Some(&path));
+        let rows = &publisher.notifications().rows;
+        assert_eq!(rows.len(), 1, "{rows:?}");
+        assert_eq!(rows[0].project.as_deref(), Some("harbor"));
+        assert!(rows[0].words.ends_with("has finished") && rows[0].at.is_some());
+        // No ledger: none read.
+        publisher.notified = None;
+        publisher.read_notifications(None);
+        assert!(!publisher.notifications().read);
+        // Canned rows stay as they are.
+        publisher.can_notifications(vec![LogLine {
+            at: None,
+            project: None,
+            words: "canned".to_owned(),
+        }]);
+        publisher.notified = None;
+        publisher.read_notifications(Some(&path));
+        assert_eq!(publisher.notifications().rows[0].words, "canned");
     }
 }

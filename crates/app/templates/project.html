@@ -40,6 +40,7 @@
 <form method="post" action="{{ link }}/stop" class="inline">
 <input type="hidden" name="key" value="{{ run.key }}">
 <input type="hidden" name="ep" value="{{ run.ep }}">
+<input type="hidden" name="session" value="{{ run.session }}">
 <button type="submit" class="deny">Stop {{ run.ep }}</button> <span class="weak small">ends its turn gracefully, its work left in the tree</span>
 </form>
 {% endif %}

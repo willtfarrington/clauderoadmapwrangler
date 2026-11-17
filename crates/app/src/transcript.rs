@@ -301,7 +301,7 @@ pub(crate) fn tool_line(ui: &mut egui::Ui, tool: &str, summary: &str) {
     ui.add(egui::Label::new(job).truncate());
 }
 
-fn lines(count: usize) -> String {
+pub(crate) fn lines(count: usize) -> String {
     match count {
         0 => "no output".to_owned(),
         1 => "1 line".to_owned(),

@@ -228,3 +228,43 @@ dl.choices dt { font-weight: 600; }
 dl.choices dd { margin: 0 0 4px; overflow-wrap: anywhere; }
 a.action { font-weight: 600; }
 article.item.run .head { flex-wrap: wrap; }
+
+/* The sessions' pages (EP-31): the header's links, a session's transcript, the sessions list,
+   the notifications and the doctor's report. */
+header.top nav.nav { display: flex; gap: 12px; }
+.mark.busy { color: var(--accent); }
+.head .full { flex-basis: 100%; }
+.transcript .entries { margin-top: 6px; }
+.entry { margin: 6px 0; overflow-wrap: anywhere; }
+.entry p { margin: 3px 0; }
+.entry .text, p.streaming { white-space: pre-wrap; }
+p.streaming { color: var(--weak); }
+.entry .tool {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.9em;
+}
+.entry .tool-name { color: var(--weak); font-size: 0.85em; margin-right: 2px; }
+.entry details { margin: 2px 0 2px 1.2em; font-size: 0.86em; color: var(--weak); }
+.entry details summary { cursor: pointer; }
+.entry details.failed summary { color: var(--bad); }
+.entry details.prompt { margin-left: 0; }
+.entry details.resumed { border-top: 1px solid var(--line); padding-top: 4px; }
+.entry pre { margin: 4px 0; }
+.entry .answer { margin-left: 1.2em; }
+.entry .result { margin-top: 6px; }
+.good { color: var(--good); }
+p.last { overflow-wrap: anywhere; color: var(--weak); }
+ul.doctor { margin: 4px 0; padding-left: 0; list-style: none; font-size: 0.9em; }
+ul.doctor li { margin: 4px 0; overflow-wrap: anywhere; }
+.level {
+  display: inline-block;
+  min-width: 3.2em;
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 0.85em;
+}
+.level.good { color: var(--good); }
+.level.weak { color: var(--weak); }
+.level.warn { color: var(--warn); }
+.level.bad { color: var(--bad); }

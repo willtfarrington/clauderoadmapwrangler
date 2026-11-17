@@ -234,8 +234,14 @@ impl Board {
                 self.tick_message_in(&folder, &name, &id, &disposition, &today)
             }
             Order::Answer { key, request, form } => self.answer_from_page(key, &request, &form),
-            Order::Stop { project, key, ep } => self.stop_from_page(&project, key, &ep),
+            Order::Stop {
+                project,
+                key,
+                ep,
+                session,
+            } => self.stop_from_page(&project, key, &ep, session.as_deref()),
             Order::Pause { paused } => self.pause_from_page(paused),
+            Order::Check => self.check_from_page(),
             Order::Send { .. } => Err("A message goes through its own write.".to_owned()),
             Order::Start { .. } => Err("A start goes through its own path.".to_owned()),
         }
@@ -642,8 +648,10 @@ impl Board {
 
     /// The phone's Stop of the window's run `key` (EP-30b): `Sessions::stop`, never Kill, for
     /// the run of `project`'s `ep` the page names, so that a page drawn before the window's
-    /// restart, whose numbers start again at 1, stops nothing else.
-    fn stop_from_page(&mut self, project: &str, key: u64, ep: &str) -> Said {
+    /// restart, whose numbers start again at 1, stops nothing else; and of its `session` when
+    /// the page names it, since the same brief run again may take the same number (EP-31's
+    /// review).
+    fn stop_from_page(&mut self, project: &str, key: u64, ep: &str, session: Option<&str>) -> Said {
         if self.fixtures {
             return Err("A screenshot run stops nothing: its sessions are canned.".to_owned());
         }
@@ -652,6 +660,7 @@ impl Board {
                 && !live.is_chat()
                 && live.project.eq_ignore_ascii_case(project)
                 && live.ep.eq_ignore_ascii_case(ep)
+                && session.is_none_or(|id| live.session_id.eq_ignore_ascii_case(id))
         }) else {
             return Err(format!(
                 "The window has no run of {project} {ep} under that number: nothing was stopped \
@@ -1350,14 +1359,19 @@ mod tests {
         let scratch = Scratch::new("phone-stop");
         let (mut board, _) = board(&scratch);
         board.sessions.live.push(live(3, "harbor", Vec::new()));
+        let stopping =
+            |board: &mut Board, project: &str, key: u64, ep: &str, session: Option<&str>| {
+                let (order, mut said) = request(Order::Stop {
+                    project: project.to_owned(),
+                    key,
+                    ep: ep.to_owned(),
+                    session: session.map(str::to_owned),
+                });
+                board.obey_orders(vec![order]);
+                said.try_recv().unwrap()
+            };
         let stop = |board: &mut Board, project: &str, key: u64, ep: &str| {
-            let (order, mut said) = request(Order::Stop {
-                project: project.to_owned(),
-                key,
-                ep: ep.to_owned(),
-            });
-            board.obey_orders(vec![order]);
-            said.try_recv().unwrap()
+            stopping(board, project, key, ep, None)
         };
         // Another brief, another project, another number: nothing is stopped.
         for (project, key, ep) in [
@@ -1371,6 +1385,14 @@ mod tests {
                 "{project} {key} {ep}: {why}"
             );
         }
+        // Another session under the same number and brief (the same brief run again after a
+        // restart, EP-31's review): nothing is stopped; its own session reaches it.
+        let other = "0f1e2d3c-0000-4000-8000-000000000009";
+        let why = stopping(&mut board, "harbor", 3, "EP-4", Some(other)).unwrap_err();
+        assert!(why.starts_with("The window has no run of"), "{why}");
+        let own = board.sessions.live[0].session_id.to_uppercase();
+        let why = stopping(&mut board, "harbor", 3, "EP-4", Some(&own)).unwrap_err();
+        assert!(why.ends_with("the run has ended."), "{why}");
         // The run it names goes to the session's own stop: this canned one has no process, so
         // the stop is not taken, which shows the order reached it.
         let why = stop(&mut board, "HARBOR", 3, "ep-4").unwrap_err();
@@ -1580,5 +1602,18 @@ mod tests {
         board.fixtures = true;
         let why = answer(&mut board, 1, "req-1", form(Verb::Answer, &[(0, &[0])], "")).unwrap_err();
         assert!(why.starts_with("A screenshot run answers nothing"), "{why}");
+    }
+
+    /// The doctor's page's Check again (EP-31, the owner's choice): a test's board gathers no
+    /// report, so it is refused in words and starts no child (rule 5).
+    #[test]
+    fn a_check_from_the_phone_is_refused_where_the_window_gathers_none() {
+        let scratch = Scratch::new("phone-check");
+        let (mut board, _) = board(&scratch);
+        let (order, mut said) = request(Order::Check);
+        board.obey_orders(vec![order]);
+        let why = said.try_recv().unwrap().unwrap_err();
+        assert!(why.starts_with("This window gathers no report"), "{why}");
+        assert!(!board.diagnostics.checking());
     }
 }

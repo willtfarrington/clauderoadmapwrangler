@@ -58,7 +58,9 @@ session page and Enable remote view into two (EP-31, EP-31a), and the pages are 
 one small script of the tool's own (D-14 and D-28 addenda). v1 is now **68 briefs, 15 S · 49 M ·
 4 L ≈ 64.5 session-hours**, 8 of them open, counted afresh from the tables: the line above
 written at EP-40 was one S short, EP-25a having dropped out of its recount (63 briefs before
-this re-plan, not 62). No L row remains open.
+this re-plan, not 62). No L row remains open. *(EP-31, 2026-11-17.)* With EP-31b in P5 (the
+owner's choice at EP-31's field check), v1 is **69 briefs, 16 S · 49 M · 4 L ≈ 65
+session-hours**.
 
 ## How to use this roadmap
 
@@ -1959,9 +1961,10 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
 | EP-30 | [Phone pages, the base: the window's state published to the server, queued actions run while the window is hidden (the tray's Pause with them), the `/m/` router with the identity check and the remote-action log, askama's layout and the read-only project list](EP-30-phone-pages-base.md) (D-28, D-14) | L → M (cut beforehand at EP-29) | EP-12, EP-19 | core | ☑ `4c5dd3a` |
 | EP-30a | [Phone pages, a project and the decisions: the project page with the next brief's note, owner tasks and inbox messages ticked, a message composed; the decisions page answering questions and permission requests](EP-30a-phone-pages-project-and-decisions.md) (D-28, D-10, D-13, D-19) | M | EP-30, EP-14, EP-20c | core | ☑ `e29cbf3` |
 | EP-30b | [Phone pages, the actions and live updates: start the next brief as the rules resolve it, stop a headless run, pause and resume the autopilot; the usage strip and the autopilot block; one event stream and the tool's own script](EP-30b-phone-pages-actions-and-live-updates.md) (D-28, D-22, D-14) | M | EP-30a, EP-40 | core | ☑ `e23da6a` |
-| EP-31 | Phone pages, the sessions: a session's page with its transcript streaming and its answers, the sessions list, the notifications page and the doctor's report (D-28, D-26, D-29) | M | EP-30b, EP-13, EP-28 | core | ☐ |
+| EP-31 | [Phone pages, the sessions: a session's page with its transcript streaming and its answers, the sessions list, the notifications page and the doctor's report](EP-31-phone-pages-the-sessions.md) (D-28, D-26, D-29) | M | EP-30b, EP-13, EP-28 | core | ☐ |
+| EP-31b | The overall daily cap in the window: the Autopilot section says today's chained runs against `autopilot_daily_total` and sets it beside the per-project pickers; the phone's autopilot block says the same (D-22, D-28) | S | EP-31 | core | ☐ |
 | EP-31a | Enable remote view: `tailscale serve` on the phone's path alone behind a confirmation, the owner's login read and confirmed, Serve's status in Diagnostics, the link shown and pushed through ntfy, pushes that open their page, Disable, the tray's entry (D-28, D-21) | M | EP-31, EP-20a | core | ☐ |
-| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31a | core | ☐ |
+| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31b, EP-31a | core | ☐ |
 
 Ordering rationale *(EP-29, 2026-11-15, the owner's choices)*: EP-41 and EP-42 open the phase,
 as EP-38 and EP-39 opened P4: the walk's five fixes to the surfaces and guards the owner uses
@@ -1975,7 +1978,8 @@ comes last: until it exists the pages are checked through the server in tests (a
 drives a browser; the owner may open a page in a browser on the machine itself, where the
 loopback counts as local), so the briefs chain without waiting on the owner's phone, and the
 first real Enable is one owner task when everything is there to see. The close-out's walk is the
-phone's.
+phone's. *(EP-31, 2026-11-17, the owner's choice.)* EP-31b, from EP-31's field check, comes
+before EP-31a, so that Enable remote view stays last.
 
 Standing decisions for phase P5: D-28 and its addendum of 2026-11-15 (the seven actions and no
 other; answers only from a session's page; no revert; the identity check on every `/m/` request;
@@ -2289,6 +2293,21 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   runs (`published::Run`), and a session page can post the same form. A start from the phone
   is `Order::Start` from `GET /m/p/<project>/start`, whose preview comes through
   `server::StartAsk`.
+- **EP-31b.** Added at EP-31 (2026-11-17) from its field check, the owner's choice. On
+  2026-11-16 the owner's chains stopped at the overall daily cap they could not see: the
+  Sessions pane's Autopilot section (`Board::autopilot_section`, `app/src/autopilot.rs`) has
+  each project's pickers for its chained runs a day (`Limit::Daily`), while the gate also
+  refuses at `settings.autopilot_daily_total` (`Settings::autopilot_daily_total`, 4 by default,
+  `core/src/registry.rs`; the gate's `Refusal::DailyTotal` over `Facts::chained_today` in
+  `core/src/autopilot.rs`), which only `crw setting autopilot_daily_total <n|default>` sets and
+  only `crw autopilot`'s first line says. (1) The section says "N of M chained runs today in all
+  projects" (the day's chained starts as the gate counts them, the local day) and sets M with a
+  picker of its own beside the per-project ones, written through the same registry write as
+  `crw setting` (rule 13: the owner's click), its words saying that the per-project caps and
+  the total both hold. (2) The phone's autopilot block (`published::Autopilot`,
+  `pages::AutopilotView`, `templates/list.html`) says the same line, read-only (registry settings
+  are not a phone action, D-28). Tests on the board and the page; a screenshot run of the
+  section (rule 5).
 - **EP-31a.** Added at EP-29 (2026-11-15) by EP-31's cut: the one brief that touches Tailscale,
   placed last (the owner's choice), with the link and the pushes that use it.
   (1) **Enable remote view**, a confirmation dialog in the form of EP-34's actions (`app::act`:
@@ -2332,6 +2351,13 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   local, on the relays' routes too (EP-30's review). So Enable uses `--https … --set-path=/m`
   alone, and the status read before it refuses a TCP forward to the window's port. The
   remote-action log's refused line already names which proxy headers came, never their values.
+  **From EP-31:** a session's page is `/m/s/<session id>` (`server::session_path`), the run's
+  pre-assigned id rather than the window's number, which starts again at each restart; so a
+  finished or failed run's push links its session id, which the toast's `Target` must carry
+  (it names the window's key today, `app/src/toasts.rs`). The page exists only while the run's
+  tab is in the window: after a restart its link is a page not found pointing at the sessions
+  page. The doctor's page (`/m/diagnostics`) is where the "remote view" line shows on the phone,
+  and its Check again is the eighth phone action (D-28 addendum of 2026-11-17).
 - **EP-32.** Timings for every EP of v1, the README's "State of the app" and screenshots refreshed,
   addenda, `v2-notes.md` compiled into themes (launch modes, analytics, chat, phone, hosting, conventions),
   the v2 direction (the first candidates: `--bg` background sessions with Attach, worktree-per-session,

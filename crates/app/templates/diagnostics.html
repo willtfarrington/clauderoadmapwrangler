@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Doctor · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}/m/diagnostics{% endblock %}
+{% block version %}{{ version }}{% endblock %}
+{% block content %}
+{% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
+<h1>The doctor's report</h1>
+<p class="weak"><a href="/m/">All projects</a> · <a href="/m/sessions">Sessions</a> · <a href="/m/diagnostics">Reload</a></p>
+<section data-part="doctor">
+{% if let Some(gathered) = gathered %}<p class="weak small">{{ gathered }}</p>{% endif %}
+{% if checking %}<p class="warn small">Checking now: the report comes when its children have answered, one at a time.</p>{% endif %}
+{% if live && !checking %}
+<form method="post" action="/m/diagnostics/check" class="inline">
+<button type="submit">Check again</button> <span class="weak small">the window asks the tools again, one at a time, as the pane's Check again does</span>
+</form>
+{% endif %}
+{% if groups.is_empty() %}<p class="weak">{{ none }}</p>{% endif %}
+{% for group in groups %}
+<h2>{{ group.title }}</h2>
+<ul class="doctor">{% for line in group.lines %}<li><span class="level {{ line.1 }}">{{ line.0 }}</span> <strong>{{ line.2 }}</strong> {{ line.3 }}</li>
+{% endfor %}</ul>
+{% endfor %}
+</section>
+<p class="foot weak">The checks crw doctor prints, as the window's Diagnostics pane last gathered them; the pane's own lines (its build, the signals, the meter, the routes) stay in the window. Nothing here changes or deletes anything.</p>
+{% endblock %}

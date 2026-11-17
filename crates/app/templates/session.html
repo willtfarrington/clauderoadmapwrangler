@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block title %}{{ title }} · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}{{ path }}{% endblock %}
+{% block version %}{{ version }}{% endblock %}
+{% block content %}
+{% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
+<div class="head page-head" data-part="head">
+<h1 class="name">{{ title }}</h1>
+<span class="mark {{ state_class }}">{{ state }}</span>
+<p class="weak small full">{{ facts }}</p>
+{% if let Some(words) = autopilot %}<p class="small full">{{ words }}</p>{% endif %}
+{% for note in dropped %}<p class="warn small full">{{ note }}</p>
+{% endfor %}
+{% if let Some(words) = ended %}<p class="weak small full">{{ words }}</p>{% endif %}
+{% if let Some(stop) = stop %}
+<form method="post" action="{{ project_link }}/stop" class="inline full">
+<input type="hidden" name="key" value="{{ stop.0 }}">
+<input type="hidden" name="ep" value="{{ stop.1 }}">
+<input type="hidden" name="session" value="{{ id }}">
+<input type="hidden" name="back" value="{{ path }}">
+<button type="submit" class="deny">Stop {{ stop.1 }}</button> <span class="weak small">ends its turn gracefully, its work left in the tree</span>
+</form>
+{% endif %}
+</div>
+<p class="weak"><a href="/m/sessions">All sessions</a> · <a href="{{ project_link }}">{{ project }}</a> · <a href="{{ path }}">Reload</a></p>
+<div data-part="asks">
+{% if !waiting.is_empty() %}
+<h2>Waiting for your answer <span class="count">the session holds until you answer</span></h2>
+{% for ask in waiting %}{% include "ask.html" %}
+{% endfor %}
+{% endif %}
+{% if !deferred.is_empty() %}
+<h2>Deferred <span class="count">your answer resumes the session</span></h2>
+{% for ask in deferred %}{% include "ask.html" %}
+{% endfor %}
+{% endif %}
+</div>
+<section class="transcript">
+<h2>Transcript</h2>
+<div data-part="earlier">{% if !earlier.is_empty() %}<p class="weak small">{{ earlier }}</p>{% endif %}</div>
+<div class="entries" data-part="transcript" data-append>
+{% for entry in entries %}<div class="entry" data-n="{{ entry.n }}">{{ entry.html|safe }}</div>
+{% endfor %}</div>
+<div data-part="streaming">{% if !streaming.is_empty() %}<p class="text streaming">{{ streaming }}…</p>{% endif %}</div>
+</section>
+<p class="foot weak">Answers only from here: a message, Resume, Kill, Revert and Commit are the window's, in the session's tab.</p>
+{% endblock %}

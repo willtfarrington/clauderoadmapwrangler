@@ -1,0 +1,46 @@
+{% extends "base.html" %}
+{% block title %}Sessions · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}/m/sessions{% endblock %}
+{% block version %}{{ version }}{% endblock %}
+{% block content %}
+<h1>Sessions</h1>
+<p class="weak"><a href="/m/">All projects</a> · <a href="/m/notifications">Notifications</a> · <a href="/m/diagnostics">Doctor</a> · <a href="/m/sessions">Reload</a></p>
+<div data-part="sessions">
+{% if starting %}<p class="weak small">A session is starting in the window: it waits its turn, two seconds after the last start.</p>{% endif %}
+<h2>Started here <span class="count">headless, each with its page</span></h2>
+{% if window.is_empty() %}<p class="weak">None: a headless run started from the window, or from a project's page here, gets a page with its transcript.</p>{% endif %}
+{% for run in window %}
+<article class="item">
+<div class="head"><a class="name" href="{{ run.link }}">{{ run.title }}</a> <span class="mark {{ run.class }}">{{ run.state }}</span>{% if run.chained %} <span class="mark good">chained</span>{% endif %}</div>
+<p class="weak small">{{ run.facts }}</p>
+{% if !run.last.is_empty() %}<p class="small last">{{ run.last }}</p>{% endif %}
+</article>
+{% endfor %}
+<h2>Started elsewhere <span class="count">in VS Code, a terminal or another program</span></h2>
+{% if elsewhere.is_empty() %}<p class="weak">None in a registered project.</p>{% endif %}
+{% for seen in elsewhere %}
+<article class="item">
+<div class="head"><strong>{{ seen.project }}</strong> <span class="mark weak">{{ seen.mode }}</span> <span class="mark {{ seen.class }}">{{ seen.status }}</span>{% if !seen.since.is_empty() %} <span class="weak small">since {{ seen.since }}</span>{% endif %}</div>
+<p class="{% if seen.waiting %}warn{% else %}weak{% endif %}">It {{ seen.doing }}.</p>
+{% if !seen.name.is_empty() %}<p class="weak small">{{ seen.name }}</p>{% endif %}
+<p class="weak small">{{ seen.figures }}</p>
+</article>
+{% endfor %}
+{% if !outside.is_empty() %}<p class="weak small">{{ outside }}</p>{% endif %}
+{% if let Some(problem) = poll_problem %}<p class="warn small">The list of live sessions did not read: {{ problem }}</p>{% endif %}
+</div>
+<section data-part="ledger">
+<h2>From the ledger <span class="count">the latest {{ rows.len() }}, as crw sessions prints them</span></h2>
+{% if rows.is_empty() %}<p class="weak">No session in the ledger yet.</p>{% endif %}
+{% for row in rows %}
+<article class="item row">
+<div class="head"><span class="weak small">{{ row.when }}</span> {% if let Some(link) = row.link %}<a class="name" href="{{ link }}">{{ row.title }}</a>{% else %}<strong>{{ row.title }}</strong>{% endif %} <span class="mark weak">{{ row.mode }}</span> <span class="mark {{ row.class }}">{{ row.state }}</span></div>
+{% if !row.facts.is_empty() %}<p class="weak small">{{ row.facts }}</p>{% endif %}
+{% if let Some(result) = row.result %}<p class="small last">{{ result }}</p>{% endif %}
+</article>
+{% endfor %}
+{% if let Some(problem) = problem %}<p class="warn small">{{ problem }}</p>{% endif %}
+</section>
+<p class="foot weak">A session started elsewhere is listed, never read: its transcript stays where it runs. Revert and Resume in VS Code are the window's.</p>
+{% endblock %}

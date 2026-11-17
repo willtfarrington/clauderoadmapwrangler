@@ -91,6 +91,15 @@ pub const AUTOPILOT_ROUTE: &str = "/m/autopilot";
 pub const EVENTS_ROUTE: &str = "/m/events";
 pub const SCRIPT_ROUTE: &str = "/m/app.js";
 
+/// The sessions' pages (EP-31): the list, a window session's page by its session id, the latest
+/// notifications and the doctor's report.
+pub const SESSIONS_ROUTE: &str = "/m/sessions";
+pub const SESSION_PREFIX: &str = "/m/s/";
+const SESSION_ROUTE: &str = "/m/s/{id}";
+pub const NOTIFICATIONS_ROUTE: &str = "/m/notifications";
+pub const DIAGNOSTICS_ROUTE: &str = "/m/diagnostics";
+const CHECK_ROUTE: &str = "/m/diagnostics/check";
+
 /// How long the start page waits for the window's preview (EP-30b).
 const PREVIEW_WAIT: Duration = Duration::from_secs(5);
 
@@ -160,12 +169,18 @@ pub enum Order {
     /// The project's next brief started headless with the rules' choice (D-28, D-22; EP-30b):
     /// `ep` is the brief the start page showed, refused when it is no longer the next.
     Start { project: String, ep: String },
-    /// The window's run `key` of the project's `ep` stopped gracefully, never killed (EP-30b).
+    /// The window's run `key` of the project's `ep` stopped gracefully, never killed (EP-30b);
+    /// `session` its session id when the page named it (EP-31's review: the numbers start again
+    /// at each restart, so a brief run again could take a stale page's number).
     Stop {
         project: String,
         key: u64,
         ep: String,
+        session: Option<String>,
     },
+    /// The Diagnostics pane's Check again, asked from the doctor's page (EP-31, the owner's
+    /// choice).
+    Check,
     /// Every chain paused by the owner, or resumed (D-22; EP-30b): said, never a toggle.
     Pause { paused: bool },
 }
@@ -448,6 +463,12 @@ fn router(shared: Arc<Shared>) -> Router {
         .route(AUTOPILOT_ROUTE, post(pause))
         .route(EVENTS_ROUTE, get(events))
         .route(SCRIPT_ROUTE, get(script))
+        // The sessions' pages (EP-31).
+        .route(SESSIONS_ROUTE, get(sessions_page))
+        .route(SESSION_ROUTE, get(session_page))
+        .route(NOTIFICATIONS_ROUTE, get(notifications_page))
+        .route(DIAGNOSTICS_ROUTE, get(diagnostics_page))
+        .route(CHECK_ROUTE, post(check))
         .route(PAGES_OTHER, any(not_found))
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard));
     Router::new()
@@ -679,7 +700,8 @@ async fn start(
     shared.order(order, &caller, &back).await
 }
 
-/// `POST /m/p/<project>/stop` (EP-30b): the window's run `key` of `ep` stopped gracefully.
+/// `POST /m/p/<project>/stop` (EP-30b): the window's run `key` of `ep` stopped gracefully; back
+/// to the project's page, or to the session's page the form names (EP-31).
 async fn stop(
     State(shared): State<Arc<Shared>>,
     Path(project): Path<String>,
@@ -687,10 +709,10 @@ async fn stop(
     headers: HeaderMap,
     body: Bytes,
 ) -> Response {
-    let back = project_path(&project);
     let Some(fields) = form_fields(&headers, &body) else {
         return not_a_form();
     };
+    let back = back_to(&fields, project_path(&project));
     let key = form::field(&fields, "key").and_then(|key| key.parse().ok());
     let ep = form::field(&fields, "ep").unwrap_or_default().trim();
     let Some(key) = key.filter(|_| !ep.is_empty()) else {
@@ -703,8 +725,26 @@ async fn stop(
         project,
         key,
         ep: ep.to_owned(),
+        session: form::field(&fields, "session")
+            .map(str::trim)
+            .filter(|session| !session.is_empty())
+            .map(str::to_owned),
     };
     shared.order(order, &caller, &back).await
+}
+
+/// `POST /m/diagnostics/check` (EP-31, the owner's choice): the Diagnostics pane's Check again;
+/// back to the doctor's page, which shows the report when it lands.
+async fn check(
+    State(shared): State<Arc<Shared>>,
+    Extension(caller): Extension<Caller>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    if form_fields(&headers, &body).is_none() {
+        return not_a_form();
+    }
+    shared.order(Order::Check, &caller, DIAGNOSTICS_ROUTE).await
 }
 
 /// `POST /m/autopilot` (EP-30b): every chain paused (`pause=on`) or resumed (`pause=off`); back
@@ -879,7 +919,8 @@ async fn send_message(
     shared.order(order, &caller, &back).await
 }
 
-/// `POST /m/decisions/answer`: a waiting request answered, or a deferred run's.
+/// `POST /m/decisions/answer`: a waiting request answered, or a deferred run's; back to the
+/// decisions page, or to the session's page the form names (EP-31).
 async fn answer(
     State(shared): State<Arc<Shared>>,
     Extension(caller): Extension<Caller>,
@@ -889,9 +930,105 @@ async fn answer(
     let Some(fields) = form_fields(&headers, &body) else {
         return not_a_form();
     };
+    let back = back_to(&fields, DECISIONS_ROUTE.to_owned());
     match answer_order(&fields) {
-        Ok(order) => shared.order(order, &caller, DECISIONS_ROUTE).await,
-        Err(why) => shared.back(DECISIONS_ROUTE, Err(why)),
+        Ok(order) => shared.order(order, &caller, &back).await,
+        Err(why) => shared.back(&back, Err(why)),
+    }
+}
+
+/// The page a form goes back to (EP-31): the session's page its `back` field names, taken only in
+/// that form (`/m/s/<session id>`), else `default`.
+fn back_to(fields: &[(String, String)], default: String) -> String {
+    form::field(fields, "back")
+        .filter(|back| back.strip_prefix(SESSION_PREFIX).is_some_and(is_session_id))
+        .map_or(default, str::to_owned)
+}
+
+/// A session id as a page's path names it: letters, digits and dashes, as the CLI's ids are.
+fn is_session_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
+
+/// The path of the window session `id`'s page (EP-31), which the event stream names too.
+pub fn session_path(id: &str) -> String {
+    format!("{SESSION_PREFIX}{}", form::segment(id))
+}
+
+/// `GET /m/s/<session id>` (EP-31): the window's session's page, with the outcome of the form
+/// that led here; a session the window does not hold is a page not found.
+async fn session_page(
+    State(shared): State<Arc<Shared>>,
+    Path(id): Path<String>,
+    uri: Uri,
+) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    let published = pages.published.fresh(|| (shared.wake)()).await;
+    let said = shared.said(&uri);
+    match crate::pages::session(&published, &id, said.as_ref()) {
+        Some(Ok(html)) => Html(html).into_response(),
+        Some(Err(e)) => page(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Not drawn",
+            &format!("The session's page could not be drawn: {e}"),
+        ),
+        None => {
+            let gone = "This session is not in the window: its tab was dismissed, or the window \
+                        started again since. The sessions page lists the ledger's rows.";
+            page(
+                StatusCode::NOT_FOUND,
+                "Not found",
+                &match said {
+                    Some(Ok(words) | Err(words)) => format!("{words} {gone}"),
+                    None => gone.to_owned(),
+                },
+            )
+        }
+    }
+}
+
+/// `GET /m/sessions` (EP-31): the window's sessions, those started elsewhere, the ledger's rows.
+async fn sessions_page(State(shared): State<Arc<Shared>>) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    let published = pages.published.fresh(|| (shared.wake)()).await;
+    drawn(crate::pages::sessions(&published), "The sessions")
+}
+
+/// `GET /m/notifications` (EP-31): the ledger's latest notifications.
+async fn notifications_page(State(shared): State<Arc<Shared>>) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    let published = pages.published.fresh(|| (shared.wake)()).await;
+    drawn(crate::pages::notifications(&published), "The notifications")
+}
+
+/// `GET /m/diagnostics` (EP-31): the doctor's report the Diagnostics pane last gathered.
+async fn diagnostics_page(State(shared): State<Arc<Shared>>, uri: Uri) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    let published = pages.published.fresh(|| (shared.wake)()).await;
+    let said = shared.said(&uri);
+    drawn(
+        crate::pages::diagnostics(&published, said.as_ref()),
+        "The doctor's report",
+    )
+}
+
+/// A page drawn, or why it was not.
+fn drawn(html: Result<String, askama::Error>, what: &str) -> Response {
+    match html {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => page(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "Not drawn",
+            &format!("{what} could not be drawn: {e}"),
+        ),
     }
 }
 
@@ -1515,7 +1652,7 @@ mod tests {
                     ..List::default()
                 },
                 projects: vec![page],
-                decisions: crate::published::Decisions::default(),
+                ..crate::published::Parts::default()
             },
             chrono::Utc::now(),
         );
@@ -1829,11 +1966,7 @@ mod tests {
         );
         // The window reads the files again and publishes: the redirect waits for that.
         let current = publisher.current();
-        let mut parts = crate::published::Parts {
-            list: current.list.clone(),
-            projects: current.projects.clone(),
-            decisions: current.decisions.clone(),
-        };
+        let mut parts = current.parts();
         parts.projects[0].waiting.clear();
         parts.projects[0].resolved = 1;
         publisher.offer(parts, chrono::Utc::now());
@@ -2107,7 +2240,8 @@ mod tests {
                 Order::Stop {
                     project: "harbor".to_owned(),
                     key: 3,
-                    ep: "EP-4".to_owned()
+                    ep: "EP-4".to_owned(),
+                    session: None,
                 },
             ]
         );
@@ -2186,11 +2320,7 @@ mod tests {
         assert!(head.contains("cache-control: no-store"), "{sent}");
         // The window publishes a change to harbor's page.
         let current = publisher.current();
-        let mut parts = crate::published::Parts {
-            list: current.list.clone(),
-            projects: current.projects.clone(),
-            decisions: current.decisions.clone(),
-        };
+        let mut parts = current.parts();
         parts.projects[0].resolved = 3;
         publisher.offer(parts, chrono::Utc::now());
         assert!(
@@ -2221,6 +2351,150 @@ mod tests {
             ],
         );
         assert_eq!(stranger.status, 403);
+    }
+
+    /// The sessions' pages over HTTP (EP-31): a session's page by its session id, a session the
+    /// window does not hold a page not found; the sessions list, the notifications and the
+    /// doctor's report; an answer naming a session's page comes back there, any other `back` to
+    /// the decisions page.
+    #[test]
+    fn the_sessions_pages_are_served_and_an_answer_comes_back_to_its_session() {
+        let scratch = crate::portfolio::tests::Scratch::new("server-pages-sessions");
+        let (mut server, port, _ledger, mut publisher) = serving(&scratch, None);
+        let id = "3c9d2e71-5b04-4f8a-9e61-0a7b8c9d1e2f";
+        let mut launch = crw_core::session::Launch::new(
+            "harbor",
+            std::path::Path::new("harbor"),
+            "fable",
+            "Run EP-4.",
+        );
+        launch.ep = Some("EP-4".to_owned());
+        let live = crate::sessions::Live::canned(
+            7,
+            launch,
+            "high",
+            vec![crw_core::session::Event::Text(
+                "Reading the brief.".to_owned(),
+            )],
+        );
+        let mut parts = publisher.current().parts();
+        parts.runs = vec![published::SessionPage::of(&live)];
+        publisher.offer(parts, chrono::Utc::now());
+        let local = format!("127.0.0.1:{port}");
+        let page = exchange(port, "GET", &format!("/m/s/{id}"), &[("Host", &local)]);
+        assert_eq!(page.status, 200, "{}", page.body);
+        assert!(page.body.contains("Reading the brief."), "{}", page.body);
+        assert!(page.body.contains(r#"data-append"#));
+        let none = exchange(port, "GET", "/m/s/nowhere", &[("Host", &local)]);
+        assert_eq!(none.status, 404);
+        assert!(none.body.contains("This session is not in the window"));
+        for (path, words) in [
+            ("/m/sessions", "Started here"),
+            ("/m/notifications", "The window keeps no ledger here"),
+            ("/m/diagnostics", "This window gathers no report"),
+        ] {
+            let page = exchange(port, "GET", path, &[("Host", &local)]);
+            assert_eq!(page.status, 200, "{path}: {}", page.body);
+            assert!(page.body.contains(words), "{path}: {}", page.body);
+            assert!(
+                page.head
+                    .contains("content-security-policy: default-src 'none'"),
+                "{path}"
+            );
+        }
+        // An answer with the session's page as its `back` comes back there; another `back` does
+        // not take.
+        let origin = format!("http://{local}");
+        let headers: Vec<(String, String)> = form_headers(&local, &origin)
+            .iter()
+            .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
+            .collect();
+        let post = |body: String| {
+            let headers = headers.clone();
+            std::thread::spawn(move || {
+                let headers: Vec<(&str, &str)> = headers
+                    .iter()
+                    .map(|(n, v)| (n.as_str(), v.as_str()))
+                    .collect();
+                post_form(port, "/m/decisions/answer", &headers, &body)
+            })
+        };
+        let back = format!("/m/s/{id}");
+        let answering = post(format!(
+            "key=7&request=req-1&do=answer&pick0=0&back={}",
+            back.replace('/', "%2F")
+        ));
+        obey(&mut server, 1, |_| Ok("harbor EP-4: answered.".to_owned()));
+        let answer = answering.join().unwrap();
+        let came_back = location(&answer);
+        assert!(
+            came_back.starts_with(&format!("{back}?done=")),
+            "{came_back}"
+        );
+        let page = exchange(port, "GET", &came_back, &[("Host", &local)]);
+        assert!(
+            page.body
+                .contains(r#"<p class="said done">harbor EP-4: answered.</p>"#),
+            "{}",
+            page.body
+        );
+        let elsewhere = post("key=7&request=req-1&do=answer&back=%2Fm%2F..%2Fhealth".to_owned());
+        obey(&mut server, 1, |_| Ok("answered".to_owned()));
+        let answer = elsewhere.join().unwrap();
+        assert!(
+            location(&answer).starts_with("/m/decisions?done="),
+            "{}",
+            answer.head
+        );
+        assert_eq!(
+            back_to(
+                &[("back".to_owned(), "/m/s/x y".to_owned())],
+                "/m/".to_owned()
+            ),
+            "/m/"
+        );
+        // The session page's Stop names its session and comes back there; the doctor's page's
+        // Check again reaches the window as its order (the owner's choice).
+        let stopping = {
+            let headers = headers.clone();
+            let body = format!(
+                "key=7&ep=EP-4&session={id}&back={}",
+                back.replace('/', "%2F")
+            );
+            std::thread::spawn(move || {
+                let headers: Vec<(&str, &str)> = headers
+                    .iter()
+                    .map(|(n, v)| (n.as_str(), v.as_str()))
+                    .collect();
+                post_form(port, "/m/p/harbor/stop", &headers, &body)
+            })
+        };
+        let checking = {
+            let headers = headers.clone();
+            std::thread::spawn(move || {
+                let headers: Vec<(&str, &str)> = headers
+                    .iter()
+                    .map(|(n, v)| (n.as_str(), v.as_str()))
+                    .collect();
+                post_form(port, "/m/diagnostics/check", &headers, "")
+            })
+        };
+        let mut orders = obey(&mut server, 2, |_| Ok("done".to_owned()));
+        orders.sort_by_key(|order| format!("{order:?}"));
+        assert_eq!(
+            orders,
+            [
+                Order::Check,
+                Order::Stop {
+                    project: "harbor".to_owned(),
+                    key: 7,
+                    ep: "EP-4".to_owned(),
+                    session: Some(id.to_owned()),
+                },
+            ]
+        );
+        assert!(location(&stopping.join().unwrap()).starts_with(&format!("{back}?done=")));
+        assert!(location(&checking.join().unwrap()).starts_with("/m/diagnostics?done="));
     }
 
     /// While the registry names no owner, every request through Serve is refused, the owner's
