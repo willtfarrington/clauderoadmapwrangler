@@ -2274,6 +2274,21 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   to (a field the handler would check against `/m/` paths) or leaves the answer to the decisions
   page. The window answers through `Board::answer_live` and `Board::resume_deferred`, which return
   their words.
+  **From EP-30b:** the event stream (`GET /m/events`, `published::Reader::changes`) names each
+  changed part by the path of the page that shows it (`Published::changed_paths`: `/m/`,
+  `/m/p/<project>`, `/m/decisions`); a session's page adds a part of its own to `Published`
+  and its path (`/m/s/<key>`) to that comparison. A page names the paths it listens to in its
+  `listen` block (`data-listen` on `main`) and marks each part `data-part`. The script
+  (`templates/app.js`) fetches its own page again and replaces each part that differs, unless
+  the part holds the focused field or typed text: a transcript "appended, never the whole page
+  again" needs a mode of its own in the script (a part whose new children are appended), and a
+  version that does not rise with every streamed word, or the stream would send an event per
+  word. Compare steadily (`List::steady` is the pattern) and keep ages out of the compared
+  content. Stop exists: `POST /m/p/<project>/stop` with `key` and `ep` (`Order::Stop`, the
+  run named by its number and brief, `Sessions::stop`); the project page lists the window's
+  runs (`published::Run`), and a session page can post the same form. A start from the phone
+  is `Order::Start` from `GET /m/p/<project>/start`, whose preview comes through
+  `server::StartAsk`.
 - **EP-31a.** Added at EP-29 (2026-11-15) by EP-31's cut: the one brief that touches Tailscale,
   placed last (the owner's choice), with the link and the pushes that use it.
   (1) **Enable remote view**, a confirmation dialog in the form of EP-34's actions (`app::act`:

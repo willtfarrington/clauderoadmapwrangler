@@ -227,6 +227,12 @@ impl Pilot {
             || self.starting.is_some()
     }
 
+    /// Whether a gate is read for `project` (EP-30b): a start from the phone then would race the
+    /// chain the gate may queue.
+    pub fn is_reading(&self, project: &str) -> bool {
+        self.reading.contains(&project.to_lowercase())
+    }
+
     /// Whether a chained start waits for the slot or is on its way in `project`.
     pub fn is_starting_in(&self, project: &str) -> bool {
         [&self.queued, &self.starting]
@@ -315,7 +321,26 @@ impl Board {
         let registry = match self.store().load() {
             Ok(loaded) => loaded.registry,
             Err(e) => {
-                self.fail(format!("The autopilot could not read the registry: {e}"));
+                // IN-14: a chain the failure would stop with no word is held and said, or ended
+                // by its run's outcome, which no registry changes.
+                let on = chained
+                    || self
+                        .portfolio
+                        .project(&project)
+                        .is_some_and(|row| row.project.autopilot.enabled);
+                match (on, outcome) {
+                    (true, Outcome::Completed) => match e.for_newer_build() {
+                        Some(why) => self.hold_unread(&project, ran, &why, true),
+                        None => self.hold_unread(&project, ran, &e.to_string(), false),
+                    },
+                    (true, outcome) => {
+                        let words = autopilot::refused_words(ran, &[Refusal::Outcome(outcome)]);
+                        self.chain_moment(&project, &words, true, true);
+                    }
+                    (false, _) => {
+                        self.fail(format!("The autopilot could not read the registry: {e}"));
+                    }
+                }
                 return;
             }
         };
@@ -326,6 +351,54 @@ impl Board {
             return;
         }
         self.read_gate(registry, entry, ran, outcome, limit_hit);
+    }
+
+    /// IN-14 (the owner's choice at EP-30): the registry did not read where the gate needs it,
+    /// after a run, at a held chain's re-read or at a chained start, which before stopped the
+    /// chain with no word or failed at each pass. The chain is held, its words naming the
+    /// failure, said once (a line of the chain log and the chain's moment). When a newer build
+    /// may read it (`newer`: a key, a value or a format this build does not take, in the
+    /// parser's message alone, never the file's line, EP-30b's review), the words name File >
+    /// Install and restart, and with a newer build installed the window restarts into it at
+    /// once, the chain carried, for the new window to weigh the gate. A hold whose registry
+    /// reads again is weighed at the next re-read, as any held chain is.
+    pub(crate) fn hold_unread(
+        &mut self,
+        project: &str,
+        after: Option<EpId>,
+        why: &str,
+        newer: bool,
+    ) {
+        let words = autopilot::unread_words(after, why, newer);
+        let at = self
+            .autopilot
+            .held
+            .iter()
+            .position(|held| held.project.eq_ignore_ascii_case(project));
+        let fresh = at.is_none_or(|at| self.autopilot.held[at].words != words);
+        if fresh {
+            if let Some(at) = at {
+                self.autopilot.held.remove(at);
+            }
+            self.autopilot.held.push(Held {
+                project: project.to_owned(),
+                after,
+                words: words.clone(),
+            });
+            self.chain_moment(project, &words, true, false);
+        }
+        if !newer || self.restart.closing_at.is_some() || !self.restart.pending_install() {
+            return;
+        }
+        match self.restart_at_gate() {
+            Ok(()) => self.log_chain(Some(project), autopilot::UNREAD_RESTART),
+            // Said once with the hold; the next re-read tries again.
+            Err(why) if fresh => self.log_chain(
+                Some(project),
+                &format!("the restart into the installed build waits: {why}"),
+            ),
+            Err(_) => {}
+        }
     }
 
     /// Reads the gate of `entry` after its run of `after` on a worker thread.
@@ -618,8 +691,23 @@ impl Board {
             return;
         }
         self.autopilot.held_read = Some(Instant::now());
-        let Ok(loaded) = self.store().load() else {
-            return;
+        let loaded = match self.store().load() {
+            Ok(loaded) => loaded,
+            // IN-14: a registry a newer build may read is no longer passed over in silence: each
+            // hold is said once, and a newer build taken. Any other failure waits for the next
+            // re-read, as before.
+            Err(e) => {
+                let Some(why) = e.for_newer_build() else {
+                    return;
+                };
+                for held in self.autopilot.held.clone() {
+                    if self.restart.closing_at.is_some() {
+                        break;
+                    }
+                    self.hold_unread(&held.project, held.after, &why, true);
+                }
+                return;
+            }
         };
         let held: Vec<Held> = self.autopilot.held.clone();
         for held in held {
@@ -649,8 +737,16 @@ impl Board {
         }
         let registry = match self.store().load() {
             Ok(loaded) => loaded.registry,
+            // IN-14: a registry a newer build may read holds the chain, said once, where this
+            // failed again at every pass; any other failure is tried again at the next pass.
             Err(e) => {
-                self.fail(format!("The autopilot could not read the registry: {e}"));
+                match e.for_newer_build() {
+                    Some(why) => {
+                        let queued = self.autopilot.queued.take().expect("a start is queued");
+                        self.hold_unread(&queued.project, queued.after, &why, true);
+                    }
+                    None => self.fail(format!("The autopilot could not read the registry: {e}")),
+                }
                 return;
             }
         };
@@ -966,8 +1062,9 @@ impl Board {
 
     /// The sessions started elsewhere that are open in `project`: those busy or waiting, and the
     /// idle ones. The Autopilot section's verdict reads these alone, since the window's own run
-    /// there is the one whose end the gate weighs (EP-19b's review).
-    fn open_elsewhere(&self, project: &str) -> (Vec<String>, Vec<String>) {
+    /// there is the one whose end the gate weighs (EP-19b's review); so does the phone's start
+    /// (EP-30b), beside the window's own runs.
+    pub(crate) fn open_elsewhere(&self, project: &str) -> (Vec<String>, Vec<String>) {
         let own = |id: &str| self.sessions.owns(id);
         let mut refusing = Vec::new();
         let mut idle = Vec::new();
@@ -1216,28 +1313,36 @@ impl Board {
     /// The owner's Pause of every chain, or its Resume (the Sessions pane, the tray): kept in
     /// the registry so that it holds across restarts; a Resume reads the held chains again.
     pub fn pause_autopilot(&mut self, paused: bool) -> bool {
-        let value = if paused { "on" } else { "off" };
-        let changed = self.store().change(&files::today(), |c| {
-            c.set_setting("autopilot_paused", value)
-        });
-        match changed {
-            Ok(_) => {
-                self.autopilot.paused = paused;
-                if paused {
-                    self.notify(
-                        "The autopilot is paused: no brief is chained until you resume it; the \
-                         runs that work go on.",
-                    );
-                    self.log_chain(None, autopilot::PAUSED_BY_OWNER);
-                } else {
-                    self.autopilot.recheck = true;
-                    self.notify("The autopilot is resumed: held chains are read again.");
-                    self.log_chain(None, autopilot::RESUMED_BY_OWNER);
-                }
-            }
-            Err(e) => self.fail(e.to_string()),
+        match self.set_paused(paused) {
+            Ok(words) => self.notify(words),
+            Err(why) => self.fail(why),
         }
         true
+    }
+
+    /// The Pause or the Resume written, with its line of the chain log: its words, or why it was
+    /// not written, which the desk says in the status bar and the phone's page on its own
+    /// (EP-30b).
+    pub(crate) fn set_paused(&mut self, paused: bool) -> Result<String, String> {
+        let value = if paused { "on" } else { "off" };
+        self.store()
+            .change(&files::today(), |c| {
+                c.set_setting("autopilot_paused", value)
+            })
+            .map_err(|e| e.to_string())?;
+        self.autopilot.paused = paused;
+        if paused {
+            self.log_chain(None, autopilot::PAUSED_BY_OWNER);
+            Ok(
+                "The autopilot is paused: no brief is chained until you resume it; the runs that \
+                work go on."
+                    .to_owned(),
+            )
+        } else {
+            self.autopilot.recheck = true;
+            self.log_chain(None, autopilot::RESUMED_BY_OWNER);
+            Ok("The autopilot is resumed: held chains are read again.".to_owned())
+        }
     }
 
     /// Resumes the window's ended session `key` with the owner's yes to its commit (D-22), off
@@ -1955,6 +2060,128 @@ mod tests {
         assert_eq!(
             board.autopilot.log[0].detail.as_deref(),
             Some("the restart into the installed build waits: the offer of auto is open")
+        );
+    }
+
+    /// IN-14 (EP-30b): a registry this build cannot read (a key a newer build wrote) at a held
+    /// chain's re-read, silent before, holds the chain with words naming the failure and the way
+    /// out, said once; with a newer build installed the window restarts into it, the chain
+    /// carried. A run's end then holds a completed run's chain and ends a failed one's.
+    #[test]
+    fn an_unread_registry_holds_the_chain_once_and_takes_a_newer_build() {
+        let scratch = Scratch::new("autopilot-unread");
+        let mut board = board(&scratch);
+        board.fixtures = false;
+        board.autopilot.canned = true;
+        board.autopilot.held.push(Held {
+            project: "harbor".to_owned(),
+            after: "EP-3".parse().ok(),
+            words: "held after EP-3 until the pause lifts: the autopilot is paused (your Pause)"
+                .to_owned(),
+        });
+        let registry = scratch.0.join("registry.toml");
+        let text = std::fs::read_to_string(&registry).unwrap();
+        std::fs::write(
+            &registry,
+            text.replace("[settings]", "[settings]\nkey_of_a_newer_build = \"x\""),
+        )
+        .unwrap();
+        assert!(board.store().load().is_err(), "this build refuses the key");
+        board.read_held();
+        let words = board.autopilot.held[0].words.clone();
+        assert!(
+            words.starts_with("held after EP-3: the registry did not read ("),
+            "{words}"
+        );
+        assert!(
+            words.ends_with(
+                "File > Install and restart opens a newer build, whose gate weighs this chain"
+            ),
+            "{words}"
+        );
+        assert!(!words.contains('\n'), "one line: {words}");
+        // The parser's message alone: never the file's line with its value, nor its path.
+        assert!(
+            !words.contains("\"x\"") && !words.contains("registry.toml"),
+            "{words}"
+        );
+        assert_eq!(board.autopilot.log.len(), 1);
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some(words.as_str())
+        );
+        // Read again: said once.
+        board.autopilot.recheck = true;
+        board.read_held();
+        assert_eq!(board.autopilot.log.len(), 1, "no second line");
+        assert!(board.restart.closing_at.is_none());
+        // A newer build installed: the next re-read restarts into it, the chain carried.
+        crate::restart::tests::installed(&mut board, &scratch);
+        board.autopilot.recheck = true;
+        board.read_held();
+        assert!(board.restart.closing_at.is_some(), "the window restarts");
+        assert_eq!(
+            board.autopilot.log[0].detail.as_deref(),
+            Some(autopilot::UNREAD_RESTART)
+        );
+        let crw_core::handover::Taken::Ours(found) =
+            crw_core::handover::take(&scratch.0.join("local"), Some(std::process::id()))
+        else {
+            panic!("the handover carries the chain");
+        };
+        assert_eq!(found.held.len(), 1);
+        assert_eq!(found.held[0].words, words);
+
+        // A run's end with the registry unread: a completed chained run's chain is held, a
+        // failed one's ends, whatever the registry would say.
+        let ended = Scratch::new("autopilot-unread-end");
+        drop(board);
+        let mut board = self::board(&ended);
+        board.fixtures = false;
+        board.autopilot.canned = true;
+        let registry = ended.0.join("registry.toml");
+        let text = std::fs::read_to_string(&registry).unwrap();
+        std::fs::write(
+            &registry,
+            text.replace("[settings]", "[settings]\nkey_of_a_newer_build = \"x\""),
+        )
+        .unwrap();
+        let ended_run = |key: u64, outcome: Outcome| {
+            let mut launch = Launch::new("harbor", std::path::Path::new("harbor"), "fable", "go");
+            launch.ep = Some("EP-3".to_owned());
+            let mut live = crate::sessions::Live::canned(
+                key,
+                launch,
+                "high",
+                vec![crw_core::session::Event::Exited(crw_core::session::Ended {
+                    outcome,
+                    exit_code: Some(0),
+                    result: None,
+                    stderr: Vec::new(),
+                })],
+            );
+            live.chained = true;
+            live
+        };
+        board.sessions.live.push(ended_run(41, Outcome::Completed));
+        board.weigh_run(41);
+        assert_eq!(board.autopilot.held.len(), 1);
+        assert!(
+            board.autopilot.held[0]
+                .words
+                .contains("the registry did not read")
+        );
+        board.autopilot.held.clear();
+        board.sessions.live.push(ended_run(42, Outcome::Failed));
+        board.weigh_run(42);
+        assert!(board.autopilot.held.is_empty(), "a failed run's chain ends");
+        assert!(
+            board.autopilot.log[0]
+                .detail
+                .as_deref()
+                .is_some_and(|line| line.starts_with("the chain ends after EP-3: the run ended")),
+            "{:?}",
+            board.autopilot.log[0]
         );
     }
 

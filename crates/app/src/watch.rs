@@ -285,6 +285,14 @@ impl Watch {
             .unwrap_or_default()
     }
 
+    /// The start pages' asks for a preview since the last call (EP-30b).
+    pub fn take_asks(&mut self) -> Vec<crate::server::StartAsk> {
+        self.server
+            .as_mut()
+            .map(Server::take_asks)
+            .unwrap_or_default()
+    }
+
     /// The status lines heard since the last call, for the usage meter (EP-17).
     pub fn take_lines(&mut self) -> Vec<StatusLine> {
         std::mem::take(&mut self.lines)

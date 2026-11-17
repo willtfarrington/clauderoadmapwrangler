@@ -268,6 +268,11 @@ commands:
   mail [--all]                   print the mailman's log, the newest first: the last 20, or every
                                  row with --all: each project's first reading, the blocks counted
                                  then, each delivery with the message's id (EP-20); reads only
+  remote [--all]                 print the phone's action log, the newest first: the last 20, or
+                                 every row with --all: each action through Tailscale Serve with
+                                 its identity, method, path and whether it was allowed, logged
+                                 before it ran, and each refused identity, at most once a minute;
+                                 reads only
   notifications [--all]          print the window's notifications, the newest first: the last 20,
                                  or every one with --all: each one and what became of it (in the
                                  popup, held back by the quiet hours or the window in front, a
@@ -392,6 +397,7 @@ fn main() -> ExitCode {
         ["revert", rest @ ..] => revert_session(rest),
         ["notifications", rest @ ..] => notifications(rest),
         ["mail", rest @ ..] => mail(rest),
+        ["remote", rest @ ..] => remote_log(rest),
         ["usage"] => usage(),
         ["signals"] | ["signals", "status"] => signals_status(),
         ["signals", "install", flags @ ..] => signals_install(flags),
@@ -2563,6 +2569,20 @@ fn mail(args: &[&str]) -> ExitCode {
         "mail",
         mailman::EVENT_KIND,
         "the window's mailman logs each project's first reading and each message it delivers",
+        args,
+    )
+}
+
+/// Prints the phone's action log from the ledger (D-28; EP-30b), the newest first, read without
+/// migrating or writing it: each action through Serve, logged before it ran, and each refused
+/// identity, at most once a minute.
+fn remote_log(args: &[&str]) -> ExitCode {
+    events(
+        "remote",
+        crw_core::remote::EVENT_KIND,
+        "the window's server logs each action from the phone through Tailscale Serve, and each \
+         refused identity at most once a minute; the machine's own requests and every read are \
+         not logged",
         args,
     )
 }

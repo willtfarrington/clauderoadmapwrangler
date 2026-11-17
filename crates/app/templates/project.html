@@ -1,22 +1,25 @@
 {% extends "base.html" %}
 {% block title %}{{ name }} · Roadmap Wrangler{% endblock %}
 {% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}{{ link }}{% endblock %}
+{% block version %}{{ version }}{% endblock %}
 {% block content %}
 {% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
-<div class="head page-head">
+<div class="head page-head" data-part="head">
 <h1 class="name">{{ name }}</h1>
 <span class="chip state-{{ state }}">{{ state }}</span>
 {% for mark in marks %}<span class="mark {{ mark.1 }}">{{ mark.0 }}</span>
 {% endfor %}
+{% if revert %}<p class="said failed">A revert is open here in the window: tick and send once it is done.</p>{% endif %}
 </div>
 <p class="weak"><a href="/m/">All projects</a> · <a href="{{ link }}">Reload</a></p>
-{% if revert %}<p class="said failed">A revert is open here in the window: tick and send once it is done.</p>{% endif %}
 
-<section class="part-of-page">
+<section class="part-of-page" data-part="next">
 <h2>Next brief</h2>
 {% if let Some(id) = next_id %}
 <p class="next"><span class="ep">{{ id }}</span>{% if let Some(size) = size %} <span class="size">{{ size }}</span>{% endif %}
 <span class="title">{% for run in title %}{% if run.tag.is_empty() %}{{ run.text }}{% else %}<{{ run.tag }}>{{ run.text }}</{{ run.tag }}>{% endif %}{% endfor %}</span></p>
+{% if let Some(start) = start %}<p><a class="action" href="{{ start }}">Start {{ id }} headless…</a> <span class="weak small">the rules' model and effort; the next page confirms</span></p>{% endif %}
 {% if note.is_empty() %}<p class="weak">No brief notes for it.</p>{% else %}
 <div class="note">
 {{ note|safe }}</div>
@@ -25,7 +28,26 @@
 {% if let Some(words) = no_next %}<p class="weak">{{ words }}</p>{% endif %}
 </section>
 
-<section class="part-of-page">
+<section class="part-of-page" data-part="sessions">
+<h2>Sessions</h2>
+{% if sessions.is_empty() && runs.is_empty() %}<p class="weak">No session in progress here.</p>{% endif %}
+{% for words in sessions %}<p class="session">{{ words }}</p>
+{% endfor %}
+{% for run in runs %}
+<article class="item run">
+<div class="head"><strong class="ep">{{ run.ep }}</strong> <span class="mark weak">headless</span>{% if run.chained %} <span class="mark good">chained</span>{% endif %} <span class="weak small">{{ run.state }} · since {{ run.started }}</span></div>
+{% if run.stoppable %}
+<form method="post" action="{{ link }}/stop" class="inline">
+<input type="hidden" name="key" value="{{ run.key }}">
+<input type="hidden" name="ep" value="{{ run.ep }}">
+<button type="submit" class="deny">Stop {{ run.ep }}</button> <span class="weak small">ends its turn gracefully, its work left in the tree</span>
+</form>
+{% endif %}
+</article>
+{% endfor %}
+</section>
+
+<section class="part-of-page" data-part="waiting">
 <h2>Waiting on the owner <span class="count">{{ waiting.len() }} open, {{ resolved }} resolved</span></h2>
 {% if waiting.is_empty() %}<p class="weak">Nothing: no open owner task.</p>{% endif %}
 {% for item in waiting %}
@@ -45,6 +67,7 @@
 {% endfor %}
 </section>
 
+<div data-part="uncounted">
 {% if !uncounted.is_empty() %}
 <section class="part-of-page">
 <h2>Risks and older forms <span class="count">{{ uncounted.len() }} open, not counted</span></h2>
@@ -59,8 +82,9 @@
 {% endfor %}
 </section>
 {% endif %}
+</div>
 
-<section class="part-of-page">
+<section class="part-of-page" data-part="inbox">
 {% if has_inbox %}
 <h2>Inbox <span class="count">{{ inbox_counts }}</span></h2>
 {% for message in messages %}
@@ -83,6 +107,7 @@
 {% endif %}
 </section>
 
+<div data-part="send">
 {% if folder %}
 <section class="part-of-page" id="send">
 <h2>A message to {{ name }}</h2>
@@ -95,11 +120,5 @@
 </form>
 </section>
 {% endif %}
-
-<section class="part-of-page">
-<h2>Sessions</h2>
-{% if sessions.is_empty() %}<p class="weak">No session in progress here.</p>{% endif %}
-{% for words in sessions %}<p class="session">{{ words }}</p>
-{% endfor %}
-</section>
+</div>
 {% endblock %}

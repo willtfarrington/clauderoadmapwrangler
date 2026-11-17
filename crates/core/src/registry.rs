@@ -131,6 +131,22 @@ pub enum Error {
 }
 
 impl Error {
+    /// Why a newer build may read what this one cannot (IN-14; EP-30b): a field or a value this
+    /// build does not take, or a newer format; none for any other failure (a file that did not
+    /// open, a write's). The words are the parser's message alone, never the offending line it
+    /// quotes, which may hold a private value, and never the file's path.
+    pub fn for_newer_build(&self) -> Option<String> {
+        match self {
+            Error::Read { source, .. } => Some(source.message().trim().to_owned()),
+            Error::Newer {
+                found, supported, ..
+            } => Some(format!(
+                "it has format {found}, and this build reads format {supported}"
+            )),
+            _ => None,
+        }
+    }
+
     pub(crate) fn io(path: &Path, source: io::Error) -> Self {
         Error::Io {
             path: path.to_owned(),

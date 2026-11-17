@@ -121,18 +121,25 @@ signals, the notifications, the meter, the mailman, the headless route, the defe
 with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
 restarts, a panic's head line and a child that did not start; a start that failed for reasons
 security software causes (the file flagged, access denied, a file gone) says where to look. The
-window's loopback server also answers the phone's pages under `/m/` (EP-30, EP-30a). The project
-list shows the state groups, and each project's next brief, progress, what waits on the owner, its
-sessions and its badges in words. A project's page shows its next brief's note, what waits on the
-owner, its inbox and its sessions, and ticks an owner task, ticks an inbox message with its
-disposition and writes a message into its inbox. The decisions page answers a headless session's
-questions and permission requests, a deferred run's too. Each form goes to the window, which runs
-it as the desk would and says what came of it on the page, in its status bar and in its log. The
-pages are rendered from a snapshot the window publishes. A request from the machine itself is
-local. One through Tailscale Serve must
+window's loopback server also answers the phone's pages under `/m/` (EP-30, EP-30a, EP-30b). The
+project list shows the usage strip (the weekly, Fable and session figures with their resets), the
+autopilot's block (its state with Pause or Resume, the held chains, the chain plans and the chain
+log's latest lines), then the state groups, and each project's next brief, progress, what waits
+on the owner, its sessions and its badges in words. A project's page shows its next brief's note,
+what waits on the owner, its inbox and its sessions, and ticks an owner task, ticks an inbox
+message with its disposition and writes a message into its inbox; it stops a headless run of the
+window's there, and links a page that starts its next brief headless with the model and effort
+the rules resolve, after showing what the run would be and what refuses it now. The decisions
+page answers a headless session's questions and permission requests, a deferred run's too. Each
+form goes to the window, which runs it as the desk would and says what came of it on the page, in
+its status bar and in its log. The pages are rendered from a snapshot the window publishes, and
+one small script of the tool's own listens to the window's event stream and fetches again the
+parts of a page that changed, leaving alone one being typed in; the pages work without it. A
+request from the machine itself is local. One through Tailscale Serve must
 carry the login that `crw setting owner_login` names, and any other is refused; each action
-through Serve and each refusal is logged in the ledger. The window's queued actions now run while
-it is hidden in the tray too, so the tray's Pause acts at once. The roadmap is
+through Serve and each refusal is logged in the ledger, which `crw remote` prints. The window's
+queued actions now run while it is hidden in the tray too, so the tray's Pause acts at once. The
+roadmap is
 [`roadmap/README.md`](roadmap/README.md), the decisions
 [`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
 

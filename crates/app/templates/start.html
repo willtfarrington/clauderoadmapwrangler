@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Start · {{ name }} · Roadmap Wrangler{% endblock %}
+{% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}{{ link }}{% endblock %}
+{% block version %}{{ version }}{% endblock %}
+{% block content %}
+<div class="head page-head">
+<h1 class="name">Start in {{ name }}</h1>
+<span class="mark weak">headless</span>
+</div>
+<p class="weak"><a href="{{ link }}">Back to {{ name }}</a> · <a href="{{ link }}/start">Look again</a></p>
+<section class="part-of-page start" data-part="start">
+{% if let Some(id) = next_id %}
+<p class="next"><span class="ep">{{ id }}</span>{% if let Some(size) = size %} <span class="size">{{ size }}</span>{% endif %}
+<span class="title">{% for run in title %}{% if run.tag.is_empty() %}{{ run.text }}{% else %}<{{ run.tag }}>{{ run.text }}</{{ run.tag }}>{% endif %}{% endfor %}</span></p>
+<dl class="choices">
+<dt>Model</dt><dd><code>{{ model.0 }}</code> <span class="weak small">{{ model.1 }}</span></dd>
+<dt>Effort</dt><dd>{{ effort.0 }}{% if ultracode %} <span class="mark warn">ultracode</span>{% endif %} <span class="weak small">{{ effort.1 }}</span></dd>
+<dt>Permissions</dt><dd><code>{{ permission_mode.0 }}</code> <span class="weak small">{{ permission_mode.1 }}</span></dd>
+</dl>
+{% if let Some(words) = downshift %}<p class="warn small">The downshift chose the model: {{ words }}.</p>{% endif %}
+{% for words in run %}<p class="small">{{ words }}</p>
+{% endfor %}
+{% endif %}
+{% if let Some(words) = no_next %}<p class="weak">{{ words }}</p>{% endif %}
+{% for words in notes %}<p class="warn small">{{ words }}</p>
+{% endfor %}
+{% if refusals.is_empty() %}
+{% if let Some(id) = next_id %}
+<form method="post" action="{{ link }}/start" class="stack">
+<input type="hidden" name="ep" value="{{ id }}">
+<button type="submit">Start {{ id }} headless</button>
+</form>
+<p class="weak small">Another model or effort, a visual start or the chain plan's choices are the window's launch dialog's.</p>
+{% endif %}
+{% else %}
+<p class="said failed">Not now: {% for why in refusals %}{{ why }}{% if !loop.last %}; {% endif %}{% endfor %}.</p>
+{% endif %}
+</section>
+{% endblock %}

@@ -1072,7 +1072,11 @@ impl Sessions {
                     self.conversations_stale = true;
                 }
                 Err(TryRecvError::Disconnected) => {
-                    self.starting = None;
+                    // Whose start it was, as for one that answered (EP-30b's review).
+                    self.last_chat = self
+                        .starting
+                        .take()
+                        .is_some_and(|starting| starting.launch.conversation.is_some());
                     started = Some(Started::Refused(
                         "the start's thread ended without an answer".to_owned(),
                     ));

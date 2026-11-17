@@ -1,10 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Decisions · Roadmap Wrangler{% endblock %}
 {% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}/m/decisions{% endblock %}
+{% block version %}{{ version }}{% endblock %}
 {% block content %}
 {% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
 <h1>Decisions</h1>
 <p class="weak"><a href="/m/">All projects</a> · <a href="/m/decisions">Reload</a></p>
+<div data-part="decisions">
 {% if waiting.is_empty() && deferred.is_empty() && elsewhere.is_empty() %}
 <p class="weak">Nothing waits for you. A headless session's questions and permission requests come here while it waits, and a run deferred at its time limit or by the defer route stays here until you answer it.</p>
 {% endif %}
@@ -28,5 +31,6 @@
 </article>
 {% endfor %}
 {% endif %}
+</div>
 <p class="foot weak">A chat's questions stay in the window's Chat pane, and Focus for a session in VS Code is the window's too.</p>
 {% endblock %}

@@ -616,6 +616,9 @@ pub struct Word {
     pub word: String,
     pub sentence: String,
     pub tone: Tone,
+    /// The word is an age the clock alone changes (the last commit's, EP-30b): the phone's
+    /// snapshot compares the list without it, as it does without every sentence.
+    pub clocked: bool,
 }
 
 impl Word {
@@ -625,6 +628,7 @@ impl Word {
             word,
             sentence: mark.hover.clone(),
             tone: mark.sign.tone,
+            clocked: false,
         }
     }
 }
@@ -653,6 +657,7 @@ pub fn words(row: &ProjectRow, now: DateTime<Utc>) -> Vec<Word> {
                     .collect::<Vec<_>>()
                     .join("; "),
                 tone: Tone::Plain,
+                clocked: false,
             });
         }
         let mark = hosting(row, now);
@@ -674,7 +679,10 @@ pub fn words(row: &ProjectRow, now: DateTime<Utc>) -> Vec<Word> {
                 Some(text) => format!("last commit {text} ago"),
                 None => age.sign.meaning.to_owned(),
             };
-            words.push(Word::of("Age", &age, word));
+            words.push(Word {
+                clocked: true,
+                ..Word::of("Age", &age, word)
+            });
             if let Some(dirty) = dirty {
                 words.push(Word::of("Age", &dirty, dirty.sign.meaning.to_owned()));
             }

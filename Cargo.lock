@@ -733,6 +733,7 @@ dependencies = [
  "egui_material_icons",
  "egui_plot",
  "egui_tiles",
+ "futures-util",
  "image",
  "notify",
  "serde",

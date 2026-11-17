@@ -869,6 +869,37 @@ with modules; hand-written protocol types; another community client.
 > window idles in the tray; a request channel for the snapshot in place of the ask and the
 > wake.
 
+> **Addendum (2026-11-16, EP-30b).** The live updates.
+>
+> - **The steady version.** The list is compared without what the clock alone changes: each
+>   badge's sentence, the last commit's age word (marked as such at its source), the usage
+>   figures' read times. An idle window publishes no new version, while each build still
+>   replaces the snapshot's words, which a page reads when drawn.
+> - **The stream.** `GET /m/events` is a server-sent event stream. Each `change` event names a
+>   changed part by the path of the page that shows it: `/m/` (the list with its two blocks),
+>   `/m/p/<project>` (a project's page, its runs included), `/m/decisions`. It awaits the
+>   snapshot's `watch` channel and compares the parts only when the version moved. A page
+>   carries the version it was drawn from (`data-version`) and opens the stream with it
+>   (`?since=`); when the window has moved on since, the stream names everything (`*`) first,
+>   so a change between the drawing and the opening (a run's start just after the redirect that
+>   shows it starting), or while the window restarted, is not lost. The versions count from the
+>   process's start in milliseconds, so a page drawn by an earlier window cannot match a later
+>   one's by chance. A first event sets the browser's retry to five seconds, and a comment every
+>   15 s keeps an idle stream open. It ends with the window.
+> - **The script.** `GET /m/app.js` is the tool's own script, about seventy lines served from
+>   the exe. Each page names the paths it listens to (`data-listen`) and marks its parts
+>   (`data-part`). On a change, the script fetches its own page, parses it with `DOMParser`, and
+>   puts in each part that differs. It leaves alone a part that holds the focused field, or a
+>   field whose value or tick is not the page's, and fetches again once the focus leaves. A fold
+>   the owner opened stays open. A stream that an answer other than the stream closed for good
+>   (the proxy's while the window is down, which the browser never retries) is opened anew, a
+>   little later each time. It sets no markup from text.
+> - **The policy** gains `script-src 'self'` and `connect-src 'self'`.
+>
+> *Alternatives.* Ages drawn from timestamps the snapshot would carry for every badge, a
+> refactor of the marks the window draws too; one event per page rather than per part; a page
+> fetched whole and swapped whole, which would lose a message being typed.
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -963,6 +994,13 @@ everything.
 > middleware needs no feature. *Alternatives.* askama's default features, whose TOML parser
 > reads a configuration file the crate does not have; `urlencode` now, for the links EP-30a
 > adds.
+
+> **Addendum (2026-11-16, EP-30b).** `futures-util` joins the app crate, pinned at `=0.3.34`
+> in the workspace with no default features. It is the version axum already locks for itself,
+> named for `stream::unfold` and the combinators that make the phone's event stream (axum's
+> `Sse` takes a `Stream`). The lock gained no package, only the app crate's line naming it.
+> *Alternatives.* A `Stream` written by hand over `futures-core`, about forty lines of polling
+> a boxed future; `tokio-stream`'s `WatchStream`, a new package.
 
 ## Sessions
 
@@ -1807,6 +1845,44 @@ committing and recording hashes; one model and effort per project; usage thresho
 > start's launch, not the dialog's start of an autopilot project, which sets the guard in the
 > window. *Alternatives.* A line in the Readings group without the CLI's flags (ok for a CLI
 > that drops the rule); a supervised probe of a push.
+
+> **Addendum (2026-11-16, EP-30b).** The phone's start and pause, and the gate's registry read.
+>
+> - **The start from the phone** is the owner's own start, as the dialog's is: the next brief,
+>   headless, with the rules' choice. Its prompt is worded as a chained start's
+>   (`Draft::for_chain` with no pick), and its launch is the chained start's with what the
+>   dialog's Start headless adds: the route, the hooks, the revert's start. The cap, the budget,
+>   the push guard and a chain plan of the rules' choice for each row come only when the
+>   project's autopilot is on, and a chain then follows the gate as after a desk start. A held
+>   chain there gives way to it.
+> - **What refuses it** are the dialog's reasons: a screenshot run, a restart under way, the
+>   folder missing, the registry not reading, nothing to launch, a start already on its way, the
+>   CLI not answered (the start page asks it), the CLI's refusals. Beyond those, a page's
+>   brief that is no longer the next refuses it, and so does a session at work in the project:
+>   the window's run there, a start on its way there, or a session seen working or waiting
+>   there. The dialog only warns of those, but from the phone nobody sees the other tab, and
+>   the gate refuses the same. A revert open there refuses it too, and so do a gate being read
+>   there after a run (it would chain the same brief), a visual launch on its way, and a run of
+>   the window's deferred there with its request open (its answer would resume a second
+>   session in the same tree; EP-30b's review).
+> - **Pause and Resume from the phone** say which (`pause=on|off`), never a toggle. They are the
+>   desk's own write, run in the orders' pass shown or hidden, and a pause already in force is
+>   said rather than written again.
+> - **IN-14.** When the registry does not read where the gate needs it in a way a newer build
+>   may read (a key, a value or a format this build does not take), after a completed run of a
+>   chain, at a held chain's re-read or at a chained start, the chain is held. The hold's words
+>   name the failure by the parser's message alone, never the file's line, which may hold a
+>   private value, and name File > Install and restart. They are said once in the chain log and
+>   the chain's moment. With a newer build installed, the window restarts into it at once, the
+>   chain carried, for the new window to weigh the gate. Any other failure after a completed run
+>   holds the chain for the next re-read, and elsewhere is tried again as before. A run that did
+>   not complete ends its chain, as the gate would end it. Before, the re-read was silent and
+>   the chained start failed again at every pass.
+>
+> *Alternatives.* The phone's start under the gate's own conditions (caps, sizes, the pause),
+> which are the chain's and not the owner's; a stricter start that also refused a dirty tree or
+> owner tasks due, which the dialog leaves to the owner; the registry's failure ending the
+> chain with a line, its plan lost.
 
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
@@ -2815,6 +2891,32 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > redirect's query (a crafted link could put words on the owner's page); axum's `form` feature,
 > or askama's `urlencode` (a feature change for a few lines); orders queued as the window's
 > actions (their words would reach the status bar and not the page).
+
+> **Addendum (2026-11-16, EP-30b).** The actions that run things and the live updates, as
+> built.
+>
+> - **The start page.** `GET /m/p/<project>/start` asks the window for a preview through a
+>   channel of its own, since a draft reads the project's files. The preview shows the brief,
+>   the model, the effort and the permission mode with their reasons, what the run is, the
+>   launch dialog's notes, and its button or what refuses it now. Its form (`POST …/start`,
+>   with the brief it showed) waits for the runner's answer within the form's ten seconds, as
+>   EP-30a's forms wait.
+> - **Stop.** The project's page lists the window's headless runs there (a chat's aside), each
+>   with a Stop. `POST …/stop` names the run by its number and its brief, so a page from before
+>   a restart (whose numbers start again at 1) stops nothing else. It is the desk's graceful
+>   stop, never Kill.
+> - **Pause and Resume** on the list's autopilot block, `POST /m/autopilot`.
+> - **The two blocks** on the list: the usage strip, and the autopilot block in the Autopilot
+>   section's words; the ages are drawn when the page is drawn.
+> - **The live updates** (D-14 addendum of this date): one event stream and the tool's own
+>   script, under a policy that adds `script-src 'self'` and `connect-src 'self'`.
+> - **`crw remote`** prints the remote-action log.
+>
+> Every new route sits behind the same guard, so a form through Serve is logged before it runs.
+> The seven actions are now all there; a revert, Kill, a choice of model or effort, Resume and
+> Commit stay the desk's. *Alternatives.* The preview carried in the snapshot for every project
+> (a draft each second, reading every project's `CLAUDE.md`); a Stop by number alone; a Pause
+> that toggles.
 
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's

@@ -7,19 +7,36 @@
 //! What came of it goes back to the page in one line, and to the status bar and the rolling log
 //! with the caller's identity, so the desk sees what the phone did. An order whose page stopped
 //! waiting is dropped unrun; a screenshot run refuses every order, as it refuses the desk's.
+//!
+//! EP-30b adds the orders that run things. A start of a project's next brief, headless with the
+//! rules' choice, is the chained start's launch with what the dialog's Start headless adds; its
+//! preview, for the start page, is the same reading, and a start is refused for the dialog's
+//! reasons and, stricter than the dialog, for a session at work in the project. Its page waits
+//! for the runner's answer. A Stop is the desk's graceful stop of the run the page names by its
+//! number and its brief; Pause and Resume are the desk's own write.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, TryRecvError};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use chrono::Utc;
+use crw_core::autopilot::{self as chains, Cap, Plan, Refusal};
 use crw_core::files;
 use crw_core::inbox::mailman::{self, Sent};
+use crw_core::prompt;
+use crw_core::registry;
+use crw_core::roadmap::EpId;
+use crw_core::rules;
+use crw_core::session::{Launch, cli::Preflight};
 use tokio::sync::oneshot;
 
 use crate::board::Board;
 use crate::decisions::{self, Draft};
+use crate::published::{Next, Start};
 use crate::server::{AnswerForm, Order, PageRequest, Said};
+use crate::sessions::Started;
 
 /// What a form for a request that no longer waits says (the brief's "already answered").
 const ALREADY: &str = "Already answered: the session no longer waits on that request.";
@@ -28,18 +45,48 @@ const ALREADY: &str = "Already answered: the session no longer waits on that req
 /// again from a page not yet reloaded writes it once (EP-30a's review).
 const SENT_KEPT: Duration = Duration::from_secs(300);
 
-/// The phone's messages being written, and those written lately (EP-30a).
+/// The phone's messages being written, and those written lately (EP-30a); its start on its way
+/// (EP-30b).
 #[derive(Default)]
 pub struct Phone {
     sending: Vec<Sending>,
     /// By the project's lowercase name and the message's words: its id and when.
     sent: Vec<(String, String, String, Instant)>,
+    starting: Option<Starting>,
+}
+
+/// The phone's start on its way to the runner (EP-30b): its project and brief, who sent it, the
+/// words its page hears once it runs, and the page's reply.
+struct Starting {
+    project: String,
+    ep: EpId,
+    caller: String,
+    words: String,
+    reply: oneshot::Sender<Said>,
+}
+
+/// What a start from the phone runs once nothing refuses it (EP-30b): the launch, the effort in
+/// words, what the autopilot asks of the run, the chain plan to keep, and the words its page
+/// hears.
+pub(crate) struct Ready {
+    pub launch: Launch,
+    pub effort: String,
+    pub run: crate::sessions::Run,
+    pub plan: Option<Plan>,
+    pub preflight: Arc<Preflight>,
+    pub ep: EpId,
+    pub words: String,
 }
 
 impl Phone {
     /// Whether a message from the phone is being written.
     pub fn is_sending(&self) -> bool {
         !self.sending.is_empty()
+    }
+
+    /// Whether the phone's start waits for the runner's answer (EP-30b).
+    pub fn is_starting(&self) -> bool {
+        self.starting.is_some()
     }
 
     /// Why the same words to `project` are not written again: one being written, or one written
@@ -83,9 +130,13 @@ struct Sending {
 }
 
 impl Board {
-    /// The pages' forms since the last pass, each run and answered, then the phone's messages
-    /// that were written meanwhile (EP-30a).
+    /// The start pages' asks for a preview (EP-30b), then the pages' forms since the last pass,
+    /// each run and answered, then the phone's messages that were written meanwhile (EP-30a).
     pub fn obey_pages(&mut self) {
+        for ask in self.watch.take_asks() {
+            let preview = self.start_preview(&ask.project);
+            let _ = ask.reply.send(preview);
+        }
         let orders = self.watch.take_orders();
         self.obey_orders(orders);
     }
@@ -134,6 +185,22 @@ impl Board {
                 }
                 continue;
             }
+            // A start's page waits for the runner's answer, which a later pass takes (EP-30b).
+            if let Order::Start { project, ep } = order {
+                match self.start_from_page(&project, &ep) {
+                    Ok((project, ep, words)) => {
+                        self.phone.starting = Some(Starting {
+                            project,
+                            ep,
+                            caller,
+                            words,
+                            reply,
+                        });
+                    }
+                    Err(why) => self.answer_page(reply, &caller, Err(why)),
+                }
+                continue;
+            }
             let said = self.run_order(order, &mut wrote);
             self.answer_page(reply, &caller, said);
         }
@@ -167,8 +234,485 @@ impl Board {
                 self.tick_message_in(&folder, &name, &id, &disposition, &today)
             }
             Order::Answer { key, request, form } => self.answer_from_page(key, &request, &form),
+            Order::Stop { project, key, ep } => self.stop_from_page(&project, key, &ep),
+            Order::Pause { paused } => self.pause_from_page(paused),
             Order::Send { .. } => Err("A message goes through its own write.".to_owned()),
+            Order::Start { .. } => Err("A start goes through its own path.".to_owned()),
         }
+    }
+
+    /// The start page's preview of `name`'s start (EP-30b); none for a project the window does
+    /// not list.
+    pub fn start_preview(&mut self, name: &str) -> Option<Start> {
+        self.prepare_start(name).map(|(start, _)| start)
+    }
+
+    /// What a start of `name`'s next brief from the phone would run, and what refuses it now
+    /// (EP-30b): one reading for the start page's preview and for the start itself, the draft as
+    /// the dialog drafts it, worded headless with the rules' choice as a chained start is. The
+    /// launch comes with it only when nothing refuses. None when the window lists no such
+    /// project. The CLI's preflight is asked last, once nothing else refuses, so that a test
+    /// with no canned preflight never starts the CLI (rule 5).
+    pub(crate) fn prepare_start(&mut self, name: &str) -> Option<(Start, Option<Ready>)> {
+        let row = self.portfolio.project(name)?;
+        let project = row.name().to_owned();
+        let (folder, snapshot, reasons, fallback) = (
+            row.folder.as_ref().map(|folder| folder.path.clone()),
+            row.snapshot.clone(),
+            row.in_progress(),
+            row.project.clone(),
+        );
+        let missing = folder.is_none().then(|| crate::list::missing_folder(row));
+        let mut start = Start {
+            project: project.clone(),
+            next: Next::None {
+                words: String::new(),
+                missing: false,
+            },
+            model: Default::default(),
+            effort: Default::default(),
+            ultracode: false,
+            permission_mode: Default::default(),
+            downshift: None,
+            run: Vec::new(),
+            notes: Vec::new(),
+            refusals: Vec::new(),
+        };
+        let mut refusals = Vec::new();
+        if self.fixtures {
+            refusals
+                .push("a screenshot run starts no session: its projects are fixtures or a copy");
+        }
+        if self.restart.closing_at.is_some() {
+            refusals.push("the window is restarting into a newer build");
+        }
+        start.refusals = refusals.into_iter().map(str::to_owned).collect();
+        let Some(folder) = folder else {
+            let words = missing.unwrap_or_default();
+            start.refusals.push(words.clone());
+            start.next = Next::None {
+                words,
+                missing: true,
+            };
+            return Some((start, None));
+        };
+        let registry = match self.store().load() {
+            Ok(loaded) => loaded.registry,
+            Err(e) => {
+                start
+                    .refusals
+                    .push(format!("the registry did not read: {e}"));
+                return Some((start, None));
+            }
+        };
+        let entry = registry.project(&project).cloned().unwrap_or(fallback);
+        // The CLI's levels as last read, without asking yet: the built-in ones before.
+        let levels: Vec<String> = self
+            .sessions
+            .preflight_ready()
+            .and_then(|preflight| preflight.flags.as_ref().ok().map(|f| f.efforts.clone()))
+            .unwrap_or_default();
+        let claude_md = prompt::claude_md(&folder);
+        let now = Utc::now();
+        let figures = self.meter.gauge.figures(now);
+        let usage = rules::Usage::of(&figures, now);
+        let today = files::today();
+        let mut draft = match prompt::draft(
+            &registry,
+            &entry,
+            &snapshot,
+            claude_md.as_deref(),
+            &levels,
+            &usage,
+            &today,
+        ) {
+            Ok(draft) => draft,
+            Err(why) => {
+                let words = format!("nothing to launch: {why}");
+                start.refusals.push(words.clone());
+                start.next = Next::None {
+                    words,
+                    missing: false,
+                };
+                return Some((start, None));
+            }
+        };
+        // Headless whatever the project's launch mode, the rules' choice (D-22's chained form).
+        draft.for_chain(None, entry.launch.template.as_deref());
+        start.next = Next::Brief {
+            id: draft.ep.to_string(),
+            size: draft.size.map(|size| size.as_str().to_owned()),
+            title: draft.title.clone(),
+        };
+        let resolution = &draft.resolution;
+        start.model = (resolution.model.value.clone(), resolution.model.reason());
+        start.effort = (draft.parts.effort.clone(), resolution.effort.reason());
+        start.ultracode = resolution.ultracode.value;
+        start.permission_mode = (
+            resolution.permission_mode.value.clone(),
+            resolution.permission_mode.reason(),
+        );
+        start.downshift = resolution
+            .downshift
+            .as_ref()
+            .filter(|downshift| downshift.applied)
+            .map(|downshift| downshift.words.clone());
+        let autopilot = entry.autopilot.enabled;
+        let plan = autopilot
+            .then(|| chains::plan(&registry, &entry, &snapshot, draft.ep, &levels, &usage));
+        start.run = run_words(&draft, autopilot, plan.as_ref());
+        start.notes = self.start_notes(&project, &draft, &reasons, &figures, now);
+        // What refuses it now: the dialog's reasons, and a session at work there (the gate's).
+        if self.sessions.is_starting() || self.phone.is_starting() {
+            start
+                .refusals
+                .push("a session is starting in the window: start again in a moment".to_owned());
+        }
+        if self.visual.is_opening() {
+            start.refusals.push(
+                "a visual launch is on its way to VS Code: start again in a moment".to_owned(),
+            );
+        }
+        if let Some(running) = self.sessions.summary(&project) {
+            start
+                .refusals
+                .push(format!("the window already has {running}"));
+        }
+        let (busy, _) = self.open_elsewhere(&project);
+        if !busy.is_empty() {
+            start.refusals.push(format!(
+                "Claude Code reports {} there: a second session would edit the same files",
+                busy.join("; ")
+            ));
+        }
+        if self.autopilot.is_starting_in(&project) {
+            start
+                .refusals
+                .push("the autopilot's chained start is on its way there".to_owned());
+        }
+        // A run's end whose gate is still read would chain the same brief (the review's).
+        if self.autopilot.is_reading(&project) {
+            start.refusals.push(
+                "the autopilot reads its gate after a run there: start again in a moment"
+                    .to_owned(),
+            );
+        }
+        // A deferred run's answer would resume a second session in the same tree (the review's).
+        for live in self.sessions.live.iter().filter(|live| {
+            !live.is_chat()
+                && live.project.eq_ignore_ascii_case(&project)
+                && live.ended.is_some()
+                && live.open.is_some()
+        }) {
+            start.refusals.push(format!(
+                "the window's {} there was deferred with a request open: answer it on the \
+                 decisions page, or dismiss its tab in the window, first",
+                live.ep
+            ));
+        }
+        if self.revert_open_in(&project) {
+            start
+                .refusals
+                .push("a revert is open there in the window".to_owned());
+        }
+        if !start.refusals.is_empty() {
+            return Some((start, None));
+        }
+        let program = crw_core::session::cli::locate(registry.settings.claude_cli.as_deref())
+            .unwrap_or_else(|| PathBuf::from("claude.exe"));
+        let ctx = self.ctx().clone();
+        let Some(preflight) = self.sessions.preflight(&program, &ctx) else {
+            start.refusals.push(
+                "claude has not answered yet: the window asks it now, so start again in a moment"
+                    .to_owned(),
+            );
+            return Some((start, None));
+        };
+        start.refusals.extend(preflight.refusals());
+        if !start.refusals.is_empty() {
+            return Some((start, None));
+        }
+        let ready = self.phone_launch(&registry, &entry, &folder, draft, plan, preflight);
+        Some((start, Some(ready)))
+    }
+
+    /// What the start page notes first, as the launch dialog would (EP-30b): owner tasks due
+    /// before the brief, the files' evidence of a session in progress, sessions open and idle
+    /// there, the session window's notice, and the gate's standing verdict.
+    fn start_notes(
+        &self,
+        project: &str,
+        draft: &prompt::Draft,
+        reasons: &[crw_core::roadmap::snapshot::InProgress],
+        figures: &crw_core::usage::Figures,
+        now: chrono::DateTime<Utc>,
+    ) -> Vec<String> {
+        let mut notes = Vec::new();
+        if !draft.parts.due.is_empty() {
+            notes.push(draft.parts.due.clone());
+        }
+        if !reasons.is_empty() {
+            let texts: Vec<String> = reasons.iter().map(ToString::to_string).collect();
+            notes.push(format!(
+                "A session may be in progress already ({}): a second one would edit the same \
+                 files.",
+                texts.join("; ")
+            ));
+        }
+        let (_, idle) = self.open_elsewhere(project);
+        if !idle.is_empty() {
+            notes.push(format!(
+                "Open and idle there: {}. Typing into it while this run works would make two \
+                 sessions edit one tree.",
+                idle.join("; ")
+            ));
+        }
+        let mark = self.autopilot.five_hour_mark.max(1);
+        notes.extend(chains::session_notice(figures, mark, false, now));
+        for refusal in self
+            .autopilot
+            .standing
+            .get(&project.to_lowercase())
+            .into_iter()
+            .flatten()
+        {
+            notes.push(match refusal {
+                Refusal::Waits(mode) => format!(
+                    "Its commands would each wait for your answer on the decisions page \
+                     (permission mode {mode}, no allow rule), and the gate refuses its chains \
+                     for it."
+                ),
+                refusal => format!("The gate refuses its chains: {}.", refusal.words()),
+            });
+        }
+        notes
+    }
+
+    /// The launch of a start from the phone (EP-30b), once nothing refuses it: the chained
+    /// start's (`autopilot::launch`), with what the dialog's Start headless adds: the route, the
+    /// hooks and the revert's start; the cap, the budget, the push guard and the chain plan only
+    /// when the project's autopilot is on, as the dialog does. Nothing starts here.
+    fn phone_launch(
+        &self,
+        registry: &registry::Registry,
+        entry: &registry::Project,
+        folder: &std::path::Path,
+        draft: prompt::Draft,
+        plan: Option<Plan>,
+        preflight: Arc<Preflight>,
+    ) -> Ready {
+        let mut launch = chains::launch(
+            &draft,
+            entry,
+            folder,
+            &registry.data_root(),
+            self.ledger().map(PathBuf::from),
+        );
+        let autopilot = entry.autopilot.enabled;
+        let run = if autopilot {
+            crate::sessions::Run {
+                capped: true,
+                size: draft.size,
+                chained: false,
+                commits: draft.parts.commits,
+                migration: false,
+            }
+        } else {
+            launch.max_budget_usd = None;
+            launch.deny_push = false;
+            crate::sessions::Run {
+                commits: draft.parts.commits,
+                ..crate::sessions::Run::default()
+            }
+        };
+        if entry.revert {
+            launch.starts = Some(self.store().backups.clone());
+        }
+        launch.route = self
+            .sessions
+            .route_for(&preflight, registry.settings.decisions)
+            .0;
+        launch.hooks = crate::board::crw_exe();
+        let after = if autopilot {
+            " It commits itself, within its cap, and a chain may follow as the gate allows."
+        } else {
+            " It stops before committing, for the window's Commit."
+        };
+        let words = format!(
+            "Started {} {} headless with {} at {}, the rules' choice: the project's page shows the \
+             run, and its Stop there ends it.{after}",
+            entry.name, draft.ep, draft.resolution.model.value, draft.parts.effort
+        );
+        Ready {
+            launch,
+            effort: draft.parts.effort.clone(),
+            run,
+            plan: plan.filter(|_| autopilot),
+            preflight,
+            ep: draft.ep,
+            words,
+        }
+    }
+
+    /// The phone's start of `project`'s next brief, `ep` being the brief its page showed
+    /// (EP-30b): refused in words, or handed to the runner, the chain plan kept as the dialog's
+    /// start keeps it; the project's name as registered, the brief and the words its page hears
+    /// once it runs.
+    fn start_from_page(
+        &mut self,
+        project: &str,
+        ep: &str,
+    ) -> Result<(String, EpId, String), String> {
+        let Some((start, ready)) = self.prepare_start(project) else {
+            return Err(format!("{project} is not a registered project."));
+        };
+        let name = start.project.clone();
+        let shown = match &start.next {
+            Next::Brief { id, .. } => id.clone(),
+            Next::None { words, .. } => {
+                return Err(format!("{name}: nothing was started: {words}."));
+            }
+        };
+        if !shown.eq_ignore_ascii_case(ep) {
+            return Err(format!(
+                "{name}: the next brief is {shown} now, not {ep}: look at its start page again. \
+                 Nothing was started."
+            ));
+        }
+        let Some(ready) = ready else {
+            return Err(format!(
+                "{name} {shown} was not started: {}.",
+                start.refusals.join("; ")
+            ));
+        };
+        let Ready {
+            launch,
+            effort,
+            run,
+            plan,
+            preflight,
+            ep,
+            words,
+        } = ready;
+        // The plan as the rules leave it, kept until the chain ends (EP-19a); a start the
+        // runner refuses lets it go again.
+        let kept = plan.is_some();
+        if let Some(plan) = plan {
+            self.autopilot.keep_plan(plan);
+        }
+        let ctx = self.ctx().clone();
+        self.sessions.start(preflight, launch, effort, run, &ctx);
+        // No thread for the start: no answer would ever come, so none is waited for (the
+        // review's: the page's mark would stay and take another start's answer).
+        if !self.sessions.is_starting() {
+            if kept {
+                self.autopilot.drop_plan(&name);
+            }
+            return Err(format!(
+                "{name} {ep} did not start: the window could not make the start's thread."
+            ));
+        }
+        Ok((name, ep, words))
+    }
+
+    /// The phone's start came back from the runner (EP-30b): its page told; a chain held there
+    /// gives way to it, as to the dialog's start; a refusal lets the plan go and the preflight
+    /// be asked again, as the dialog's does. The desk's panes stay as they are.
+    pub(crate) fn phone_started(&mut self, started: Started) {
+        let Some(starting) = self.phone.starting.take() else {
+            return;
+        };
+        let said = match started {
+            Started::Running(_) => {
+                self.started_by_hand(&starting.project, Some(starting.ep));
+                Ok(starting.words)
+            }
+            Started::Refused(why) => {
+                self.sessions.forget_preflight();
+                self.autopilot.drop_plan(&starting.project);
+                Err(format!(
+                    "{} {} did not start: {why}",
+                    starting.project, starting.ep
+                ))
+            }
+        };
+        self.answer_page(starting.reply, &starting.caller, said);
+        self.pages.refresh();
+    }
+
+    /// The phone's Stop of the window's run `key` (EP-30b): `Sessions::stop`, never Kill, for
+    /// the run of `project`'s `ep` the page names, so that a page drawn before the window's
+    /// restart, whose numbers start again at 1, stops nothing else.
+    fn stop_from_page(&mut self, project: &str, key: u64, ep: &str) -> Said {
+        if self.fixtures {
+            return Err("A screenshot run stops nothing: its sessions are canned.".to_owned());
+        }
+        let Some(live) = self.sessions.live.iter().find(|live| {
+            live.key == key
+                && !live.is_chat()
+                && live.project.eq_ignore_ascii_case(project)
+                && live.ep.eq_ignore_ascii_case(ep)
+        }) else {
+            return Err(format!(
+                "The window has no run of {project} {ep} under that number: nothing was stopped \
+                 (the page may be older than the window's restart)."
+            ));
+        };
+        let title = live.title();
+        if !live.is_running() {
+            return Err(format!("{title} is not running any more: nothing to stop."));
+        }
+        if live.stopping {
+            return Err(format!("{title} is being stopped already."));
+        }
+        let chain = live.chained || live.cap.is_some();
+        self.sessions.stop(key);
+        if !self
+            .sessions
+            .live
+            .iter()
+            .any(|live| live.key == key && live.stopping)
+        {
+            return Err(format!(
+                "{title}: the stop was not taken: the run has ended."
+            ));
+        }
+        let ends = if chain {
+            " A stopped run ends its chain: the gate reads it as stopped."
+        } else {
+            ""
+        };
+        Ok(format!(
+            "Stopping {title}: its turn is interrupted and the run ends, its work left in the \
+             tree.{ends}"
+        ))
+    }
+
+    /// The phone's Pause or Resume (EP-30b): the desk's own write, in the orders' pass shown or
+    /// hidden; a pause already in force, as the registry says it now, is said and not written.
+    /// The projects' files are not read again (the review's): the setting is the window's own,
+    /// which the autopilot block shows from its next build.
+    fn pause_from_page(&mut self, paused: bool) -> Said {
+        if self.fixtures {
+            return Err(
+                "A screenshot run changes nothing: its registry is the run's own.".to_owned(),
+            );
+        }
+        let now = self
+            .store()
+            .load()
+            .map(|loaded| loaded.registry.settings.autopilot_paused())
+            .map_err(|e| format!("The registry could not be read: {e}"))?;
+        if now == paused {
+            self.autopilot.paused = paused;
+            return Ok(if paused {
+                "The autopilot is paused already: no chain goes on until you resume it."
+            } else {
+                "The autopilot is not paused: the chains go on as the gate allows."
+            }
+            .to_owned());
+        }
+        self.set_paused(paused)
     }
 
     /// A revert open or running in `project` refuses the phone's writes there (the review's):
@@ -323,6 +867,39 @@ impl Board {
         }
         let _ = reply.send(said);
     }
+}
+
+/// What a start from the phone runs, in sentences for its page (EP-30b): its commits and its cap
+/// while the autopilot is on, with the chain that may follow, or its stop before committing;
+/// where its questions go.
+fn run_words(draft: &prompt::Draft, autopilot: bool, plan: Option<&Plan>) -> Vec<String> {
+    let mut words = Vec::new();
+    if autopilot {
+        let cap = Cap::new(draft.size, Instant::now());
+        words.push(format!(
+            "It commits itself in the house pattern and never pushes (the autopilot's standing \
+             yes), and is stopped at {} of work.",
+            cap.words()
+        ));
+        if let Some(plan) = plan {
+            words.push(format!(
+                "A chain may follow as the gate allows, each brief with the rules' choice: {}.",
+                plan.words()
+            ));
+        }
+    } else {
+        words.push(
+            "It stops before committing: its Commit is the window's, in its tab, which the phone \
+             does not offer."
+                .to_owned(),
+        );
+    }
+    words.push(
+        "Its questions and permission requests come to the decisions page, and quitting the \
+         window stops it."
+            .to_owned(),
+    );
+    words
 }
 
 /// What a message written from the phone says, as the compose dialog says its own (EP-20c).
@@ -630,6 +1207,260 @@ mod tests {
             }
         }
         assert_eq!(read(&inbox).matches("Another note.").count(), 1);
+    }
+
+    /// A board over the fake portfolio as its fixtures stand (nothing here writes into them), a
+    /// scratch registry and ledger, and the canned preflight, so that no test asks the real CLI
+    /// (rule 5). A test never reaches `Sessions::start`: it reads the launch a start would hand
+    /// the runner.
+    fn start_board(scratch: &Scratch) -> Board {
+        let places = Places {
+            store: fake_store(scratch),
+            ledger: Some(scratch.0.join("ledger.sqlite")),
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        board.fixtures = false;
+        board.portfolio = crate::portfolio::read_files(board.store());
+        board.sessions.canned = Some(std::sync::Arc::new(crate::launch::canned_preflight()));
+        board
+    }
+
+    #[test]
+    fn a_start_from_the_phone_is_the_rules_choice_headless_or_refused_for_the_windows_reasons() {
+        let scratch = Scratch::new("phone-start");
+        let mut board = start_board(&scratch);
+        // harbor, its autopilot off: the dialog's headless launch, no cap, no plan.
+        let (start, ready) = board.prepare_start("HARBOR").expect("harbor is listed");
+        assert!(start.refusals.is_empty(), "{:?}", start.refusals);
+        let Next::Brief { id, .. } = &start.next else {
+            panic!("{:?}", start.next)
+        };
+        let id = id.clone();
+        let ready = ready.expect("nothing refuses it");
+        assert_eq!(ready.launch.ep.as_deref(), Some(id.as_str()));
+        assert_eq!(ready.launch.model, start.model.0);
+        assert!(!ready.launch.deny_push && ready.launch.max_budget_usd.is_none());
+        assert!(ready.plan.is_none() && !ready.run.capped && !ready.run.chained);
+        assert!(
+            ready
+                .words
+                .starts_with(&format!("Started harbor {id} headless with ")),
+            "{}",
+            ready.words
+        );
+        assert!(
+            start
+                .run
+                .iter()
+                .any(|words| words.starts_with("It stops before committing")),
+            "{:?}",
+            start.run
+        );
+        // lantern launches visually at the desk: from the phone it is headless all the same.
+        let (_, ready) = board.prepare_start("lantern").unwrap();
+        let prompt = ready.expect("lantern may start").launch.prompt;
+        assert!(!prompt.contains("panel chooses"), "{prompt}");
+        // The autopilot on: the cap, the push guard, the commits and the plan of the rules.
+        board
+            .store()
+            .change(&files::today(), |c| c.set_autopilot("harbor", true))
+            .unwrap();
+        let (start, ready) = board.prepare_start("harbor").unwrap();
+        let ready = ready.expect("nothing refuses it");
+        assert!(ready.launch.deny_push && ready.run.capped && ready.run.commits);
+        assert!(
+            ready
+                .plan
+                .as_ref()
+                .is_some_and(|plan| plan.project == "harbor")
+        );
+        assert!(
+            start.run[0].starts_with("It commits itself"),
+            "{:?}",
+            start.run
+        );
+        // The page's old brief: nothing starts.
+        let why = board.start_from_page("harbor", "EP-999").unwrap_err();
+        assert!(
+            why.contains(&format!("the next brief is {id} now")),
+            "{why}"
+        );
+        // A run of the window's working there: refused, as the gate would.
+        board.sessions.live.push(live(5, "harbor", Vec::new()));
+        let (start, ready) = board.prepare_start("harbor").unwrap();
+        assert!(ready.is_none());
+        assert!(
+            start
+                .refusals
+                .iter()
+                .any(|why| why.starts_with("the window already has a headless EP-4")),
+            "{:?}",
+            start.refusals
+        );
+        let why = board.start_from_page("harbor", &id).unwrap_err();
+        assert!(
+            why.contains("was not started: the window already has"),
+            "{why}"
+        );
+        assert!(!board.phone.is_starting());
+        // A deferred run there with its request open: its answer would resume a second session
+        // in the same tree (the review's).
+        board.sessions.live.clear();
+        let deferred = vec![
+            Event::Request(asked("req-9")),
+            Event::TimedOut("req-9".to_owned()),
+            Event::Exited(Ended {
+                outcome: Outcome::Deferred,
+                exit_code: Some(0),
+                result: None,
+                stderr: Vec::new(),
+            }),
+        ];
+        board.sessions.live.push(live(6, "harbor", deferred));
+        let (start, ready) = board.prepare_start("harbor").unwrap();
+        assert!(ready.is_none());
+        assert!(
+            start
+                .refusals
+                .iter()
+                .any(|why| why.contains("was deferred with a request open")),
+            "{:?}",
+            start.refusals
+        );
+        // A folder that is gone, a project the window does not list, a screenshot run.
+        let (start, ready) = board.prepare_start("tundra").unwrap();
+        assert!(ready.is_none() && !start.refusals.is_empty());
+        assert!(matches!(start.next, Next::None { missing: true, .. }));
+        assert!(board.prepare_start("nowhere").is_none());
+        board.sessions.live.clear();
+        board.fixtures = true;
+        let (start, _) = board.prepare_start("meadow").unwrap();
+        assert!(
+            start.refusals[0].starts_with("a screenshot run starts no session"),
+            "{:?}",
+            start.refusals
+        );
+    }
+
+    #[test]
+    fn a_stop_from_the_phone_names_its_run_by_number_and_brief() {
+        let scratch = Scratch::new("phone-stop");
+        let (mut board, _) = board(&scratch);
+        board.sessions.live.push(live(3, "harbor", Vec::new()));
+        let stop = |board: &mut Board, project: &str, key: u64, ep: &str| {
+            let (order, mut said) = request(Order::Stop {
+                project: project.to_owned(),
+                key,
+                ep: ep.to_owned(),
+            });
+            board.obey_orders(vec![order]);
+            said.try_recv().unwrap()
+        };
+        // Another brief, another project, another number: nothing is stopped.
+        for (project, key, ep) in [
+            ("harbor", 3, "EP-5"),
+            ("meadow", 3, "EP-4"),
+            ("harbor", 1, "EP-4"),
+        ] {
+            let why = stop(&mut board, project, key, ep).unwrap_err();
+            assert!(
+                why.starts_with("The window has no run of"),
+                "{project} {key} {ep}: {why}"
+            );
+        }
+        // The run it names goes to the session's own stop: this canned one has no process, so
+        // the stop is not taken, which shows the order reached it.
+        let why = stop(&mut board, "HARBOR", 3, "ep-4").unwrap_err();
+        assert!(
+            why.ends_with("the stop was not taken: the run has ended."),
+            "{why}"
+        );
+        // A run being stopped, and one that ended.
+        board.sessions.live[0].stopping = true;
+        let why = stop(&mut board, "harbor", 3, "EP-4").unwrap_err();
+        assert!(why.ends_with("is being stopped already."), "{why}");
+        let ended = Event::Exited(Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        board.sessions.live.push(live(4, "harbor", vec![ended]));
+        let why = stop(&mut board, "harbor", 4, "EP-4").unwrap_err();
+        assert!(
+            why.ends_with("is not running any more: nothing to stop."),
+            "{why}"
+        );
+        // A screenshot run stops nothing.
+        board.fixtures = true;
+        let why = stop(&mut board, "harbor", 3, "EP-4").unwrap_err();
+        assert!(why.starts_with("A screenshot run stops nothing"), "{why}");
+    }
+
+    #[test]
+    fn the_phones_pause_is_written_once_and_a_pause_in_force_is_said() {
+        let scratch = Scratch::new("phone-pause");
+        let (mut board, _) = board(&scratch);
+        let pause = |board: &mut Board, paused: bool| {
+            let (order, mut said) = request(Order::Pause { paused });
+            board.obey_orders(vec![order]);
+            said.try_recv().unwrap()
+        };
+        let chain_lines = || {
+            Ledger::open(&scratch.0.join("ledger.sqlite"))
+                .and_then(|ledger| ledger.events(chains::EVENT_KIND, None))
+                .map(|rows| rows.len())
+                .unwrap_or_default()
+        };
+        let words = pause(&mut board, true).unwrap();
+        assert!(words.starts_with("The autopilot is paused:"), "{words}");
+        assert!(
+            board
+                .store()
+                .load()
+                .unwrap()
+                .registry
+                .settings
+                .autopilot_paused()
+        );
+        assert!(board.autopilot.paused);
+        assert_eq!(chain_lines(), 1);
+        // Pressed again from a page not reloaded: said, not written again.
+        let words = pause(&mut board, true).unwrap();
+        assert!(
+            words.starts_with("The autopilot is paused already"),
+            "{words}"
+        );
+        assert_eq!(chain_lines(), 1);
+        let words = pause(&mut board, false).unwrap();
+        assert!(words.starts_with("The autopilot is resumed"), "{words}");
+        assert!(
+            !board
+                .store()
+                .load()
+                .unwrap()
+                .registry
+                .settings
+                .autopilot_paused()
+        );
+        assert!(board.autopilot.recheck, "the held chains are read again");
+        assert_eq!(chain_lines(), 2);
+        assert!(
+            board.notice_text().is_some_and(|notice| notice.starts_with(
+                "From the phone's page (owner@example.com): The autopilot is resumed"
+            )),
+            "{:?}",
+            board.notice_text()
+        );
+        board.fixtures = true;
+        assert!(
+            pause(&mut board, true)
+                .unwrap_err()
+                .starts_with("A screenshot run changes nothing")
+        );
     }
 
     fn question(text: &str, several: bool) -> Question {

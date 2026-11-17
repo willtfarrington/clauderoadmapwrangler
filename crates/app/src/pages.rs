@@ -4,20 +4,29 @@
 //! own light or dark setting. EP-30's page is the project list, which reads only; EP-30a adds a
 //! project's page (its next brief's note, what waits, the inbox, a message to it) and the
 //! decisions, whose forms post to the window and come back with one line saying what happened;
-//! EP-30b adds the actions and the live updates.
+//! EP-30b adds the actions (a project's start page, a run's Stop, the autopilot's Pause and
+//! Resume), the list's usage strip and autopilot block, and the live updates: every page names
+//! the paths of the parts it shows (`data-listen`) and marks each part (`data-part`) for the
+//! tool's own script, which fetches the page again when the event stream names one of them.
 
 use askama::Template;
 use chrono::{DateTime, Local, Utc};
+use crw_core::badges::short_age;
 use crw_core::export::escape;
 use crw_core::registry::State;
+use crw_core::usage;
 
 use crate::form::segment;
 use crate::markup::{self, Block};
-use crate::published::{Asking, How, Item, Line, Next, Published};
+use crate::published::{self, Asking, How, Item, Line, Next, Published};
 use crate::server::Said;
 
 /// The stylesheet every page links, at `/m/app.css`.
 pub const STYLESHEET: &str = include_str!("../templates/app.css");
+
+/// The script every page loads, at `/m/app.js` (EP-30b): the live updates. A page works the same
+/// without it.
+pub const SCRIPT: &str = include_str!("../templates/app.js");
 
 /// A run of a title's inline markup as the page draws it: its text and the element around it
 /// (`code`, `strong`, `s`, or none).
@@ -75,18 +84,25 @@ struct LineView {
     badges: Vec<crate::published::Badge>,
 }
 
+/// The marks after a project's state, each with its class: pinned, a state change proposed, the
+/// autopilot on.
+fn marks(pinned: bool, proposes: bool, autopilot: bool) -> Vec<(String, &'static str)> {
+    let mut marks = Vec::new();
+    if pinned {
+        marks.push(("pinned".to_owned(), "weak"));
+    }
+    if proposes {
+        marks.push(("state change proposed".to_owned(), "warn"));
+    }
+    if autopilot {
+        marks.push(("autopilot on".to_owned(), "good"));
+    }
+    marks
+}
+
 impl LineView {
     fn of(line: &Line) -> Self {
-        let mut marks = Vec::new();
-        if line.pinned {
-            marks.push(("pinned".to_owned(), "weak"));
-        }
-        if line.proposes {
-            marks.push(("state change proposed".to_owned(), "warn"));
-        }
-        if line.autopilot {
-            marks.push(("autopilot on".to_owned(), "good"));
-        }
+        let marks = marks(line.pinned, line.proposes, line.autopilot);
         let (next_id, size, title, no_next, missing) = match &line.next {
             Next::Brief { id, size, title } => {
                 (Some(id.clone()), size.clone(), runs(title), None, false)
@@ -150,6 +166,10 @@ impl LineView {
 #[template(path = "list.html")]
 struct ListPage {
     as_of: String,
+    /// The snapshot's version the page is drawn from, for the event stream's `since` (EP-30b).
+    version: u64,
+    /// The outcome of the Pause or Resume that led here (EP-30b).
+    said: Option<SaidView>,
     summary: String,
     /// What waits for an answer, for the link to the decisions page (EP-30a).
     decisions: String,
@@ -157,6 +177,123 @@ struct ListPage {
     reading: bool,
     groups: Vec<GroupView>,
     unadopted: Vec<String>,
+    /// The usage strip (EP-30b): none while the meter is off.
+    usage: Option<UsageView>,
+    autopilot: AutopilotView,
+}
+
+/// The usage strip as the page draws it (EP-30b), its ages drawn now.
+struct UsageView {
+    figures: Vec<FigureView>,
+    session_closed: bool,
+    degraded: Option<String>,
+}
+
+/// One figure: its name, its share and its class, its reset and its reading in words.
+struct FigureView {
+    name: &'static str,
+    percent: String,
+    class: &'static str,
+    reset: String,
+    read: String,
+}
+
+impl UsageView {
+    fn of(usage: &published::Usage, now: DateTime<Utc>) -> Option<Self> {
+        usage.on.then(|| Self {
+            figures: usage
+                .figures
+                .iter()
+                .map(|figure| FigureView {
+                    name: figure.name,
+                    percent: usage::percent(figure.percent),
+                    class: if figure.percent >= usage::ALARM {
+                        "bad"
+                    } else if figure.percent >= usage::WARN {
+                        "warn"
+                    } else {
+                        "good"
+                    },
+                    reset: figure.resets_at.map_or_else(
+                        || "no reset time given".to_owned(),
+                        |at| {
+                            format!(
+                                "resets in {}, {}",
+                                usage::countdown(at, now),
+                                at.with_timezone(&Local).format("%a %H:%M")
+                            )
+                        },
+                    ),
+                    read: format!("read {} from {}", ago(now, figure.at), figure.from),
+                })
+                .collect(),
+            session_closed: usage.session_closed,
+            degraded: usage.degraded.clone(),
+        })
+    }
+}
+
+/// `just now`, `3 min ago`, as the meter says a reading's age.
+fn ago(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
+    match short_age(now - at).as_str() {
+        "now" => "just now".to_owned(),
+        age => format!("{age} ago"),
+    }
+}
+
+/// The autopilot block as the page draws it (EP-30b), in the Autopilot section's words.
+struct AutopilotView {
+    state: &'static str,
+    class: &'static str,
+    projects: String,
+    /// Paused by the owner: the form resumes; else it pauses.
+    paused: bool,
+    held_by_usage: Vec<String>,
+    held: Vec<(String, String)>,
+    plans: Vec<(String, String, String)>,
+    /// Each line's clock time, project and words.
+    log: Vec<(String, String, String)>,
+    problem: Option<String>,
+}
+
+impl AutopilotView {
+    fn of(autopilot: &published::Autopilot) -> Self {
+        let (state, class) = if autopilot.paused {
+            ("paused by you", "warn")
+        } else if !autopilot.held_by_usage.is_empty() {
+            ("held by usage", "warn")
+        } else if autopilot.on.is_empty() {
+            ("off everywhere", "weak")
+        } else {
+            ("on", "good")
+        };
+        let projects = match autopilot.on.as_slice() {
+            [] => "no project has it on".to_owned(),
+            [one] => format!("on in {one}"),
+            all => format!("on in {} projects: {}", all.len(), all.join(", ")),
+        };
+        Self {
+            state,
+            class,
+            projects,
+            paused: autopilot.paused,
+            held_by_usage: autopilot.held_by_usage.clone(),
+            held: autopilot.held.clone(),
+            plans: autopilot.plans.clone(),
+            log: autopilot
+                .log
+                .iter()
+                .map(|line| {
+                    (
+                        line.at.map(local_time).unwrap_or_default(),
+                        line.project.clone().unwrap_or_default(),
+                        line.words.clone(),
+                    )
+                })
+                .collect(),
+            problem: autopilot.problem.clone(),
+        }
+    }
 }
 
 /// The line a form's redirect brings to its page (EP-30a): its words and whether it was done.
@@ -264,13 +401,27 @@ struct MessageView {
     html: String,
 }
 
+/// One of the window's runs on the project's page (EP-30b), with its Stop.
+struct RunView {
+    key: u64,
+    ep: String,
+    state: String,
+    started: String,
+    stoppable: bool,
+    chained: bool,
+}
+
 #[derive(Template)]
 #[template(path = "project.html")]
 struct ProjectPage {
     as_of: String,
+    version: u64,
     said: Option<SaidView>,
     name: String,
     link: String,
+    /// The start page's path, while the next brief may be started from here (EP-30b).
+    start: Option<String>,
+    runs: Vec<RunView>,
     state: &'static str,
     /// The list's marks after the state (pinned, a proposal, the autopilot), each with its class.
     marks: Vec<(String, &'static str)>,
@@ -392,6 +543,7 @@ struct ElsewhereView {
 #[template(path = "decisions.html")]
 struct DecisionsPage {
     as_of: String,
+    version: u64,
     said: Option<SaidView>,
     waiting: Vec<AskView>,
     deferred: Vec<AskView>,
@@ -403,6 +555,31 @@ struct DecisionsPage {
 struct MessagePage<'a> {
     heading: &'a str,
     words: &'a str,
+}
+
+/// The start page (EP-30b): what a start of the next brief would run, and its button or what
+/// refuses it.
+#[derive(Template)]
+#[template(path = "start.html")]
+struct StartPage {
+    as_of: String,
+    /// The snapshot's version when the preview was drawn, for the event stream's `since`.
+    version: u64,
+    name: String,
+    /// The project's page, which the page listens to and links back to.
+    link: String,
+    next_id: Option<String>,
+    size: Option<String>,
+    title: Vec<Run>,
+    no_next: Option<String>,
+    model: (String, String),
+    effort: (String, String),
+    ultracode: bool,
+    permission_mode: (String, String),
+    downshift: Option<String>,
+    run: Vec<String>,
+    notes: Vec<String>,
+    refusals: Vec<String>,
 }
 
 /// When the snapshot was built, in the window's local time; empty before the window's first.
@@ -453,19 +630,32 @@ pub fn project(
         ),
         None => (false, String::new(), Vec::new()),
     };
-    // The marks the list's line shows after the state (the review's: the brief names them).
-    let marks = published
-        .list
-        .projects()
-        .find(|line| line.name.eq_ignore_ascii_case(&project.name))
-        .map(|line| LineView::of(line).marks)
-        .unwrap_or_default();
+    // The marks the list's line shows after the state, from the project's own part (EP-30b).
+    let marks = marks(project.pinned, project.proposes, project.autopilot);
+    let link = project_link(&project.name);
+    let start =
+        (next_id.is_some() && project.folder && !project.revert).then(|| format!("{link}/start"));
+    let runs = project
+        .runs
+        .iter()
+        .map(|run| RunView {
+            key: run.key,
+            ep: run.ep.clone(),
+            state: run.state.clone(),
+            started: local_time(run.started),
+            stoppable: run.stoppable,
+            chained: run.chained,
+        })
+        .collect();
     Some(
         ProjectPage {
             as_of: as_of(published.at),
+            version: published.version,
             said: SaidView::of(said),
             name: project.name.clone(),
-            link: project_link(&project.name),
+            link,
+            start,
+            runs,
             state: project.state.as_str(),
             marks,
             folder: project.folder && !project.revert,
@@ -497,6 +687,7 @@ pub fn decisions(published: &Published, said: Option<&Said>) -> Result<String, a
     let decisions = &published.decisions;
     DecisionsPage {
         as_of: as_of(published.at),
+        version: published.version,
         said: SaidView::of(said),
         waiting: decisions.waiting.iter().map(AskView::of).collect(),
         deferred: decisions.deferred.iter().map(AskView::of).collect(),
@@ -514,8 +705,40 @@ pub fn decisions(published: &Published, said: Option<&Said>) -> Result<String, a
     .render()
 }
 
-/// The list page of `published`.
-pub fn list(published: &Published) -> Result<String, askama::Error> {
+/// The start page of `start`, the window's preview, drawn at `now` when the snapshot stood at
+/// `version` (EP-30b).
+pub fn start(
+    start: &published::Start,
+    now: DateTime<Utc>,
+    version: u64,
+) -> Result<String, askama::Error> {
+    let (next_id, size, title, no_next) = match &start.next {
+        Next::Brief { id, size, title } => (Some(id.clone()), size.clone(), runs(title), None),
+        Next::None { words, .. } => (None, None, Vec::new(), Some(words.clone())),
+    };
+    StartPage {
+        as_of: as_of(now),
+        version,
+        name: start.project.clone(),
+        link: project_link(&start.project),
+        next_id,
+        size,
+        title,
+        no_next,
+        model: start.model.clone(),
+        effort: start.effort.clone(),
+        ultracode: start.ultracode,
+        permission_mode: start.permission_mode.clone(),
+        downshift: start.downshift.clone(),
+        run: start.run.clone(),
+        notes: start.notes.clone(),
+        refusals: start.refusals.clone(),
+    }
+    .render()
+}
+
+/// The list page of `published`, with the outcome of the Pause or Resume that led here.
+pub fn list(published: &Published, said: Option<&Said>) -> Result<String, askama::Error> {
     let list = &published.list;
     let projects: Vec<&Line> = list.projects().collect();
     let owner_items: usize = projects.iter().map(|line| line.owner_items).sum();
@@ -533,6 +756,10 @@ pub fn list(published: &Published) -> Result<String, askama::Error> {
     };
     ListPage {
         as_of: as_of(published.at),
+        version: published.version,
+        said: SaidView::of(said),
+        usage: UsageView::of(&list.usage, Utc::now()),
+        autopilot: AutopilotView::of(&list.autopilot),
         summary,
         decisions,
         problem: list.problem.clone(),
@@ -604,6 +831,7 @@ mod tests {
                 problem: None,
                 groups,
                 unadopted: vec!["new-folder".to_owned()],
+                ..List::default()
             },
             projects: Vec::new(),
             decisions: Decisions::default(),
@@ -662,6 +890,10 @@ mod tests {
             sessions: vec!["a headless EP-4 started here at 10:00 is working".to_owned()],
             busy: Some("a headless run of the window's works there".to_owned()),
             revert: false,
+            pinned: false,
+            proposes: false,
+            autopilot: false,
+            runs: Vec::new(),
         }
     }
 
@@ -719,9 +951,10 @@ mod tests {
             "{html}"
         );
         assert!(html.contains("a headless EP-4 started here at 10:00 is working"));
-        // Nothing from outside, no script.
+        // Nothing from outside, no script but the tool's own (EP-30b).
         assert!(!html.contains("http://") && !html.contains("https://"));
-        assert!(!html.contains("<script"));
+        assert_eq!(html.matches("<script").count(), 1);
+        assert!(html.contains(r#"<script src="/m/app.js" defer></script>"#));
         // A project the window does not list.
         assert!(project(&page, "nowhere", None).is_none());
         // A failure's line, and no form where the folder is missing.
@@ -744,22 +977,11 @@ mod tests {
             "{html}"
         );
         assert!(!html.contains("<form"), "{html}");
-        // The list line's marks beside the state.
-        let mut pinned = line(
-            "harbor & co",
-            State::Active,
-            Next::None {
-                words: "Every row is checked".to_owned(),
-                missing: false,
-            },
-        );
+        // The list line's marks beside the state, from the project's own part (EP-30b).
+        let mut pinned = harbor_page();
         pinned.pinned = true;
         pinned.autopilot = true;
-        page.list.groups = vec![Group {
-            state: State::Active,
-            projects: vec![pinned],
-        }];
-        page.projects = vec![harbor_page()];
+        page.projects = vec![pinned];
         let html = project(&page, "harbor & co", None).unwrap().unwrap();
         assert!(
             html.contains(r#"<span class="mark weak">pinned</span>"#),
@@ -905,7 +1127,7 @@ mod tests {
             words: "waits for you in VS Code".to_owned(),
             name: None,
         });
-        let html = list(&page).unwrap();
+        let html = list(&page, None).unwrap();
         assert!(
             html.contains(r#"<a class="name" href="/m/p/my%20project">my project</a>"#),
             "{html}"
@@ -936,6 +1158,7 @@ mod tests {
             word: "↑2 not pushed".to_owned(),
             sentence: "2 commits not pushed: the origin checked 5 min ago".to_owned(),
             tone: "warn",
+            clocked: false,
         }];
         let done = line(
             "orchard",
@@ -945,16 +1168,19 @@ mod tests {
                 missing: false,
             },
         );
-        let page = list(&published(vec![
-            Group {
-                state: State::Active,
-                projects: vec![harbor],
-            },
-            Group {
-                state: State::Done,
-                projects: vec![done],
-            },
-        ]))
+        let page = list(
+            &published(vec![
+                Group {
+                    state: State::Active,
+                    projects: vec![harbor],
+                },
+                Group {
+                    state: State::Done,
+                    projects: vec![done],
+                },
+            ]),
+            None,
+        )
         .unwrap();
         assert!(
             page.contains("harbor &#60;b&#62;") || page.contains("harbor &lt;b&gt;"),
@@ -1006,7 +1232,9 @@ mod tests {
             "{page}"
         );
         assert!(page.contains(r#"href="/m/app.css""#));
-        assert!(!page.contains("<script"));
+        // The one script is the tool's own (EP-30b).
+        assert_eq!(page.matches("<script").count(), 1);
+        assert!(page.contains(r#"<script src="/m/app.js" defer></script>"#));
     }
 
     #[test]
@@ -1015,10 +1243,268 @@ mod tests {
         empty.at = DateTime::<Utc>::MIN_UTC;
         empty.list.reading = true;
         empty.list.unadopted.clear();
-        let page = list(&empty).unwrap();
+        let page = list(&empty, None).unwrap();
         assert!(page.contains("Reading the projects…"));
         assert!(!page.contains("as of"));
         assert!(page.contains("0 projects"));
+    }
+
+    /// The list's usage strip and autopilot block (EP-30b): each figure with its reset drawn
+    /// now, the Pause or the Resume as a said value, the held chains, the plans, the log; the
+    /// list listens to its own path and the decisions', and loads the script.
+    #[test]
+    fn the_list_draws_the_usage_strip_and_the_autopilot_block() {
+        let now = Utc::now();
+        let mut page = published(Vec::new());
+        page.list.usage = published::Usage {
+            on: true,
+            figures: vec![
+                published::Figure {
+                    name: "Week",
+                    percent: 41.0,
+                    resets_at: Some(
+                        now + chrono::TimeDelta::hours(51) + chrono::TimeDelta::seconds(30),
+                    ),
+                    at: now - chrono::TimeDelta::minutes(3),
+                    from: "the usage endpoint",
+                },
+                published::Figure {
+                    name: "Fable",
+                    percent: 96.0,
+                    resets_at: None,
+                    at: now,
+                    from: "the usage endpoint",
+                },
+            ],
+            session_closed: true,
+            degraded: Some("the endpoint did not answer: timed out".to_owned()),
+        };
+        page.list.autopilot = published::Autopilot {
+            paused: true,
+            held_by_usage: Vec::new(),
+            on: vec!["harbor".to_owned()],
+            held: vec![(
+                "harbor".to_owned(),
+                "held after EP-3 until the pause lifts: <your Pause>".to_owned(),
+            )],
+            plans: vec![(
+                "harbor".to_owned(),
+                "after EP-3: EP-4 fable at high (the rules' choice)".to_owned(),
+                "70 % of the session (five-hour) window".to_owned(),
+            )],
+            log: vec![published::LogLine {
+                at: Some(now),
+                project: Some("harbor".to_owned()),
+                words: "chained EP-4 after EP-3".to_owned(),
+            }],
+            problem: None,
+        };
+        let said: Said = Ok("The autopilot is paused already.".to_owned());
+        let html = list(&page, Some(&said)).unwrap();
+        assert!(
+            html.contains(r#"<main data-listen="/m/ /m/decisions" data-version="3">"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<script src="/m/app.js" defer></script>"#));
+        assert!(html.contains(r#"<p class="said done">The autopilot is paused already.</p>"#));
+        for part in ["summary", "usage", "autopilot", "projects"] {
+            assert!(html.contains(&format!(r#"data-part="{part}""#)), "{part}");
+        }
+        assert!(
+            html.contains(r#"<span class="share good">41 %</span>"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<span class="share bad">96 %</span>"#));
+        assert!(html.contains("resets in 2 d 3 h, "), "{html}");
+        assert!(
+            html.contains("read 3 min ago from the usage endpoint"),
+            "{html}"
+        );
+        assert!(html.contains("no reset time given"));
+        assert!(html.contains("Session (five-hour window): no window open."));
+        assert!(html.contains("Degraded: the endpoint did not answer: timed out."));
+        // Paused: the form resumes, by a said value.
+        assert!(html.contains(r#"<span class="mark warn">paused by you</span>"#));
+        assert!(html.contains(r#"action="/m/autopilot""#));
+        assert!(html.contains(r#"<input type="hidden" name="pause" value="off">"#));
+        assert!(html.contains("<button type=\"submit\">Resume</button>"));
+        assert!(html.contains("on in harbor"));
+        assert!(
+            html.contains("held after EP-3 until the pause lifts: &#60;your Pause&#62;")
+                || html.contains("held after EP-3 until the pause lifts: &lt;your Pause&gt;"),
+            "escaped: {html}"
+        );
+        assert!(html.contains("this chain holds at 70 % of the session (five-hour) window."));
+        assert!(html.contains("chained EP-4 after EP-3"));
+        // Not paused: the form pauses.
+        page.list.autopilot.paused = false;
+        let html = list(&page, None).unwrap();
+        assert!(html.contains(r#"<input type="hidden" name="pause" value="on">"#));
+        assert!(html.contains("<button type=\"submit\">Pause</button>"));
+        assert!(html.contains(r#"<span class="mark good">on</span>"#));
+        // The meter off: the strip says so.
+        page.list.usage = published::Usage::default();
+        assert!(
+            list(&page, None)
+                .unwrap()
+                .contains("The usage meter is off in this window.")
+        );
+    }
+
+    /// A project's page (EP-30b): its runs, a Stop for each that works, the link to its start
+    /// page; it listens to its own path.
+    #[test]
+    fn a_projects_page_lists_its_runs_with_stop_and_links_its_start() {
+        let mut page = published(Vec::new());
+        let mut harbor = harbor_page();
+        harbor.runs = vec![
+            published::Run {
+                key: 7,
+                ep: "EP-4".to_owned(),
+                state: "running".to_owned(),
+                started: Utc::now(),
+                stoppable: true,
+                chained: true,
+            },
+            published::Run {
+                key: 8,
+                ep: "EP-3".to_owned(),
+                state: "stopping".to_owned(),
+                started: Utc::now(),
+                stoppable: false,
+                chained: false,
+            },
+        ];
+        page.projects.push(harbor);
+        let html = project(&page, "harbor & co", None).unwrap().unwrap();
+        assert!(
+            html.contains(r#"<main data-listen="/m/p/harbor%20%26%20co" data-version="3">"#),
+            "{html}"
+        );
+        assert!(
+            html.contains(
+                r#"<a class="action" href="/m/p/harbor%20%26%20co/start">Start EP-4 headless…</a>"#
+            ),
+            "{html}"
+        );
+        assert!(html.contains(r#"action="/m/p/harbor%20%26%20co/stop""#));
+        assert!(html.contains(r#"<input type="hidden" name="key" value="7">"#));
+        assert!(html.contains(r#"<input type="hidden" name="ep" value="EP-4">"#));
+        assert!(html.contains("Stop EP-4</button>"));
+        assert!(
+            !html.contains("Stop EP-3"),
+            "a run being stopped has no Stop"
+        );
+        assert!(html.contains(r#"<span class="mark good">chained</span>"#));
+        assert!(html.contains("stopping · since "));
+        for part in [
+            "head",
+            "next",
+            "sessions",
+            "waiting",
+            "uncounted",
+            "inbox",
+            "send",
+        ] {
+            assert!(html.contains(&format!(r#"data-part="{part}""#)), "{part}");
+        }
+        // No start link while a revert is open there, or with no next brief.
+        let mut reverting = harbor_page();
+        reverting.revert = true;
+        page.projects = vec![reverting];
+        let html = project(&page, "harbor & co", None).unwrap().unwrap();
+        assert!(!html.contains("/start"), "{html}");
+    }
+
+    /// The start page (EP-30b): the brief and the rules' choices with their reasons, what the run
+    /// is, the notes, and its button with the brief it shows; refused, the reasons in its place.
+    #[test]
+    fn the_start_page_draws_its_choices_and_its_button_or_its_refusals() {
+        let mut start = published::Start {
+            project: "harbor & co".to_owned(),
+            next: Next::Brief {
+                id: "EP-4".to_owned(),
+                size: Some("M".to_owned()),
+                title: "The `scan` view".to_owned(),
+            },
+            model: (
+                "claude-opus-5-5".to_owned(),
+                "rule 1: size S or M".to_owned(),
+            ),
+            effort: ("max".to_owned(), "rule 1: size S or M".to_owned()),
+            ultracode: false,
+            permission_mode: (
+                "auto".to_owned(),
+                "the project's launch defaults".to_owned(),
+            ),
+            downshift: None,
+            run: vec!["It commits itself in the house pattern <and never pushes>.".to_owned()],
+            notes: vec!["Owner tasks due first: OT-3.".to_owned()],
+            refusals: Vec::new(),
+        };
+        let html = super::start(&start, Utc::now(), 7).unwrap();
+        assert!(
+            html.contains(r#"<main data-listen="/m/p/harbor%20%26%20co" data-version="7">"#),
+            "{html}"
+        );
+        assert!(html.contains(r#"<form method="post" action="/m/p/harbor%20%26%20co/start""#));
+        assert!(html.contains(r#"<input type="hidden" name="ep" value="EP-4">"#));
+        assert!(html.contains("Start EP-4 headless</button>"));
+        assert!(html.contains("<code>claude-opus-5-5</code>"));
+        assert!(html.contains("rule 1: size S or M"));
+        assert!(html.contains("<code>auto</code>"));
+        assert!(html.contains("<code>scan</code>"));
+        assert!(
+            html.contains("&#60;and never pushes&#62;")
+                || html.contains("&lt;and never pushes&gt;"),
+            "escaped: {html}"
+        );
+        assert!(html.contains("Owner tasks due first: OT-3."));
+        assert!(html.contains(r#"data-part="start""#));
+        // Refused: no form, the reasons said.
+        start.refusals = vec![
+            "the window already has a headless EP-4 started here at 10:00 is running".to_owned(),
+            "claude has not answered yet".to_owned(),
+        ];
+        let html = super::start(&start, Utc::now(), 7).unwrap();
+        assert!(!html.contains("<form"), "{html}");
+        assert!(html.contains(
+            "Not now: the window already has a headless EP-4 started here at 10:00 is running; \
+             claude has not answered yet."
+        ));
+        // Nothing to launch.
+        start.next = Next::None {
+            words: "nothing to launch: every row is checked".to_owned(),
+            missing: false,
+        };
+        start.refusals = vec!["nothing to launch: every row is checked".to_owned()];
+        let html = super::start(&start, Utc::now(), 7).unwrap();
+        assert!(!html.contains("<form") && !html.contains("<dl class=\"choices\">"));
+    }
+
+    /// The script (EP-30b): it listens to the event stream, names nothing outside the window's
+    /// own server, and puts in parts parsed from the page, never text set as markup.
+    #[test]
+    fn the_script_listens_to_the_stream_and_loads_nothing_from_outside() {
+        assert!(SCRIPT.contains(r#"new EventSource("/m/events" + since)"#));
+        assert!(SCRIPT.contains("data-version") && SCRIPT.contains(r#"event.data === "*""#));
+        // A stream the proxy's answer closed for good is opened anew (the review's).
+        assert!(SCRIPT.contains("EventSource.CLOSED") && SCRIPT.contains("setTimeout(listen"));
+        assert!(SCRIPT.contains("data-listen") && SCRIPT.contains("data-part"));
+        assert!(SCRIPT.contains("DOMParser"));
+        for setter in [
+            "innerHTML = ",
+            "outerHTML",
+            "insertAdjacentHTML",
+            "document.write",
+        ] {
+            assert!(
+                !SCRIPT.contains(setter),
+                "markup is never set from text: {setter}"
+            );
+        }
+        assert!(!SCRIPT.contains("http://") && !SCRIPT.contains("https://"));
+        assert!(!SCRIPT.contains("eval("));
     }
 
     #[test]

@@ -730,6 +730,30 @@ pub fn restart_words(after: Option<EpId>, next: EpId) -> String {
     )
 }
 
+/// A chain held because the registry did not read where the gate needs it (IN-14; EP-30b), as
+/// the log says it: the reason on one line, and the way out. When a newer build may read it
+/// (`newer`: a key or a value this build does not take, the case met being a key written during a
+/// run, EP-42's `private_words`), that build, through File > Install and restart; otherwise the
+/// next read of the gate.
+pub fn unread_words(after: Option<EpId>, why: &str, newer: bool) -> String {
+    let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
+    let why = why.split_whitespace().collect::<Vec<_>>().join(" ");
+    if newer {
+        format!(
+            "held{after}: the registry did not read ({why}), so this build may not know a key in \
+             it: File > Install and restart opens a newer build, whose gate weighs this chain"
+        )
+    } else {
+        format!(
+            "held{after}: the registry did not read ({why}): the gate is read again in five minutes"
+        )
+    }
+}
+
+/// The chain log's line when such a hold takes the restart into an installed build (IN-14).
+pub const UNREAD_RESTART: &str = "the window restarts into the installed build, the held chain \
+                                  carried: its gate is weighed there";
+
 pub fn refused_words(after: Option<EpId>, refusals: &[Refusal]) -> String {
     let after = after.map_or(String::new(), |ep| format!(" after {ep}"));
     let why: Vec<String> = refusals.iter().map(Refusal::words).collect();

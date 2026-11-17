@@ -87,6 +87,10 @@ tray-icon = { version = "=0.26.1", default-features = false }
 # its own) and no `urlencode` (D-15 addendum, 2026-11-16).
 askama = { version = "=0.16.1", default-features = false, features = ["derive", "std"] }
 axum = { version = "=0.8.9", default-features = false, features = ["http1", "json", "tokio"] }
+# From EP-30b, the phone's event stream: axum's `Sse` takes a `Stream`, made with
+# `stream::unfold`. The version axum already locks, no default features: nothing joins the lock
+# (D-15 addendum, 2026-11-16).
+futures-util = { version = "=0.3.34", default-features = false }
 
 anyhow = "=1.0.104"
 chrono = "=0.4.45"

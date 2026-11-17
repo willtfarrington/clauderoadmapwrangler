@@ -731,6 +731,10 @@ impl Board {
             None => {}
         }
         match self.sessions.receive(ctx) {
+            // The phone's start neither closes the dialog nor takes the pane (EP-30b): its page
+            // hears the outcome. First, since one start goes at a time and a chat's mark may be
+            // an earlier turn's (the review's).
+            Some(started) if self.phone.is_starting() => self.phone_started(started),
             // A conversation's turn is the Chat tile's (EP-24), the Decisions tile's resume
             // of a deferred chat question included.
             Some(Started::Running(text)) if self.chat.starting || self.sessions.last_chat => {
@@ -3008,7 +3012,7 @@ impl eframe::App for Dashboard {
         #[cfg(feature = "screenshot")]
         crate::screenshot::tick(&ctx);
         #[cfg(feature = "screenshot")]
-        crate::screenshot::write_pages(&self.board);
+        crate::screenshot::write_pages(&mut self.board);
         // The popup is a window of its own: drawn whether this one shows or not.
         self.board.popup(&ctx);
         if self.board.hidden {

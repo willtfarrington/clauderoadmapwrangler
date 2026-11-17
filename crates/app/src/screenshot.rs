@@ -2028,7 +2028,7 @@ pub fn tick(ctx: &egui::Context) {
 
 /// The `pages=<file.html>` flag (EP-30): once the picture is being taken, the run's projects read
 /// and their readings canned, the phone's list page of the board written to the file, once.
-pub fn write_pages(board: &Board) {
+pub fn write_pages(board: &mut Board) {
     if !CAPTURING.load(Ordering::Relaxed) || PAGES_WRITTEN.load(Ordering::Relaxed) {
         return;
     }
@@ -2050,7 +2050,7 @@ pub fn write_pages(board: &Board) {
         projects: parts.projects,
         decisions: parts.decisions,
     };
-    match crate::pages::list(&published).map(|html| fs::write(&path, html)) {
+    match crate::pages::list(&published, None).map(|html| fs::write(&path, html)) {
         Ok(Ok(())) => eprintln!("screenshot: wrote the list page {}", path.display()),
         Ok(Err(e)) => eprintln!("screenshot: {}: {e}", path.display()),
         Err(e) => eprintln!("screenshot: the list page did not render: {e}"),
@@ -2071,6 +2071,21 @@ pub fn write_pages(board: &Board) {
             }
             Some(Err(e)) => eprintln!("screenshot: {}'s page did not render: {e}", project.name),
             None => {}
+        }
+        // Its start page (EP-30b), the window's preview as the page would ask it: a screenshot
+        // run's refuses, and its canned preflight answers for the CLI.
+        let file = beside(&format!("{}-start", crate::form::segment(&project.name)));
+        if let Some(start) = board.start_preview(&project.name) {
+            match crate::pages::start(&start, now, published.version)
+                .map(|html| fs::write(&file, html))
+            {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => eprintln!("screenshot: {}: {e}", file.display()),
+                Err(e) => eprintln!(
+                    "screenshot: {}'s start page did not render: {e}",
+                    project.name
+                ),
+            }
         }
     }
     let file = beside("decisions");

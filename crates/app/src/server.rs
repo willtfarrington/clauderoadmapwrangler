@@ -25,8 +25,15 @@
 //! through a channel drained in the window's pass, shown or hidden, waits at most [`FORM_WAIT`]
 //! for what came of it, keeps that line under a number and answers a 303 to its page with
 //! `?done=<n>`, so a reload never posts again and a page never draws words a link carries.
+//!
+//! EP-30b adds the actions that run things and the live updates: a project's start page (`GET
+//! /m/p/<project>/start`, the window's preview asked through a [`StartAsk`]) whose form starts
+//! the next brief headless, a run's Stop on the project's page, the autopilot's Pause and Resume
+//! on the list's; the event stream (`GET /m/events`), whose `change` events name the path of each
+//! page whose part changed, and the tool's own script that listens to it (`GET /m/app.js`).
 
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::convert::Infallible;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU8, Ordering};
@@ -39,6 +46,7 @@ use axum::body::Bytes;
 use axum::extract::{DefaultBodyLimit, Path, Request, State};
 use axum::http::{HeaderMap, HeaderValue, StatusCode, Uri, header};
 use axum::middleware::{self, Next};
+use axum::response::sse::{Event, KeepAlive, Sse};
 use axum::response::{Html, IntoResponse, Redirect, Response};
 use axum::routing::{any, get, post};
 use axum::{Extension, Json, Router};
@@ -46,6 +54,7 @@ use crw_core::ledger::Ledger;
 use crw_core::registry::Store;
 use crw_core::remote::{self, Asked, Caller, Throttle};
 use crw_core::signals::{self, Hook, RestartAnswer, RestartAsk, Signal, StatusLine};
+use futures_util::StreamExt;
 use serde::Serialize;
 use tokio::sync::oneshot;
 
@@ -74,6 +83,21 @@ const SEND_ROUTE: &str = "/m/p/{project}/send";
 pub const DECISIONS_ROUTE: &str = "/m/decisions";
 const ANSWER_ROUTE: &str = "/m/decisions/answer";
 
+/// The actions that run things (EP-30b): a project's start page and its form, a run's Stop, the
+/// autopilot's Pause and Resume; the event stream and the script that listens to it.
+const START_ROUTE: &str = "/m/p/{project}/start";
+const STOP_ROUTE: &str = "/m/p/{project}/stop";
+pub const AUTOPILOT_ROUTE: &str = "/m/autopilot";
+pub const EVENTS_ROUTE: &str = "/m/events";
+pub const SCRIPT_ROUTE: &str = "/m/app.js";
+
+/// How long the start page waits for the window's preview (EP-30b).
+const PREVIEW_WAIT: Duration = Duration::from_secs(5);
+
+/// How long the browser waits before it opens the event stream again (EP-30b): the window's
+/// restart takes a few seconds.
+const RETRY: Duration = Duration::from_secs(5);
+
 /// How long a form waits for the window's answer (EP-30a): a message's write waits for the
 /// process's turn, which another pass's git child may hold a moment.
 const FORM_WAIT: Duration = Duration::from_secs(10);
@@ -85,10 +109,11 @@ const SHOWN_WAIT: Duration = Duration::from_secs(3);
 const SAID_FOR: Duration = Duration::from_secs(300);
 const SAID_KEPT: usize = 32;
 
-/// What a page may load: its own stylesheet and its own forms, nothing else (EP-30b adds its own
-/// script).
-const CONTENT_POLICY: &str = "default-src 'none'; style-src 'self'; form-action 'self'; \
-                              frame-ancestors 'none'; base-uri 'none'";
+/// What a page may load: its own stylesheet, its own forms, and from EP-30b its own script and
+/// the window's own event stream and pages for that script to fetch; nothing else.
+const CONTENT_POLICY: &str = "default-src 'none'; style-src 'self'; script-src 'self'; \
+                              connect-src 'self'; form-action 'self'; frame-ancestors 'none'; \
+                              base-uri 'none'";
 
 /// What the server needs for the phone's pages (EP-30): the window's published snapshot, the
 /// registry the owner's login is read from, and the ledger the remote-action log is written to.
@@ -132,6 +157,25 @@ pub enum Order {
         request: String,
         form: AnswerForm,
     },
+    /// The project's next brief started headless with the rules' choice (D-28, D-22; EP-30b):
+    /// `ep` is the brief the start page showed, refused when it is no longer the next.
+    Start { project: String, ep: String },
+    /// The window's run `key` of the project's `ep` stopped gracefully, never killed (EP-30b).
+    Stop {
+        project: String,
+        key: u64,
+        ep: String,
+    },
+    /// Every chain paused by the owner, or resumed (D-22; EP-30b): said, never a toggle.
+    Pause { paused: bool },
+}
+
+/// The start page's ask for the window's preview of a project's start (EP-30b): a draft reads
+/// the project's files and asks the CLI, which the snapshot does not hold. None comes back for a
+/// project the window does not list.
+pub struct StartAsk {
+    pub project: String,
+    pub reply: oneshot::Sender<Option<published::Start>>,
 }
 
 /// An answer form as the page sent it: its button, the options picked and the owner's own words
@@ -252,6 +296,7 @@ pub struct Server {
     signals: Receiver<Signal>,
     restarts: Receiver<RestartRequest>,
     orders: Receiver<PageRequest>,
+    asks: Receiver<StartAsk>,
     bound: Receiver<Result<u16, Listening>>,
     pub listening: Listening,
 }
@@ -262,6 +307,8 @@ struct Shared {
     restarts: Sender<RestartRequest>,
     /// The pages' forms, for the window's hand (EP-30a).
     orders: Sender<PageRequest>,
+    /// The start pages' asks for the window's preview (EP-30b).
+    asks: Sender<StartAsk>,
     wake: Wake,
     /// The phone's pages' needs; none in the relays' tests, whose `/m/` pages say they are not
     /// served.
@@ -290,6 +337,7 @@ impl Server {
         let (sender, signals) = mpsc::channel();
         let (restart_sender, restarts) = mpsc::channel();
         let (order_sender, orders) = mpsc::channel();
+        let (ask_sender, asks) = mpsc::channel();
         let (bound_sender, bound) = mpsc::channel();
         let wake: Wake = Arc::new(wake);
         let spawned = thread::Builder::new()
@@ -331,6 +379,7 @@ impl Server {
                         sender,
                         restarts: restart_sender,
                         orders: order_sender,
+                        asks: ask_sender,
                         wake,
                         pages,
                         refused: Mutex::new(Throttle::default()),
@@ -348,6 +397,7 @@ impl Server {
             signals,
             restarts,
             orders,
+            asks,
             bound,
             listening,
         }
@@ -373,6 +423,11 @@ impl Server {
     pub fn take_orders(&mut self) -> Vec<PageRequest> {
         self.orders.try_iter().collect()
     }
+
+    /// The start pages' asks for the window's preview (EP-30b).
+    pub fn take_asks(&mut self) -> Vec<StartAsk> {
+        self.asks.try_iter().collect()
+    }
 }
 
 fn router(shared: Arc<Shared>) -> Router {
@@ -387,6 +442,12 @@ fn router(shared: Arc<Shared>) -> Router {
         .route(SEND_ROUTE, post(send_message))
         .route(DECISIONS_ROUTE, get(decisions_page))
         .route(ANSWER_ROUTE, post(answer))
+        // The actions that run things and the live updates (EP-30b).
+        .route(START_ROUTE, get(start_page).post(start))
+        .route(STOP_ROUTE, post(stop))
+        .route(AUTOPILOT_ROUTE, post(pause))
+        .route(EVENTS_ROUTE, get(events))
+        .route(SCRIPT_ROUTE, get(script))
         .route(PAGES_OTHER, any(not_found))
         .layer(middleware::from_fn_with_state(Arc::clone(&shared), guard));
     Router::new()
@@ -484,13 +545,14 @@ async fn to_list() -> Redirect {
 }
 
 /// `GET /m/`: the project list from the window's snapshot, a fresh one asked for when the one
-/// held is old.
-async fn list_page(State(shared): State<Arc<Shared>>) -> Response {
+/// held is old, with the outcome of the Pause or Resume that led here (EP-30b).
+async fn list_page(State(shared): State<Arc<Shared>>, uri: Uri) -> Response {
     let Some(pages) = &shared.pages else {
         return not_served();
     };
     let published = pages.published.fresh(|| (shared.wake)()).await;
-    match crate::pages::list(&published) {
+    let said = shared.said(&uri);
+    match crate::pages::list(&published, said.as_ref()) {
         Ok(html) => Html(html).into_response(),
         Err(e) => page(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -507,6 +569,168 @@ async fn stylesheet() -> Response {
         crate::pages::STYLESHEET,
     )
         .into_response()
+}
+
+/// `GET /m/app.js` (EP-30b): the tool's own script, from the exe.
+async fn script() -> Response {
+    (
+        [(header::CONTENT_TYPE, "text/javascript; charset=utf-8")],
+        crate::pages::SCRIPT,
+    )
+        .into_response()
+}
+
+/// `GET /m/events[?since=<version>]` (EP-30b): the stream the pages' script listens to. A first
+/// event sets the browser's retry (it carries no data, so no page hears it); then a `change` event
+/// for each part that changed, its data the path of the page that shows it, or `*` first when the
+/// window has moved on since the version the page was drawn from; a comment every 15 s keeps an
+/// idle stream open through a proxy. It ends with the window's publisher, at the quit.
+async fn events(State(shared): State<Arc<Shared>>, uri: Uri) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    let since = uri.query().and_then(|query| {
+        form::field(&form::decode(query.as_bytes()), "since").and_then(|v| v.parse().ok())
+    });
+    let first = futures_util::stream::once(async {
+        Ok::<Event, Infallible>(
+            Event::default()
+                .retry(RETRY)
+                .comment("the window's changes"),
+        )
+    });
+    let changes = pages
+        .published
+        .changes(since)
+        .map(|path| Ok(Event::default().event("change").data(path)));
+    Sse::new(first.chain(changes))
+        .keep_alive(KeepAlive::default())
+        .into_response()
+}
+
+/// `GET /m/p/<project>/start` (EP-30b): the start's confirmation, from the window's preview,
+/// asked through a channel of its own and waited for at most [`PREVIEW_WAIT`]; a project the
+/// window does not list is a page not found.
+async fn start_page(State(shared): State<Arc<Shared>>, Path(project): Path<String>) -> Response {
+    let Some(pages) = &shared.pages else {
+        return not_served();
+    };
+    // Read before the preview, so that a change made while it is drawn is caught up by the
+    // event stream's `since`.
+    let version = pages.published.version();
+    let (reply, answer) = oneshot::channel();
+    if shared.asks.send(StartAsk { project, reply }).is_err() {
+        return page(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Not drawn",
+            "The window is not listening.",
+        );
+    }
+    (shared.wake)();
+    match tokio::time::timeout(PREVIEW_WAIT, answer).await {
+        Ok(Ok(Some(start))) => match crate::pages::start(&start, chrono::Utc::now(), version) {
+            Ok(html) => Html(html).into_response(),
+            Err(e) => page(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "Not drawn",
+                &format!("The start page could not be drawn: {e}"),
+            ),
+        },
+        Ok(Ok(None)) => page(
+            StatusCode::NOT_FOUND,
+            "Not found",
+            "No such project here: the project list is at /m/.",
+        ),
+        _ => page(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "Not drawn",
+            &format!(
+                "The window did not answer within {} s: reload in a moment.",
+                PREVIEW_WAIT.as_secs()
+            ),
+        ),
+    }
+}
+
+/// `POST /m/p/<project>/start` (EP-30b): the next brief started headless with the rules' choice,
+/// `ep` naming the brief the start page showed; back to the project's page, where the run shows.
+async fn start(
+    State(shared): State<Arc<Shared>>,
+    Path(project): Path<String>,
+    Extension(caller): Extension<Caller>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let back = project_path(&project);
+    let Some(fields) = form_fields(&headers, &body) else {
+        return not_a_form();
+    };
+    let ep = form::field(&fields, "ep").unwrap_or_default().trim();
+    if ep.is_empty() {
+        return shared.back(
+            &back,
+            Err("The form names no brief: nothing was started.".to_owned()),
+        );
+    }
+    let order = Order::Start {
+        project,
+        ep: ep.to_owned(),
+    };
+    shared.order(order, &caller, &back).await
+}
+
+/// `POST /m/p/<project>/stop` (EP-30b): the window's run `key` of `ep` stopped gracefully.
+async fn stop(
+    State(shared): State<Arc<Shared>>,
+    Path(project): Path<String>,
+    Extension(caller): Extension<Caller>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let back = project_path(&project);
+    let Some(fields) = form_fields(&headers, &body) else {
+        return not_a_form();
+    };
+    let key = form::field(&fields, "key").and_then(|key| key.parse().ok());
+    let ep = form::field(&fields, "ep").unwrap_or_default().trim();
+    let Some(key) = key.filter(|_| !ep.is_empty()) else {
+        return shared.back(
+            &back,
+            Err("The form names no run: nothing was stopped.".to_owned()),
+        );
+    };
+    let order = Order::Stop {
+        project,
+        key,
+        ep: ep.to_owned(),
+    };
+    shared.order(order, &caller, &back).await
+}
+
+/// `POST /m/autopilot` (EP-30b): every chain paused (`pause=on`) or resumed (`pause=off`); back
+/// to the list, whose autopilot block shows it.
+async fn pause(
+    State(shared): State<Arc<Shared>>,
+    Extension(caller): Extension<Caller>,
+    headers: HeaderMap,
+    body: Bytes,
+) -> Response {
+    let Some(fields) = form_fields(&headers, &body) else {
+        return not_a_form();
+    };
+    let paused = match form::field(&fields, "pause") {
+        Some("on") => true,
+        Some("off") => false,
+        _ => {
+            return shared.back(
+                PAGES_ROOT,
+                Err("The form says neither pause nor resume: nothing was changed.".to_owned()),
+            );
+        }
+    };
+    shared
+        .order(Order::Pause { paused }, &caller, PAGES_ROOT)
+        .await
 }
 
 /// Any other `/m/…` path, once it passed the check.
@@ -723,8 +947,8 @@ fn not_a_form() -> Response {
     )
 }
 
-/// The path of the project's page.
-fn project_path(project: &str) -> String {
+/// The path of the project's page, which the event stream names for its part too (EP-30b).
+pub fn project_path(project: &str) -> String {
     format!("{PROJECT_PREFIX}{}", form::segment(project))
 }
 
@@ -1276,6 +1500,10 @@ mod tests {
             sessions: Vec::new(),
             busy: None,
             revert: false,
+            pinned: false,
+            proposes: false,
+            autopilot: false,
+            runs: Vec::new(),
         };
         publisher.offer(
             crate::published::Parts {
@@ -1773,6 +2001,226 @@ mod tests {
         let answer = sending.join().unwrap();
         assert_eq!(answer.status, 303);
         assert!(location(&answer).starts_with("/m/p/harbor?done="));
+    }
+
+    /// The start page asks the window for its preview and draws it, a project the window does
+    /// not list being a page not found; the three actions' forms reach the window as orders, a
+    /// form that says neither pause nor resume never does (EP-30b).
+    #[test]
+    fn the_start_page_asks_the_window_and_the_actions_reach_it() {
+        let scratch = crate::portfolio::tests::Scratch::new("server-pages-actions");
+        let (mut server, port, _ledger, _publisher) = serving(&scratch, None);
+        let local = format!("127.0.0.1:{port}");
+        let origin = format!("http://{local}");
+        let reading = {
+            let local = local.clone();
+            std::thread::spawn(move || {
+                exchange(port, "GET", "/m/p/harbor/start", &[("Host", &local)])
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let ask = loop {
+            if let Some(ask) = server.take_asks().pop() {
+                break ask;
+            }
+            assert!(Instant::now() < deadline, "the ask never came");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        assert_eq!(ask.project, "harbor");
+        let start = published::Start {
+            project: "harbor".to_owned(),
+            next: published::Next::Brief {
+                id: "EP-4".to_owned(),
+                size: Some("M".to_owned()),
+                title: "The `scan` view".to_owned(),
+            },
+            model: ("claude-opus-5-5".to_owned(), "rule 1".to_owned()),
+            effort: ("max".to_owned(), "rule 1".to_owned()),
+            ultracode: false,
+            permission_mode: ("auto".to_owned(), "the project's".to_owned()),
+            downshift: None,
+            run: Vec::new(),
+            notes: Vec::new(),
+            refusals: Vec::new(),
+        };
+        ask.reply.send(Some(start)).unwrap();
+        let page = reading.join().unwrap();
+        assert_eq!(page.status, 200, "{}", page.body);
+        assert!(
+            page.body.contains("Start EP-4 headless</button>"),
+            "{}",
+            page.body
+        );
+        assert!(
+            page.head.contains("script-src 'self'; connect-src 'self'"),
+            "{}",
+            page.head
+        );
+        // A project the window does not list.
+        let reading = {
+            let local = local.clone();
+            std::thread::spawn(move || {
+                exchange(port, "GET", "/m/p/nowhere/start", &[("Host", &local)])
+            })
+        };
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let ask = loop {
+            if let Some(ask) = server.take_asks().pop() {
+                break ask;
+            }
+            assert!(Instant::now() < deadline, "the ask never came");
+            std::thread::sleep(Duration::from_millis(10));
+        };
+        ask.reply.send(None).unwrap();
+        assert_eq!(reading.join().unwrap().status, 404);
+        // The three forms, each answered as the window would.
+        let headers = form_headers(&local, &origin);
+        let post = |path: &'static str, body: &'static str| {
+            let headers: Vec<(String, String)> = headers
+                .iter()
+                .map(|(n, v)| ((*n).to_owned(), (*v).to_owned()))
+                .collect();
+            std::thread::spawn(move || {
+                let headers: Vec<(&str, &str)> = headers
+                    .iter()
+                    .map(|(n, v)| (n.as_str(), v.as_str()))
+                    .collect();
+                post_form(port, path, &headers, body)
+            })
+        };
+        let posts = [
+            post("/m/p/harbor/start", "ep=EP-4"),
+            post("/m/p/harbor/stop", "key=3&ep=EP-4"),
+            post("/m/autopilot", "pause=on"),
+        ];
+        let mut orders = obey(&mut server, 3, |order| Ok(format!("{order:?}")));
+        let answers: Vec<Answer> = posts.into_iter().map(|post| post.join().unwrap()).collect();
+        orders.sort_by_key(|order| format!("{order:?}"));
+        assert_eq!(
+            orders,
+            [
+                Order::Pause { paused: true },
+                Order::Start {
+                    project: "harbor".to_owned(),
+                    ep: "EP-4".to_owned()
+                },
+                Order::Stop {
+                    project: "harbor".to_owned(),
+                    key: 3,
+                    ep: "EP-4".to_owned()
+                },
+            ]
+        );
+        let backs: Vec<String> = answers.iter().map(location).collect();
+        assert!(
+            backs.iter().any(|back| back.starts_with("/m/?done=")),
+            "{backs:?}"
+        );
+        assert_eq!(
+            backs
+                .iter()
+                .filter(|back| back.starts_with("/m/p/harbor?done="))
+                .count(),
+            2
+        );
+        // The list draws the Pause's line.
+        let back = backs
+            .iter()
+            .find(|back| back.starts_with("/m/?done="))
+            .unwrap();
+        let list = exchange(port, "GET", back, &[("Host", &local)]);
+        assert!(
+            list.body.contains(r#"<p class="said done">Pause"#),
+            "{}",
+            list.body
+        );
+        // A form that says neither, or names no run, never reaches the window.
+        let none = post_form(port, "/m/autopilot", &headers, "pause=toggle");
+        assert_eq!(none.status, 303);
+        let none = post_form(port, "/m/p/harbor/stop", &headers, "key=x&ep=EP-4");
+        assert_eq!(none.status, 303);
+        assert!(server.take_orders().is_empty());
+        // The script, from the exe.
+        let script = exchange(port, "GET", "/m/app.js", &[("Host", &local)]);
+        assert_eq!(script.status, 200);
+        assert!(script.head.contains("content-type: text/javascript"));
+        assert!(script.body.contains("EventSource"));
+    }
+
+    /// What a streaming answer has sent within a few seconds, read until `wanted` shows.
+    fn stream_until(stream: &mut TcpStream, sent: &mut String, wanted: &str) -> bool {
+        let deadline = Instant::now() + Duration::from_secs(8);
+        let mut buffer = [0_u8; 4096];
+        while !sent.contains(wanted) && Instant::now() < deadline {
+            match stream.read(&mut buffer) {
+                Ok(0) => break,
+                Ok(n) => sent.push_str(&String::from_utf8_lossy(&buffer[..n])),
+                Err(_) => {}
+            }
+        }
+        sent.contains(wanted)
+    }
+
+    /// The event stream (EP-30b): an event stream's head and its first event, then a change the
+    /// window publishes named by its page's path; a stranger through Serve is refused it.
+    #[test]
+    fn the_event_stream_names_a_change_by_its_pages_path() {
+        let scratch = crate::portfolio::tests::Scratch::new("server-pages-events");
+        let (_server, port, _ledger, mut publisher) = serving(&scratch, None);
+        let local = format!("127.0.0.1:{port}");
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        stream
+            .set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        stream
+            .write_all(format!("GET /m/events HTTP/1.1\r\nHost: {local}\r\n\r\n").as_bytes())
+            .unwrap();
+        let mut sent = String::new();
+        assert!(
+            stream_until(&mut stream, &mut sent, "retry: 5000"),
+            "{sent}"
+        );
+        let head = sent.to_ascii_lowercase();
+        assert!(head.starts_with("http/1.1 200"), "{sent}");
+        assert!(head.contains("content-type: text/event-stream"), "{sent}");
+        assert!(head.contains("cache-control: no-store"), "{sent}");
+        // The window publishes a change to harbor's page.
+        let current = publisher.current();
+        let mut parts = crate::published::Parts {
+            list: current.list.clone(),
+            projects: current.projects.clone(),
+            decisions: current.decisions.clone(),
+        };
+        parts.projects[0].resolved = 3;
+        publisher.offer(parts, chrono::Utc::now());
+        assert!(
+            stream_until(&mut stream, &mut sent, "event: change\ndata: /m/p/harbor\n"),
+            "{sent}"
+        );
+        // A page drawn before that change opens its stream with its version: everything, first.
+        let mut late = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        late.set_read_timeout(Some(Duration::from_millis(200)))
+            .unwrap();
+        late.write_all(
+            format!("GET /m/events?since=1 HTTP/1.1\r\nHost: {local}\r\n\r\n").as_bytes(),
+        )
+        .unwrap();
+        let mut caught = String::new();
+        assert!(
+            stream_until(&mut late, &mut caught, "event: change\ndata: *\n"),
+            "{caught}"
+        );
+        // A stranger through Serve gets no stream.
+        let stranger = exchange(
+            port,
+            "GET",
+            "/m/events",
+            &[
+                ("Host", "box.example.ts.net:9443"),
+                ("Tailscale-User-Login", "someone@example.org"),
+            ],
+        );
+        assert_eq!(stranger.status, 403);
     }
 
     /// While the registry names no owner, every request through Serve is refused, the owner's

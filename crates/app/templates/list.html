@@ -1,11 +1,57 @@
 {% extends "base.html" %}
 {% block title %}Projects · Roadmap Wrangler{% endblock %}
 {% block as_of %}{{ as_of }}{% endblock %}
+{% block listen %}/m/ /m/decisions{% endblock %}
+{% block version %}{{ version }}{% endblock %}
 {% block content %}
+{% if let Some(said) = said %}<p class="said {% if said.done %}done{% else %}failed{% endif %}">{{ said.words }}</p>{% endif %}
+<div data-part="summary">
 <p class="summary">{{ summary }} · <a href="/m/">Reload</a></p>
 <p class="summary"><a href="/m/decisions">Decisions</a>: {{ decisions }}</p>
 {% if let Some(problem) = problem %}<p class="problem">{{ problem }}</p>{% endif %}
 {% if reading %}<p class="weak">Reading the projects…</p>{% endif %}
+</div>
+<section class="block usage" data-part="usage">
+{% if let Some(usage) = usage %}
+<h2>Usage</h2>
+{% if usage.figures.is_empty() %}<p class="weak small">Not read yet.</p>{% endif %}
+{% for figure in usage.figures %}
+<div class="figure">
+<p class="figure-head"><span class="name">{{ figure.name }}</span> <span class="share {{ figure.class }}">{{ figure.percent }}</span></p>
+<p class="weak small">{{ figure.reset }} · {{ figure.read }}</p>
+</div>
+{% endfor %}
+{% if usage.session_closed %}<p class="weak small">Session (five-hour window): no window open.</p>{% endif %}
+{% if let Some(why) = usage.degraded %}<p class="warn small">Degraded: {{ why }}. The figures are the newest of the status lines' and the last reading.</p>{% endif %}
+{% else %}
+<p class="weak small">The usage meter is off in this window.</p>
+{% endif %}
+</section>
+<section class="block autopilot" data-part="autopilot">
+<h2>Autopilot <span class="mark {{ autopilot.class }}">{{ autopilot.state }}</span></h2>
+<p class="weak small">{{ autopilot.projects }}</p>
+<form method="post" action="/m/autopilot" class="inline">
+{% if autopilot.paused %}<input type="hidden" name="pause" value="off">
+<button type="submit">Resume</button> <span class="weak small">Let the chains go on: the held ones are read again.</span>
+{% else %}<input type="hidden" name="pause" value="on">
+<button type="submit">Pause</button> <span class="weak small">Hold every chain until you resume: the runs that work go on.</span>
+{% endif %}
+</form>
+{% for words in autopilot.held_by_usage %}<p class="warn small">{{ words }}</p>
+{% endfor %}
+{% for held in autopilot.held %}<p class="warn small"><strong>{{ held.0 }}</strong>: {{ held.1 }}</p>
+{% endfor %}
+{% for plan in autopilot.plans %}<p class="small"><strong>{{ plan.0 }}</strong>: your plan {{ plan.1 }}; this chain holds at {{ plan.2 }}.</p>
+{% endfor %}
+{% if let Some(problem) = autopilot.problem %}<p class="bad small">{{ problem }}</p>{% endif %}
+{% if autopilot.log.is_empty() %}<p class="weak small">The chain log is empty: a headless run of a project whose autopilot is on writes it when it ends.</p>{% else %}
+<details class="more"><summary>The chain log, the newest first</summary>
+<ul class="log">{% for line in autopilot.log %}<li><span class="weak">{{ line.0 }}</span>{% if !line.1.is_empty() %} <strong>{{ line.1 }}</strong>{% endif %} {{ line.2 }}</li>
+{% endfor %}</ul>
+</details>
+{% endif %}
+</section>
+<div data-part="projects">
 {% for group in groups %}
 <details class="group"{% if group.open %} open{% endif %}>
 <summary><h2>{{ group.heading }} <span class="count">{{ group.projects.len() }}</span></h2></summary>
@@ -48,5 +94,6 @@
 {% endfor %}</ul>
 </details>
 {% endif %}
-<p class="foot weak">A project's page ticks its owner tasks and inbox messages and takes a message; the decisions page answers. Adopt a folder and start from the window.</p>
+</div>
+<p class="foot weak">A project's page ticks its owner tasks and inbox messages, takes a message, starts its next brief headless and stops a run; the decisions page answers. Adopt a folder from the window.</p>
 {% endblock %}

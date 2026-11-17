@@ -7,19 +7,28 @@
 //! the snapshot's time without a word to the receivers. A page asks when the snapshot it holds is
 //! older than [`FRESH_FOR`], and waits at most [`WAIT`] for the window's answer: a window too
 //! busy to answer leaves it the older snapshot, whose time the page shows.
+//!
+//! EP-30b adds the list's usage strip and autopilot block, a project's runs with their Stop, and
+//! the start page's preview, which the window drafts when the page asks (`Start`). The version
+//! now rises only with what the clock alone does not change: the list is compared without its
+//! badges' sentences, the last commit's age word and the figures' read times (`List::steady`),
+//! which a page still reads as of each build. The event stream (`Reader::changes`) names each
+//! part that changed by the path of the page that shows it.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, VecDeque};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use chrono::{DateTime, Utc};
+use crw_core::autopilot::{self as chains, Refusal};
 use crw_core::badges::hosting::Class;
 use crw_core::badges::stack::Kind;
 use crw_core::registry::State;
 use crw_core::roadmap::table::Counts;
 use crw_core::session::Request;
 use crw_core::tasks::OwnerItem;
+use futures_util::Stream;
 use tokio::sync::watch;
 
 use crate::badges::{self, Tone};
@@ -34,6 +43,10 @@ pub const FRESH_FOR: Duration = Duration::from_secs(2);
 
 /// How long a page waits for the window's fresh snapshot.
 pub const WAIT: Duration = Duration::from_secs(2);
+
+/// What the event stream names when the window has moved on since the page was drawn (EP-30b):
+/// every part, so the page fetches itself again.
+pub const EVERYTHING: &str = "*";
 
 static NO_STACKS: BTreeSet<Kind> = BTreeSet::new();
 static NO_CLASSES: BTreeSet<Class> = BTreeSet::new();
@@ -50,11 +63,13 @@ pub struct Published {
 }
 
 impl Published {
-    /// What the server holds before the window's first pass: nothing read yet.
+    /// What the server holds before the window's first pass: nothing read yet. Its version is
+    /// the process's start in milliseconds (EP-30b's review), so that a page drawn by an earlier
+    /// window, whose version the event stream's `since` names, cannot match this one's by chance.
     fn empty() -> Self {
         Self {
             at: DateTime::<Utc>::MIN_UTC,
-            version: 0,
+            version: u64::try_from(Utc::now().timestamp_millis()).unwrap_or_default(),
             list: List {
                 reading: true,
                 ..List::default()
@@ -69,6 +84,29 @@ impl Published {
         self.projects
             .iter()
             .find(|project| project.name.eq_ignore_ascii_case(name))
+    }
+
+    /// The parts that differ from `before`, each by the path of the page that shows it (EP-30b):
+    /// the list's (its two blocks with it), each project's page (one added or gone too), the
+    /// decisions'. The list is compared steady, as the version is.
+    pub fn changed_paths(&self, before: &Published) -> Vec<String> {
+        let mut paths = Vec::new();
+        if self.list.steady() != before.list.steady() {
+            paths.push(crate::server::PAGES_ROOT.to_owned());
+        }
+        let mut seen = BTreeSet::new();
+        for project in self.projects.iter().chain(&before.projects) {
+            if !seen.insert(project.name.to_lowercase()) {
+                continue;
+            }
+            if self.project(&project.name) != before.project(&project.name) {
+                paths.push(crate::server::project_path(&project.name));
+            }
+        }
+        if self.decisions != before.decisions {
+            paths.push(crate::server::DECISIONS_ROUTE.to_owned());
+        }
+        paths
     }
 }
 
@@ -91,8 +129,9 @@ impl Parts {
             .map(|row| {
                 let live = board.session_summary(row.name());
                 let busy = busy.get(&row.name().to_lowercase()).cloned();
-                let mut page = Project::of(row, live.as_deref(), busy);
+                let mut page = Project::of(row, live.as_deref(), busy, now);
                 page.revert = board.revert_open_in(row.name());
+                page.runs = Run::of(board, row.name());
                 page
             })
             .collect();
@@ -128,6 +167,72 @@ pub struct Project {
     /// A revert is open or running there: the page offers no tick and no message until it is
     /// done (the review's).
     pub revert: bool,
+    /// The list's marks after the state (EP-30b, moved here from the list's line so that the
+    /// page reads its own part alone): pinned, a state change proposed, the autopilot on.
+    pub pinned: bool,
+    pub proposes: bool,
+    pub autopilot: bool,
+    /// The window's own headless runs there that work, wait or are being stopped (EP-30b).
+    pub runs: Vec<Run>,
+}
+
+/// One of the window's own headless runs in a project (EP-30b), with its Stop.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Run {
+    /// The window's number for it, which a Stop names with its EP.
+    pub key: u64,
+    pub ep: String,
+    /// Its state in words: running, waiting for an answer, stopping.
+    pub state: String,
+    pub started: DateTime<Utc>,
+    /// It works or waits and is not being stopped: Stop is offered.
+    pub stoppable: bool,
+    /// The autopilot's chain started it.
+    pub chained: bool,
+}
+
+impl Run {
+    /// The window's runs in `project` that are not over, a chat's aside (it is the Chat pane's).
+    pub fn of(board: &Board, project: &str) -> Vec<Self> {
+        board
+            .sessions
+            .live
+            .iter()
+            .filter(|live| {
+                !live.is_chat() && live.is_running() && live.project.eq_ignore_ascii_case(project)
+            })
+            .map(|live| Run {
+                key: live.key,
+                ep: live.ep.clone(),
+                state: live.state(),
+                started: live.started.with_timezone(&Utc),
+                stoppable: !live.stopping,
+                chained: live.chained,
+            })
+            .collect()
+    }
+}
+
+/// The start page's preview (D-28, D-22; EP-30b): what a start of the project's next brief from
+/// the phone would run, drafted by the window when the page asks, and what refuses it now.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Start {
+    pub project: String,
+    /// The next brief, or why there is nothing to launch.
+    pub next: Next,
+    /// The rules' resolution, each value with its reason; empty without a draft.
+    pub model: (String, String),
+    pub effort: (String, String),
+    pub ultracode: bool,
+    pub permission_mode: (String, String),
+    /// The downshift's words when it chose the model.
+    pub downshift: Option<String>,
+    /// What the run is, in sentences: its cap, its commits, the chain that may follow.
+    pub run: Vec<String>,
+    /// What the launch dialog would note first: owner tasks due, a session in progress, …
+    pub notes: Vec<String>,
+    /// What refuses the start now; none when it may go.
+    pub refusals: Vec<String>,
 }
 
 /// One open item waiting on the owner.
@@ -162,8 +267,14 @@ pub struct Message {
 }
 
 impl Project {
-    /// `row`'s page, with the window's sessions' words `live` and a session's words `busy`.
-    pub fn of(row: &ProjectRow, live: Option<&str>, busy: Option<String>) -> Self {
+    /// `row`'s page at `now`, with the window's sessions' words `live` and a session's words
+    /// `busy`; its runs are the board's to add.
+    pub fn of(
+        row: &ProjectRow,
+        live: Option<&str>,
+        busy: Option<String>,
+        now: DateTime<Utc>,
+    ) -> Self {
         let folder = row.folder.as_ref().map(|folder| folder.path.clone());
         let base = folder.clone().unwrap_or_default();
         let note = row.snapshot.current().and_then(|roadmap| {
@@ -227,6 +338,10 @@ impl Project {
             sessions: crate::list::session_words(row, live),
             busy,
             revert: false,
+            pinned: row.project.pinned,
+            proposes: row.proposes(now),
+            autopilot: row.project.autopilot.enabled,
+            runs: Vec::new(),
         }
     }
 }
@@ -335,6 +450,167 @@ pub struct List {
     pub problem: Option<String>,
     pub groups: Vec<Group>,
     pub unadopted: Vec<String>,
+    /// The usage strip and the autopilot block (EP-30b, the D-28 addendum's).
+    pub usage: Usage,
+    pub autopilot: Autopilot,
+}
+
+/// The meter's figures for the list's strip (D-23; EP-30b): each with its reset and when it was
+/// read, the ages drawn when the page is.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Usage {
+    /// The meter runs: off in a test, canned in a screenshot run.
+    pub on: bool,
+    pub figures: Vec<Figure>,
+    /// The reading gives the session (five-hour) limit with no window open.
+    pub session_closed: bool,
+    /// Why the endpoint's figures do not stand, when they do not.
+    pub degraded: Option<String>,
+}
+
+/// One figure of the strip.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Figure {
+    /// `Week`, `Fable`, `Session (five-hour window)`.
+    pub name: &'static str,
+    pub percent: f64,
+    pub resets_at: Option<DateTime<Utc>>,
+    /// When it was read, which the steady comparison leaves out.
+    pub at: DateTime<Utc>,
+    /// The usage endpoint, or a session's status line.
+    pub from: &'static str,
+}
+
+impl Usage {
+    /// The meter's figures as of `now`, as the status bar's strip shows them.
+    pub fn of(board: &Board, now: DateTime<Utc>) -> Self {
+        let meter = &board.meter;
+        if !meter.is_on() {
+            return Self::default();
+        }
+        let figures = meter.gauge.figures(now);
+        let shown = [
+            ("Week", figures.weekly.as_ref()),
+            ("Fable", figures.fable.as_ref()),
+            ("Session (five-hour window)", figures.five_hour.as_ref()),
+        ];
+        Self {
+            on: true,
+            figures: shown
+                .into_iter()
+                .filter_map(|(name, figure)| {
+                    let figure = figure?;
+                    Some(Figure {
+                        name,
+                        percent: figure.limit.percent,
+                        resets_at: figure.limit.resets_at,
+                        at: figure.at,
+                        from: match figure.source {
+                            crw_core::usage::Source::Endpoint => "the usage endpoint",
+                            crw_core::usage::Source::StatusLine => "a session's status line",
+                        },
+                    })
+                })
+                .collect(),
+            session_closed: figures.five_hour.is_none()
+                && meter
+                    .gauge
+                    .fetched
+                    .as_ref()
+                    .is_some_and(|fetched| fetched.reading.session_closed(now)),
+            degraded: figures.degraded,
+        }
+    }
+}
+
+/// The list's autopilot block (D-22; EP-30b): what the Sessions pane's Autopilot section says.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Autopilot {
+    /// The owner's Pause, as the registry last said it.
+    pub paused: bool,
+    /// The automatic pause as it stands, each limit at or over its mark, in the section's words.
+    pub held_by_usage: Vec<String>,
+    /// The projects whose autopilot is on.
+    pub on: Vec<String>,
+    /// The held chains: the project and the log's words for the hold.
+    pub held: Vec<(String, String)>,
+    /// The chain plans: the project, the plan in words, and the mark the chain holds at.
+    pub plans: Vec<(String, String, String)>,
+    /// The chain log's latest lines, the newest first.
+    pub log: Vec<LogLine>,
+    /// Why the chain log did not read or was not kept.
+    pub problem: Option<String>,
+}
+
+/// One line of the chain log.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LogLine {
+    pub at: Option<DateTime<Utc>>,
+    pub project: Option<String>,
+    pub words: String,
+}
+
+impl Autopilot {
+    /// The window's autopilot as of `now`.
+    pub fn of(board: &Board, now: DateTime<Utc>) -> Self {
+        let pilot = &board.autopilot;
+        let setting = pilot.five_hour_mark.max(1);
+        let held_by_usage = chains::usage_pause(
+            &board.meter.gauge.figures(now),
+            pilot.mark.max(1),
+            setting,
+            now,
+        )
+        .iter()
+        .map(|refusal| {
+            // The session window's at the setting: a chain's own mark may let it go (EP-41).
+            let who = match refusal {
+                Refusal::Usage { which, .. } if *which == chains::FIVE_HOUR => {
+                    "Chains without a mark of their own hold"
+                }
+                _ => "The chains hold",
+            };
+            format!("{who}: {}.", refusal.words())
+        })
+        .collect();
+        Self {
+            paused: pilot.paused,
+            held_by_usage,
+            on: board
+                .portfolio
+                .projects
+                .iter()
+                .filter(|row| row.project.autopilot.enabled)
+                .map(|row| row.name().to_owned())
+                .collect(),
+            held: pilot
+                .held
+                .iter()
+                .map(|held| (held.project.clone(), held.words.clone()))
+                .collect(),
+            plans: pilot
+                .plans
+                .values()
+                .map(|plan| {
+                    let mark = match plan.five_hour_mark {
+                        Some(mark) => format!("{mark} % of {}", chains::FIVE_HOUR),
+                        None => format!("the setting's {setting} % of {}", chains::FIVE_HOUR),
+                    };
+                    (plan.project.clone(), plan.words(), mark)
+                })
+                .collect(),
+            log: pilot
+                .log
+                .iter()
+                .map(|row| LogLine {
+                    at: row.at(),
+                    project: row.project.clone(),
+                    words: row.detail.clone().unwrap_or_default(),
+                })
+                .collect(),
+            problem: pilot.problem.clone(),
+        }
+    }
 }
 
 /// A state's group.
@@ -416,6 +692,8 @@ pub struct Badge {
     pub word: String,
     pub sentence: String,
     pub tone: &'static str,
+    /// The word is an age the clock alone changes (EP-30b): left out of the steady comparison.
+    pub clocked: bool,
 }
 
 impl List {
@@ -459,12 +737,38 @@ impl List {
                 .iter()
                 .map(|folder| folder.name.clone())
                 .collect(),
+            usage: Usage::of(board, now),
+            autopilot: Autopilot::of(board, now),
         }
     }
 
     /// Every project listed.
     pub fn projects(&self) -> impl Iterator<Item = &Line> {
         self.groups.iter().flat_map(|group| group.projects.iter())
+    }
+
+    /// The list without what the clock alone changes (EP-30b): each badge's sentence (`pushed
+    /// 3 h ago`, `checked 5 min ago`), the last commit's age word and the figures' read times.
+    /// The version and the event stream compare this, so an idle window publishes no new
+    /// version, while the snapshot itself keeps the words of each build for a page to draw.
+    pub fn steady(&self) -> List {
+        let mut list = self.clone();
+        for line in list
+            .groups
+            .iter_mut()
+            .flat_map(|group| group.projects.iter_mut())
+        {
+            for badge in &mut line.badges {
+                badge.sentence.clear();
+                if badge.clocked {
+                    badge.word.clear();
+                }
+            }
+        }
+        for figure in &mut list.usage.figures {
+            figure.at = DateTime::<Utc>::MIN_UTC;
+        }
+        list
     }
 }
 
@@ -492,6 +796,7 @@ impl Line {
                     word: word.word,
                     sentence: word.sentence,
                     tone: Tone::class(word.tone),
+                    clocked: word.clocked,
                 })
                 .collect(),
         }
@@ -539,7 +844,8 @@ impl Publisher {
     /// Takes the parts built at `now`: sent with a new version when they differ from the ones
     /// published, sent with their time renewed when a page asked; else their time is renewed
     /// without a word to the receivers, so that a page reads them as fresh while the window passes
-    /// (the review's: `at` is the last build, not the last send).
+    /// (the review's: `at` is the last build, not the last send). The list is compared steady
+    /// (EP-30b): a badge's age moving with the clock is no change, though the snapshot takes it.
     pub fn offer(&mut self, parts: Parts, now: DateTime<Utc>) {
         self.built = Some(Instant::now());
         let asked = self.asked.swap(false, Ordering::AcqRel);
@@ -549,7 +855,7 @@ impl Publisher {
             decisions,
         } = parts;
         self.sender.send_if_modified(|current| {
-            let changed = current.list != list
+            let changed = current.list.steady() != list.steady()
                 || current.projects != projects
                 || current.decisions != decisions;
             let version = current.version + u64::from(changed);
@@ -594,6 +900,39 @@ impl Reader {
             receiver.wait_for(|published| published.version > version),
         )
         .await;
+    }
+
+    /// The parts that change from now on, each by the path of the page that shows it (EP-30b):
+    /// the event stream's. It holds the snapshot it last saw and awaits the channel's change;
+    /// when the version moved it names each part that differs (`Published::changed_paths`),
+    /// and an ask that renewed the time alone names nothing. `since` is the version the page
+    /// was drawn from: when the window has moved on since, the first item is [`EVERYTHING`],
+    /// since a change made between the page's drawing and the stream's opening would otherwise
+    /// go unnamed (a run's start just after the page that shows it starting). It ends when the
+    /// window's publisher goes, as at the window's quit.
+    pub fn changes(&self, since: Option<u64>) -> impl Stream<Item = String> + Send + 'static {
+        let mut receiver = self.receiver.clone();
+        let last = Arc::clone(&receiver.borrow_and_update());
+        let mut pending = VecDeque::new();
+        if since.is_some_and(|since| since != last.version) {
+            pending.push_back(EVERYTHING.to_owned());
+        }
+        futures_util::stream::unfold(
+            (receiver, last, pending),
+            |(mut receiver, mut last, mut pending)| async move {
+                loop {
+                    if let Some(path) = pending.pop_front() {
+                        return Some((path, (receiver, last, pending)));
+                    }
+                    receiver.changed().await.ok()?;
+                    let now = Arc::clone(&receiver.borrow_and_update());
+                    if now.version != last.version {
+                        pending.extend(now.changed_paths(&last));
+                        last = now;
+                    }
+                }
+            },
+        )
     }
 
     /// The snapshot for a page: the one held when it is fresh, else the window's next, asked for
@@ -854,14 +1193,17 @@ mod tests {
         let reader = publisher.reader();
         let mut listener = reader.receiver.clone();
         assert!(publisher.due(), "never built");
-        assert_eq!(publisher.current().version, 0);
+        // The first version is the process's start in milliseconds (EP-30b's review), so that a
+        // page from an earlier window cannot match a later one's by chance.
+        let v = publisher.current().version;
+        assert!(v > 1_700_000_000_000, "{v}");
         let first = Utc::now();
         let list = parts(List {
             problem: Some("a problem".to_owned()),
             ..List::default()
         });
         publisher.offer(list.clone(), first);
-        assert_eq!(publisher.current().version, 1);
+        assert_eq!(publisher.current().version, v + 1);
         assert!(listener.has_changed().unwrap(), "a change is heard");
         listener.borrow_and_update();
         assert!(!publisher.due(), "built a moment ago");
@@ -870,7 +1212,7 @@ mod tests {
         publisher.offer(list.clone(), again);
         assert_eq!(
             (publisher.current().version, publisher.current().at),
-            (1, again)
+            (v + 1, again)
         );
         assert!(!listener.has_changed().unwrap(), "no word of a time alone");
         // A page's ask: the same version, the time renewed, heard, and due at once.
@@ -880,7 +1222,7 @@ mod tests {
         publisher.offer(list, later);
         assert_eq!(
             (publisher.current().version, publisher.current().at),
-            (1, later)
+            (v + 1, later)
         );
         assert!(
             listener.has_changed().unwrap(),
@@ -890,7 +1232,7 @@ mod tests {
         assert!(!reader.asked.load(Ordering::Acquire), "the ask was taken");
         // A change: a new version.
         publisher.offer(Parts::default(), later);
-        assert_eq!(publisher.current().version, 2);
+        assert_eq!(publisher.current().version, v + 2);
         assert!(listener.has_changed().unwrap());
         listener.borrow_and_update();
         // A change to a project's page or to the decisions alone is a change too (EP-30a).
@@ -902,11 +1244,11 @@ mod tests {
             name: None,
         });
         publisher.offer(with_decision.clone(), later);
-        assert_eq!(publisher.current().version, 3);
+        assert_eq!(publisher.current().version, v + 3);
         assert!(listener.has_changed().unwrap());
         listener.borrow_and_update();
         publisher.offer(with_decision, later);
-        assert_eq!(publisher.current().version, 3, "the same parts again");
+        assert_eq!(publisher.current().version, v + 3, "the same parts again");
         assert!(!listener.has_changed().unwrap());
     }
 
@@ -915,6 +1257,286 @@ mod tests {
             list,
             ..Parts::default()
         }
+    }
+
+    /// A project's page with nothing in it, for the paths' and the stream's tests.
+    fn page(name: &str) -> Project {
+        Project {
+            name: name.to_owned(),
+            state: State::Active,
+            folder: true,
+            next: Next::None {
+                words: "Every row is checked".to_owned(),
+                missing: false,
+            },
+            note: None,
+            waiting: Vec::new(),
+            resolved: 0,
+            uncounted: Vec::new(),
+            inbox: None,
+            sessions: Vec::new(),
+            busy: None,
+            revert: false,
+            pinned: false,
+            proposes: false,
+            autopilot: false,
+            runs: Vec::new(),
+        }
+    }
+
+    /// A list of one project with a sync badge and the last commit's age, and a weekly figure
+    /// read at `read`.
+    fn aged_list(sync: &str, age: &str, read: DateTime<Utc>) -> List {
+        let badge = |column: &'static str, word: &str, clocked: bool| Badge {
+            column,
+            word: word.to_owned(),
+            sentence: format!("{word}: checked {age}"),
+            tone: "plain",
+            clocked,
+        };
+        List {
+            groups: vec![Group {
+                state: State::Active,
+                projects: vec![Line {
+                    name: "harbor".to_owned(),
+                    state: State::Active,
+                    pinned: false,
+                    proposes: false,
+                    autopilot: false,
+                    next: Next::None {
+                        words: "Every row is checked".to_owned(),
+                        missing: false,
+                    },
+                    counts: Counts::default(),
+                    owner_items: 0,
+                    messages: 0,
+                    urgent: 0,
+                    sessions: Vec::new(),
+                    usage_tenths: None,
+                    badges: vec![
+                        badge("Sync", sync, false),
+                        badge("Age", &format!("last commit {age}"), true),
+                    ],
+                }],
+            }],
+            usage: Usage {
+                on: true,
+                figures: vec![Figure {
+                    name: "Week",
+                    percent: 41.0,
+                    resets_at: None,
+                    at: read,
+                    from: "the usage endpoint",
+                }],
+                ..Usage::default()
+            },
+            ..List::default()
+        }
+    }
+
+    /// The clock alone raises no version (EP-30b): the badges' sentences, the last commit's age
+    /// and a figure's read time change in the snapshot, which a page reads, and not its version;
+    /// a real change does, and each part that changed is named by its page's path.
+    #[test]
+    fn the_clock_alone_raises_no_version_and_a_change_names_its_part() {
+        let now = Utc::now();
+        let minute = chrono::TimeDelta::minutes(1);
+        let first = aged_list("↑1 not pushed", "3 min ago", now);
+        let later = aged_list("↑1 not pushed", "4 min ago", now + minute);
+        assert_ne!(first, later, "each build keeps its words");
+        assert_eq!(first.steady(), later.steady());
+        let mut publisher = Publisher::default();
+        publisher.offer(parts(first.clone()), now);
+        let version = publisher.current().version;
+        publisher.offer(parts(later.clone()), now + minute);
+        assert_eq!(publisher.current().version, version, "the clock alone");
+        assert!(
+            publisher.current().list.groups[0].projects[0].badges[0]
+                .sentence
+                .ends_with("4 min ago"),
+            "a page reads the newest words"
+        );
+        // A word that is no age is a change.
+        let pushed = aged_list("↑2 not pushed", "4 min ago", now + minute);
+        publisher.offer(parts(pushed.clone()), now + minute);
+        assert_eq!(publisher.current().version, version + 1);
+        // The paths: the list, a project changed, one added, the decisions; none for the clock.
+        let base = Published {
+            at: now,
+            version: 1,
+            list: first,
+            projects: vec![page("harbor & co")],
+            decisions: Decisions::default(),
+        };
+        let mut aged = base.clone();
+        aged.list = later;
+        assert!(aged.changed_paths(&base).is_empty());
+        let mut changed = base.clone();
+        changed.list = pushed;
+        changed.projects[0].resolved = 1;
+        changed.projects.push(page("meadow"));
+        changed.decisions.elsewhere.push(Elsewhere {
+            project: "meadow".to_owned(),
+            mode: "visual",
+            words: "waits for you in VS Code".to_owned(),
+            name: None,
+        });
+        assert_eq!(
+            changed.changed_paths(&base),
+            [
+                "/m/",
+                "/m/p/harbor%20%26%20co",
+                "/m/p/meadow",
+                "/m/decisions"
+            ]
+        );
+        // A project gone is named too.
+        assert_eq!(
+            base.changed_paths(&changed),
+            [
+                "/m/",
+                "/m/p/harbor%20%26%20co",
+                "/m/p/meadow",
+                "/m/decisions"
+            ]
+        );
+    }
+
+    /// The event stream's source (EP-30b): each change named by its part's path, nothing for an
+    /// ask that renewed the time alone, and the end with the window's publisher.
+    #[test]
+    fn the_stream_names_each_change_and_ends_with_the_window() {
+        use futures_util::StreamExt;
+
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let mut publisher = Publisher::default();
+        let reader = publisher.reader();
+        let mut stream = Box::pin(reader.changes(None));
+        let mut next = |wait: u64| {
+            runtime.block_on(async {
+                tokio::time::timeout(Duration::from_millis(wait), stream.next())
+                    .await
+                    .ok()
+                    .flatten()
+            })
+        };
+        // The list as the empty snapshot holds it, so that only the project changes.
+        let reading = || List {
+            reading: true,
+            ..List::default()
+        };
+        let mut harbor = Parts {
+            list: reading(),
+            projects: vec![page("harbor")],
+            decisions: Decisions::default(),
+        };
+        publisher.offer(harbor.clone(), Utc::now());
+        assert_eq!(next(2000).as_deref(), Some("/m/p/harbor"));
+        // An ask answered with the same content: heard by the channel, named by no event.
+        reader.asked.store(true, Ordering::Release);
+        publisher.offer(harbor.clone(), Utc::now());
+        assert_eq!(next(300), None);
+        // Two parts at once: both named, in the pages' order.
+        harbor.projects[0].resolved = 2;
+        harbor.decisions.elsewhere.push(Elsewhere {
+            project: "harbor".to_owned(),
+            mode: "visual",
+            words: "waits for you in VS Code".to_owned(),
+            name: None,
+        });
+        publisher.offer(harbor, Utc::now());
+        assert_eq!(next(2000).as_deref(), Some("/m/p/harbor"));
+        assert_eq!(next(2000).as_deref(), Some("/m/decisions"));
+        // A page drawn from an older version than the window's now: everything, first; one drawn
+        // from the current version: nothing until a change.
+        let current = publisher.current().version;
+        let catch_up = |since: u64| {
+            let mut stream = Box::pin(reader.changes(Some(since)));
+            runtime.block_on(async {
+                tokio::time::timeout(Duration::from_millis(300), stream.next())
+                    .await
+                    .ok()
+                    .flatten()
+            })
+        };
+        assert_eq!(catch_up(current - 1).as_deref(), Some(EVERYTHING));
+        assert_eq!(catch_up(current), None);
+        // The window's quit: the stream ends, rather than waits (the review's: a timeout is no
+        // end).
+        drop(publisher);
+        let ended = runtime.block_on(async {
+            tokio::time::timeout(Duration::from_millis(2000), stream.next()).await
+        });
+        assert!(matches!(ended, Ok(None)), "{ended:?}");
+    }
+
+    /// The autopilot block says what the Autopilot section says (EP-30b): the owner's Pause, the
+    /// held chains, the plans with their marks and the log; the usage strip is off with the
+    /// meter.
+    #[test]
+    fn the_autopilot_block_says_what_the_section_says() {
+        let scratch = Scratch::new("published-autopilot");
+        let mut board = board(&scratch);
+        board.autopilot.paused = true;
+        board.autopilot.held.push(crate::autopilot::Held {
+            project: "harbor".to_owned(),
+            after: "EP-3".parse().ok(),
+            words: "held after EP-3 until the pause lifts: the autopilot is paused (your Pause)"
+                .to_owned(),
+        });
+        board.autopilot.keep_plan(chains::Plan {
+            project: "harbor".to_owned(),
+            after: "EP-3".parse().unwrap(),
+            briefs: Vec::new(),
+            stop: None,
+            daily: 2,
+            five_hour_mark: Some(70),
+        });
+        board.autopilot.log.push(crw_core::ledger::EventRow {
+            id: 1,
+            at: "2026-11-16T20:48:00+00:00".to_owned(),
+            kind: chains::EVENT_KIND.to_owned(),
+            project: Some("harbor".to_owned()),
+            detail: Some("chained EP-4 after EP-3".to_owned()),
+        });
+        let now = Utc::now();
+        let block = Autopilot::of(&board, now);
+        assert!(block.paused);
+        assert_eq!(block.held.len(), 1);
+        assert!(block.held[0].1.starts_with("held after EP-3"));
+        assert_eq!(block.plans.len(), 1);
+        assert_eq!(block.plans[0].0, "harbor");
+        assert!(
+            block.plans[0]
+                .1
+                .starts_with("after EP-3: no brief to chain")
+        );
+        assert_eq!(block.plans[0].2, "70 % of the session (five-hour) window");
+        assert_eq!(block.log[0].words, "chained EP-4 after EP-3");
+        assert!(block.log[0].at.is_some());
+        assert!(block.held_by_usage.is_empty(), "no figure is read");
+        assert_eq!(
+            block.on,
+            board
+                .portfolio
+                .projects
+                .iter()
+                .filter(|row| row.project.autopilot.enabled)
+                .map(|row| row.name().to_owned())
+                .collect::<Vec<_>>()
+        );
+        // The meter is off in a test: the strip says so.
+        assert_eq!(Usage::of(&board, now), Usage::default());
+        // The list carries both, and an idle second build is the same steady content.
+        let list = List::of(&board, now);
+        assert_eq!(list.autopilot, block);
+        assert_eq!(
+            list.steady(),
+            List::of(&board, now + chrono::TimeDelta::minutes(5)).steady()
+        );
     }
 
     /// A page with an old snapshot asks the window and takes its answer; a fresh one is taken
@@ -934,7 +1556,12 @@ mod tests {
             woken.fetch_add(1, Ordering::SeqCst);
         }));
         assert_eq!(woken.load(Ordering::SeqCst), 1);
-        assert_eq!(held.version, 0);
+        assert_eq!(
+            held.version,
+            publisher.current().version,
+            "the empty snapshot"
+        );
+        assert!(held.list.reading);
         assert!(started.elapsed() >= WAIT, "it waited for the answer");
         // Published just now: taken as it is, no ask.
         publisher.offer(Parts::default(), Utc::now());

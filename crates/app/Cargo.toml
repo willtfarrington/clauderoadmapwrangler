@@ -29,6 +29,8 @@ egui_material_icons.workspace = true
 # The Detail pane's burn-up and velocity plots (D-26; EP-26).
 egui_plot.workspace = true
 egui_tiles.workspace = true
+# The phone's event stream (D-14, D-28; EP-30b): `stream::unfold` over the published snapshot.
+futures-util.workspace = true
 image = { workspace = true, optional = true }
 # The data root's top level, watched for folders that appear or go (D-7).
 notify.workspace = true

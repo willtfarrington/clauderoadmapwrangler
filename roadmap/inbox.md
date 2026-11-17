@@ -186,4 +186,6 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   halves (`Board::gated`, `Board::start_queued`). EP-30's field check saw one more effect: the
   chain plan outlived its chain (the owner's restart at 23:15 carried it), since the gate that
   ends a chain never ran. EP-30 adds `owner_login` and leaves it unset in the owner's registry,
-  so the trap does not recur there.
+  so the trap does not recur there. **Done at EP-30b (2026-11-16):** the chain is held with
+  words naming the failure and File > Install and restart, said once, and a newer installed
+  build is taken at once with the chain carried (D-22 addendum).

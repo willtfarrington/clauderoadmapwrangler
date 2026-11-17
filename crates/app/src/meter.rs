@@ -336,6 +336,12 @@ impl Meter {
         }
     }
 
+    /// Whether the meter runs: started by `main`, or canned in a screenshot run (the phone's
+    /// usage strip shows its figures then, EP-30b).
+    pub fn is_on(&self) -> bool {
+        self.on
+    }
+
     /// The meter's state in a sentence, and whether it warns.
     pub(crate) fn state(&self, now: DateTime<Utc>) -> (String, bool) {
         let next = match self.next {

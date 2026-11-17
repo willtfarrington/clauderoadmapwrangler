@@ -203,3 +203,28 @@ label.choice { display: block; padding: 6px 0; }
 label.choice .description { display: block; margin-left: 1.7em; }
 label.check { display: flex; align-items: center; gap: 6px; }
 pre { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 0.85em; }
+
+/* The list's usage strip and autopilot block, a start page, a run's Stop (EP-30b). */
+section.block {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 4px 12px 10px;
+  margin: 10px 0;
+}
+section.block h2 { margin: 8px 0 4px; }
+.figure { margin: 6px 0; }
+.figure p { margin: 0; }
+.figure .name { font-weight: 600; }
+.share { font-weight: 600; }
+.share.good { color: var(--good); }
+.share.warn { color: var(--warn); }
+.share.bad { color: var(--bad); }
+.bad { color: var(--bad); }
+ul.log { margin: 4px 0; padding-left: 18px; font-size: 0.86em; }
+ul.log li { margin: 2px 0; overflow-wrap: anywhere; }
+dl.choices { margin: 6px 0; }
+dl.choices dt { font-weight: 600; }
+dl.choices dd { margin: 0 0 4px; overflow-wrap: anywhere; }
+a.action { font-weight: 600; }
+article.item.run .head { flex-wrap: wrap; }
