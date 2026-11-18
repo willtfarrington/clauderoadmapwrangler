@@ -8,153 +8,78 @@ cross-project inbox, chains briefs on autopilot within caps, meters the account'
 backup status and history graphs, hosts a chat to Claude Code, ships the roadmap method as a plugin, and
 ends with a phone view over a Tailscale tailnet.
 
-**Status:** phases P1, the read-only dashboard, and P2, sessions, are done (2026-11-01 and
-2026-11-04). The Cargo workspace, `crw doctor`
-and CI (EP-1), the registry of managed projects with discovery and `crw scan` (EP-2), the roadmap parser
-with `crw roadmap` (EP-3 the phase tables, EP-4 the briefs, the decision log and the HEAD-plus-working-tree
-snapshot that tells a session in progress), the owner's tasks, the cross-project inbox and the older forms
-of the owner's to-dos with `crw tasks` and `crw tick` (EP-5), the dashboard's shell (EP-6: the docking
-layout, the project list grouped by state, the detail pane, ticks and Adopt from the window) and its
-badges with `crw status` (EP-7: stack, progress, activity, hosting with a check of the origin's head, CI
-and license, backup age; EP-7a: columns sized to their content under a header row, and a legend of every
-mark) exist; the P1 re-plan (EP-8) measured the phase and opened this repository. In phase P2, the
-session runner (EP-9) starts a headless Claude Code session in a project's folder with
-the project's neighbour folders read-only, reads its stream-json, answers its questions and permission
-requests, stops it with its whole process tree and records it in the ledger; the launch dialog (EP-10)
-generates the house-style opener for a project's next brief, resolves its model, effort and permission
-mode through a rule table with the reason for each, and starts the session from the window, which
-holds it. Adopt writes a new project's own
-single-folder VS Code workspace file beside it, and a proposed state can be dismissed until the fact
-it rests on changes (EP-33). The dialog launches visually too (EP-11): it opens the project's own
-workspace file in VS Code and fills the prompt into a new Claude Code tab of that window, for the
-owner to send. The window listens on the loopback for Claude Code's hooks and status line, which
-`crw signals install` sets up in the user settings, and asks Claude Code for its live sessions, so
-the sessions started elsewhere show beside its own (EP-12). The Sessions pane is a tile (EP-13): a tab
-per headless session with its transcript as it streams, Stop and Kill, Resume with a message, and a
-list of every session with the ledger's rows, which `crw sessions` prints too. The Decisions pane is
-a tile too (EP-14): a headless session's questions and permission requests are answered there while
-it waits, a project may give them a time limit after which the run is deferred until the answer
-resumes it, a documented defer-and-resume route stands in when a CLI release breaks the control
-protocol, and a session waiting in VS Code is listed with Focus. A panic leaves its report in
-`crash.log` in the local folder, and the next start names it in the status bar (EP-14a). A popup of
-the window's own tells the owner when a session waits for them, has finished or has failed, a tray
-icon counts what waits, and closing the window leaves it in the tray with its sessions going on
-(EP-15). Each session's start is recorded: the project's HEAD, its branch and a copy of its
-uncommitted files, kept in the backups folder. `crw revert` puts a project back as it was when a
-session started, after copying the session's work out; it never pushes, and it is refused while
-a session works there or when the remote has one of the session's commits (EP-15b). The window
-previews the same revert in a dialog, from an ended session's tab, a ledger row of the Sessions
-pane or a project's row menu, and reads the plan again before it reverts (EP-15c). The P2 re-plan
-(EP-16) measured the phase and made the switch planned from the start: from EP-17 on, this
-project's own briefs are started from the tool, as visual launches by default. The usage meter
-(EP-17) shows the account's weekly, Fable and session (five-hour) usage in the status bar and a
-pane of its own, with notifications at 80 % and 95 %; the endpoint's `session` kind and its older
-`five_hour` object read as one window, shown while it is open and said closed in a line while it
-is not (EP-40). Each poll's rise is split among the sessions the
-window saw work since the poll before, so each session's row in the ledger keeps its share of the
-week, which the Sessions pane shows and `crw sessions` sums per project (EP-18a). Each project's
-sum, in points of the weekly limit, is a badge of its row, a line of its Detail pane and a sort
-key (EP-18b). A visual or manual session from the ledger reopens in a Claude Code tab of its
-project's VS Code window from the Sessions pane, and each resumed run gets a ledger row of its own
-(EP-35). The Chat pane (EP-24) hosts a read-only Claude Code session over the portfolio: each
-message is a turn of one session, kept in the ledger and listed by `crw chats`, with a digest of
-every project's standing appended to its system prompt; the session is confined to the projects'
-folders by `--restricted`, a project marked as a data repository is never given to it, and it
-writes nothing. Its replies draw as Markdown, the ledger's conversations are listed in the pane
-and picked up again, each conversation has its own model and effort, and the session's questions
-are answered in the pane with the Decisions form (EP-24a). A reply may offer actions, drawn as
-buttons under it that open the window's own dialogs with the project filled in (Adopt, which
-asks first whether the folder is a data repository, Formalise…, Migrate…, Compose… with the
-words typed), nothing written before the owner's click there; the session runs the tool's own
-`crw` reading commands under exact permission rules, and an `@<project>` in a message gives it
-that project's context as the prompt hook gives an interactive session (EP-24b). Each project's
-history is imported from its git log and its briefs' completion notes (EP-25): the commits that
-record an EP date it, the note cross-checks the date and wins when they differ by more than a
-day, flagged; the Detail pane's History section shows the dates, the flagged EPs and Re-import,
-`crw history <project>` prints the same, and the ledger keeps each project's done and total
-counts once a day. The Detail pane's Analytics section draws the graphs (EP-26): a calendar
-heatmap of the last 16 weeks (sessions per day, a dot for a day with a completion, for the
-project or the portfolio), a burn-up of done and total by day in which a re-plan is a jump, the
-EPs completed per week over the last 8, and a projection: the open rows by size at the measured
-median per size (a brief's time is its headless run less the owner's waits, or a visual session
-under 3 h as wall time; a reverted session is left out), and the finish as a range from the
-measured pace. The History section folds a list of the dated EPs with each completion note's
-model, effort and duration and the ledger's time. The exports (EP-27): `crw export site`
-previews `projects.json` and `projects-cards.html` for the projects whose remote is public in
-the account's list the window cached (name, stack badge, done of total, the next two undone
-rows, the day), and `--yes` writes them into the `assets/data` folder of the project the `site`
-setting names, for a session of the site to wire into its page (the tool never edits the page
-and never pushes); the window writes the daily export once a day, the registry and every table
-of the ledger as JSON into the git-ignored `private/export/<date>/`, at its first read of the
-files in a day and when the day turns while it is up (`crw export daily` writes it at once), and
-after each write keeps the last 14 days and each month's first folder, removing the older ones
-one at a time (EP-41); `crw export csv <project>` writes a project's sessions and daily counts as
-CSV there. The hosting and backup actions (EP-34): a row's menu and its Detail pane offer what its
-hosting allows (Create a private remote, which runs `gh repo create … --private --source …
---push`; Make public or Make private, `gh repo edit --visibility …`, the dialog repeating `gh`'s
-consequences paragraph and, for Make public, what a push to a public remote means; Remove the
-remote, `git remote remove origin`, GitHub left alone; Archive and Delete for an orphan, Delete
-refused until the token has the `delete_repo` scope), and the Detail pane's Backup subsection and
-File offer Back up now (the backup job's script run with `-Force`). Each opens a dialog that names
-the command, reads the plan again at the press and runs it only if it is the plan shown, never
-while a session works or waits in the project, never for a project marked a data repository
-where it would put it on GitHub or make it public; each run is an `event` row of the ledger, a
-failure is shown in the tool's own words and never retried, and the project's readings are asked
-again after it. Before Make public's confirmation (EP-42) the dialog reads the project's whole
-history once with `git log`: every commit's message and added lines, file paths included, against
-a list of words that must not be published, one fixed string a line, named by `crw setting
-private_words <file>`. It lists the commits that hit by short hash and subject, never a word or
-a line, and asks for a second tick before it goes on when any did; without a list it says so.
-`crw act <project> <action>` and `crw act backup` preview the same plans and run
-nothing. The Diagnostics pane and `crw doctor` (EP-28) give the same checks: the tools' versions
-against Claude Code's minimum, the extension's beside the standalone CLI's and the protocol
-crate's pin; this exe, the installed copy and the plugin's; each hook and the status line, which
-exe it runs and whether that exe is there; `gh`'s login; Tailscale's state; the backup drive
-mounted and labelled as the job expects; the registry and the ledger (its schema and SQLite's
-quick check); the crash log's last report; the rolling log; the last readings of the usage
-endpoint, the GitHub list, the mailman, ntfy and the status line; where Visual launches find
-VS Code and how many of the extension's lock files are stale (counted, never deleted). Each
-line is ok, a note, a warning or a failure, and nothing is changed. The pane gathers them on a
-worker thread when first shown and at Check again, under the window's own lines (its build, the
-signals, the notifications, the meter, the mailman, the headless route, the defer route's
-`crw.exe`, the log). The window keeps a rolling log, a file a day in the local folder's `log`
-with fourteen days kept, of its starts, its notices, warnings and errors, its quits and
-restarts, a panic's head line and a child that did not start; a start that failed for reasons
-security software causes (the file flagged, access denied, a file gone) says where to look. The
-window's loopback server also answers the phone's pages under `/m/` (EP-30 … EP-31). The
-project list shows the usage strip (the weekly, Fable and session figures with their resets), the
-autopilot's block (its state with Pause or Resume, the day's chained runs against the total in
-all projects, the held chains, the chain plans and the chain log's latest lines), then the state
-groups, and each project's next brief, progress, what waits
-on the owner, its sessions and its badges in words. A project's page shows its next brief's note,
-what waits on the owner, its inbox and its sessions, and ticks an owner task, ticks an inbox
-message with its disposition and writes a message into its inbox; it stops a headless run of the
-window's there, and links a page that starts its next brief headless with the model and effort
-the rules resolve, after showing what the run would be and what refuses it now. The decisions
-page answers a headless session's questions and permission requests, a deferred run's too. The
-sessions page lists the window's headless runs, the sessions open elsewhere and the ledger's
-latest rows; a run's own page shows its transcript as it comes in, with its waiting questions to
-answer and its Stop, and takes answers only: a message, Resume, Kill, Revert and Commit stay the
-window's. The notifications page lists the latest notifications, and the doctor's page shows the
-report the Diagnostics pane last gathered, with a Check again of its own. Each
-form goes to the window, which runs it as the desk would and says what came of it on the page, in
-its status bar and in its log. The pages are rendered from a snapshot the window publishes, and
-one small script of the tool's own listens to the window's event stream and fetches again the
-parts of a page that changed, leaving alone one being typed in; the pages work without it. A
-request from the machine itself is local. One through Tailscale Serve must
-carry the login that `crw setting owner_login` names, and any other is refused; each action
-through Serve and each refusal is logged in the ledger, which `crw remote` prints. Enable remote
-view (EP-31a), in the tray's menu and the Diagnostics pane, mounts the pages' path alone on the
-tailnet with Tailscale Serve after a confirmation, and Disable takes it off again (see
-[The phone view](#the-phone-view) below). The window's
-queued actions now run while it is hidden in the tray too, so the tray's Pause acts at once. The
-roadmap is
-[`roadmap/README.md`](roadmap/README.md), the decisions
-[`DECISIONS.md`](DECISIONS.md), the session rules [`CLAUDE.md`](CLAUDE.md).
+## State of the app
 
-![The dashboard in the light theme on a wide window: the projects grouped by state, each row with its next brief, progress, owner items and badge columns under a header row, and the Detail pane of the selected project with its brief notes, progress and status](docs/dashboard-light.png)
+**v1 is complete** (2026-11-17). Planned in a 72-question interview on 2026-10-31 as 32 session
+briefs and grown to 69 as it ran, it is done in five phases: P1 the read-only dashboard, P2
+sessions, P3 automation, usage, the cross-project inbox and the method plugin, P4 the chat,
+analytics, exports and diagnostics, P5 the phone view. The tool has run its owner's portfolio
+since P1, and it has started its own briefs since P2's close: as visual launches into VS Code at
+first, then as headless runs it chains by itself, restarting into each brief's build between two
+runs. v2 opens with one fix and a planning interview of its own; its direction leads with Claude
+Code's background sessions, a worktree per session, usage over time and free chat from the phone.
+The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions [`DECISIONS.md`](DECISIONS.md),
+the session rules [`CLAUDE.md`](CLAUDE.md), and the work parked for v2
+[`roadmap/v2-notes.md`](roadmap/v2-notes.md).
 
-![The dashboard in the dark theme: a row expanded to its phases, the legend of every mark open under the list, and the Detail pane of the selected project](docs/dashboard-dark.png)
+What it does, by area (the sections below give the detail):
+
+- **Projects and roadmaps.** A registry of the projects under one data root, with new folders
+  found and adopted from the window (each given its own VS Code workspace file), and a parser of
+  the house-style roadmap (phase tables, briefs, decision logs, owner tasks and the inbox; two
+  older shapes read only) that reads each project at git `HEAD` and in the working tree and tells
+  a session in progress. The list shows every project's next brief with its size, its progress,
+  what waits on the owner and its badges (stack, hosting, sync, activity, CI and license, backup,
+  the week's usage share); the Detail pane shows the brief notes set for reading, the status, the
+  history and the graphs. Formalise… (and `crw formalise`) gives a project the house-style files,
+  and Migrate… hands an older roadmap to a session that converts it.
+- **Launching sessions.** The launch dialog writes the house-style opener for the next brief and
+  resolves its model, effort and permission mode through a rule table, with a Fable downshift
+  while that limit runs high. Visual fills the prompt into a new Claude Code tab of the project's
+  VS Code window; Headless runs the session in the window, read through stream-json, with the
+  project's neighbour folders read-only.
+- **Sessions and decisions.** The Sessions pane holds each headless run's transcript as it
+  streams, with Stop, Kill and Resume, and lists every session the hooks and `claude agents
+  --json` report, each that works kept in the ledger. The Decisions pane answers a headless run's
+  questions and permission requests, with an optional time limit that defers the run until the
+  answer comes.
+  A session can be reverted to its recorded start, its work copied out first, and a visual or
+  manual one resumed in VS Code.
+- **The autopilot.** A project's box chains its next briefs after a headless run, once a gate
+  passes: the brief done and committed, a clean tree, no owner task due, the day's caps, the
+  weekly, Fable and five-hour figures under their marks, no other session at work. Each run is
+  capped by its size in working time and follows the owner's chain plan of models and efforts,
+  with a deny rule against `git push`; the window restarts into a newer installed build between
+  two runs, carrying the chain.
+- **Usage.** The account's weekly, Fable and five-hour figures, read from Claude Code's usage
+  endpoint with the local login, in the status bar and a pane, with a notification when the
+  weekly or the Fable limit passes 80 % and 95 %; each poll's rise is split among the sessions
+  that worked.
+- **Notifications.** The window's own popup (Windows' toasts may be off), a tray icon that counts
+  what waits, quiet hours, and each notification pushed to an ntfy server for the phone.
+- **Mail between projects.** A brief's `Handed on (to <project>)` block is delivered into the
+  receiving project's inbox once it is committed, and the owner writes messages from the window.
+- **The chat.** A read-only Claude Code session over the portfolio in the Chat pane, whose replies
+  offer the window's own dialogs as buttons.
+- **History and analytics.** Each project's history imported from git and its briefs' notes; a
+  heatmap, a burn-up, a velocity and a projection; sparklines in the list, and a cards view.
+- **Hosting, backup and exports.** Create a private remote, Make public (after a word check of the
+  whole history), Make private, Remove the remote, an orphan's Archive and Delete, and Back up now,
+  each behind a confirmation that names the command; the site's cards, a daily JSON export and a
+  CSV.
+- **Diagnostics and operations.** `crw doctor` and a Diagnostics pane with the same checks; a
+  rolling log and a crash log; an installed copy that a release build never meets, a start at
+  login hidden in the tray, one window per machine, and `crw` on PATH.
+- **The phone view.** The window's pages under `/m/` (the list, a project, the decisions, the
+  sessions and a run's own page, the notifications, the doctor's report) with a few actions
+  (tick, answer, compose, start, stop, pause, check again), put on the owner's tailnet by
+  Tailscale Serve behind the owner's login.
+- **The plugin.** The roadmap method as a Claude Code plugin with four skills: plan, replan,
+  formalise and status.
+
+![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief, progress, owner items and badge columns under a header row, the Detail pane of the selected project with its brief notes, phases and graphs, and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
+
+![The dashboard in the dark theme: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
 
 *Both pictures show the fake portfolio tracked in `crates/app/fixtures/portfolio`, taken by the app of
 its own window (`--features screenshot`, below) from a copy at a neutral path.*
@@ -247,7 +172,9 @@ its sessions' requests, and `crw dismiss`
 leaves a proposed state out until the fact it rests on changes (`crw undismiss` brings it back). Set
 `CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
-The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) shows the registry's projects
+The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) is a set of docked
+panes (Projects, Detail, Decisions, Sessions, Chat, Usage, Diagnostics) that can be dragged into
+another layout, which it keeps, and View > Reset layout restores. It shows the registry's projects
 grouped by state, each with its next brief, its progress, what waits on the owner (the open owner
 tasks and inbox messages of a project that keeps `roadmap/owner-tasks.md`, else the open items of its
 older forms), its badges (this
@@ -293,7 +220,8 @@ or opens it, and fills the prompt into a new Claude Code tab there, where the ow
 model and effort and sends it: the link carries the prompt alone, so in Visual the dialog's model,
 effort and ultracode pickers are greyed out, and the opener names the rules' suggestion. Start headless runs the session and gives it a tab in the Sessions
 pane: its transcript as it streams (the assistant's text, each tool call in one line with its result
-collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs, and,
+collapsed under it, what it asked, what was refused, the result), Stop and Kill while it runs (Stop
+closes its input and waits up to 30 seconds, Kill does not; either ends its whole process tree), and,
 once it has ended, Resume, which runs it again under its session id with the message typed there.
 The pane's All tab lists every session, the window's, those started elsewhere and the ledger's
 latest rows, filtered by project, mode and running only. A ledger card of a visual or manual
@@ -302,6 +230,13 @@ id, so that the conversation opens in a tab, ready for the next message. A headl
 greyed out, since the extension opens one as an empty tab; `claude --resume <id>` in a terminal
 takes it up, the id being on its card. The transcript stays in the window's memory: the tool
 writes none and reads none.
+
+Each session's start is recorded: the project's HEAD, its branch and a copy of its uncommitted
+files, kept in the backups folder. `crw revert` puts a project back as it was when a session
+started, after copying the session's work out; it never pushes, and it is refused while a session
+works there or when the remote has one of the session's commits (EP-15b). The window previews the
+same revert in a dialog, from an ended session's tab, a ledger row of the Sessions pane or a
+project's row menu, and reads the plan again before it reverts (EP-15c).
 
 The autopilot chains a project's briefs within caps. A project's box in the list (or A) turns it
 on, the owner's standing yes to that project's commits: its sessions then commit in the house
@@ -433,9 +368,83 @@ marked degraded with the reason. A notification comes when the weekly or the Fab
 80 % and 95 %, once per mark in each limit window. Each reading is a sample in the ledger, which
 `crw usage` prints with the meter's changes of state; `crw setting usage_endpoint off` keeps the
 meter on the status lines alone. Each poll's rise is split among the sessions the window saw work
-since the poll before, manual ones too, and each project's sum since the weekly reset is the Usage
-badge of its row, in points of the weekly limit (`+6 %`); its hover text and the Detail pane add
+since the poll before, manual ones too, so each session's ledger row keeps its share of the week,
+which the Sessions pane shows and `crw sessions` sums per project; each project's sum since the
+weekly reset is the Usage badge of its row, in points of the weekly limit (`+6 %`); its hover text
+and the Detail pane add
 its Fable sum and its part of all that was attributed, and the Usage share sort key ranks by it.
+
+The Chat pane (EP-24) hosts a read-only Claude Code session over the portfolio: each message is a
+turn of one session, kept in the ledger and listed by `crw chats`, with a digest of every
+project's standing appended to its system prompt; the session is confined to the projects'
+folders by `--restricted`, a project marked as a data repository is never given to it, and it
+writes nothing. Its replies draw as Markdown, the ledger's conversations are listed in the pane
+and picked up again, each conversation has its own model and effort, and the session's questions
+are answered in the pane with the Decisions form (EP-24a). A reply may offer actions, drawn as
+buttons under it that open the window's own dialogs with the project filled in (Adopt, which asks
+first whether the folder is a data repository, Formalise…, Migrate…, Compose… with the words
+typed), nothing written before the owner's click there; the session runs the tool's own `crw`
+reading commands under exact permission rules, and an `@<project>` in a message gives it that
+project's context as the prompt hook gives an interactive session (EP-24b).
+
+Each project's history is imported from its git log and its briefs' completion notes (EP-25): the
+commits that record an EP date it, the note cross-checks the date and wins when they differ by
+more than a day, flagged; the Detail pane's History section shows the dates, the flagged EPs and
+Re-import, `crw history <project>` prints the same, and the ledger keeps each project's done and
+total counts once a day. The Detail pane's Analytics section draws the graphs (EP-26): a calendar
+heatmap of the last 16 weeks (sessions per day, a dot for a day with a completion, for the project
+or the portfolio), a burn-up of done and total by day in which a re-plan is a jump, the EPs
+completed per week over the last 8, and a projection: the open rows by size at the measured median
+per size (a brief's time is its headless run less the owner's waits, or a visual session under 3 h
+as wall time; a reverted session is left out), and the finish as a range from the measured pace.
+The History section folds a list of the dated EPs with each completion note's model, effort and
+duration and the ledger's time.
+
+The exports (EP-27): `crw export site` previews `projects.json` and `projects-cards.html` for the
+projects whose remote is public in the account's list the window cached (name, stack badge, done
+of total, the next two undone rows, the day), and `--yes` writes them into the `assets/data`
+folder of the project the `site` setting names, for a session of the site to wire into its page
+(the tool never edits the page and never pushes); the window writes the daily export once a day,
+the registry and every table of the ledger as JSON into the git-ignored `private/export/<date>/`,
+at its first read of the files in a day and when the day turns while it is up (`crw export daily`
+writes it at once), and after each write keeps the last 14 days and each month's first folder,
+removing the older ones one at a time (EP-41); `crw export csv <project>` writes a project's
+sessions and daily counts as CSV there.
+
+The hosting and backup actions (EP-34): a row's menu and its Detail pane offer what its hosting
+allows (Create a private remote, which runs `gh repo create … --private --source … --push`; Make
+public or Make private, `gh repo edit --visibility …`, the dialog repeating `gh`'s consequences
+paragraph and, for Make public, what a push to a public remote means; Remove the remote, `git
+remote remove origin`, GitHub left alone; Archive and Delete for an orphan, Delete refused until
+the token has the `delete_repo` scope), and the Detail pane's Backup subsection and File offer Back
+up now (the backup job's script run with `-Force`). Each opens a dialog that names the command,
+reads the plan again at the press and runs it only if it is the plan shown, never while a session
+works or waits in the project, never for a project marked a data repository where it would put it
+on GitHub or make it public; each run is an `event` row of the ledger, a failure is shown in the
+tool's own words and never retried, and the project's readings are asked again after it. Before
+Make public's confirmation (EP-42) the dialog reads the project's whole history once with `git
+log`: every commit's message and added lines, file paths included, against a list of words that
+must not be published, one fixed string a line, named by `crw setting private_words <file>`. It
+lists the commits that hit by short hash and subject, never a word or a line, and asks for a second
+tick before it goes on when any did; without a list it says so. `crw act <project> <action>` and
+`crw act backup` preview the same plans and run nothing.
+
+The Diagnostics pane and `crw doctor` (EP-28) give the same checks: the tools' versions against
+Claude Code's minimum, the extension's beside the standalone CLI's and the protocol crate's pin;
+this exe, the installed copy and the plugin's; each hook and the status line, which exe it runs and
+whether that exe is there; `gh`'s login; Tailscale's state and the remote view's line; the backup
+drive mounted and labelled as the job expects; the registry and the ledger (its schema and SQLite's
+quick check); the crash log's last report; the rolling log; the last readings of the usage
+endpoint, the GitHub list, the mailman, ntfy and the status line; where Visual launches find VS
+Code and how many of the extension's lock files are stale (counted, never deleted). Each line is
+ok, a note, a warning or a failure, and nothing is changed. The pane gathers them on a worker
+thread when first shown and at Check again, under the window's own lines (its build, the signals,
+the notifications, the meter, the mailman, the headless route, the defer route's `crw.exe`, the
+log). The window keeps a rolling log, a file a day in the local folder's `log` with fourteen days
+kept, of its starts, its notices, warnings and errors, its quits and restarts, a panic's head line
+and a child that did not start; a start that failed for reasons security software causes (the file
+flagged, access denied, a file gone) says where to look. A panic leaves its report in `crash.log`
+in the local folder, and the next start names it in the status bar (EP-14a).
 
 Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio
@@ -450,11 +459,40 @@ The workspace has three crates: `crates/core` (the model and engines, no UI type
 desktop window, `clauderoadmapwrangler.exe`, with its loopback server) and `crates/cli` (`crw.exe`, the
 console commands and the hook and status-line relays). The checks every change passes: `cargo test`
 with and without `--features screenshot`, `cargo clippy --all-targets` with and without it, `cargo fmt
---check`. Tests never run the real `claude` CLI and never spend usage: the session runner's tests start
+--check`; CI runs the same on Windows at each push (`.github/workflows/ci.yml`). Tests never run the real `claude` CLI and never spend usage: the session runner's tests start
 `stub-claude`, a stand-in built with the core crate that replays recorded stream-json with fake names,
 and the signals' tests bind a free loopback port and write scratch settings files.
 
 ## The phone view
+
+The window's loopback server answers the phone's pages under `/m/` (EP-30 … EP-31). The project
+list shows the usage strip (the weekly, Fable and session figures with their resets), the
+autopilot's block (its state with Pause or Resume, the day's chained runs against the total in all
+projects, the held chains, the chain plans and the chain log's latest lines), then the state
+groups, and each project's next brief, progress, what waits on the owner, its sessions and its
+badges in words. A project's page shows its next brief's note, what waits on the owner, its inbox
+and its sessions, and ticks an owner task, ticks an inbox message with its disposition and writes
+a message into its inbox; it stops a headless run of the window's there, and links a page that
+starts its next brief headless with the model and effort the rules resolve, after showing what the
+run would be and what refuses it now. The decisions page answers a headless session's questions
+and permission requests, a deferred run's too. The sessions page lists the window's headless runs,
+the sessions open elsewhere and the ledger's latest rows; a run's own page shows its transcript as
+it comes in, with its waiting questions to answer and its Stop, and takes answers only: a message,
+Resume, Kill, Revert and Commit stay the window's. The notifications page lists the latest
+notifications, and the doctor's page shows the report the Diagnostics pane last gathered, with a
+Check again of its own. Each form goes to the window, which runs it as the desk would and says what
+came of it on the page, in its status bar and in its log; the window takes them while it is hidden
+in the tray too, as it does the tray's Pause. The pages are rendered from a snapshot the window
+publishes, and one small script of the tool's own listens to the window's event stream and fetches
+again the parts of a page that changed, leaving alone one being typed in; the pages work without
+it. A request from the machine itself is local. One through Tailscale Serve must carry the login
+that `crw setting owner_login` names, and any other is refused; each action through Serve and each
+refusal is logged in the ledger, which `crw remote` prints.
+
+<img src="docs/phone-list.png" width="320" alt="The phone's project list in the dark theme: the usage strip with the week, Fable and session figures and their resets, and the autopilot block with the day's chained runs, Pause, a held chain and a chain plan">
+
+*The phone's list page of the fake portfolio as the window would serve it, pictured in a desktop
+browser at a phone's size.*
 
 The window's server listens on the loopback only. Enable remote view, in the tray's menu or under
 the Network group of the Diagnostics pane, puts its phone pages on your tailnet with

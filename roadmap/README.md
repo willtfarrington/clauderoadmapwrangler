@@ -62,6 +62,22 @@ this re-plan, not 62). No L row remains open. *(EP-31, 2026-11-17.)* With EP-31b
 owner's choice at EP-31's field check), v1 is **69 briefs, 16 S · 49 M · 4 L ≈ 65
 session-hours**.
 
+**Closed 2026-11-17 (EP-32, the P5 re-plan and v1's close-out).** P5 took 6 h 25 min of active
+work against 7 h 30 min planned (86 %) and 18 h 59 min of wall time, 8 h 20 min without one
+overnight wait for the owner's answer; its S took 23 minutes and an M about 52, and the sizes stay
+the planning unit (D-4 addendum). Over v1 the phases' 64 briefs took 48 h 49 min of active work
+against 61 h planned (80 %); every brief's time is in the five re-plans' retro tables, and EP-32's
+note gathers them by phase. The re-plan opened with the third walk (D-10 addendum): the records
+settled much of it, and the owner took OT-29, the first real Enable remote view, live inside it,
+the phone's pages, forms, live updates and push links all working through Tailscale Serve. One fix
+came of it, and the routes no real use met in v1 are carried into v2's first walk by name. v1
+closes with **69 briefs, 16 S · 49 M · 4 L ≈ 65 session-hours, all done**. v2's direction leads
+with Claude Code's background sessions with Attach, a worktree per session, usage over time and
+free chat from the phone (D-1 addendum; [`v2-notes.md`](v2-notes.md), compiled by theme).
+**Phase P6** opens v2 with the walk's fix (EP-43, S) and the v2 planning interview (EP-44, L),
+which plans v2's phases as EP-0 planned v1's (D-30 addendum). With P6 the roadmap holds **71
+briefs, 17 S · 49 M · 5 L ≈ 67.5 session-hours**, 2 of them open.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -81,7 +97,8 @@ is split at pickup. A re-plan is M from EP-23: it opens with the phase walk (D-1
 decisions tile (EP-14), the autopilot (EP-19), the chat tile (EP-24) and the web pages (EP-30).
 *(EP-23, 2026-11-11.)* The chat tile was cut beforehand into three M briefs, so five L remain, one
 of them open (EP-30). *(EP-29, 2026-11-15.)* The web pages were cut beforehand into three M
-briefs too, so four L remain, all done.
+briefs too, so four L remain, all done. *(EP-32, 2026-11-17.)* The v2 planning interview (EP-44)
+is an L, as the v1 planning interview EP-0 was: an interview, not one of the engines.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -1964,7 +1981,7 @@ brief that first uses it, and the protocol crate stays at 2.1.316.
 | EP-31 | [Phone pages, the sessions: a session's page with its transcript streaming and its answers, the sessions list, the notifications page and the doctor's report](EP-31-phone-pages-the-sessions.md) (D-28, D-26, D-29) | M | EP-30b, EP-13, EP-28 | core | ☑ `7c9278a` |
 | EP-31b | [The overall daily cap in the window: the Autopilot section says today's chained runs against `autopilot_daily_total` and sets it beside the per-project pickers; the phone's autopilot block says the same](EP-31b-overall-daily-cap.md) (D-22, D-28) | S | EP-31 | core | ☑ `cbffaa2` |
 | EP-31a | [Enable remote view: `tailscale serve` on the phone's path alone behind a confirmation, the owner's login read and confirmed, Serve's status in Diagnostics, the link shown and pushed through ntfy, pushes that open their page, Disable, the tray's entry](EP-31a-enable-remote-view.md) (D-28, D-21) | M | EP-31, EP-20a | core | ☑ `d2062ed` |
-| EP-32 | Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31b, EP-31a | core | ☐ |
+| EP-32 | [Re-plan P5 and v1 close-out, opening with the P5 walk (D-10 addendum, 2026-11-08): timings, README "State of the app", addenda, `v2-notes.md` compiled, v2 direction](EP-32-replan-p5-v1-close-out.md) (D-1, D-4, D-10, D-28) | M | EP-41, EP-42, EP-30, EP-30a, EP-30b, EP-31, EP-31b, EP-31a | core | ☐ |
 
 Ordering rationale *(EP-29, 2026-11-15, the owner's choices)*: EP-41 and EP-42 open the phase,
 as EP-38 and EP-39 opened P4: the walk's five fixes to the surfaces and guards the owner uses
@@ -2407,6 +2424,92 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   page (a screenshot run binds no port): whether the README shows one, rendered from the
   fixtures and pictured in a desktop browser by the owner, is this brief's question.
 
+## Phase P6 — v2: the walk's fix and the v2 planning interview (planned 2026-11-17)
+
+| # | Brief | Size | Depends on | Core | Done |
+|---|---|---|---|---|---|
+| EP-43 | The phone's form wait: how long a page's order waits for the window, and what the window's pass did meanwhile, in the rolling log; the eleven-second wait's cause found and fixed; the page's wait lengthened only if a slow pass proves normal (D-28, D-14) | S | EP-32 | core | ☐ |
+| EP-44 | The v2 planning interview through the `plan` skill: v2's decisions from D-31, its phases and the first phase's brief notes, from the direction in `v2-notes.md`, the risks and the routes carried from v1 (D-1, D-30) | L | EP-32 | core | ☐ |
+
+Ordering rationale *(EP-32, 2026-11-17, the owner's choices)*: the P5 walk's one fix comes
+first, as the walks' fixes opened P4 and P5: a form sent from the phone is a daily path and the
+fix is small. The v2 planning interview follows and plans v2's phases from the direction the
+close-out recorded (D-1 addendum), as EP-0 planned v1's; its record says what comes after it.
+Both rows are the owner's to start: the autopilot never chains after a visual session, and EP-44
+is an L, over this project's limit of M.
+
+Standing decisions for phase P6: D-3 (the repository is public; the owner's projects, login,
+machine and tailnet stay out of tracked files and pictures), D-10 addendum (a residual-risk
+paragraph per brief; v2's first re-plan opens with a walk that takes the routes carried from v1),
+D-15 (the egui family and the protocol crate move only in a re-plan brief), D-28 and its addenda
+(the phone's guards and actions), D-29 (tests never run `claude` or `tailscale` and never drive a
+browser), D-30 addendum (v2 planned in an interview of its own).
+
+**Brief notes.**
+
+- **EP-43.** Added at EP-32 (2026-11-17) from the P5 walk, the owner's choice: the first fix of
+  v2. **What happened.** On 2026-11-17, with remote view on, the phone posted `POST
+  /m/diagnostics/check` through Serve at 18:31:24. The window took the order at 18:31:35, one
+  second after the page's wait (`server::FORM_WAIT`, ten seconds, `crates/app/src/server.rs`) had
+  let it go, so `Board::obey_orders` (`app/src/phone.rs`) dropped it unrun with its rolling-log
+  line ("A form from … was dropped: its page stopped waiting."), and the page said to send it
+  again. The second Check again at 18:32:00 was taken at once, as were the tray's Pause at
+  18:30:28 and the phone's Resume at 18:30:35. The window was shown, perhaps behind another
+  application's window, not hidden in the tray. **The path.** `Shared::order` hands a
+  `PageRequest` to the window through `Shared::orders`, calls the wake (`ctx.request_repaint()`,
+  set in `Watch::bind`, `app/src/watch.rs`) and awaits its `oneshot` for `FORM_WAIT`; `Hand`'s
+  `let_go` and `take` decide which side moved first. The window drains the orders in
+  `Board::obey_pages`, called from `Board::pass` (`Dashboard::logic`), shown or hidden. A
+  request through Serve is logged in the ledger by the guard (`Shared::log`) before its handler
+  hands the order over. **Candidates**, none confirmed: a pass held by a read on the window's
+  thread (EP-31 put the phone's ledger rows, read when the ledger changed, and the notifications,
+  read every 15 s, there; the ledger's busy timeout is five seconds in `Ledger::open_read_only`,
+  which those reads use, so two reads behind writes could add up), a registry read, or a wake
+  that brought no pass while the window lacked the focus. **In scope:** (1) measure: when the
+  window takes an order, the rolling log
+  says how long it waited and, past a threshold (two seconds, say), how long the pass before it
+  took and the time since the pass before that; (2) find the cause from the code and the
+  measurement, with a test where one can hold it (a slow read stubbed); (3) fix the cause (the
+  reads off the window's thread, or a wake that reaches it), and lengthen `FORM_WAIT` only if a
+  slow pass is normal, the page's words and the README's phone section following. A screenshot
+  run binds no port, so the tests speak HTTP to the server as EP-30's do; no test runs
+  `tailscale` or a browser (rule 5). An investigation that outgrows an S is re-scoped at pickup.
+- **EP-44.** Added at EP-32 (2026-11-17), the owner's choice: v2 is planned in an interview of its
+  own (D-30 addendum), through the plugin's `plan` skill
+  (`plugins/roadmap-wrangler/skills/plan/SKILL.md`): a verified survey of the tree and of Claude
+  Code's documented surface as it stands, a research pass, a domain map written first, rounds of
+  four questions with the recommended option first, then the decisions (from D-31 in
+  `DECISIONS.md`, unless the interview settles another form), v2's phases with full brief notes
+  for the first, the session rules where they change, and the parked notes. Its record is
+  `roadmap/planning-<date>.md`. **Inputs.** (1) **The direction** (D-1 addendum), all four
+  candidates the owner picked at EP-32: Claude Code's background sessions (`claude --bg`) as a
+  third launch mode with Attach in a terminal tab and `claude logs` (v2 §1; risk 9: such a
+  session works in a worktree of its own unless the project's settings say `worktree.bgIsolation:
+  none`, which roadmap edits in the main tree need); a worktree per session with its diff reviewed
+  in the tool before it lands (v2 §1); usage over time, charted from the samples kept since EP-17
+  with each project's share, and the five-hour extras parked at EP-29 (v2 §2); free chat from the
+  phone (v2 §4; D-28 left it out because a lost device would reach a session). The interview
+  orders them and weighs the rest of `v2-notes.md`, compiled by theme at EP-32. (2) **The risks**
+  (risks 1 … 18): risk 17 open (the push guard's refusal unseen), risk 18 (the phone view acting
+  on real projects from outside the desk). (3) **The routes carried into v2's first walk** by
+  name (the owner's choice at EP-32): the launch dialog's Install and restart with a newer build
+  installed (EP-39); a chat's own question answered in the Chat pane, and a deferred one resumed
+  (EP-24a); the first hosting action from the window, and a real Make public with its word check
+  against the owner's list (EP-34, EP-42); the Keep pins on the real registry and a chain with a
+  kept value (EP-19c); a delivery while a session idles in the receiver, a chain meeting an inbox
+  changed with no mail since its run, a restart with an urgent letter in flight, the first
+  reworded block (EP-20, EP-20c, EP-20d); a revert that redoes a formalise (EP-21a);
+  `/roadmap-wrangler:formalise` writing from a session in a project, and the four skills'
+  wording after more use (EP-22); a second start at login and how it looks (EP-28a); IN-14's
+  case, a key a new build adds during a run (EP-30b); the export folder's first removal under the
+  keep, due on 2026-11-29 (EP-41); and the phone's routes OT-29 could not reach: a start and an
+  answer from the phone, a run's page as it streams, a page left open across a restart, a form
+  or the tray's Pause while the window is hidden in the tray (EP-30, EP-30a, EP-30b, EP-31).
+  v2's first re-plan opens its walk with them. (4) **The pins** (D-15 addendum of 2026-11-17):
+  the protocol crate at 2.1.316 with the standalone CLI, its newest release 2.1.327. (5) **The
+  pace** (D-4 addendum, EP-32's note): an M about 50 minutes of active work, an S 20 to 35. The row is
+  an L because an interview of v1's kind ran 18 rounds (EP-0: 2 h 14 min of session).
+
 ## Risks / open items
 
 1. **The usage endpoint is undocumented** (D-23). A schema change or an auth change blanks the meter;
@@ -2440,6 +2543,9 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
    its pin, which shows as events it cannot read rather than a hung run (risk 2). *(EP-29,
    2026-11-15.)* Wider still: the extension and the protocol crate's newest release are both at
    2.1.325, the standalone binary is still 2.1.316, and the pin stays with it (D-15 addendum).
+   *(EP-32, 2026-11-17.)* The extension carries 2.1.326 and the protocol crate's newest release
+   is 2.1.327; the standalone binary is still 2.1.316, and the pin stays with it into v2 (D-15
+   addendum).
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
@@ -2466,7 +2572,9 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
    owner's existing posture (`remoteControlAtStartup: true`) and not changed by this tool; noted for the
    wholly-private projects' own decisions.
 9. **Worktree isolation of `--bg` sessions** would break roadmap edits in the main tree; `--bg` is parked
-   (v2 notes) and would need `worktree.bgIsolation = none` per project.
+   (v2 notes) and would need `worktree.bgIsolation = none` per project. *(EP-32, 2026-11-17.)*
+   Background sessions with Attach and a worktree per session both lead v2's direction (D-1
+   addendum), so this risk is among the first things the v2 planning interview (EP-44) weighs.
 10. **Antivirus** may flag the child-process spawner or the stub `claude` used in tests (D-29): spaced
     spawns, no burst loops, and the quarantine hint in Diagnostics.
 11. **The repository is public** (D-2, D-3 addenda; EP-8). A push publishes at once: a private name or
@@ -2512,6 +2620,10 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
     found no blocker either: five fixes waited up to fourteen briefs (EP-41, EP-42), and a
     sixth, the tray's Pause queued while the window is hidden, was found by reading the code for
     P5, not by use. The rare routes are carried by name to EP-32's walk, the last one v1 has.
+    *(EP-32, 2026-11-17.)* The third walk found one fix (EP-43), through a first real run taken
+    live inside the walk (OT-29) rather than a look after a brief. The routes no real use met in
+    v1 are carried into v2's first walk by name (the owner's choice), so the rarest may stay
+    unexercised well into v2; the field check reads the ledger's rows that would show one.
 17. **The push guard is unexercised** (D-22; EP-19b, EP-23). An autopilot run under permission
     mode `auto` carries a deny rule for `git push`, since `auto` would allow a plain push and a
     push of this repository publishes at once (risk 11). The opener's "never push" is the first
@@ -2521,7 +2633,9 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
     push`). The first refused push seen in a run's transcript closes this. *(EP-29,
     2026-11-15.)* Thirteen more autopilot runs completed in P4 and none pushed; none is known
     to have tried. EP-42 gives the doctor a line that says the rule is passed to such a run;
-    that Claude Code refuses under it stays unseen.
+    that Claude Code refuses under it stays unseen. *(EP-32, 2026-11-17.)* Seven more autopilot
+    runs completed in P5 and none pushed; the doctor says "push guard ok". The risk stays open
+    into v2 (the owner's choice).
 18. **The phone view acts on real projects from outside the desk** (D-28 and its addendum of
     2026-11-15; EP-29). Once EP-31a's Enable has run, a request that comes through Tailscale
     Serve can answer a waiting question, start a run, stop one, pause the autopilot, tick, and
@@ -2539,6 +2653,12 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
     a request through Serve passes only with this machine's name or the loopback in `Host`; the
     first request through Serve after each start of the window is logged with how Serve passed
     `Host`. The first real Enable is OT-29, ungated; EP-32's walk takes what it showed.
+    *(EP-32, 2026-11-17.)* OT-29 ran live in the P5 walk. Serve passes `Host` as this machine's
+    tailnet name with its port, with the login and the forwarding headers, and the guard keeps
+    both readings (D-28 addendum); the pages, the forms, the live updates and the pushes' links
+    worked on the owner's phone; Disable's `off` took the mount off, and Serve's other entries
+    stood. One phone form was dropped as designed when the window took it eleven seconds after
+    its post, past the page's ten-second wait: EP-43 finds why.
 
 ## Decision record
 

@@ -26,6 +26,20 @@ friction from a working process that already produces results; generality would 
 version. *Alternatives.* A portfolio showpiece with configurable parsers from the start; deciding each
 conflict at its EP.
 
+> **Addendum (2026-11-17, EP-32).** v1 is closed with its fifth phase's re-plan: every part this
+> decision names runs in the owner's window, and the phone view had its first real use in the P5
+> walk. Its 69 briefs ran from 2026-10-31 to 2026-11-17, 37 more than the plan's 32: most of them
+> splits at pickup or cuts made beforehand, the rest the fixes the walks found and the owner's
+> requests. The tie-breaker held each time it was asked: the window's own popup in place of
+> Windows' toasts, which the owner keeps off (D-21); a phase walk in place of a look after every
+> brief (D-10); the owner's house style read as the schema, older forms read only (D-9). v2's
+> direction, the owner's choice at the close-out: Claude Code's background sessions with Attach,
+> a worktree per session with its diff reviewed in the tool, usage over time with the five-hour
+> extras, and free chat from the phone lead, each from `roadmap/v2-notes.md`, where the rest
+> stays parked by theme. v2 opens with one fix the P5 walk found (EP-43) and is planned in an
+> interview of its own (EP-44), as v1 was (D-30). *Alternatives.* v2's first phase drafted at
+> the close-out without an interview; the interview first, the fix placed by it; a narrower lead.
+
 **D-2 Identity, repository, licence.** Folder, crate, executable and window title are
 `clauderoadmapwrangler`; a short alias for the shortcut and CLI is chosen at EP-1. The repository gets a
 **private GitHub remote at EP-1** and becomes **public at the first usable release** (the P1 re-plan, once
@@ -155,6 +169,23 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > No L row remains open. *Alternatives.* EP-30
 > in two M briefs, or kept as one L; an M counted as 45 minutes; the fixes in one row with the
 > two guards parked, or placed after the phone pages.
+
+> **Addendum (2026-11-17, EP-32).** P5 measured as the earlier phases were: EP-41 … EP-31a took
+> 6 h 25 min of active work against 7 h 30 min planned (86 %; 7 h 09 min with the subagents'
+> own transcripts), and 18 h 59 min from each session's first entry to its record commit, 8 h
+> 20 min without EP-31's overnight wait for the owner's answer. The S took 23 minutes, the seven
+> M 40 to 69 (52 on average; 48 in P4, 54 in P3). Seven of the eight briefs ran headless from the
+> window, five as a chained run; EP-31a was a visual session. Planned at EP-29 as eight rows, P5
+> closed with nine, EP-31b (S) joining from EP-31's field check at the owner's word; no row split
+> at pickup. **v1 as a whole:** the five phases' 64 briefs took 48 h 49 min of active work
+> against 61 h planned (80 %; P1 62 %, P2 77 %, P3 89 %, P4 80 %, P5 86 %), the four earlier
+> re-plans 2 h 40 min against 3 h, and the planning interview (EP-0) 1 h 20 min; every brief's
+> time is in the retro tables of EP-8, EP-16, EP-23, EP-29 and EP-32, the last also gathering
+> them by phase. v1 closes with 69 briefs, 16 S · 49 M · 4 L ≈ 65 session-hours, every row
+> checked. P6, v2's first phase, holds EP-43 (S, a fix) and EP-44 (L, the v2 planning interview:
+> an L as EP-0 was, not one of the engines the roadmap's Sizes paragraph reserves L for). The
+> sizes stay the planning unit into v2 (the owner's choice). *Alternatives.* An M counted as 45
+> minutes, which v1's pace (an M about 50 minutes of active work) would fit.
 
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
@@ -456,6 +487,25 @@ forms only with ticks in the registry; tasks only in the registry.
 > not" cost a round. *Alternatives.* A phone check as a gated owner task after each P5 brief
 > that adds a page; the rare routes staged once under a scratch home, or listed at the
 > close-out and no longer asked.
+
+> **Addendum (2026-11-17, EP-32).** The third walk, v1's last, took 55 points: the residual
+> risks of P5's eight briefs, the review points they logged for it, the routes the P4 walk
+> carried by name and three findings of the field check. The records answered 24 of them,
+> closing ten and finding fourteen routes still unmet. The record held no first run of the phone
+> view yet, so the first round offered OT-29's steps (the `replan` skill's step 2 asks for such
+> steps; here the owner took them live), and with a short look at the window they closed 17
+> points. Four took the owner's answer. Ten were left: six of the phone's routes OT-29 could not
+> reach (no run waited or streamed, and the window stayed shown), three review points logged for
+> the v2 notes, one point the code answers as built. One fix came of it: a phone form the window
+> took eleven seconds after its post, past the page's wait (EP-43, v2's first row). The twenty
+> points no real use met in v1 are carried into v2's first walk by name (the owner's choice), the
+> phone's routes among them (a start and an answer from the phone, a run's page as it streams, a
+> page left open across a restart, a form while the window is hidden): EP-44's brief note lists
+> them for v2's plan. The
+> cadence stays for v2: a residual-risk paragraph per brief, the walk opening each re-plan, an
+> owner task only for what needs the owner's hands. *Alternatives.* The unmet routes closed as
+> unexercised, with a watch list in `v2-notes.md` for the field check, or with no list; OT-29
+> left open and the phone's points carried with it.
 
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
@@ -776,6 +826,13 @@ urgent messages into running headless sessions.
 > *Alternatives.* The message delivered by the mailman's next round; a session at work there
 > holding it.
 
+> **Addendum (2026-11-17, EP-32).** No letter moved between projects in P5: the mailman's last
+> row is EP-27's delivery of 2026-11-13. The inbox's rare routes (a delivery while a session
+> idles in the receiver, a chain meeting an inbox changed with no mail since its run, a restart
+> with an urgent letter in flight, the first reworded block) are still unmet, and the owner
+> carried them into v2's first walk with v1's other unmet routes. *Alternatives.* Closed as
+> unexercised, with a watch list for the field check.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,
@@ -911,6 +968,12 @@ with modules; hand-written protocol types; another community client.
 > text left out until its block is whole (a long reply would show nothing while it streams); all
 > 2,000 entries the window keeps (a page weighing a megabyte, fetched again at each change).
 
+> **Addendum (2026-11-17, EP-32).** The phone pages' stack met a real phone in the P5 walk
+> (OT-29): the pages drew over the tailnet, the forms posted through Serve's proxy with their own
+> origin, and the tool's script kept the open list current from the event stream, a Pause at the
+> desk showing on the phone within seconds with no reload. Nothing in the stack needed a change.
+> *Alternatives.* None weighed again.
+
 **D-15 Pins and version detection.** `Cargo.lock` pins everything; the egui family and the protocol crate
 move only in re-plan briefs. A **minimum Claude Code version** is recorded in `core`; at start the tool
 reads `claude --version` and `claude auth status`, and on each run the `system/init` capabilities, enabling
@@ -1012,6 +1075,15 @@ everything.
 > `Sse` takes a `Stream`). The lock gained no package, only the app crate's line naming it.
 > *Alternatives.* A `Stream` written by hand over `futures-core`, about forty lines of polling
 > a boxed future; `tokio-stream`'s `WatchStream`, a new package.
+
+> **Addendum (2026-11-17, EP-32).** The pins looked at for v1's close: eframe, egui and
+> egui_extras 0.37.0, egui_tiles 0.18.0, egui_plot 0.38.0, egui_commonmark 0.26.0, axum 0.8.9,
+> askama 0.16.1 and futures-util 0.3.34 are each the newest on crates.io. The protocol crate
+> stays at 2.1.316 with the standalone CLI the runner meets, still 2.1.316, while the crate's
+> newest is 2.1.327 and the VS Code extension bundles 2.1.326 (the owner's choice). egui#8470 is
+> open, and the upstream fix of 2026-11-11 (EP-29's addendum) is in no release yet, egui's
+> newest being 0.37.0, so the rule against immediate viewports stands. *Alternatives.* The
+> protocol crate moved in a v2 brief of its own, the adapter's tests run against it.
 
 ## Sessions
 
@@ -1521,6 +1593,11 @@ pushes. *Alternatives.* Toasts and tray without ntfy; only waiting and failed; e
 > pushes stay plain. *Alternatives.* Links on waiting pushes only; the link in the push's text
 > alone; a session elsewhere's end linking the list.
 
+> **Addendum (2026-11-17, EP-32).** The pushes' links worked on the owner's phone in the P5 walk
+> (OT-29): with remote view on, the test notification's push opened the phone's list page at a
+> tap, and so did the push that carried the remote view's link. *Alternatives.* None weighed
+> again.
+
 ## Automation and usage
 
 **D-22 Autopilot.** A per-project toggle. **Gate** for chaining the next brief after a headless run:
@@ -1932,6 +2009,21 @@ committing and recording hashes; one model and effort per project; usage thresho
 > *Alternatives.* Each project's own count beside its runs-a-day picker too; the total set from
 > the phone; `crw autopilot`'s first line with the day's count; a chain the total ended taken up
 > again when the total is raised (the gate ends a chain at a daily cap rather than holding it).
+
+> **Addendum (2026-11-17, EP-32).** P5's chains, read from the chain log and the rolling log:
+> five chained starts, all this project's (EP-42, EP-30a, EP-30b, EP-31, EP-31b); four restarts
+> into a new build at the gate's moment, each carrying the held chain and its plan, the next
+> brief starting in the new window within about half a minute; one five-hour hold of two hours,
+> at 91 % then 92 % against the chain's own mark of 80 %, lifted at the window's reset at 23:50
+> and chained at 23:55. The chain's own mark (EP-41) did its work at once: EP-30b chained at 54 %
+> of the session window, where the setting's 50 % would have held it. EP-42's chain ended at the
+> gate's read of a registry the running build could not parse (`private_words`), with no line in
+> the chain log, as IN-14 then described and EP-30b fixed; the owner's File > Install and restart
+> brought the window on. The chain from EP-30 ran EP-31b, which joined the roadmap after its plan
+> was made, at the rules' choice, and ended at EP-31a, which the owner had left out of the plan.
+> A chat's ended run held the gate's restart once, which EP-31b's roll-in fixed. No run pushed,
+> and risk 17 stays open into v2 (the owner's choice). *Alternatives.* Risk 17 closed as
+> accepted; a supervised probe of the push guard planned for v2.
 
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
@@ -3065,6 +3157,31 @@ PIN for write actions; periodic re-authentication; the tailnet as the only bound
 > proxy, whose `Host` their own guard refuses, but this decision proxies the phone's path alone);
 > Enable and Disable from `crw` too.
 
+> **Addendum (2026-11-17, EP-32).** The first real use, OT-29, taken live in the P5 walk.
+> Enable from the tray named the command, the login and the link and ran; the link pushed
+> through ntfy opened the list on the owner's phone over the tailnet; a Pause at the desk showed
+> on the phone's open page within seconds, and Resume from the phone ran; a test notification's
+> push opened the list at a tap; Disable's `--set-path=/m off`, known until then from Tailscale's
+> source alone, took the mount off, and Enable again put it back. Serve's other three HTTPS
+> entries stood as they were, and Funnel stayed off.
+>
+> - **The arrival** answered EP-31a's question: Serve passes `Host` as this machine's tailnet
+>   name with its port, with the login, the forwarding headers (`X-Forwarded-For`, `-Host`,
+>   `-Proto`) and Tailscale's other identity headers; never the loopback. The guard keeps both
+>   readings (the owner's choice): a request with the login and a loopback `Host` can come only
+>   from the machine itself, which passes as local anyway, so refusing it would protect nothing
+>   new. The exact rule (through Serve means this machine's name in `Host`) is a v2 note.
+> - **A form dropped.** The phone's first Check again was taken by the window, shown on the
+>   screen, eleven seconds after its post, one second after the page's ten-second wait ended, so
+>   it never ran and the page said to send it again, as designed; the second, half a minute
+>   later, ran at once, as had Pause and Resume a minute before. The cause is unknown. EP-43 (S),
+>   the first row of v2 (the owner's choice), measures how long a page's order waits for the
+>   window and what the window's pass was doing, finds the cause, and lengthens the page's wait
+>   only if a slow pass proves normal.
+>
+> *Alternatives.* The guard narrowed to this machine's name in v2; the form's wait parked as a v2
+> note, or watched until it happens again.
+
 **D-29 Operations and quality.** A release exe with a desktop shortcut and a Start-menu entry installed by
 `scripts/install-shortcut.ps1`; the tool registers its own start-at-login entry (staggered by the owner's
 Autorun Organizer); single instance by probing the loopback port and focusing the running window; closing
@@ -3461,3 +3578,13 @@ ntfy (D-21) and health badges (D-25), and parked the unpicked items (usage-over-
 report, free chat from the phone, `--bg` launch mode). *Why.* The owner treats the interview as the design
 step and wants the written documents to match it without a second pass. *Alternatives.* A shorter
 interview; writing the roadmap from the brief alone.
+
+> **Addendum (2026-11-17, EP-32).** v2 is planned the same way, the owner's choice at the
+> close-out. EP-44 is an interview through the plugin's `plan` skill, its record a
+> `roadmap/planning-<date>.md` of its own, its decisions numbered on from D-31 in this log unless
+> the interview settles otherwise. Its inputs are this log, the roadmap's risks,
+> `roadmap/v2-notes.md` with the direction EP-32 recorded (D-1 addendum) and the routes carried
+> into v2's first walk (D-10 addendum). Three of the four items this interview parked now lead
+> v2 (the usage-over-time graph, free chat from the phone, the `--bg` launch mode); the portfolio
+> report stays parked. *Alternatives.* v2's first phase drafted at the close-out; a roadmap or a
+> decision log of its own for v2.

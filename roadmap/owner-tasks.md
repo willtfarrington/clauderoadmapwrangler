@@ -316,7 +316,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   project), and that `target\release\crw.exe act <project> <action>` previews the same plan.
   The orphan's Delete stays refused until you run `gh auth refresh -s delete_repo` in a terminal
   (it opens a browser). Anything odd goes to `roadmap/inbox.md`.
-- [ ] OT-29 (EP-31a, 2026-11-17) The first real Enable remote view (the first run of a new
+- [x] OT-29 (EP-31a, 2026-11-17) The first real Enable remote view (the first run of a new
   route; nothing waits on it). Once the window runs EP-31a's build (it restarts into it after the
   install, or File > Install and restart): (1) the tray's menu, Enable remote view… (or the
   button under the Diagnostics pane's Network group): the dialog names `tailscale serve --bg

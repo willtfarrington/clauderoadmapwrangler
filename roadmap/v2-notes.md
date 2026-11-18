@@ -10,15 +10,57 @@ marked *(EP-35)*, at EP-19, EP-19a, EP-19c and EP-20a by those marked so, at EP-
 the P3 re-plan) by those marked *(EP-23)*, and at EP-29 (2026-11-15, the P4 re-plan) by those
 marked *(EP-29)*, each with the brief it comes from.
 
+**Compiled at v1's close-out (EP-32, 2026-11-17).** v1 is done (69 briefs; the roadmap, D-1
+addendum). Each theme below now opens with what v1 built of it and what stays parked; the items
+P5 named are marked *(EP-32)* with the brief they come from; nothing was taken out. The direction
+the owner chose for v2 comes first. The routes no real use met in v1, carried into v2's first
+walk, are listed in EP-44's brief note in the roadmap, where v2's plan reads them.
+
+## The v2 direction (EP-32, 2026-11-17)
+
+The owner's choice at the close-out: all four candidates named at the v1 planning lead v2. The v2
+planning interview (EP-44, the `plan` skill; D-30 addendum) orders them and weighs the rest of
+this file.
+
+1. **Claude Code's background sessions with Attach** (§1): `claude --bg` as a third launch mode,
+   Attach in a Windows Terminal tab, `claude logs` and the supervisor's state. Each managed project
+   needs `"worktree": {"bgIsolation": "none"}` so that roadmap edits stay in the main tree (risk
+   9); such sessions are interactive, so Remote Control reaches them from the phone.
+2. **A worktree per session, with its diff reviewed in the tool** (§1): each run in a git worktree
+   of its own, its diff read in the window before it lands in the main tree; weighed against the
+   house's process, which edits the main tree and reviews in VS Code.
+3. **Usage over time** (§2): the weekly, Fable and five-hour figures charted from the samples kept
+   since EP-17, with each project's share; with them the five-hour extras parked at EP-29 (alerts
+   at 80 % and 95 % of the session window, a five-hour line in the sparkline, a predictive gate
+   that needs each session's five-hour rise recorded).
+4. **Free chat from the phone** (§4): a typed message into a session or the chat from the phone,
+   which D-28 left out because a lost device would reach a Claude Code session; v2 weighs it
+   against that reason and the guards EP-30 … EP-31a built.
+
+Before them, EP-43 fixes the one defect the P5 walk found: a form from the phone the window took
+eleven seconds after its post, past the page's wait (D-28 addendum).
+
 ## 1 Launch modes
+
+*(EP-32, the theme compiled.)* Built in v1 from this list: Resume in VS Code for visual and manual
+sessions (EP-35), a headless run's row closed at the next start (EP-28a), the held chain and the
+chain plan carried across the window's own restart (EP-37a), this project chained (EP-37,
+EP-37a), the downshift for every size (EP-40). Leading v2: background sessions with Attach and a
+worktree per session, and the five-hour extras with usage over time (the direction above).
+Parked: other launch surfaces and their hand-offs (a terminal `claude --ide`, a launch from
+`crw`, a visual launch's model and effort), the dialog writing defaults and templates into the
+registry, a headless run resumed after the window restarts, the Decisions tile's further answers
+(Allow always, a free reply, a request kept across a restart), and the autopilot's refinements (a
+plan in the registry, a pause per project, the gate read from the command line, a chain after a
+visual session).
 
 - **Claude's own background sessions (`claude --bg`) as a third launch mode** with Attach in a Windows
   Terminal tab, `claude logs`, and the supervisor's `claude agents --json` state; requires `"worktree":
   {"bgIsolation": "none"}` in each managed project's `.claude/settings.json` so roadmap edits stay in the
   main tree; such sessions are interactive, so Remote Control reaches them from the phone (round 7, round
-  17: not picked).
+  17: not picked). *(EP-32: leads v2's direction.)*
 - **Worktree per session** and **diff review** inside the tool (recurring in other orchestrators; the
-  owner's process edits the main tree and reviews in VS Code).
+  owner's process edits the main tree and reviews in VS Code). *(EP-32: leads v2's direction.)*
 - A Windows Terminal tab running `claude --ide` as a visible CLI attached to VS Code (an alternative
   visual launch).
 - *(EP-9)* Claude Code's OS-level sandbox for headless runs that have neighbour folders: the `Edit`
@@ -168,11 +210,32 @@ marked *(EP-29)*, each with the brief it comes from.
   reconciliation during the window's life; the icon inside the exes as a resource (it needs a
   resource compiler, a stack change); the install folder itself on PATH, or a `crw.cmd` shim
   (the owner chose a copy).
+- *(EP-32, from EP-41)* A chain's own five-hour mark shown in the tray's line and the Autopilot
+  section's header chip, which say what the setting holds; an editor for the standing setting in
+  the window (`crw setting autopilot_five_hour_percent` serves); the start's mark line taken from
+  the run's own plan, where today it takes the open dialog's project, so a resumed run starting
+  while another project's dialog is open logs that project's mark (EP-41's review, logged).
+- *(EP-32, from EP-31b)* Each project's own count in its line ("n of its runs a day today"); `crw
+  autopilot`'s first line with the day's count; a chain the daily total ended taken up again when
+  the total is raised (the gate ends a chain at a daily cap rather than holding it).
+- *(EP-32, from the field check)* The words of a five-hour hold: the chain log says "held after
+  EP-n until the pause lifts" for the usage mark, the name the weekly and Fable mark has had since
+  EP-19, while the rest of the line names the chain's own mark (EP-41); "until the session window
+  resets" would say what lifts it. And the words of a re-read after a run when the registry does
+  not read (a key the running build does not know): "was not read again: the registry does not
+  list it" (2026-11-15, the case IN-14 fixed for the gate).
 
 ## 2 Analytics
 
+*(EP-32, the theme compiled.)* Built in v1: the per-poll attribution and the Usage badge (EP-18a,
+EP-18b), the history import and the daily counts (EP-25, EP-25a), the graphs, the sparklines and
+the cards (EP-26, EP-26a), and the projection. Leading v2: usage over time (the direction above).
+Parked: the attribution's finer forms, a re-read at every hook event, the analytics printed by
+`crw`, the portfolio's burn-up, and transcripts parsed for tokens (rejected for v1, D-23, D-26).
+
 - **Usage over time**: weekly and Fable percentages charted from the samples with per-project share
   (round 13, round 17: not picked). The samples are recorded from EP-17, so the graph is cheap later.
+  *(EP-32: leads v2's direction.)*
 - Parsing transcripts for token counts per project (the approach of existing usage tools; the format is
   declared internal and changes between releases) — rejected for v1 (D-23, D-26).
 - Transcript copies kept beyond the 30-day sweep (rejected, D-3).
@@ -199,6 +262,12 @@ marked *(EP-29)*, each with the brief it comes from.
 
 ## 3 Chat
 
+*(EP-32, the theme compiled.)* Built in v1: the hosted read-only chat over the portfolio, its
+replies as Markdown with action buttons, its questions answered in the pane, `crw` reading
+commands under exact rules, `@<project>` mentions (EP-24, EP-24a, EP-24b). Parked: the portfolio
+report, writing commands for the session, the replies' and the pane's further forms; a full-tool
+chat session stays rejected (D-27).
+
 - **Portfolio report**: a Markdown report across projects written into `private/` on request (round 14,
   round 17: not picked).
 - A full-tool chat session in `DATA` (rejected for blast radius, D-27).
@@ -216,8 +285,14 @@ marked *(EP-29)*, each with the brief it comes from.
 
 ## 4 Phone view
 
+*(EP-32, the theme compiled.)* Built in v1: the phone's pages under `/m/` with the identity check,
+the eight actions and their log (EP-30 … EP-31), and Enable remote view on Tailscale Serve
+(EP-31a), first used for real in the P5 walk (OT-29; D-28 addendum). Leading v2: free chat from
+the phone (the direction above). Parked: the actions D-28 keeps at the desk, other ways in (a
+PIN, a path under another hostname, an eframe-wasm page), and the guard's exact rule.
+
 - **Free chat from the phone** (round 15, round 17: not picked; a lost device would reach a Claude Code
-  session).
+  session). *(EP-32: leads v2's direction.)*
 - An eframe-wasm phone view served by the same server (egui 0.36 improved mobile IME; the
   keyboard-covers-field issue #4572 was open on 2026-10-31).
 - A PIN for write actions and periodic re-authentication (alternatives to D-28).
@@ -229,8 +304,31 @@ marked *(EP-29)*, each with the brief it comes from.
   ntfy); links on the waiting pushes
   alone; Enable remote view built early, each page then watched on the phone, or a gated phone
   check after each page's brief; the whole port proxied as D-28 first wrote it.
+- *(EP-32, from EP-30a, EP-30b and EP-31)* What P5's briefs kept at the desk, each by D-28's
+  list: untick, and the ticked tasks and messages folded on a project's page; Focus for a session
+  waiting in VS Code; a chat's questions; a start with another model or effort than the rules', a
+  visual start, the chain plan's choices, Resume or Commit; a typed message into a session; a
+  transcript of a session started elsewhere (the tool reads none, D-26); the Diagnostics pane's
+  own lines (its build, signals, meter, routes); the daily total set from the phone.
+- *(EP-32, from EP-31a)* Enable and Disable from the phone or from `crw`; a check that the phone's
+  other VPN displaces the tailnet (a hint in the README and the dialog); the machine renamed while
+  remote view is on (Disable, then Enable). The review's logged points: a command that times out
+  keeps none of its printed words (`process::finish`, shared code); the registry written from the
+  dialog's worker thread without a lock, as a `crw setting` beside the window would; Serve's
+  `Services` read as a flag alone (a service's host is a tagged device, which Enable refuses).
+- *(EP-32, from the P5 walk)* The guard's exact rule: since Serve passes this machine's tailnet
+  name in `Host` (OT-29's arrival line), a request with the owner's login and a loopback `Host`
+  refused, though only the machine itself can send one (the owner kept both readings, D-28
+  addendum).
 
 ## 5 Hosting and backup
+
+*(EP-32, the theme compiled.)* Built in v1: the hosting badges and their actions behind a
+confirmation, an orphan's Archive and Delete, Back up now (EP-7, EP-34), the word check of the
+history before Make public (EP-42), the site's cards, the daily export with its keep and the CSV
+(EP-27, EP-41). Parked: the actions from the command line, more of a repository changed from the
+tool, the exports in the menus, more guards on the publishing path (a hook, a scan before
+Create), and a second backup mechanism (rejected, D-24).
 
 - Deleting the orphan private repository from the tool (needs the `delete_repo` scope; D-24 flags it with
   Archive and Delete actions and leaves the scope refresh to the owner). *(EP-29: EP-34 built
@@ -249,8 +347,22 @@ marked *(EP-29)*, each with the brief it comes from.
   row-menu item for a project's CSV (the commands serve, the owner's choice at the P4 walk); a
   registry or a ledger restored from an export; a JSON file for each table; the daily folders
   kept 30 days, or all of them (the owner chose 14 days and each month's first, EP-41).
+- *(EP-32, from EP-42)* A scan before Create a private remote; a pre-commit or pre-push hook
+  reading the same `private_words` list (the alternative to rule 3's check by hand, §8's EP-8
+  item); a scan of the working tree's files. The review's logged points: the pass's output is
+  read whole, and Cancel while it reads leaves git holding the children's turn until it ends (two
+  minutes at most); the doctor's stand-in launch has no neighbour, defer route or plugin, so the
+  rule's place beside those is built only in the launch's own tests; the registry and the list
+  are read on the window's thread at the dialog's opening and at the press.
 
 ## 6 Conventions and other projects
+
+*(EP-32, the theme compiled.)* Built in v1: the house style as the schema with the older forms
+read only (D-9), owner tasks and the inbox (EP-5), the mailman between projects (EP-20 …
+EP-20d), Formalise and Migrate (EP-21, EP-21a), the plugin with its four skills (EP-22, EP-22a).
+Parked: the mail's and the formalise's finer forms, ticking the older forms, a split set's name,
+and the conventions the walks named (a sort by the Waiting count, the older forms counted by
+kind). The routes no real use met in v1 are carried into v2's first walk (EP-44's note).
 
 - **Migration of the three work-packet projects and the five-column project** to the house style: a
   chat-pane task per project, executed by a session in that project with the prompt EP-21 generates
@@ -297,6 +409,9 @@ marked *(EP-29)*, each with the brief it comes from.
 
 ## 7 Stack alternatives considered
 
+*(EP-32, the theme compiled.)* The choices v1 did not take, kept for v2's interview; none was
+reopened at the close-out, and every pin stayed (D-15 addendum of 2026-11-17).
+
 - Dioxus 0.7 for one UI codebase on desktop and web; Leptos 0.8 with a Tauri shell; Tauri 2 with a
   TypeScript frontend; Slint 1.18; Iced 0.14 (D-14 chose egui plus server-rendered pages).
 - Embedding Tailscale (libtailscale) instead of the running client's Serve (not needed).
@@ -313,6 +428,12 @@ marked *(EP-29)*, each with the brief it comes from.
   2.1.316 (kept, D-15 addendum).
 
 ## 8 Operations
+
+*(EP-32, the theme compiled.)* Built in v1: the crash log (EP-14a), the installed exe with its
+restart and handover (EP-37, EP-37a), screenshot runs over a neutral or copied root (EP-36), the
+doctor's report and the rolling log (EP-28), the start at login, the reconciliation and `crw` on
+PATH (EP-28a). Parked: hooks and checks that would replace a check by hand (a pre-commit word
+check, a CLI smoke in CI), the doctor putting right what it finds, and a log viewer.
 
 - Documented AV exclusions for the exe (alternative to D-29's spaced spawns and hints).
 - A Windows service for the core with a separate GUI (rejected, D-29).
@@ -336,9 +457,18 @@ marked *(EP-29)*, each with the brief it comes from.
   the doctor's report finds put right by it (it reads only); a log written by `crw` and the
   hooks beside the window's; a log viewer in the window; the doctor's checks run at every start
   of the window. For the push guard (risk 17): a supervised probe on a scratch repository with
-  a scratch remote, the alternative to EP-42's line.
+  a scratch remote, the alternative to EP-42's line. *(EP-32: risk 17 stays open into v2, the
+  owner's choice; the probe stays here.)*
+- *(EP-32, from EP-30)* A test of the router through `tower` (not a direct dependency) in place
+  of HTTP to a free port.
 
 ## 9 Views
+
+*(EP-32, the theme compiled.)* Built in v1: the docked tiles, the dense list with its measured
+columns, the legend, the readable notes, the cards and the expanded rows (EP-6, EP-7a, EP-15a,
+EP-26a), the Decisions, Sessions, Chat, Usage and Diagnostics panes. Parked: drag-resizable
+columns and a sort by a header's click, a transcript in a tile of its own, references that open
+what they name, and the popup's further forms.
 
 - Drag-resizable columns in the project list, their widths saved with the layout (the alternative the
   owner did not pick for EP-7a, which sizes the columns to their content; IN-4, 2026-11-01).
