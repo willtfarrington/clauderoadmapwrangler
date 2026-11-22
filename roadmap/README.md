@@ -2446,7 +2446,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-45 | [Re-cut P6 at the owner's request: the window's daily surfaces, the conventions review, the portfolio's states and sizes, the manuals; the v2 planning interview moves to P7](EP-45-recut-p6.md) (D-4, D-10, D-25, D-30) | M | EP-32 | core | ☐ |
+| EP-45 | [Re-cut P6 at the owner's request: the window's daily surfaces, the conventions review, the portfolio's states and sizes, the manuals; the v2 planning interview moves to P7](EP-45-recut-p6.md) (D-4, D-10, D-25, D-30) | M | EP-32 | core | ☑ `5fe06c3` |
 | EP-43 | The phone's form wait: how long a page's order waits for the window, and what the window's pass did meanwhile, in the rolling log; the eleven-second wait's cause found and fixed; the page's wait lengthened only if a slow pass proves normal (D-28, D-14) | S | EP-32 | core | ☐ |
 | EP-46 | Two trims: the Projects pane without its Brief column, the Usage pane without "The last seven days" (D-25, D-23) | S | EP-45 | core | ☐ |
 | EP-47 | The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself (D-27) | S | EP-45 | core | ☐ |
