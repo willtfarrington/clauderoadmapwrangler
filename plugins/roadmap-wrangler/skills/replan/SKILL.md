@@ -49,8 +49,10 @@ session's transcript, not from commits or a session ledger:
   words, which other text quotes;
 - run from the session's first entry to the EP's record commit (`git log`); when one session did
   two briefs, start the second at the first's record commit;
-- every entry's `timestamp` is UTC; gaps over five minutes are waits on the owner: report the
-  active time and the wall time;
+- every entry's `timestamp` is UTC; a gap over five minutes is a wait on the owner only when the
+  entry that ends it is a `user` entry whose `tool_result` carries an `AskUserQuestion` call's
+  `tool_use_id`, or a new prompt from the owner; any other long gap is the session's own time
+  (a long reasoning pass, a build): report the active time and the wall time;
 - read timestamps and file paths only, never the conversation's text.
 
 Sum each phase's active and wall time against its planned hours. The sizes stay the planning unit

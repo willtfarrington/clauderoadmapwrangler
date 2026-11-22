@@ -189,3 +189,20 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   so the trap does not recur there. **Done at EP-30b (2026-11-16):** the chain is held with
   words naming the failure and File > Install and restart, said once, and a newer installed
   build is taken at once with the chain carried (D-22 addendum).
+- [x] IN-15 (from a private project EP-19, 2026-11-18) The `replan` skill's retro rule (step 4:
+  "gaps over five minutes are waits on the owner") misread one gap at that project's EP-19
+  (2026-11-18): EP-15's session had a 7.5-minute gap a minute in, between an `api-request` entry and
+  an `assistant` entry carrying a thinking block, the model's own reasoning at max effort, while its
+  one `AskUserQuestion` was answered within a minute (counted as a wait, 33 active minutes would
+  have read 26). Suggest counting a gap as a wait only when the entry after it is a `user` entry
+  whose `tool_result` carries an `AskUserQuestion` call's `tool_use_id`, or a new prompt from the
+  owner, and reporting other long gaps as session time; entry types and tool ids are metadata, so
+  the rule still reads no conversation text. The owner's shared memory note
+  `replan-timing-from-transcripts.md` carries the same refinement since 2026-11-18.
+  **Triaged at EP-45 (2026-11-22):** rolled in, as it fits a re-plan brief and is S-sized: the
+  `replan` skill's step 4 now counts a gap as the owner's wait only when an answered
+  `AskUserQuestion` or a new prompt ends it, any other long gap being the session's own time;
+  EP-53, which times every project's briefs, uses the rule. The line named its sender and
+  another of the owner's repositories, both on the private word list of this public
+  repository: reworded on the owner's choice before the commit, and EP-51's Inbox pane flags
+  such a message on arrival.

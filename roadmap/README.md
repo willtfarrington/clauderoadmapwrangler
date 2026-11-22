@@ -78,6 +78,20 @@ free chat from the phone (D-1 addendum; [`v2-notes.md`](v2-notes.md), compiled b
 which plans v2's phases as EP-0 planned v1's (D-30 addendum). With P6 the roadmap holds **71
 briefs, 17 S · 49 M · 5 L ≈ 67.5 session-hours**, 2 of them open.
 
+**Re-cut 2026-11-22 (EP-45, P6 before it ran).** After five days' use of the window across the
+portfolio the owner asked for P6 to be cut again, and the v2 planning interview to wait. No walk
+and no retro: neither of P6's two rows had run. P6 is now the window's daily surfaces (EP-43 and
+EP-46 … EP-52: the phone's form wait, two trims, the chat's send, a project read again when its
+session's work is complete, a darker dark theme, panes of their own for the owner tasks, the
+inbox and the autopilot), the sizes measured again over every project (EP-53), this project's
+part of a conventions review that runs in the owner's environment repository (EP-54), the
+checklist of a sweep through every project that is not active (EP-55), and a manual per working
+project, written in Markdown, built to PDF and opened from the window (EP-56 … EP-58), closed by
+EP-59. From this re-cut **a brief is M or smaller, S preferred** (D-4 addendum): P6's sixteen
+rows are 6 S and 10 M. **Phase P7** is the v2 planning interview (EP-44), which EP-59 cuts to
+that rule. The roadmap holds **86 briefs, 23 S · 58 M · 5 L ≈ 79.5 session-hours**, 16 of them
+open once EP-45 is checked (15 in P6: 6 S · 9 M ≈ 12 session-hours; and EP-44).
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -99,6 +113,10 @@ decisions tile (EP-14), the autopilot (EP-19), the chat tile (EP-24) and the web
 of them open (EP-30). *(EP-29, 2026-11-15.)* The web pages were cut beforehand into three M
 briefs too, so four L remain, all done. *(EP-32, 2026-11-17.)* The v2 planning interview (EP-44)
 is an L, as the v1 planning interview EP-0 was: an interview, not one of the engines.
+*(EP-45, 2026-11-22, the owner's rule.)* From here a brief is **M or smaller, S preferred**; an L
+is cut only for one subtask that cannot be divided, with its reason in the row, and a row that
+proves larger at pickup is split there. EP-53 measures what an S and an M are across every
+project, and EP-59 cuts EP-44 to the rule.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -2424,26 +2442,61 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
   page (a screenshot run binds no port): whether the README shows one, rendered from the
   fixtures and pictured in a desktop browser by the owner, is this brief's question.
 
-## Phase P6 — v2: the walk's fix and the v2 planning interview (planned 2026-11-17)
+## Phase P6 — The window's daily surfaces, the conventions, the portfolio's states and the manuals (planned 2026-11-17, re-cut 2026-11-22)
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
+| EP-45 | [Re-cut P6 at the owner's request: the window's daily surfaces, the conventions review, the portfolio's states and sizes, the manuals; the v2 planning interview moves to P7](EP-45-recut-p6.md) (D-4, D-10, D-25, D-30) | M | EP-32 | core | ☐ |
 | EP-43 | The phone's form wait: how long a page's order waits for the window, and what the window's pass did meanwhile, in the rolling log; the eleven-second wait's cause found and fixed; the page's wait lengthened only if a slow pass proves normal (D-28, D-14) | S | EP-32 | core | ☐ |
-| EP-44 | The v2 planning interview through the `plan` skill: v2's decisions from D-31, its phases and the first phase's brief notes, from the direction in `v2-notes.md`, the risks and the routes carried from v1 (D-1, D-30) | L | EP-32 | core | ☐ |
+| EP-46 | Two trims: the Projects pane without its Brief column, the Usage pane without "The last seven days" (D-25, D-23) | S | EP-45 | core | ☐ |
+| EP-47 | The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself (D-27) | S | EP-45 | core | ☐ |
+| EP-48 | A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only (D-9, D-20) | S | EP-45 | core | ☐ |
+| EP-49 | The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings (D-25) | M | EP-46 | core | ☐ |
+| EP-50 | The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted (D-10, D-25) | M | EP-46 | core | ☐ |
+| EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
+| EP-52 | The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding (D-22, D-25) | S | EP-51 | core | ☐ |
+| EP-53 | The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller (D-4) | M | EP-45 | core | ☐ |
+| EP-54 | The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes (D-12, D-27) | M | EP-53 | core | ☐ |
+| EP-55 | The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☐ |
+| EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | S | EP-45 | core | ☐ |
+| EP-57 | The manual in the window: built by `crw manual`, opened from a row's menu and the Detail pane, its age beside the last phase's close (D-25) | M | EP-56 | core | ☐ |
+| EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57, EP-52 | core | ☐ |
+| EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
+
+*(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
+either ran, at the owner's request after five days' use of the window across the portfolio: it
+now holds sixteen rows, none over M, and EP-44 opens P7.
 
 Ordering rationale *(EP-32, 2026-11-17, the owner's choices)*: the P5 walk's one fix comes
 first, as the walks' fixes opened P4 and P5: a form sent from the phone is a daily path and the
 fix is small. The v2 planning interview follows and plans v2's phases from the direction the
 close-out recorded (D-1 addendum), as EP-0 planned v1's; its record says what comes after it.
 Both rows are the owner's to start: the autopilot never chains after a visual session, and EP-44
-is an L, over this project's limit of M.
+is an L, over this project's limit of M. *(EP-45, 2026-11-22, the owner's choices.)* The window
+comes first and the review runs alongside: EP-43 and the three small fixes (EP-46 … EP-48) open
+the phase, then the theme and the three panes (EP-49 … EP-52), all code briefs of S or M that
+may chain headless. The conventions review itself runs in the owner's environment repository,
+whose files it reads and changes, as that project's own sessions, from a message this re-cut
+sends; it may start at once, and this roadmap waits for its outcome only at EP-54. EP-53
+measures the sizes meanwhile. The sweep of the projects that are not active is the owner's, one
+session inside each project, guided by owner tasks that EP-55 writes once the Owner tasks pane
+(EP-50) can show them and the conventions are settled (EP-54). The manuals follow: the
+convention (EP-56, which may run any time after this re-cut), the window's part (EP-57), this
+project's own manual (EP-58, after the panes it describes). EP-56 … EP-58 do not wait for the
+sweep. EP-59 closes the phase and cuts P7.
 
 Standing decisions for phase P6: D-3 (the repository is public; the owner's projects, login,
 machine and tailnet stay out of tracked files and pictures), D-10 addendum (a residual-risk
 paragraph per brief; v2's first re-plan opens with a walk that takes the routes carried from v1),
 D-15 (the egui family and the protocol crate move only in a re-plan brief), D-28 and its addenda
 (the phone's guards and actions), D-29 (tests never run `claude` or `tailscale` and never drive a
-browser), D-30 addendum (v2 planned in an interview of its own).
+browser), D-30 addendum (v2 planned in an interview of its own). *(EP-45, 2026-11-22.)* D-4
+addendum (a brief is M or smaller, S preferred; a row that proves larger at pickup is split
+there, never run long), D-10 and D-25 addenda (the list counts owner-tasks lines alone; owner
+tasks and mail in panes of their own), rule 5 (a brief that changes a list or a pane checks it
+on a copy of the real portfolio before its close), rules 3 and 4 (no managed project is named
+in a tracked file, and none is edited from here: what another project should do goes into its
+inbox through the tool, on the owner's word).
 
 **Brief notes.**
 
@@ -2474,7 +2527,248 @@ browser), D-30 addendum (v2 planned in an interview of its own).
   slow pass is normal, the page's words and the README's phone section following. A screenshot
   run binds no port, so the tests speak HTTP to the server as EP-30's do; no test runs
   `tailscale` or a browser (rule 5). An investigation that outgrows an S is re-scoped at pickup.
-- **EP-44.** Added at EP-32 (2026-11-17), the owner's choice: v2 is planned in an interview of its
+- **EP-45.** The re-cut itself, a session the owner started by hand on 2026-11-22 with the
+  plugin's `replan` skill: no walk and no retro, P6 not having run. Its brief holds the owner's
+  ten requests and its completion note the answers.
+- **EP-46.** Added at EP-45, the owner's requests 1 and 4. (1) **The Brief column goes** from the
+  Projects pane, the Detail pane showing the next brief already: `Column::Title` in
+  `crates/app/src/list.rs` (`Column::ALL`, `LEFT`, its header "Brief" in `Column::header`), which
+  `Plan::new` gives the room the other columns leave (`TITLE_AT_LEAST`, `TITLE_FLOOR`,
+  `TITLE_MIN`, `title_least`), drawn in `project_row` from `next.brief.title`. With it gone the
+  spare width is shared among the columns as EP-7a's gaps are, D-25's give-way order kept; the
+  next EP's id and size stay, and the id's hover carries the one-liner. The cards view
+  (`project_card`, `TITLE_ROWS`) keeps its title: a card has no Detail pane beside it by
+  necessity; the brief says so and the owner may strike it at the close. The legend and the
+  README's pictures follow. (2) **"The last seven days" goes** from the Usage pane
+  (`crates/app/src/meter.rs`: the heading in `Meter::tile`, `sparkline()`, `draw_run`); the
+  limits (`limits()`, `limit_block`) and "This week by surface" (`surfaces()`) stay, and code
+  only the spark line used goes with it (clippy without the feature says what is dead). The
+  samples stay in the ledger: usage over time is v2's (v2 §2). Screenshot runs at 1600 × 1000,
+  2300 × 1000 and 1100 points, and one over a copy of the real portfolio (rule 5).
+- **EP-47.** Added at EP-45, the owner's request 7. `chat_send` (`crates/app/src/chat.rs`)
+  refuses with "claude has not answered yet: try again in a moment." when
+  `Sessions::preflight` (`crates/app/src/sessions.rs`) returns `None`: the preflight is asked
+  lazily on a worker thread and kept an hour (`MAX_AGE`, `crates/core/src/session/cli.rs`), so
+  the first send after an hour's quiet finds none, which is the owner's "about half the time".
+  (1) A send that finds no preflight asks for one, keeps the message as queued (the box shows
+  it as waiting, with Cancel) and sends it when the answer comes; a refusal the preflight
+  itself gives (not logged in, below the minimum) is said as today. (2) A preflight about to
+  lapse is asked again in the background while the window is shown, one child at a time
+  through `process::turn()`, so the launch dialog gains by it too; the hidden window asks
+  nothing (D-29: no child without a reason). The same wait for "A session is starting: try
+  again in a moment." where the queue can hold it. (3) **Enter sends**, Shift+Enter makes a
+  new line, Ctrl+Enter still sends (the text box, multiline, near `chat.rs`'s
+  `modifiers.command && Enter`); the hint under the box and OT-26's wording in the README
+  follow. Tests against the stub, never the CLI (rule 5).
+- **EP-48.** Added at EP-45, the owner's request 2: a session completes and the row still offers
+  the brief it ran, so the owner nearly started one twice; today only the toolbar's Refresh
+  (`Action::Refresh`: every project's files, git, and a forced GitHub read) helps. **What
+  exists** (EP-25a): `Loader::read_project(name, Moment)` (`crates/app/src/portfolio.rs`) reads
+  one project's files and git on a worker thread, called when a headless run ends
+  (`Board::reread_after_run`, `crates/app/src/autopilot.rs`), when a visual or manual session
+  ends (`Watch::record` on `Change::Ended`, which comes from the SessionEnd hook or the poll)
+  and from the row's menu. **The gap:** a VS Code tab that stays open after its brief's commit
+  never ends, the Stop hook at each turn's end only sets the session idle
+  (`crates/core/src/sessions/mod.rs`), and nothing watches a project's files (the one `notify`
+  watcher, `Loader::watch`, sees the data root's top level). **In scope:** (1) the end of a turn
+  (the Stop hook, or the poll's turn to idle) of a visual or manual session in a registered
+  project reads that project again, a new `Moment`, at most once in a few seconds per project;
+  (2) a watcher on each registered project's `roadmap` folder and on its git HEAD's log
+  (`.git/logs/HEAD`, which a commit appends to), settled as the top-level watcher is, reads
+  that one project again, so a commit made in a terminal counts too; never a data repository's
+  data folders, and no GitHub read; (3) the launch dialog reads the project's files once as it
+  opens, so a Start pressed on a stale row shows the true next brief, and says when the row's
+  brief changed under it. A re-read while a run of the window's own works there stays as it
+  is. Tests in temp repositories with synthetic names. If (2) outgrows the S, it is split off
+  at pickup.
+- **EP-49.** Added at EP-45, the owner's request 3 and their choice: **Dark is replaced**, Light
+  stays, no fourth choice. Today no palette exists: egui's stock Visuals under `ThemePreference`
+  (`THEME_KEY`, applied in `Dashboard::new`, the View menu's System / Light / Dark), the
+  accents in `crates/app/src/style.rs` (`state_colour`, `green`, `amber`, `blue`, `red`,
+  `reference`) each picking a shade by `dark_mode`. **The source** is the One Hunter extension's
+  Vercel theme (`themes/OneHunter-Vercel-color-theme.json` in the extension's folder under the
+  owner's VS Code extensions; read its `colors` for the editor, side bar, panel, border, selection
+  and foreground values, and write the values taken into the brief; the extension's license is
+  checked and named in the README's credits if it asks). **In scope:** a `style::dark()` that
+  builds the Visuals (panel, window and extreme backgrounds, faint and strong text, widget
+  fills and strokes for inactive, hovered, active and open, selection, hyperlinks, separators,
+  shadows) on the near-black base; each accent kept in its meaning (amber or yellow waiting,
+  green done or healthy, violet references, blue busy, red failing) and tuned only where its
+  contrast on the new base falls under 4.5 to 1 for text, measured in a test; the popup, the
+  dialogs, the transcript's and the Markdown's colours (egui_commonmark) and the phone pages'
+  dark style sheet checked against it, the last only if cheap, else a v2 note. Screenshot runs
+  of every pane in Dark at the three sizes and over a copy (rule 5), each looked at; the
+  README's dark pictures retaken. The egui pins do not move (D-15).
+- **EP-50.** Added at EP-45, the owner's request 5, first half, and their choices. (1) **The
+  count:** `ProjectRow::open_items` (`crates/app/src/portfolio.rs`) calls
+  `Snapshot::open_waiting` (`crates/core/src/roadmap/snapshot.rs`), which counts the open
+  `owner-tasks.md` lines when the file exists and otherwise the open older forms, so a project
+  without the file shows its risks as tasks. The list now counts `Form::Task` items alone
+  (`OwnerItem::is_tickable`, `crates/core/src/tasks/mod.rs`); a project without the file shows
+  no count and a small "older forms" mark whose hover says how many it holds and that
+  formalising gives it a task file (`counts_cell`, `crates/app/src/list.rs`; the legend
+  follows). The same reading in `crw tasks`, `crw status`, the chat's digest (IN-12's wording),
+  the tray's amber dot, the phone's list and the daily export, each named in the brief with
+  what it counted before. (2) **The pane:** a new `Pane::OwnerTasks` (`crates/app/src/layout.rs`:
+  `Pane::ALL`, `default_layout`, `pane_ui`; a saved layout gains a missing pane as a tab beside
+  Detail through `complete`, so the default layout's place is chosen here), every project's open
+  tasks grouped by project in the list's order, each with its id, date, gate (`before EP-m`,
+  marked when it gates the project's next brief) and text set by `markup` as the Detail pane's
+  were, ticked there through `tasks::tick` with its backup and the status bar's line; a toggle
+  for the selected project alone, and one for the ticked of the last week; at each project's
+  foot its older forms folded shut, read-only, never counted. `detail::owner_items` and
+  `detail::older_forms` leave the Detail pane, a line in its place saying how many wait and
+  opening the pane on the project. The Waiting sort key and the keys' help follow. A revert
+  open, a session working there and a data repository keep today's refusals. Screenshot runs
+  and one over a copy (rule 5). If the readers outside the window make it more than an M, they
+  are split off at pickup.
+- **EP-51.** Added at EP-45, the owner's request 5, second half, and their choice. A new
+  `Pane::Inbox`: every project's open messages grouped by receiver (id, sender, date, urgent,
+  the text by `markup`), ticked there with a disposition (`inbox::tick`), Compose… as today
+  with the project filled in from the group; under them the outgoing mail (`detail::handed_on`'s
+  rows from `inbox::outgoing`, delivered, waiting and why, or unknown receiver) and the
+  mailman's last lines; the same two toggles as EP-50's pane. `detail::inbox` and
+  `detail::handed_on` leave the Detail pane, a line in their place. **The Detail pane** then
+  runs in progress, Next brief, Progress, History, Analytics, Status, and after Status three
+  headers folded shut by default, Decisions, House style, Problems, the last opening itself
+  when the project has a problem; the fold remembered per header with the view. The tray's
+  amber dot, a notification's Show for an inbox arrival and the keys that led to the Detail
+  pane's inbox now open this pane. **From EP-45 (IN-15, the owner's choice):** the mailman
+  wrote a private project's name into this public repository's inbox, which rule 3's check
+  caught only at the commit; the pane flags, in amber with its reason, an open or ticked
+  message of a project whose remote is public when its words hit the registry's
+  `private_words` (`crw_core::wordcheck`, EP-42), so it is reworded before a commit carries
+  it, and `crw tasks` says the same. Screenshot runs and one over a copy (rule 5).
+- **EP-52.** Added at EP-45, the owner's request 6. `autopilot_section`
+  (`crates/app/src/autopilot.rs`), drawn at the head of the Sessions pane's All tab
+  (`all_tab`, `crates/app/src/sessions.rs`), becomes `Pane::Autopilot`: the state, Pause, the
+  day's line with its picker, each autopilot project's settings and its chain plan as today,
+  and the chain log (`log_line`) under a header that folds, shut by default with its newest
+  line shown beside the header, the fold remembered. The All tab keeps one line that says the
+  autopilot's state and opens the pane. A chain notification's Show, the tray and the phone's
+  block point where they did, the first now at the new pane. Screenshot runs and one over a
+  copy (rule 5).
+- **EP-53.** Added at EP-45, the owner's request 9, its sizes. Every house-style project's
+  executed briefs timed as the re-plans time this project's, by the plugin's `replan` skill,
+  step 4, with IN-15's rule for a wait (a gap counts as the owner's only when an answered
+  `AskUserQuestion` or a new prompt ends it): transcripts under each project's slug, a brief's
+  session found by its write of the brief, timestamps and paths only, never a conversation's
+  text; a data repository is read by its transcripts and its roadmap file alone, never listed.
+  A script in the scratchpad, read before it runs, one project at a time. **The table** (each
+  project's S, M and L: count, median and spread of active minutes, the share that overran,
+  what kind of brief overran) names projects, so it lives in the git-ignored `private/`; this
+  repository's tracked files get the figures without names. **Then the sizes:** what an S and
+  an M are in minutes of active work from the measurement, whether L remains at all, and the
+  rule's wording (a brief is M or smaller, S preferred; an L only for one subtask that cannot
+  be cut, with its reason in the row), put to the owner with the measured cost of cutting (the
+  overhead a brief carries whatever its size: the read-first, the brief, the build, the
+  close), since two L do not make eight S. Outcome: a D-4 addendum, the roadmap's Sizes
+  paragraph, and a message for the owner's environment repository, whose house-style rule
+  states the sizes for every project (sent through the tool on the owner's word, rule 4).
+  The launch rules by size in the owner's registry are theirs to change (rule 13); the brief
+  says what the measurement suggests.
+- **EP-54.** Added at EP-45, the owner's request 8, this project's part. The review itself runs
+  in the owner's environment repository (the owner's choice): its sessions inventory every
+  convention file across the projects, the owner marks the review up, and that project applies
+  the outcome to the files it owns. **Gate:** the owner task of EP-45 (the review's outcome
+  reached this project's inbox). **In scope here**, the files this repository publishes for
+  every project: the plugin's four skills (`plugins/roadmap-wrangler/skills/*/SKILL.md`), its
+  `reference/house-style.md`, the formalise templates and the rule block (`crw formalise`
+  writes them; `crates/core`), the opener (`core::prompt`) where a convention changed, the
+  top-level README's house-style section, and this project's `CLAUDE.md`, brought in line with
+  the review's outcome and EP-53's sizes; each change listed against the review's item it
+  answers, an addendum to D-12 or D-27 where a decision moved. A project already formalised
+  takes a changed rule block at its next `crw formalise` (replaced between the markers), which
+  EP-55's steps name. The plugin's version raised, and the owner task to update it in their
+  sessions. If the review has not come in when this row is next, EP-56 … EP-58 may run before
+  it: the order is the table's, but those rows do not depend on this one.
+- **EP-55.** Added at EP-45, the owner's request 9, the sweep, and their choice: owner tasks,
+  one per project. A short interview first (which projects, in what order: the unformalised
+  and the paused first, then maintenance and done; for each, what the owner already knows
+  they want). Then, per project that is not active: (1) an owner task in this project's
+  `roadmap/owner-tasks.md`, worded without the project's name (rule 3: its place in the
+  window's list and its state say which; the names and the full steps are in a checklist in
+  the git-ignored `private/`, which the task points to), with the route for its form:
+  `/roadmap-wrangler:formalise` for a project without the house-style files, Migrate… for a
+  five-column or work-packet roadmap, `/roadmap-wrangler:plan` for one with no roadmap,
+  `/roadmap-wrangler:status` and a state question for a done or maintenance project; (2) a
+  message into that project's inbox, sent through the tool on the owner's word, saying what
+  its session should settle with the owner: its state (active, paused with a reason and a
+  pickup note, maintenance and what maintenance means there, done, or abandoned and archived),
+  the house-style files, sizes under EP-53's rule, and whether it works well enough to owe a
+  manual (EP-56's convention). The registry's states stay the owner's to set (D-6; the
+  window's state chip, or `crw set`). EP-59's walk reads how far the sweep came. Depends on
+  EP-50, whose pane shows the checklist's tasks, and EP-54, so that a project is formalised
+  once, under the settled conventions.
+- **EP-56.** Added at EP-45, the owner's request 10 and their choice: Markdown in the
+  repository, the PDF built. A planning brief, with a short interview. **To settle:** (1) the
+  renderer, from what the machine has or can pin without an installer run as administrator
+  (candidates to check, none assumed: a Rust crate inside `crw` so that every project builds
+  the same way with no tool of its own, such as a Markdown-to-PDF path through `pulldown-cmark`
+  and a PDF writer; Typst as a pinned binary or crate; `uv run --with` a Python renderer, which
+  the machine already uses for PDF work); fonts, a table of contents, pictures, page numbers,
+  and that a build is reproducible and offline; (2) the files: `docs/manual.md` (reference
+  chapters, then a walkthrough chapter for a project whose full use is still wanting: the
+  proper way through each route, what to look at, what to note down) and
+  `docs/manual-changes.md` (what changed since the last phase's close, emptied into the manual
+  at each re-plan), the PDFs' names and whether they are tracked or built on demand (a public
+  repository's README can link a tracked one); (3) when they are written: the changes file by
+  each brief that changes behaviour, as its completion note is, the manual by the phase's
+  re-plan; (4) which projects owe one ("functional": the owner's word per project, asked in
+  the sweep). **Outcome:** an addendum to D-12 with the convention, the wording for the
+  plugin's house-style reference and the `replan` skill's step (handed to EP-54 if it has not
+  run, else changed here), a message for the owner's environment repository's house-style
+  rule, and EP-57 and EP-58 confirmed or re-cut from what the renderer needs.
+- **EP-57.** Added at EP-45, the owner's request 10, the window's part; confirmed or re-cut by
+  EP-56. `crw manual <project> [--changes]` builds the PDFs from the project's two files with
+  EP-56's renderer (into the place EP-56 names) and says what it wrote; the window offers
+  **Manual** and **Changes since the last phase** on a row's menu (`row_menu`,
+  `crates/app/src/list.rs`, beside "Refresh this project") and as two links at the head of the
+  Detail pane beside the project's path (`crates/app/src/detail.rs`), each building when the
+  source is newer than the PDF and then opening it with the system's viewer (a child started
+  through `process`, the first open-a-file action the window has; never a link from the chat);
+  greyed with a reason when the project has no manual; the manual's date beside the last
+  phase's close in the Status section, amber when a phase closed since. The phone's project
+  page may link the PDF only if cheap, else a v2 note. Tests on temp folders with synthetic
+  manuals; a screenshot run shows the entries on the fake portfolio.
+- **EP-58.** Added at EP-45, the owner's request 10, this project's own manual, the first
+  written under the convention and its proof. `docs/manual.md`: the window pane by pane as P6
+  leaves it, the launch modes, the decisions, the autopilot and its gate, the mail, formalise
+  and migrate, the chat, the usage meter, hosting and backup, the phone view, `crw`'s
+  commands, the files the tool keeps and where, and what to do when something goes wrong (the
+  doctor, the logs, the crash log, File > Install and restart). **The walkthrough chapter**
+  takes the routes no real use has met, the ones EP-44's note carries into v2's first walk by
+  name, as steps the owner can follow with what to expect and what to note, so that the manual
+  is also the walk's script. Pictures from screenshot runs over the fake portfolio only (rule
+  3). The README's "State of the app" points to it. After EP-52, so that it describes the
+  panes as they are.
+- **EP-59.** The P6 re-plan, by the `replan` skill: the walk of P6's residual-risk paragraphs
+  (the new panes and the theme under the owner's hands, the re-read after a real visual
+  session, the chat's queued send, the first manual opened from the window); the retro under
+  EP-53's sizes, the first phase cut to the rule that a brief is M or smaller; how far the
+  sweep and the environment repository's review came, by the owner tasks' ticks; the pins
+  (D-15); `docs/manual-changes.md` folded into the manual for the first time; addenda; and P7
+  confirmed: EP-44 cut to the size rule, the interview as several sessions if one would be an
+  L, and the routes carried into v2's first walk less those EP-58's walkthrough closed.
+
+## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
+
+| # | Brief | Size | Depends on | Core | Done |
+|---|---|---|---|---|---|
+| EP-44 | The v2 planning interview through the `plan` skill: v2's decisions from D-31, its phases and the first phase's brief notes, from the direction in `v2-notes.md`, the risks and the routes carried from v1 (D-1, D-30) | L | EP-59 | core | ☐ |
+
+Ordering rationale *(EP-45, 2026-11-22, the owner's choice)*: the v2 planning interview waits
+until the window's daily surfaces, the conventions, the sizes and the portfolio's states are
+settled, since v2 is planned under them. The row keeps EP-32's size until EP-59 cuts it to the
+rule that a brief is M or smaller (D-4 addendum): an interview of v1's kind may become two or
+three sessions, a survey and a domain map first.
+
+Standing decisions for phase P7: those of P6, and whatever EP-59 records.
+
+**Brief notes.**
+
+- **EP-44.** *(EP-45, 2026-11-22: moved to P7, after EP-59, which cuts it to the size rule; its
+  inputs below stand, with P6's outcome added by EP-59.)* Added at EP-32 (2026-11-17), the owner's choice: v2 is planned in an interview of its
   own (D-30 addendum), through the plugin's `plan` skill
   (`plugins/roadmap-wrangler/skills/plan/SKILL.md`): a verified survey of the tree and of Claude
   Code's documented surface as it stands, a research pass, a domain map written first, rounds of

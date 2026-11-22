@@ -187,6 +187,18 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > sizes stay the planning unit into v2 (the owner's choice). *Alternatives.* An M counted as 45
 > minutes, which v1's pace (an M about 50 minutes of active work) would fit.
 
+> **Addendum (2026-11-22, EP-45).** The owner's rule from here: **a brief is M or smaller, S
+> preferred**; an L is cut only for one subtask that cannot be divided, with its reason in its
+> row, and a row that proves larger at pickup is split there, never run long. The aim is a
+> session whose cost in time and usage can be told beforehand, without a lesser product; the
+> owner expects cutting to add briefs more than in proportion (a brief carries its read-first,
+> its brief, its build and its close whatever its size, and smaller parts need more
+> cross-checking), which EP-53 measures over every house-style project's session history before
+> it says what an S and an M are. P6, cut again at EP-45 before it ran, is the first phase under
+> the rule (sixteen rows, 6 S and 10 M); EP-44, the one L left open, is cut by EP-59. The
+> roadmap holds 86 briefs, 23 S · 58 M · 5 L ≈ 79.5 session-hours. *Alternatives.* The sizes
+> kept as they were until the measurement; a hard rule with no L at all.
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it
@@ -506,6 +518,17 @@ forms only with ticks in the registry; tasks only in the registry.
 > owner task only for what needs the owner's hands. *Alternatives.* The unmet routes closed as
 > unexercised, with a watch list in `v2-notes.md` for the field check, or with no list; OT-29
 > left open and the phone's points carried with it.
+
+> **Addendum (2026-11-22, EP-45).** Two changes the owner chose after five days across the
+> portfolio. **The count:** the list counts open `owner-tasks.md` lines and nothing else. A
+> project without the file showed its open older forms (risks, parked blocks, open questions)
+> as what waits on the owner, which they are not; it now shows no count and a mark whose hover
+> says how many such items it holds, and the older forms stay read-only, folded, never counted
+> (EP-50). **The place:** every project's open tasks in one pane of their own, ticked there,
+> the Detail pane keeping a line that leads to it (EP-50; D-25 addendum). A sweep through the
+> projects that are not active is guided by owner tasks in this project's own file, one per
+> project, worded without names (EP-55). *Alternatives.* Two counts side by side; the older
+> forms nowhere in the list; a sweep feature built into the window; inbox messages alone.
 
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
@@ -2511,6 +2534,18 @@ state; graphs only in the detail tile or a separate window.
 > roadmaps with every row expanded. *Alternatives.* The widest phases block of the rows shown,
 > measured each pass, as the edge.
 
+> **Addendum (2026-11-22, EP-45).** The views after five days' use, the owner's choices, built
+> in P6. The list loses the next brief's one-liner, which the Detail pane beside it shows
+> (EP-46). The Detail pane had grown too long: it ends at Status, with Decisions, House style
+> and Problems folded under it, and what waits on the owner, the mail in and out and the
+> autopilot each get a pane of their own over every project (Owner tasks, EP-50; Inbox, EP-51;
+> Autopilot, with its log folding, EP-52). Dark is rebuilt on a near-black base with more
+> contrast, after the One Hunter extension's Vercel theme the owner uses in VS Code, the
+> accents keeping their meanings; Light stays (EP-49). The Usage pane loses its seven-day
+> spark line (EP-46). Each project that works gets a manual opened from its row (EP-56 …
+> EP-58; D-12). *Alternatives.* A fourth theme choice beside the stock Dark, or both themes
+> rebuilt; the Detail pane ending at Status exactly; a third pane for a project's notes.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates
@@ -3588,3 +3623,12 @@ interview; writing the roadmap from the brief alone.
 > v2 (the usage-over-time graph, free chat from the phone, the `--bg` launch mode); the portfolio
 > report stays parked. *Alternatives.* v2's first phase drafted at the close-out; a roadmap or a
 > decision log of its own for v2.
+
+> **Addendum (2026-11-22, EP-45).** The interview waits a phase, the owner's choice: EP-44 moves
+> to P7, after a P6 cut again for the window's daily surfaces, the conventions, the sizes, the
+> portfolio's states and the manuals, since v2 is planned under what those settle. EP-59 cuts
+> it to the size rule (D-4 addendum), as several sessions if one would be an L. The conventions
+> review the owner asked for runs in their environment repository, whose files it concerns;
+> this repository changes only what it publishes for every project (EP-54). *Alternatives.*
+> The interview kept in P6 after the fixes; the review run from this repository into its
+> git-ignored folder.

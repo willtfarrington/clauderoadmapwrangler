@@ -332,3 +332,14 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   `tailscale serve --https=9443 --set-path=/m off`; afterwards the link no longer answers, and
   `tailscale serve status` shows your other entries as they were. Anything odd goes to
   `roadmap/inbox.md`.
+- [ ] OT-30 (EP-45, 2026-11-22) The conventions review, in your environment repository (another
+  project's sessions, which only you can start and answer). EP-45 sent its charter to that
+  project's inbox with `crw send`; the text is kept in this repository's git-ignored
+  `private\ep-45-review-charter.txt`. (1) In Roadmap Wrangler, select your environment
+  repository's row and press Start: its next session reads the message at its start and
+  proposes the review's briefs (an inventory of every `CLAUDE.md`, rule, skill and settings
+  file across the projects, a review document for you to mark up, an interview over it, the
+  outcome applied). (2) Run those briefs there; they may run alongside this project's EP-43 …
+  EP-52. (3) When its last brief hands the outcome back, a message from it shows in this
+  project's inbox (the Inbox pane from EP-51): tick this task then. EP-54 changes the plugin's
+  skills, its house-style reference and the formalise templates from that message [before EP-54]

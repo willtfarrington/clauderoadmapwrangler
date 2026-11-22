@@ -500,3 +500,14 @@ what they name, and the popup's further forms.
   on a row or a card that opens the launch dialog (it brings the Detail pane forward, as Enter
   does); the Diagnostics tab's place, should its title ever sit past the tab bar's scroll arrow
   in a narrow group (it was easy to find in the owner's layout).
+- *(EP-45, from the P6 re-cut)* The alternatives the owner did not pick: a fourth theme choice
+  beside the stock Dark, and Light rebuilt on the same family; two counts side by side in the
+  list (tasks and older forms); a third pane for a project's notes (Decisions, House style,
+  Problems), the Detail pane ending at Status exactly; a "Portfolio review" list built into the
+  window for a sweep through the projects that are not active (owner tasks guide it instead,
+  EP-55); a manual written straight as a PDF with no Markdown source. Named and not cut into
+  P6: the usage over the last days, which leaves the Usage pane at EP-46 and returns only as
+  v2's usage over time (§2); the phone pages' dark style on the new base and a manual's link
+  on the phone's project page, each built only if cheap (EP-49, EP-57); the cards view's title
+  line (EP-46 keeps it); an owner-tasks pane that ticks the older forms (§6 keeps them
+  read-only).
