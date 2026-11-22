@@ -461,6 +461,16 @@ check, a CLI smoke in CI), the doctor putting right what it finds, and a log vie
   owner's choice; the probe stays here.)*
 - *(EP-32, from EP-30)* A test of the router through `tower` (not a direct dependency) in place
   of HTTP to a free port.
+- *(EP-43)* The ledger in SQLite's WAL mode, where a reader never waits for another connection's
+  commit and only writers wait for each other: the systemic answer to the window's waits on the
+  ledger, which EP-43 bounded for the pass's periodic accesses alone (its rollback journal blocks
+  every new reader during a commit, and each of the window's statements waits up to five
+  seconds). A change to the form of the owner's records (rule 13, D-8): the file's header, two
+  files beside it while a connection is open, and every reader of a copy taking the WAL into
+  account. Taken up if the rolling log's `slow` lines name the ledger's writes on the window's
+  thread (the watch's records, the shares, the samples, the notifications' lines, the chain
+  log), which keep their five seconds; moving those writes to a worker of their own is the
+  other way.
 
 ## 9 Views
 

@@ -443,7 +443,10 @@ the notifications, the meter, the mailman, the headless route, the defer route's
 log). The window keeps a rolling log, a file a day in the local folder's `log` with fourteen days
 kept, of its starts, its notices, warnings and errors, its quits and restarts, a panic's head line
 and a child that did not start; a start that failed for reasons security software causes (the file
-flagged, access denied, a file gone) says where to look. A panic leaves its report in `crash.log`
+flagged, access denied, a file gone) says where to look. Its `slow` lines (EP-43) tell of a phone's
+form that waited two seconds or more for the window, with what the window did meanwhile (the pass
+before and its longest parts, the time between passes and the frame's drawing in it), and of a
+pass or a frame that took two seconds or more, at most one line a minute. A panic leaves its report in `crash.log`
 in the local folder, and the next start names it in the status bar (EP-14a).
 
 Built with `--features

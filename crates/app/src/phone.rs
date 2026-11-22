@@ -144,20 +144,26 @@ impl Board {
     /// Runs `orders` and answers each; an order whose page stopped waiting, or let it go at its
     /// ten seconds, is dropped unrun, as a restart request's is (EP-37). A write reads the files
     /// again, and the pages are built afresh at once, so the page a form's redirect brings shows
-    /// what it changed (the review's).
+    /// what it changed (the review's). An order that waited two seconds or more for the window
+    /// says in the rolling log what the window did meanwhile (EP-43).
     pub(crate) fn obey_orders(&mut self, orders: Vec<PageRequest>) {
         let mut wrote = false;
         let mut ran = false;
         for request in orders {
+            let waited = self.pace.waited(request.sent);
             if request.reply.is_closed() || !request.hand.take() {
-                crw_core::log::line(
-                    "notice",
-                    &format!(
-                        "A form from {} was dropped: its page stopped waiting.",
-                        request.caller
-                    ),
+                let mut line = format!(
+                    "A form from {} was dropped: its page stopped waiting.",
+                    request.caller
                 );
+                if let Some(waited) = &waited {
+                    line.push_str(&format!(" It {waited}"));
+                }
+                crw_core::log::line("notice", &line);
                 continue;
+            }
+            if let Some(waited) = &waited {
+                crw_core::log::line("slow", &format!("A form from {} {waited}", request.caller));
             }
             ran = true;
             let PageRequest {
@@ -998,12 +1004,60 @@ mod tests {
             caller: "owner@example.com".to_owned(),
             reply,
             hand: crate::server::Hand::default(),
+            sent: Instant::now(),
         };
         (request, said)
     }
 
     fn read(path: &Path) -> String {
         fs::read_to_string(path).unwrap()
+    }
+
+    /// A form that came while the window slept is taken at the start of its pass, before the
+    /// pass's own reads and writes (EP-43). Here a second connection holds the ledger's lock, as
+    /// a slow commit would. Before this brief the pass's periodic accesses (the minute's lapse
+    /// of visual launches, the chain log's half-minute read, the phone's pages' two reads) each
+    /// waited out the ledger's five seconds or more, and the form waited for the first two; now
+    /// the form is answered at once, each access gives up within its moment, and none says a
+    /// problem.
+    #[test]
+    fn a_form_is_taken_before_the_pass_waits_on_a_locked_ledger() {
+        let scratch = Scratch::new("phone-pace");
+        let (mut board, _) = board(&scratch);
+        let ledger = scratch.0.join("ledger.sqlite");
+        drop(Ledger::open(&ledger).unwrap());
+        let holder = rusqlite::Connection::open(&ledger).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        // A stop of a run the window does not have: refused without a write of its own.
+        let (stop, said) = request(Order::Stop {
+            project: "harbor".to_owned(),
+            key: 41,
+            ep: "EP-9".to_owned(),
+            session: None,
+        });
+        board.watch.handed.push(stop);
+        let began = Instant::now();
+        let answered = std::thread::spawn(move || (said.blocking_recv(), Instant::now()));
+        let ctx = egui::Context::default();
+        board.pass(&ctx);
+        let took = began.elapsed();
+        let (said, at) = answered.join().unwrap();
+        holder.execute_batch("ROLLBACK").unwrap();
+        let why = said.unwrap().unwrap_err();
+        assert!(why.contains("no run of harbor EP-9"), "{why}");
+        let answered_after = at.duration_since(began);
+        assert!(
+            answered_after < Duration::from_secs(1),
+            "answered after {answered_after:?}"
+        );
+        let (part, longest) = board.pace.longest_last().expect("the pass was timed");
+        assert!(
+            longest < Duration::from_secs(4),
+            "{part} took {longest:?} of the pass's {took:?}"
+        );
+        assert_eq!(board.watch.problem, None);
+        assert_eq!(board.autopilot.problem, None);
+        assert_eq!(board.sessions.history.problem, None);
     }
 
     #[test]

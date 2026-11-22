@@ -91,7 +91,8 @@ const WEEK_RETRY: Duration = Duration::from_secs(30);
 
 /// The week's shares of the usage by project (D-23, D-25; EP-18b), read from the ledger without
 /// a write: when the week the weekly figure's reset closes is first known or moves on, again
-/// after a split wrote shares (`stale`), and a while after a read failed.
+/// after a split wrote shares (`stale`), and a while after a read failed; a second after one that
+/// found the ledger locked past the window's moment (EP-43).
 #[derive(Debug, Default)]
 pub struct Week {
     /// The weekly window's start, seven days before the weekly figure's reset.
@@ -122,12 +123,21 @@ impl Week {
         self.problem = None;
         let read = match (ledger, since) {
             (Some(path), Some(since)) if path.exists() => {
-                Ledger::open_read_only(path).and_then(|ledger| ledger.shares_since(since))
+                Ledger::open_read_only_waiting(path, crate::pace::LEDGER_WAIT)
+                    .and_then(|ledger| ledger.shares_since(since))
             }
             _ => Ok(Vec::new()),
         };
         match read {
             Ok(shares) => self.shares = shares,
+            // Another connection held the lock past the window's moment (EP-43): tried again a
+            // second later, without a word.
+            Err(e) if e.is_busy() => {
+                if moved {
+                    self.shares.clear();
+                }
+                self.retry_at = Some(crate::pace::retry_after(now));
+            }
             Err(e) => {
                 // A week that moved on keeps nothing of the one before.
                 if moved {
@@ -1066,6 +1076,35 @@ mod tests {
             ),
             "{state}"
         );
+    }
+
+    /// The week's sums give up on a ledger another connection holds within a moment, without a
+    /// word, and are read again a second later rather than at a failure's half minute (EP-43).
+    #[test]
+    fn the_weeks_sums_wait_a_moment_at_most_on_a_held_lock() {
+        let scratch = crate::portfolio::tests::Scratch::new("meter-week-busy");
+        let path = scratch.0.join("ledger.sqlite");
+        drop(Ledger::open(&path).unwrap());
+        let holder = rusqlite::Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let mut week = Week::default();
+        let since = at("2026-10-31T17:00:00Z");
+        let now = Instant::now();
+        week.refresh(Some(&path), Some(since), now);
+        assert!(
+            now.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            now.elapsed()
+        );
+        assert_eq!(week.problem, None, "a lock is no problem to show");
+        let retry = now + crate::pace::LEDGER_RETRY;
+        assert_eq!(week.retry_at, Some(retry));
+        holder.execute_batch("ROLLBACK").unwrap();
+        week.refresh(Some(&path), Some(since), now);
+        assert_eq!(week.retry_at, Some(retry), "not before its second");
+        week.refresh(Some(&path), Some(since), retry);
+        assert_eq!(week.retry_at, None);
+        assert_eq!(week.problem, None);
     }
 
     #[test]

@@ -208,13 +208,14 @@ pub struct AnswerForm {
 pub type Said = Result<String, String>;
 
 /// A page's form waiting for the window's hand (EP-30a): the order, who sent it in the window's
-/// words, where the outcome goes (closed once the page stopped waiting), and where it stands
-/// between the two.
+/// words, where the outcome goes (closed once the page stopped waiting), where it stands between
+/// the two, and when the server handed it over, for the window's measure of its wait (EP-43).
 pub struct PageRequest {
     pub order: Order,
     pub caller: String,
     pub reply: oneshot::Sender<Said>,
     pub hand: Hand,
+    pub sent: Instant,
 }
 
 /// Where a form stands between its page and the window (EP-30a's review): waiting, taken by the
@@ -1235,6 +1236,7 @@ impl Shared {
             caller: caller.identity().to_owned(),
             reply,
             hand: hand.clone(),
+            sent: Instant::now(),
         };
         let before = self.pages.as_ref().map(|pages| pages.published.version());
         if self.orders.send(request).is_err() {

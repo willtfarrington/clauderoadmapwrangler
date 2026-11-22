@@ -521,6 +521,25 @@ pub enum Error {
     Newer { found: u32, supported: u32 },
 }
 
+impl Error {
+    /// Whether another connection held the lock past the wait (EP-43): the read is worth trying
+    /// again in a moment, and is no problem to show.
+    pub fn is_busy(&self) -> bool {
+        matches!(
+            self,
+            Error::Sqlite(rusqlite::Error::SqliteFailure(failure, _))
+                if matches!(
+                    failure.code,
+                    rusqlite::ErrorCode::DatabaseBusy | rusqlite::ErrorCode::DatabaseLocked
+                )
+        )
+    }
+}
+
+/// How long an opener waits for another connection's lock, each statement (the desktop app and
+/// `crw` may both have the ledger open).
+const BUSY_WAIT: Duration = Duration::from_secs(5);
+
 pub struct Ledger {
     connection: Connection,
     /// The schema it holds: this build's, or an older one opened to read.
@@ -534,7 +553,19 @@ impl Ledger {
         Self::open_with(path, &MIGRATIONS)
     }
 
+    /// [`Ledger::open`] whose statements wait at most `wait` each for another connection's lock
+    /// (EP-43): a write in the window's pass that the next one makes again, such as the minute's
+    /// lapse of visual launches, gives up rather than hold the window's thread ([`Error::is_busy`]
+    /// says so).
+    pub fn open_waiting(path: &Path, wait: Duration) -> Result<Self, Error> {
+        Self::open_migrating(path, &MIGRATIONS, wait)
+    }
+
     fn open_with(path: &Path, migrations: &[&str]) -> Result<Self, Error> {
+        Self::open_migrating(path, migrations, BUSY_WAIT)
+    }
+
+    fn open_migrating(path: &Path, migrations: &[&str], wait: Duration) -> Result<Self, Error> {
         if let Some(dir) = path.parent() {
             fs::create_dir_all(dir).map_err(|source| Error::Io {
                 path: dir.to_owned(),
@@ -542,8 +573,7 @@ impl Ledger {
             })?;
         }
         let mut connection = Connection::open(path)?;
-        // The desktop app and `crw` may both have it open.
-        connection.busy_timeout(Duration::from_secs(5))?;
+        connection.busy_timeout(wait)?;
         migrate(&mut connection, migrations)?;
         Ok(Self {
             connection,
@@ -555,11 +585,18 @@ impl Ledger {
     /// the Sessions pane's list read the owner's records as they stand (EP-13). An older schema
     /// reads with the columns it has; a newer one is refused.
     pub fn open_read_only(path: &Path) -> Result<Self, Error> {
+        Self::open_read_only_waiting(path, BUSY_WAIT)
+    }
+
+    /// [`Ledger::open_read_only`] whose statements wait at most `wait` each for another
+    /// connection's lock (EP-43): the window's own reads in its pass, which try again later
+    /// rather than hold its thread (an error for which [`Error::is_busy`] says so).
+    pub fn open_read_only_waiting(path: &Path, wait: Duration) -> Result<Self, Error> {
         let connection = Connection::open_with_flags(
             path,
             OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
         )?;
-        connection.busy_timeout(Duration::from_secs(5))?;
+        connection.busy_timeout(wait)?;
         let found = version(&connection)?;
         if found > SCHEMA_VERSION {
             return Err(Error::Newer {
@@ -1563,6 +1600,41 @@ mod tests {
         let read = Ledger::open_read_only(&path).unwrap();
         assert_eq!(read.check().unwrap(), Vec::<String>::new());
         assert_eq!(read.schema_version().unwrap(), SCHEMA_VERSION);
+    }
+
+    /// While another connection holds the write lock, as a commit does (EP-43), a read that waits
+    /// a moment gives up within it, saying busy, where the default open waits its five seconds;
+    /// once the lock goes, it reads.
+    #[test]
+    fn a_read_that_waits_a_moment_gives_up_on_a_held_lock() {
+        let scratch = Scratch::new("ledger-busy");
+        let path = scratch.0.join("local").join("ledger.sqlite");
+        Ledger::open(&path)
+            .unwrap()
+            .add_event(Utc::now(), "test", None, "one")
+            .unwrap();
+        let holder = Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let began = std::time::Instant::now();
+        let read = Ledger::open_read_only_waiting(&path, Duration::from_millis(100))
+            .and_then(|ledger| ledger.events("test", None));
+        let waited = began.elapsed();
+        let error = read.expect_err("the lock is held");
+        assert!(error.is_busy(), "{error}");
+        assert!(waited < Duration::from_secs(2), "{waited:?}");
+        holder.execute_batch("ROLLBACK").unwrap();
+        let events = Ledger::open_read_only_waiting(&path, Duration::from_millis(100))
+            .and_then(|ledger| ledger.events("test", None))
+            .unwrap();
+        assert_eq!(events.len(), 1);
+        // Another failure is no lock.
+        let missing = Ledger::open_read_only_waiting(
+            &scratch.0.join("none.sqlite"),
+            Duration::from_millis(100),
+        )
+        .err()
+        .expect("no such file");
+        assert!(!missing.is_busy(), "{missing}");
     }
 
     /// An import replaces the project's rows; the snapshot rows come once a day and at a change

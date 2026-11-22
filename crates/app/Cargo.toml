@@ -39,3 +39,8 @@ serde.workspace = true
 tokio.workspace = true
 # The tray icon and its menu (D-21, D-29; EP-15).
 tray-icon.workspace = true
+
+[dev-dependencies]
+# A second connection that holds a scratch ledger's lock, as another process's commit would, in
+# the tests of the window's waits on the ledger (EP-43); the version the core crate pins.
+rusqlite.workspace = true

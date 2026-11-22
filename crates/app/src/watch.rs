@@ -108,6 +108,9 @@ pub struct Watch {
     /// The session ids of the latest listing that left no entry out: the reconciliation waits for
     /// two such listings in a row, a session in either of them counting as live.
     previous_listing: Option<HashSet<String>>,
+    /// The forms a test hands the window as the server would (EP-43).
+    #[cfg(test)]
+    pub handed: Vec<crate::server::PageRequest>,
 }
 
 /// The starts of the sessions the hooks see begin (EP-15b): read on a worker thread, one git child
@@ -277,12 +280,16 @@ impl Watch {
             .unwrap_or_default()
     }
 
-    /// The pages' forms since the last call (EP-30a), for the window's hand.
+    /// The pages' forms since the last call (EP-30a), for the window's hand; in a test, the ones
+    /// it handed over first (EP-43).
     pub fn take_orders(&mut self) -> Vec<crate::server::PageRequest> {
-        self.server
-            .as_mut()
-            .map(Server::take_orders)
-            .unwrap_or_default()
+        let mut orders = Vec::new();
+        #[cfg(test)]
+        orders.append(&mut self.handed);
+        if let Some(server) = self.server.as_mut() {
+            orders.extend(server.take_orders());
+        }
+        orders
     }
 
     /// The start pages' asks for a preview since the last call (EP-30b).
@@ -609,7 +616,9 @@ impl Watch {
     }
 
     /// Closes the visual launches no session took up within their window, once a minute and at
-    /// the window's first frame (EP-13).
+    /// the window's first frame (EP-13). A ledger another connection holds past the window's
+    /// moment is left for the next minute without a word, rather than hold the pass five seconds
+    /// (EP-43).
     fn lapse(&mut self, ledger: Option<&Path>) {
         let Some(path) = ledger else {
             return;
@@ -618,9 +627,14 @@ impl Watch {
             return;
         }
         self.lapsed_at = Some(Instant::now());
-        match Ledger::open(path).and_then(|ledger| ledger.lapse_visual(Utc::now(), VISUAL_CLAIM)) {
+        match Ledger::open_waiting(path, crate::pace::LEDGER_WAIT)
+            .and_then(|ledger| ledger.lapse_visual(Utc::now(), VISUAL_CLAIM))
+        {
             Ok(0) => {}
             Ok(_) => self.recorded = true,
+            // A lock met between two rows leaves some launches closed (each row commits by
+            // itself), so the records are read again as after a lapse (the review's).
+            Err(e) if e.is_busy() => self.recorded = true,
             Err(e) => {
                 self.problem = Some(format!("The ledger's visual launches did not lapse: {e}"));
             }

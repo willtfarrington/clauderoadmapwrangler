@@ -513,6 +513,9 @@ pub struct Board {
     pub pages: crate::published::Publisher,
     /// The phone's messages being written, each answered once written (EP-30a).
     pub phone: crate::phone::Phone,
+    /// How long the passes, their parts and the frames take, for the rolling log's lines on a
+    /// form that waited and a slow pass (EP-43).
+    pub pace: crate::pace::Pace,
     /// A compose dialog to open once the files are read, with its text canned (a screenshot
     /// run's `compose=<project>[:urgent]`).
     pub compose_when_read: Option<(String, bool)>,
@@ -606,6 +609,7 @@ impl Board {
             chat: crate::chat::Chat::default(),
             pages: crate::published::Publisher::default(),
             phone: crate::phone::Phone::default(),
+            pace: crate::pace::Pace::default(),
             compose_when_read: None,
             formalise: None,
             #[cfg(feature = "screenshot")]
@@ -758,6 +762,7 @@ impl Board {
             Some(Err(why)) => self.warn(why),
             None => {}
         }
+        self.pace.mark("the files");
         match self.sessions.receive(ctx) {
             // The phone's start neither closes the dialog nor takes the pane (EP-30b): its page
             // hears the outcome. First, since one start goes at a time and a chat's mark may be
@@ -822,6 +827,7 @@ impl Board {
         self.receive_formalise(ctx);
         self.receive_act(ctx);
         self.receive_remote_view(ctx);
+        self.pace.mark("the runs");
         let portfolio = &self.portfolio;
         let registered = || {
             portfolio
@@ -852,6 +858,7 @@ impl Board {
             // A session started or ended: its brief may hand mail on, or its receiver be free.
             self.mail.due = true;
         }
+        self.pace.mark("the watch");
         // The usage meter's polls and its second series, the status lines (D-23; EP-17); a
         // visual or headless session's end the hooks report brings the next poll forward.
         let now = chrono::Utc::now();
@@ -866,6 +873,7 @@ impl Board {
         if std::mem::take(&mut self.watch.launched_ended) {
             self.meter.session_ended();
         }
+        self.pace.mark("the meter");
         // A visual or manual session's end: its project read again (EP-25a); the window's own
         // runs are read at their drain, in the autopilot's pass.
         for project in self.watch.take_ended_projects() {
@@ -875,8 +883,10 @@ impl Board {
         }
         // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
         self.autopilot_pass();
+        self.pace.mark("the autopilot");
         // The mailman delivers what the briefs hand on (D-13; EP-20).
         self.mail_pass();
+        self.pace.mark("the mail");
         self.compose_pass();
         if let Some(name) = &self.open_when_read
             && !self.loader.reading_files
@@ -950,6 +960,7 @@ impl Board {
                 ctx.request_repaint_after(at - Instant::now());
             }
         }
+        self.pace.mark("the reads due");
     }
 
     /// Splits each of the meter's readings' rise among the sessions that worked since this run's
@@ -1131,20 +1142,37 @@ impl Board {
     }
 
     /// The window's pass before each frame and, while it is hidden in the tray, without one
-    /// (`Dashboard::logic`, D-29): what came in, the notifications' share; the phone's forms
-    /// (EP-30a); then, while hidden, the queued actions, which no frame will run (EP-30: the
-    /// tray's Pause acts at once); then what the phone's pages read.
+    /// (`Dashboard::logic`, D-29): the phone's forms that came while the window slept or drew,
+    /// before the pass's own reads and writes (EP-43); what came in, the notifications' share;
+    /// the forms again, those that came meanwhile (EP-30a); then, while hidden, the queued
+    /// actions, which no frame will run (EP-30: the tray's Pause acts at once); then what the
+    /// phone's pages read. Each part is timed, and a slow pass has its line in the rolling log
+    /// (EP-43).
     pub fn pass(&mut self, ctx: &egui::Context) {
+        self.pace.begin();
+        self.obey_pages();
+        self.pace.mark("the forms");
         self.receive(ctx);
         // The registry's remote view record for the tray and the Diagnostics pane (EP-31a),
         // read every half minute and after Enable or Disable.
         self.read_remote_view();
+        self.pace.mark("the remote view's record");
         self.attend(ctx);
+        self.pace.mark("the notifications");
         self.obey_pages();
+        self.pace.mark("the forms");
         if self.hidden {
             self.run_queued();
+            self.pace.mark("the queued actions");
         }
         self.publish();
+        self.pace.mark("the phone's pages");
+        if crate::pace::retry_wanted() {
+            ctx.request_repaint_after(crate::pace::LEDGER_RETRY);
+        }
+        if let Some(line) = self.pace.end() {
+            crw_core::log::line("slow", &line);
+        }
     }
 
     /// The phone's pages' snapshot (EP-30), built when a page asked or a second has passed, and
@@ -3084,7 +3112,32 @@ impl eframe::App for Dashboard {
         self.board.pass(ctx);
     }
 
+    /// The frame, its drawing timed: a slow one has its line in the rolling log, and the time
+    /// between two passes names it (EP-43).
     fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+        let began = Instant::now();
+        self.draw(ui);
+        if let Some(line) = self.board.pace.drawn(began.elapsed()) {
+            crw_core::log::line("slow", &line);
+        }
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        eframe::set_value(storage, layout::LAYOUT_KEY, &self.layout);
+        eframe::set_value(storage, THEME_KEY, &self.board.theme);
+        eframe::set_value(storage, VIEW_KEY, &self.board.view);
+        eframe::set_value(storage, TRAY_KEY, &self.board.told_tray);
+    }
+
+    #[cfg(feature = "screenshot")]
+    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+        crate::screenshot::inject_keys(raw_input);
+    }
+}
+
+impl Dashboard {
+    /// What the frame draws: the popup, and unless hidden the panels, the panes and the dialogs.
+    fn draw(&mut self, ui: &mut egui::Ui) {
         let ctx = ui.ctx().clone();
         #[cfg(feature = "screenshot")]
         crate::screenshot::tick(&ctx);
@@ -3114,18 +3167,6 @@ impl eframe::App for Dashboard {
         self.board.act_dialog(&ctx);
         self.board.remote_view_dialog(&ctx);
         self.board.run_actions(&mut self.layout);
-    }
-
-    fn save(&mut self, storage: &mut dyn eframe::Storage) {
-        eframe::set_value(storage, layout::LAYOUT_KEY, &self.layout);
-        eframe::set_value(storage, THEME_KEY, &self.board.theme);
-        eframe::set_value(storage, VIEW_KEY, &self.board.view);
-        eframe::set_value(storage, TRAY_KEY, &self.board.told_tray);
-    }
-
-    #[cfg(feature = "screenshot")]
-    fn raw_input_hook(&mut self, _ctx: &egui::Context, raw_input: &mut egui::RawInput) {
-        crate::screenshot::inject_keys(raw_input);
     }
 }
 

@@ -736,6 +736,7 @@ dependencies = [
  "futures-util",
  "image",
  "notify",
+ "rusqlite",
  "serde",
  "tokio",
  "tray-icon",

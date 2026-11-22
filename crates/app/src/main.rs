@@ -31,6 +31,7 @@ mod list;
 mod mail;
 mod markup;
 mod meter;
+mod pace;
 mod pages;
 mod phone;
 mod popup;

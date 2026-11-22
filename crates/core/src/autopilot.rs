@@ -1049,6 +1049,21 @@ pub fn recent(ledger: &Path, limit: usize) -> Result<Vec<EventRow>, String> {
         .map_err(|e| e.to_string())
 }
 
+/// [`recent`] whose statements wait at most `wait` each for another connection's lock (EP-43):
+/// the window's read in its pass, whose error says when the lock was why
+/// ([`ledger::Error::is_busy`]).
+pub fn recent_waiting(
+    ledger: &Path,
+    limit: usize,
+    wait: Duration,
+) -> Result<Vec<EventRow>, ledger::Error> {
+    if !ledger.exists() {
+        return Ok(Vec::new());
+    }
+    Ledger::open_read_only_waiting(ledger, wait)
+        .and_then(|ledger| ledger.events(EVENT_KIND, Some(limit)))
+}
+
 /// What the gate is read from after a run of `project`.
 pub struct Ask<'a> {
     pub registry: &'a Registry,

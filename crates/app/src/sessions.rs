@@ -590,7 +590,9 @@ impl SessionFilter {
 }
 
 /// The ledger's recent rows for the All tab, read without writing (EP-13): again when the ledger
-/// changed, and every half minute while the pane shows.
+/// changed, and every half minute while the pane shows. The read waits a moment at most for
+/// another connection's lock, in the window's pass or its frame, and one that found the ledger
+/// locked keeps its rows and tries again a second later (EP-43).
 #[derive(Default)]
 pub struct History {
     pub rows: Vec<SessionRow>,
@@ -600,6 +602,8 @@ pub struct History {
     pub stale: bool,
     /// A screenshot run's rows: the ledger is not read.
     pub canned: bool,
+    /// When a read that found the ledger locked tries again (EP-43).
+    retry_at: Option<Instant>,
 }
 
 impl History {
@@ -612,20 +616,30 @@ impl History {
     }
 
     fn refresh(&mut self, ledger: Option<&Path>) {
+        if self.retry_at.is_some_and(|at| Instant::now() < at) {
+            return;
+        }
         let due = self.stale || self.read_at.is_none_or(|at| at.elapsed() >= HISTORY_EVERY);
         let Some(path) = ledger.filter(|_| due && !self.canned) else {
             return;
         };
         self.read_at = Some(Instant::now());
         self.stale = false;
+        self.retry_at = None;
         if !path.exists() {
             self.rows.clear();
             return;
         }
-        match Ledger::open_read_only(path).and_then(|ledger| ledger.recent_sessions(HISTORY_ROWS)) {
+        match Ledger::open_read_only_waiting(path, crate::pace::LEDGER_WAIT)
+            .and_then(|ledger| ledger.recent_sessions(HISTORY_ROWS))
+        {
             Ok(rows) => {
                 self.rows = rows;
                 self.problem = None;
+            }
+            Err(e) if e.is_busy() => {
+                self.stale = true;
+                self.retry_at = Some(crate::pace::retry_after(Instant::now()));
             }
             Err(e) => self.problem = Some(format!("The ledger did not read: {e}")),
         }
@@ -2287,6 +2301,55 @@ pub(crate) mod tests {
 
     use super::*;
     use crate::transcript::Entry;
+
+    /// The sessions' rows, read in the window's pass and its frame, give up on a ledger another
+    /// connection holds within a moment, keep what they had without a word, and are read again
+    /// a second later (EP-43).
+    #[test]
+    fn the_history_waits_a_moment_at_most_on_a_held_lock() {
+        let scratch = crate::portfolio::tests::Scratch::new("sessions-history-busy");
+        let path = scratch.0.join("ledger.sqlite");
+        Ledger::open(&path)
+            .unwrap()
+            .start_session(&ledger::NewSession {
+                session_id: Some("s-1"),
+                project: "harbor",
+                ep: None,
+                mode: "manual",
+                model: None,
+                effort: None,
+                ultracode: false,
+                started_at: Utc::now(),
+            })
+            .unwrap();
+        let holder = rusqlite::Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let mut history = History::default();
+        let began = Instant::now();
+        history.refresh_when_changed(Some(&path));
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            began.elapsed()
+        );
+        assert!(history.rows.is_empty());
+        assert_eq!(history.problem, None, "a lock is no problem to show");
+        assert!(history.stale, "read again later");
+        // Within its second it is not tried: no wait at all.
+        let again = Instant::now();
+        history.refresh_when_changed(Some(&path));
+        assert!(
+            again.elapsed() < crate::pace::LEDGER_WAIT,
+            "{:?}",
+            again.elapsed()
+        );
+        holder.execute_batch("ROLLBACK").unwrap();
+        history.retry_at = Some(Instant::now());
+        history.refresh_when_changed(Some(&path));
+        assert_eq!(history.rows.len(), 1);
+        assert!(!history.stale);
+        assert_eq!(history.problem, None);
+    }
 
     /// A run of the window's, alpha EP-3, working.
     pub(crate) fn live() -> Live {

@@ -1310,13 +1310,15 @@ impl Line {
 }
 
 /// The window's half: the channel's sender, the pages' ask and when it last built; the ledger's
-/// latest notifications and when they were read (EP-31).
+/// latest notifications, when they were read (EP-31), and when a read that found the ledger
+/// locked tries again (EP-43).
 pub struct Publisher {
     sender: watch::Sender<Arc<Published>>,
     asked: Arc<AtomicBool>,
     built: Option<Instant>,
     notifications: Notifications,
     notified: Option<Instant>,
+    retry_at: Option<Instant>,
     /// A screenshot run's or a test's notifications, never read from a ledger.
     canned: bool,
 }
@@ -1330,6 +1332,7 @@ impl Default for Publisher {
             built: None,
             notifications: Notifications::default(),
             notified: None,
+            retry_at: None,
             canned: false,
         }
     }
@@ -1343,9 +1346,12 @@ impl Publisher {
 
     /// Reads the ledger's latest notifications again once [`NOTIFICATIONS_EVERY`] has passed
     /// (EP-31), without writing it: the toasts and the pushes' thread add them. A ledger that does
-    /// not read keeps the rows last read, with why.
+    /// not read keeps the rows last read, with why; one locked by another connection past a
+    /// moment's wait keeps them without a word and is read again a second later, so that the
+    /// window's pass never waits out the ledger's five seconds here (EP-43).
     pub fn read_notifications(&mut self, ledger: Option<&Path>) {
         if self.canned
+            || self.retry_at.is_some_and(|at| Instant::now() < at)
             || self
                 .notified
                 .is_some_and(|at| at.elapsed() < NOTIFICATIONS_EVERY)
@@ -1353,6 +1359,7 @@ impl Publisher {
             return;
         }
         self.notified = Some(Instant::now());
+        self.retry_at = None;
         let Some(path) = ledger else {
             self.notifications = Notifications::default();
             return;
@@ -1364,7 +1371,7 @@ impl Publisher {
             };
             return;
         }
-        let read = Ledger::open_read_only(path)
+        let read = Ledger::open_read_only_waiting(path, crate::pace::LEDGER_WAIT)
             .and_then(|ledger| ledger.events(crw_core::notify::EVENT_KIND, Some(NOTIFICATIONS)));
         match read {
             Ok(rows) => {
@@ -1373,6 +1380,10 @@ impl Publisher {
                     rows: rows.iter().map(LogLine::of).collect(),
                     problem: None,
                 };
+            }
+            Err(e) if e.is_busy() => {
+                self.notified = None;
+                self.retry_at = Some(crate::pace::retry_after(Instant::now()));
             }
             Err(e) => self.notifications.problem = Some(format!("The ledger did not read: {e}")),
         }
@@ -1538,6 +1549,55 @@ mod tests {
     use crate::board::{Places, View};
     use crate::portfolio::tests::{Scratch, fake_store};
     use eframe::egui;
+
+    /// The latest notifications give up on a ledger another connection holds within a moment,
+    /// keep the rows last read without a word, and are read again a second later rather than
+    /// at the next 15 s (EP-43).
+    #[test]
+    fn the_notifications_wait_a_moment_at_most_on_a_held_lock() {
+        let scratch = Scratch::new("published-busy");
+        let path = scratch.0.join("ledger.sqlite");
+        let note = |line: &str| {
+            Ledger::open(&path)
+                .unwrap()
+                .add_event(
+                    chrono::Utc::now(),
+                    crw_core::notify::EVENT_KIND,
+                    Some("harbor"),
+                    line,
+                )
+                .unwrap();
+        };
+        note("popup · finished · harbor: a session's turn is over");
+        let mut publisher = Publisher::default();
+        publisher.read_notifications(Some(&path));
+        assert_eq!(publisher.notifications().rows.len(), 1);
+        note("popup · waiting · harbor waits for you");
+        let holder = rusqlite::Connection::open(&path).unwrap();
+        holder.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        publisher.notified = None;
+        let began = Instant::now();
+        publisher.read_notifications(Some(&path));
+        assert!(
+            began.elapsed() < Duration::from_secs(2),
+            "{:?}",
+            began.elapsed()
+        );
+        assert_eq!(
+            publisher.notifications().rows.len(),
+            1,
+            "the rows last read"
+        );
+        assert_eq!(publisher.notifications().problem, None);
+        holder.execute_batch("ROLLBACK").unwrap();
+        // Not within its second; after it, read without waiting out the 15 s.
+        publisher.read_notifications(Some(&path));
+        assert_eq!(publisher.notifications().rows.len(), 1);
+        publisher.retry_at = Some(Instant::now());
+        publisher.read_notifications(Some(&path));
+        assert_eq!(publisher.notifications().rows.len(), 2);
+        assert_eq!(publisher.notifications().problem, None);
+    }
 
     /// A board over the fake portfolio, its files read.
     fn board(scratch: &Scratch) -> Board {

@@ -154,6 +154,8 @@ pub struct Pilot {
     pub log: Vec<EventRow>,
     pub problem: Option<String>,
     read_at: Option<Instant>,
+    /// When a read of the log that found the ledger locked tries again (EP-43).
+    retry_at: Option<Instant>,
     /// The log or the registry's pause changed: read them again.
     pub stale: bool,
     /// The owner's Pause and the marks, as the registry last said them: the weekly and Fable
@@ -197,6 +199,7 @@ impl Default for Pilot {
             log: Vec::new(),
             problem: None,
             read_at: None,
+            retry_at: None,
             stale: false,
             paused: false,
             mark: autopilot::DEFAULT_PAUSE_PERCENT,
@@ -913,15 +916,18 @@ impl Board {
 
     /// Reads the log, the registry's pause, marks and day's total, the day's chained runs and the
     /// gate's standing verdicts again when they changed or every half minute; a screenshot run
-    /// keeps its canned log, pause and count.
+    /// keeps its canned log, pause and count. The log's read waits a moment at most for another
+    /// connection's lock, in the window's pass: one that found the ledger locked keeps the lines
+    /// and the count it has, without a word, and tries again a second later (EP-43).
     fn read_pilot(&mut self) {
         let pilot = &mut self.autopilot;
         let due = pilot.stale || pilot.read_at.is_none_or(|at| at.elapsed() >= READ_EVERY);
-        if !due {
+        if !due || pilot.retry_at.is_some_and(|at| Instant::now() < at) {
             return;
         }
         pilot.read_at = Some(Instant::now());
         pilot.stale = false;
+        pilot.retry_at = None;
         let loaded = self.store().load().ok();
         if let Some(loaded) = &loaded {
             self.autopilot.standing = self.standing_of(&loaded.registry);
@@ -939,7 +945,8 @@ impl Board {
         if let Some(ledger) = self.ledger().map(PathBuf::from) {
             // One read for the section's lines and the day's count, which the gate makes of the
             // same lines on the same local day (EP-31b).
-            match autopilot::recent(&ledger, autopilot::DAY_LINES) {
+            match autopilot::recent_waiting(&ledger, autopilot::DAY_LINES, crate::pace::LEDGER_WAIT)
+            {
                 Ok(mut rows) => {
                     let day = Local::now().date_naive();
                     self.autopilot.chained_today = Some(autopilot::chained_in_all(&rows, day));
@@ -947,9 +954,13 @@ impl Board {
                     self.autopilot.log = rows;
                     self.autopilot.problem = None;
                 }
-                Err(why) => {
+                Err(e) if e.is_busy() => {
+                    self.autopilot.stale = true;
+                    self.autopilot.retry_at = Some(crate::pace::retry_after(Instant::now()));
+                }
+                Err(e) => {
                     self.autopilot.chained_today = None;
-                    self.autopilot.problem = Some(format!("The chain log did not read: {why}"))
+                    self.autopilot.problem = Some(format!("The chain log did not read: {e}"))
                 }
             }
         }
