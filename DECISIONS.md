@@ -199,6 +199,20 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > roadmap holds 86 briefs, 23 S · 58 M · 5 L ≈ 79.5 session-hours. *Alternatives.* The sizes
 > kept as they were until the measurement; a hard rule with no L at all.
 
+> **Addendum (2026-11-22, after EP-43's capped run).** The first row under the rule, EP-43 (S),
+> ran headless and was stopped by S's cap of 45 minutes (D-22) with its work complete and
+> verified and its close owed; it was finished by hand. Its transcript: one minute of
+> read-first, fourteen of investigation, two for the brief, sixteen of code and tests, twelve of
+> checks and the release build. A code brief here carries about twenty minutes whatever its
+> size, so an S under that cap has about twenty-five minutes of work. The owner's rule for
+> sizing from here: **an S is a change whose shape is known when it is planned and that touches
+> a handful of files; a brief that holds an investigation, a state machine or the choice of a
+> tool is an M, or is cut into a row that finds and a row that fixes.** EP-47, EP-48 and EP-56
+> become M by it; EP-46, EP-52 and EP-55 stay S. The cap itself is EP-43a's (D-22), and EP-53
+> still measures what an S and an M are. *Alternatives.* The rule alone, each session sizing its
+> row again at pickup, which a headless run cannot do to its own cap; waiting for EP-53, five
+> rows on.
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it

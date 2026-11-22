@@ -92,6 +92,14 @@ rows are 6 S and 10 M. **Phase P7** is the v2 planning interview (EP-44), which 
 that rule. The roadmap holds **86 briefs, 23 S · 58 M · 5 L ≈ 79.5 session-hours**, 16 of them
 open once EP-45 is checked (15 in P6: 6 S · 9 M ≈ 12 session-hours; and EP-44).
 
+**After EP-43's capped run (2026-11-22, by hand).** EP-43, the first row under the rule, was
+stopped by S's cap of 45 minutes with its work complete and its close owed, and was finished by
+hand. The owner's choices: a row added after it (EP-43a, S: S's cap of 75 minutes, and a
+headless run told its cap), a sizing rule in the Sizes paragraph below (D-4 addendum), and
+EP-47, EP-48 and EP-56 re-sized from S to M by that rule. By its table P6 now holds seventeen
+rows, 5 S (EP-43, EP-43a, EP-46, EP-52, EP-55) and 12 M; the roadmap has one brief more, and
+three of its S are M.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -116,7 +124,12 @@ is an L, as the v1 planning interview EP-0 was: an interview, not one of the eng
 *(EP-45, 2026-11-22, the owner's rule.)* From here a brief is **M or smaller, S preferred**; an L
 is cut only for one subtask that cannot be divided, with its reason in the row, and a row that
 proves larger at pickup is split there. EP-53 measures what an S and an M are across every
-project, and EP-59 cuts EP-44 to the rule.
+project, and EP-59 cuts EP-44 to the rule. *(2026-11-22, after EP-43's capped run, the owner's
+rule; D-4 addendum.)* **An S is a change whose shape is known when it is planned and that
+touches a handful of files; a brief that holds an investigation, a state machine or the choice
+of a tool is an M, or is cut into a row that finds and a row that fixes.** A code brief here
+carries about twenty minutes whatever its size (read-first, the brief, the checks, the release
+build, the close), which a size counts in.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -2448,9 +2461,10 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 |---|---|---|---|---|---|
 | EP-45 | [Re-cut P6 at the owner's request: the window's daily surfaces, the conventions review, the portfolio's states and sizes, the manuals; the v2 planning interview moves to P7](EP-45-recut-p6.md) (D-4, D-10, D-25, D-30) | M | EP-32 | core | ☑ `5fe06c3` |
 | EP-43 | The phone's form wait: how long a page's order waits for the window, and what the window's pass did meanwhile, in the rolling log; the eleven-second wait's cause found and fixed; the page's wait lengthened only if a slow pass proves normal (D-28, D-14) | S | EP-32 | core | ☐ |
+| EP-43a | The run's cap as a guard: S's cap of 75 minutes, and a headless run told its cap, to split a row that will not fit it when it writes its brief (D-22, D-4) | S | EP-43 | core | ☐ |
 | EP-46 | Two trims: the Projects pane without its Brief column, the Usage pane without "The last seven days" (D-25, D-23) | S | EP-45 | core | ☐ |
-| EP-47 | The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself (D-27) | S | EP-45 | core | ☐ |
-| EP-48 | A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only (D-9, D-20) | S | EP-45 | core | ☐ |
+| EP-47 | The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself (D-27) | M | EP-45 | core | ☐ |
+| EP-48 | A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only (D-9, D-20) | M | EP-45 | core | ☐ |
 | EP-49 | The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings (D-25) | M | EP-46 | core | ☐ |
 | EP-50 | The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted (D-10, D-25) | M | EP-46 | core | ☐ |
 | EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
@@ -2458,7 +2472,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-53 | The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller (D-4) | M | EP-45 | core | ☐ |
 | EP-54 | The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes (D-12, D-27) | M | EP-53 | core | ☐ |
 | EP-55 | The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☐ |
-| EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | S | EP-45 | core | ☐ |
+| EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | M | EP-45 | core | ☐ |
 | EP-57 | The manual in the window: built by `crw manual`, opened from a row's menu and the Detail pane, its age beside the last phase's close (D-25) | M | EP-56 | core | ☐ |
 | EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57, EP-52 | core | ☐ |
 | EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
@@ -2527,6 +2541,25 @@ inbox through the tool, on the owner's word).
   slow pass is normal, the page's words and the README's phone section following. A screenshot
   run binds no port, so the tests speak HTTP to the server as EP-30's do; no test runs
   `tailscale` or a browser (rule 5). An investigation that outgrows an S is re-scoped at pickup.
+- **EP-43a.** Added by hand on 2026-11-22 after EP-43's headless run, the owner's choice.
+  **What happened.** The autopilot stopped that run at 44.7 minutes of work under S's cap of 45
+  (`crw_core::autopilot::cap`, `crates/core/src/autopilot.rs`; `Sessions::check_caps`,
+  `crates/app/src/sessions.rs`), with the code written, both test suites, both clippy runs and
+  the release build passed, and the review, the completion note, the commit and the install
+  owed: about ten minutes from its end. The session read its own clock for the first time at
+  minute 44. D-22 set the cap as a guard on unattended work; at one and a half times an S it
+  cut a run that was working. **In scope:** (1) S's cap becomes 75 minutes, M's and L's stay
+  until EP-53 has measured, with the tests and the words that say the cap (`Cap::words`, the
+  chain log's "chained …" line, the launch dialog where it names the cap); (2) the opener of a
+  headless run says the run's cap and when it started, and tells the session that when it
+  writes its brief it judges whether the row fits the cap, and one that will not is split
+  there: the session does the first part, proposes the rest as a row in its completion note,
+  and closes (D-4 addendum); the opener of this project's runs keeps what it says of the
+  install; (3) a D-22 addendum. **Out of scope:** a warning sent into a run that nears its cap
+  (the runner's input stream could carry one; parked in `v2-notes.md` if this brief finds it
+  wanted), M's and L's caps, the budget-estimate flag. The stub replays recorded streams, so
+  the cap's tests stay on `Cap` and `check_caps` with a clock of their own (rule 5). This row
+  runs under the old cap in the installed build: a known shape in a handful of files.
 - **EP-45.** The re-cut itself, a session the owner started by hand on 2026-11-22 with the
   plugin's `replan` skill: no walk and no retro, P6 not having run. Its brief holds the owner's
   ten requests and its completion note the answers.
@@ -2545,7 +2578,9 @@ inbox through the tool, on the owner's word).
   only the spark line used goes with it (clippy without the feature says what is dead). The
   samples stay in the ledger: usage over time is v2's (v2 §2). Screenshot runs at 1600 × 1000,
   2300 × 1000 and 1100 points, and one over a copy of the real portfolio (rule 5).
-- **EP-47.** Added at EP-45, the owner's request 7. `chat_send` (`crates/app/src/chat.rs`)
+- **EP-47.** *(2026-11-22, after EP-43's capped run: an M, not an S, by the D-4 addendum's
+  rule: a send that waits for the preflight is a state machine.)* Added at EP-45, the owner's
+  request 7. `chat_send` (`crates/app/src/chat.rs`)
   refuses with "claude has not answered yet: try again in a moment." when
   `Sessions::preflight` (`crates/app/src/sessions.rs`) returns `None`: the preflight is asked
   lazily on a worker thread and kept an hour (`MAX_AGE`, `crates/core/src/session/cli.rs`), so
@@ -2560,7 +2595,9 @@ inbox through the tool, on the owner's word).
   new line, Ctrl+Enter still sends (the text box, multiline, near `chat.rs`'s
   `modifiers.command && Enter`); the hint under the box and OT-26's wording in the README
   follow. Tests against the stub, never the CLI (rule 5).
-- **EP-48.** Added at EP-45, the owner's request 2: a session completes and the row still offers
+- **EP-48.** *(2026-11-22, after EP-43's capped run: an M, not an S, by the D-4 addendum's
+  rule: what tells the window that a turn ended or a HEAD moved is found in the brief.)* Added
+  at EP-45, the owner's request 2: a session completes and the row still offers
   the brief it ran, so the owner nearly started one twice; today only the toolbar's Refresh
   (`Action::Refresh`: every project's files, git, and a forced GitHub read) helps. **What
   exists** (EP-25a): `Loader::read_project(name, Moment)` (`crates/app/src/portfolio.rs`) reads
@@ -2700,7 +2737,8 @@ inbox through the tool, on the owner's word).
   window's state chip, or `crw set`). EP-59's walk reads how far the sweep came. Depends on
   EP-50, whose pane shows the checklist's tasks, and EP-54, so that a project is formalised
   once, under the settled conventions.
-- **EP-56.** Added at EP-45, the owner's request 10 and their choice: Markdown in the
+- **EP-56.** *(2026-11-22, after EP-43's capped run: an M, not an S, by the D-4 addendum's
+  rule: the brief chooses a tool.)* Added at EP-45, the owner's request 10 and their choice: Markdown in the
   repository, the PDF built. A planning brief, with a short interview. **To settle:** (1) the
   renderer, from what the machine has or can pin without an installer run as administrator
   (candidates to check, none assumed: a Rust crate inside `crw` so that every project builds
