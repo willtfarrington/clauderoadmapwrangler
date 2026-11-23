@@ -86,15 +86,24 @@ fn main() -> eframe::Result {
     }
     // A start at login (D-29; EP-28a): hidden in the tray, and quiet when a window runs already.
     let at_login = restarted.is_none() && autostart::started_at_login(&args);
+    // A start after the old window's renderer panicked (crash.rs): hidden when it was.
+    let flag = |name: &str| args.iter().any(|arg| arg == name);
+    let after_panic = restarted.is_some() && flag(crash::AFTER_PANIC_FLAG);
+    let start_hidden = at_login || (after_panic && flag(crash::HIDDEN_FLAG));
     // With CRW_HOME set, eframe's state lives there too, so a trial leaves the owner's layout
     // alone (rule 13).
     let persistence_path = paths::home().map(|home| home.join("app.ron"));
     let options = options(DEFAULT_SIZE, persistence_path, true);
     // Without a console a panic ends the window without a word: it leaves its report in the local
-    // folder instead, and the next start names it (EP-14a).
+    // folder instead, and the next start names it (EP-14a). A renderer's panic starts the window
+    // again: the installed copy, as the shortcuts and the Run key do, else this exe.
     let crash_log = paths::local_dir().map(|dir| dir.join(crash::FILE));
     if let Some(file) = &crash_log {
-        crash::install(file.clone());
+        let again = install::bin_dir()
+            .map(|bin| bin.join(install::WINDOW_EXE))
+            .filter(|exe| exe.is_file())
+            .or_else(|| std::env::current_exe().ok());
+        crash::install(file.clone(), again);
     }
     // The rolling log (D-29; EP-28): a file a day in the local folder's `log`, fourteen kept.
     if let Some(dir) = paths::local_dir() {
@@ -103,6 +112,14 @@ fn main() -> eframe::Result {
             .and_then(|running| running.stamp)
             .map_or_else(String::new, |stamp| format!(", built {}", stamp.when()));
         let restart = match restarted {
+            Some(pid) if after_panic => format!(
+                ", started again after the renderer's panic in the window of process {pid}{}",
+                if start_hidden {
+                    ", hidden in the tray"
+                } else {
+                    ""
+                }
+            ),
             Some(pid) => format!(", restarted from the window of process {pid}"),
             None if at_login => ", at login".to_owned(),
             None => String::new(),
@@ -189,11 +206,14 @@ fn main() -> eframe::Result {
             }
             // The handover (EP-37a), once the tray is there to hide in: a restarted window's held
             // chains and plans, said in the start's notice with the build; a file no restart took
-            // is dropped, and what it held said.
-            board.take_handover(paths::local_dir().as_deref(), restarted, &when);
-            // A start at login opens hidden in the tray (EP-28a); without the tray it shows. The
-            // first close's notice stays for the owner's own first close.
-            if at_login && board.tray.is_some() {
+            // is dropped, and what it held said. A panic leaves no handover and no install to
+            // name: the crash log's notice says what happened.
+            let handed = restarted.filter(|_| !after_panic);
+            board.take_handover(paths::local_dir().as_deref(), handed, &when);
+            // A start at login, or after a panic in a hidden window, opens hidden in the tray
+            // (EP-28a); without the tray it shows. The first close's notice stays for the owner's
+            // own first close.
+            if start_hidden && board.tray.is_some() {
                 let told = board.told_tray;
                 board.hide_at_start();
                 board.told_tray = told;

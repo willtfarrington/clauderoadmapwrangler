@@ -447,7 +447,10 @@ flagged, access denied, a file gone) says where to look. Its `slow` lines (EP-43
 form that waited two seconds or more for the window, with what the window did meanwhile (the pass
 before and its longest parts, the time between passes and the frame's drawing in it), and of a
 pass or a frame that took two seconds or more, at most one line a minute. A panic leaves its report in `crash.log`
-in the local folder, and the next start names it in the status bar (EP-14a).
+in the local folder, and the next start names it in the status bar (EP-14a). A panic of the
+renderer on the window's main thread (a wgpu crate's, as when a graphics driver's reset loses the
+device) starts the window again on its own, hidden in the tray when it was, at most once in ten
+minutes; the rolling log says so, and the status bar's notice says it started again.
 
 Built with `--features
 screenshot` and run with `CRW_SCREENSHOT=<file.png>`, it shows a fake portfolio

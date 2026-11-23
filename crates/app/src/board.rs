@@ -1149,6 +1149,8 @@ impl Board {
     /// phone's pages read. Each part is timed, and a slow pass has its line in the rolling log
     /// (EP-43).
     pub fn pass(&mut self, ctx: &egui::Context) {
+        // A renderer's panic starts the window again, hidden when it is (crash.rs).
+        crate::crash::set_hidden(self.hidden);
         self.pace.begin();
         self.obey_pages();
         self.pace.mark("the forms");
