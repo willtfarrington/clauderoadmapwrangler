@@ -62,13 +62,28 @@ pub const DAY_LINES: usize = 500;
 pub const PAUSED_BY_OWNER: &str = "paused by the owner: no chain goes on until the Resume";
 pub const RESUMED_BY_OWNER: &str = "resumed by the owner";
 
-/// A run's cap by its brief's size (D-22): S 45 min, M 90 min, L 3 h; a brief with no size
-/// takes L's.
+/// A run's cap by its brief's size (D-22): S 75 min (45 until EP-43a: a code brief carries about
+/// twenty minutes of checks and close whatever its size, D-4), M 90 min, L 3 h; a brief with no
+/// size takes L's.
 pub fn cap(size: Option<Size>) -> Duration {
     match size {
-        Some(Size::S) => Duration::from_secs(45 * 60),
+        Some(Size::S) => Duration::from_secs(75 * 60),
         Some(Size::M) => Duration::from_secs(90 * 60),
         Some(Size::L) | None => Duration::from_secs(3 * 60 * 60),
+    }
+}
+
+/// The cap a run of a brief of `size` has, in words: `S's cap of 1 h 15 min`, as the opener of
+/// a capped run says it (EP-43a).
+pub fn cap_words(size: Option<Size>) -> String {
+    limit_words(size, cap(size))
+}
+
+/// A cap of `limit` for a brief of `size`, in words.
+fn limit_words(size: Option<Size>, limit: Duration) -> String {
+    match size {
+        Some(size) => format!("{size}'s cap of {}", length(limit)),
+        None => format!("the cap of {} (no size)", length(limit)),
     }
 }
 
@@ -143,10 +158,7 @@ impl Cap {
 
     /// The cap in words: `M's cap of 1 h 30 min`.
     pub fn words(&self) -> String {
-        match self.size {
-            Some(size) => format!("{size}'s cap of {}", length(self.limit)),
-            None => format!("the cap of {} (no size)", length(self.limit)),
-        }
+        limit_words(self.size, self.limit)
     }
 }
 
@@ -1822,7 +1834,8 @@ mod tests {
 
     #[test]
     fn a_runs_cap_counts_its_working_time_only() {
-        assert_eq!(cap(Some(Size::S)), Duration::from_secs(45 * 60));
+        // S's cap is 75 minutes from EP-43a; M's and L's wait for EP-53's measure.
+        assert_eq!(cap(Some(Size::S)), Duration::from_secs(75 * 60));
         assert_eq!(cap(Some(Size::M)), Duration::from_secs(90 * 60));
         assert_eq!(cap(Some(Size::L)), Duration::from_secs(180 * 60));
         assert_eq!(cap(None), cap(Some(Size::L)));
@@ -1836,14 +1849,22 @@ mod tests {
         assert!(!cap.reached(at(60)));
         cap.clock.tick(false, at(60));
         assert_eq!(cap.clock.worked(at(60)), Duration::from_secs(20 * 60));
-        assert!(!cap.reached(at(84)));
-        assert!(cap.reached(at(85)));
-        assert_eq!(cap.words(), "S's cap of 45 min");
-        let words = capped_words("EP-5", &cap, cap.clock.worked(at(85)));
+        // Forty minutes waited: the cap is met at minute 115 of the wall clock.
+        assert!(!cap.reached(at(85)));
+        assert!(!cap.reached(at(114)));
+        assert!(cap.reached(at(115)));
+        assert_eq!(cap.words(), "S's cap of 1 h 15 min");
+        let words = capped_words("EP-5", &cap, cap.clock.worked(at(115)));
         assert!(
-            words.starts_with("capped EP-5: stopped after 45 min"),
+            words.starts_with(
+                "capped EP-5: stopped after 1 h 15 min of work, S's cap of 1 h 15 min"
+            ),
             "{words}"
         );
+        // The words a capped run's opener says, from the size alone (EP-43a).
+        assert_eq!(cap_words(Some(Size::S)), cap.words());
+        assert_eq!(cap_words(Some(Size::M)), "M's cap of 1 h 30 min");
+        assert_eq!(cap_words(None), "the cap of 3 h 00 min (no size)");
     }
 
     /// The house fixture (`crates/core/fixtures/projects/house`): EP-3 next, then EP-4 (L) and
@@ -2081,6 +2102,17 @@ mod tests {
         assert_eq!(
             words,
             "chained EP-5 after EP-4: fable at xhigh, M's cap of 1 h 30 min"
+        );
+        // An S's line says its cap of 75 minutes (EP-43a).
+        let small = Cap::new(Some(Size::S), Instant::now());
+        assert_eq!(
+            chained_words(
+                ep("EP-6"),
+                Some(ep("EP-5")),
+                "claude-opus-5-5 at max",
+                &small
+            ),
+            "chained EP-6 after EP-5: claude-opus-5-5 at max, S's cap of 1 h 15 min"
         );
         let ended = refused_words(Some(ep("EP-4")), &[Refusal::Replan(ep("EP-5"))]);
         assert!(

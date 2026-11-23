@@ -6,7 +6,9 @@
 //! one is written, and the last completed one; the open owner tasks and inbox messages as written,
 //! with the triage rule (D-13); and the rules every session keeps, ending before the commit, or
 //! with the commit itself while the project's autopilot is on (D-22; EP-19), whose words the
-//! Commit button also sends ([`commit_message`]). A project may word it its own way with a template
+//! Commit button also sends ([`commit_message`]). A headless run of such a project is told its
+//! cap and when it started, and to split a row that will not fit it when it writes its brief
+//! (EP-43a). A project may word it its own way with a template
 //! in `[project.launch] template`, whose placeholders are the opener's parts. [`draft`] puts the
 //! prompt together with the rule table's resolution, for the launch dialog and `crw prompt`.
 
@@ -65,6 +67,13 @@ pub struct Parts {
     pub title: String,
     /// The Size cell as written, which keeps a re-scope.
     pub size: String,
+    /// The size as the parser reads it, which sets a headless run's cap (D-22): none for a row
+    /// without one, whose run takes L's cap.
+    pub sized: Option<Size>,
+    /// When the run starts, `HH:MM` in the owner's time zone, which its cap counts from
+    /// (EP-43a): the clock's when the prompt is made, stamped again at the dialog's Start
+    /// headless and at a chained or phone start ([`Draft::for_chain`]).
+    pub time: String,
     pub depends: String,
     /// `core` or `stretch`; empty without a Core column.
     pub track: String,
@@ -95,11 +104,15 @@ pub struct Parts {
     /// The opener's paragraph on the tool's own build, worded for the launch's mode; empty for
     /// any other project.
     pub build: String,
+    /// The opener's paragraph on a headless run's cap (EP-43a): the cap, its start, and the
+    /// split of a row that will not fit it; empty for a visual launch or a project whose
+    /// autopilot is off, whose runs have no cap.
+    pub cap: String,
 }
 
 impl Parts {
     /// The placeholders a template may name, `{opener}` aside.
-    pub const NAMES: [&'static str; 22] = [
+    pub const NAMES: [&'static str; 23] = [
         "project",
         "folder",
         "date",
@@ -121,6 +134,7 @@ impl Parts {
         "triage",
         "rules",
         "build",
+        "cap",
         "opener",
     ];
 
@@ -147,19 +161,59 @@ impl Parts {
             "triage" => &self.triage,
             "rules" => &self.rules,
             "build" => &self.build,
+            "cap" => &self.cap,
             _ => return None,
         })
     }
 
-    /// Sets what the session runs with, as the dialog changes it; the paragraph on the tool's own
-    /// build follows the mode.
+    /// Sets what the session runs with, as the dialog changes it; the paragraphs on the tool's
+    /// own build and on the run's cap follow the mode.
     pub fn choose(&mut self, chosen: &Chosen<'_>) {
         self.model = chosen.model.trim().to_owned();
         self.effort = effort_words(chosen.effort, chosen.ultracode);
         self.date = chosen.date.to_owned();
         self.visual = chosen.visual;
         self.build = build_words(self.own, self.visual);
+        self.cap = self.cap_paragraph();
     }
+
+    /// Stamps the run's start, `HH:MM` in the owner's time zone, which the paragraph on its cap
+    /// says the cap counts from (EP-43a).
+    pub fn started_at(&mut self, time: &str) {
+        self.time = time.trim().to_owned();
+        self.cap = self.cap_paragraph();
+    }
+
+    /// The paragraph on a headless run's cap (D-22; EP-43a): a run of a project whose autopilot
+    /// is on is stopped at the cap of its brief's size, counted in working time from its start,
+    /// and the session judges at its brief whether the row fits and splits one that will not
+    /// (the D-4 addendum of 2026-11-22). Empty for a visual launch or a project whose autopilot
+    /// is off, whose runs have no cap.
+    fn cap_paragraph(&self) -> String {
+        if self.visual || !self.commits {
+            return String::new();
+        }
+        let start = if self.time.is_empty() {
+            "its start".to_owned()
+        } else {
+            format!("its start at {} local time", self.time)
+        };
+        format!(
+            "The autopilot is on for this project, so the window stops this run at {} of working \
+             time, counted from {start}, the time a request waits for the owner's answer not \
+             counted; what it has done then stays in the tree, uncommitted. When you write the \
+             brief, judge whether the row fits that cap with its checks and its close. If it \
+             will not, split it there: do the first part, propose the rest as a row in the \
+             completion note, and close.",
+            crate::autopilot::cap_words(self.sized)
+        )
+    }
+}
+
+/// The time of day in the owner's time zone, `HH:MM`: a run's start as its opener says it,
+/// which its cap counts from (EP-43a).
+pub fn clock() -> String {
+    chrono::Local::now().format("%H:%M").to_string()
 }
 
 /// Whether `folder` is the repository this build was compiled in: the tool's own project (EP-37a,
@@ -403,6 +457,8 @@ pub fn parts(
         project: project.to_owned(),
         folder: snapshot.folder.display().to_string(),
         own: is_tool(&snapshot.folder),
+        commits,
+        time: clock(),
         ..row_parts(roadmap, row)
     };
     parts.choose(chosen);
@@ -491,7 +547,6 @@ pub fn parts(
         written.map(|entry| entry.file.name.as_str()),
         commits,
     );
-    parts.commits = commits;
     Ok(parts)
 }
 
@@ -505,6 +560,7 @@ pub fn row_parts(roadmap: &Roadmap, row: &Row) -> Parts {
             "" => "no size".to_owned(),
             size => size.to_owned(),
         },
+        sized: row.size,
         depends: match row.depends.text.trim() {
             "" => "—".to_owned(),
             depends => depends.to_owned(),
@@ -667,6 +723,9 @@ pub fn opener(parts: &Parts) -> String {
             parts.folder, parts.date, parts.model, parts.effort
         )
     });
+    if !parts.cap.is_empty() {
+        out.push(parts.cap.clone());
+    }
     out.push(if parts.read_first_quoted {
         "Read first, as the project's CLAUDE.md says:".to_owned()
     } else {
@@ -808,12 +867,13 @@ impl Draft {
     /// The draft as a chained run takes it (D-22; EP-19a): headless whatever the project's
     /// launch mode, so the opener says what the session runs with rather than that VS Code's
     /// panel chooses; and with the owner's choice from the chain plan, when they made one, in
-    /// place of the rules'. The prompt is generated again, through `template` when the project
-    /// has one.
+    /// place of the rules'. The run starts now, so its cap counts from now (EP-43a). The prompt
+    /// is generated again, through `template` when the project has one.
     pub fn for_chain(&mut self, picked: Option<&rules::Picked>, template: Option<&str>) {
         if let Some(picked) = picked {
             self.resolution.pick(picked);
         }
+        self.parts.time = clock();
         let date = self.parts.date.clone();
         self.parts.choose(&Chosen {
             model: &self.resolution.model.value,
@@ -1307,5 +1367,115 @@ Intro.
         // A template names it as {build}.
         let (rendered, unknown) = render("{ep}\n{build}", &own);
         assert!(unknown.is_empty() && rendered.contains("File > Install and restart"));
+    }
+
+    /// A headless run of a project whose autopilot is on (EP-43a): its opener says the cap of
+    /// the brief's size and when the run started, and that a row which will not fit it is split
+    /// at the brief; a visual launch and a project whose autopilot is off say nothing of it.
+    #[test]
+    fn a_capped_runs_opener_says_its_cap_and_its_start() {
+        let snapshot = house();
+        // The fixture's next brief is EP-3, an M; the clock's time is stamped when it is made.
+        let mut capped = parts("house", &snapshot, None, &CHOSEN, true).unwrap();
+        assert_eq!(capped.sized, Some(Size::M));
+        assert_eq!(capped.time.len(), 5, "HH:MM: {}", capped.time);
+        assert!(
+            capped
+                .cap
+                .contains(&format!("its start at {} local time", capped.time))
+        );
+        capped.started_at("09:41");
+        let text = opener(&capped);
+        let paragraph = "The autopilot is on for this project, so the window stops this run at \
+                         M's cap of 1 h 30 min of working time, counted from its start at 09:41 \
+                         local time, the time a request waits for the owner's answer not \
+                         counted; what it has done then stays in the tree, uncommitted. When you \
+                         write the brief, judge whether the row fits that cap with its checks and \
+                         its close. If it will not, split it there: do the first part, propose \
+                         the rest as a row in the completion note, and close.";
+        assert!(text.contains(paragraph), "{text}");
+        // After the launch's paragraph, before the read-first rule.
+        let at = text.find(paragraph).unwrap();
+        assert!(text.find("The session was launched").unwrap() < at);
+        assert!(at < text.find("Read first").unwrap());
+        // A new stamp moves the start, and a choice keeps it.
+        capped.started_at("10:02");
+        assert!(opener(&capped).contains("counted from its start at 10:02 local time"));
+        capped.choose(&CHOSEN);
+        assert!(opener(&capped).contains("counted from its start at 10:02 local time"));
+        // A template names it as {cap}.
+        let (rendered, unknown) = render("{ep}\n{cap}", &capped);
+        assert!(unknown.is_empty(), "{unknown:?}");
+        assert!(rendered.contains("stops this run at M's cap of 1 h 30 min"));
+        // Visual: VS Code's session has no cap, so nothing is said of one.
+        capped.choose(&Chosen {
+            visual: true,
+            ..CHOSEN
+        });
+        assert!(capped.cap.is_empty());
+        assert!(!opener(&capped).contains("stops this run"));
+        // The autopilot off: no cap either.
+        let off = parts("house", &snapshot, None, &CHOSEN, false).unwrap();
+        assert!(off.cap.is_empty() && !opener(&off).contains("stops this run"));
+
+        // An S says its cap of 75 minutes; a row without a size, L's with the reason.
+        let mut small = parts_fixture();
+        small.commits = true;
+        small.sized = Some(Size::S);
+        small.started_at("17:23");
+        assert!(
+            small
+                .cap
+                .contains("stops this run at S's cap of 1 h 15 min of working time"),
+            "{}",
+            small.cap
+        );
+        small.sized = None;
+        small.started_at("17:23");
+        assert!(
+            small
+                .cap
+                .contains("at the cap of 3 h 00 min (no size) of working time")
+        );
+        // No time stamped: its start, unnamed.
+        small.started_at("");
+        assert!(
+            small
+                .cap
+                .contains("counted from its start, the time a request")
+        );
+
+        // A chained start is stamped when it is drafted for the chain (`for_chain`), headless,
+        // whatever the project's launch mode.
+        let registry: Registry = toml::from_str(
+            "format = 1\n\n[[project]]\nname = \"house\"\npath = \"house\"\nstate = \"active\"\n\
+             autopilot = { enabled = true }\n",
+        )
+        .unwrap();
+        let unread = rules::Usage::unread(chrono::Utc::now());
+        let mut chained = draft(
+            &registry,
+            &registry.projects[0],
+            &snapshot,
+            None,
+            &[],
+            &unread,
+            "2026-11-02",
+        )
+        .unwrap();
+        chained.parts.time = "stale".to_owned();
+        chained.for_chain(None, None);
+        assert!(!chained.parts.visual);
+        assert_eq!(
+            chained.parts.time.len(),
+            5,
+            "stamped again: {}",
+            chained.parts.time
+        );
+        assert!(chained.prompt.text.contains(&format!(
+            "stops this run at M's cap of 1 h 30 min of working time, counted from its start at \
+             {} local time",
+            chained.parts.time
+        )));
     }
 }

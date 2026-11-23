@@ -2559,7 +2559,7 @@ mod tests {
         );
         line(
             "lantern",
-            "chained EP-2 after EP-1: fable at high, the rules' choice, S's cap of 45 min",
+            "chained EP-2 after EP-1: fable at high, the rules' choice, S's cap of 1 h 15 min",
             now,
         );
         line(

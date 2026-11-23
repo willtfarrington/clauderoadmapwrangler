@@ -2267,6 +2267,8 @@ impl Board {
             return;
         }
         dialog.error = None;
+        // The run starts now: its opener says its cap counts from here (EP-43a).
+        dialog.stamp_start(&crw_core::prompt::clock());
         let mut launch = dialog.launch(self.ledger.clone());
         let effort = dialog.effort_words().to_owned();
         let (size, commits) = (dialog.size, dialog.commits());

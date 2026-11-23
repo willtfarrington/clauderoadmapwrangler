@@ -263,8 +263,11 @@ chain plan says: the launch dialog of a project whose autopilot is on lists the 
 may run after the one being started, each with a Chain box and the same Model and Effort
 pickers, the rules' resolution the default, so the chain runs a brief as the owner set it, the
 rules' way where they left it alone, and ends before a brief they unticked. If only the pause
-refuses, the chain is held until the pause lifts. Each such run has a cap by size (S 45 min, M 90
-min, L 3 h) counted in working time, a question's wait left out, and is stopped gracefully at it.
+refuses, the chain is held until the pause lifts. Each such run has a cap by size (S 75 min, M 90
+min, L 3 h) counted in working time, a question's wait left out, and is stopped gracefully at it;
+its opener says the cap and when the run started, and tells the session that a row which will not
+fit it is split when the brief is written, the first part done and the rest proposed as a row
+(EP-43a). The launch dialog's Headless note names the cap too.
 Pause, in the Sessions pane or the tray, holds every chain; the runs that work go on. The
 Sessions pane's All tab opens with the chain log, the plans in hand, the day's line (the chained
 runs today in all projects, counted as the gate counts them, against the total a day, which a

@@ -2062,6 +2062,35 @@ committing and recording hashes; one model and effort per project; usage thresho
 > and risk 17 stays open into v2 (the owner's choice). *Alternatives.* Risk 17 closed as
 > accepted; a supervised probe of the push guard planned for v2.
 
+> **Addendum (2026-11-23, EP-43a).** **The run's cap as a guard.** EP-43's headless run, the
+> first S under the D-4 addendum's rule, was stopped at 44.7 minutes of work by S's cap of 45
+> with its work complete and its close owed, and its session read its clock for the first time at
+> minute 44. A code brief here carries about twenty minutes whatever its size (the D-4 addendum
+> of 2026-11-22), so a cap of one and a half times an S cut a run that worked.
+>
+> - **S's cap is 75 minutes** (`autopilot::cap`); M's 90 minutes and L's three hours stay until
+>   EP-53 has measured. Every surface says it through `Cap::words` ("S's cap of 1 h 15 min"): the
+>   chain log's chained and capped lines, the run's tab, the phone's pages and the chain's
+>   notifications.
+> - **A capped run is told its cap.** The opener of a headless run of a project whose autopilot is
+>   on carries a paragraph after the launch's (`Parts::cap`, a template's `{cap}`): the window
+>   stops the run at its brief's cap of working time, counted from its start at a local time, a
+>   request's wait for the owner not counted, its work left in the tree; and when the session
+>   writes its brief, it judges whether the row fits the cap with its checks and its close and
+>   splits one that will not there, doing the first part, proposing the rest as a row in its
+>   completion note and closing. That is the D-4 addendum's rule, which a run could not apply to
+>   a cap it was not told. The time is the clock's when the prompt is made, stamped again at the
+>   dialog's Start headless (a prompt the owner edited is kept as written) and at each chained or
+>   phone start (`Draft::for_chain`). A visual launch, a project whose autopilot is off and a
+>   migration have no cap, and their openers say none; the tool's own project keeps its paragraph
+>   on the install.
+> - **The launch dialog's** Headless note names the cap while the project's autopilot is on.
+> - **Parked:** a warning sent into a run that nears its cap (`v2-notes.md`).
+>
+> *Alternatives.* The cap raised alone, the session left to find its own clock; the opener
+> without the time, the session reading the clock at its start; a cap per project in the
+> registry; the warning into the run built now; S's cap at 60 or 90 minutes.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time

@@ -688,7 +688,8 @@ fn canned_autopilot(board: &mut Board, project: &str) {
         row(
             140,
             "lantern",
-            "capped EP-3: stopped after 45 min of work, S's cap of 45 min; the chain ends there",
+            "capped EP-3: stopped after 1 h 15 min of work, S's cap of 1 h 15 min; the chain ends \
+             there",
         ),
         row(160, "", autopilot::RESUMED_BY_OWNER),
     ];

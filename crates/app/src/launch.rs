@@ -415,6 +415,36 @@ impl Dialog {
         self.regenerate(follow);
     }
 
+    /// Stamps the run's start (`HH:MM`, the owner's time zone) into the prompt at Start headless
+    /// (EP-43a): the moment a capped run's opener says its cap counts from, where the dialog's
+    /// opening gave the time it was drafted. An edited prompt stays as the owner wrote it; a
+    /// migration's is fixed.
+    pub fn stamp_start(&mut self, time: &str) {
+        if self.migrates.is_some() {
+            return;
+        }
+        self.parts.started_at(time);
+        self.chose();
+    }
+
+    /// The note under the choices for Headless: where the run goes, the cap the window stops it
+    /// at while the project's autopilot is on (D-22; EP-43a), and what the tray does with it.
+    fn headless_note(&self) -> String {
+        let cap = if self.commits() {
+            format!(
+                ", and the window stops it at {} of working time, the autopilot being on",
+                crw_core::autopilot::cap_words(self.size)
+            )
+        } else {
+            String::new()
+        };
+        format!(
+            "Runs headless in {}; the ledger records it{cap}. Closing the window keeps it in the \
+             tray, and quitting stops it.",
+            self.folder.display()
+        )
+    }
+
     /// The launch the runner starts (EP-9), with the ledger it records in.
     pub fn launch(&self, ledger: Option<PathBuf>) -> session::Launch {
         let resolution = &self.resolution;
@@ -1194,11 +1224,7 @@ impl Dialog {
                 self.folder.display()
             )
         } else {
-            format!(
-                "Runs headless in {}; the ledger records it. Closing the window keeps it in the \
-                 tray, and quitting stops it.",
-                self.folder.display()
-            )
+            self.headless_note()
         };
         ui.add(egui::Label::new(RichText::new(note).small().weak()).wrap());
         ui.horizontal(|ui| {
@@ -1885,6 +1911,55 @@ mod tests {
             dialog.ui(ui, Some(&preflight), false, false, false);
         });
         assert!(testing::text_at(&output, "Install and restart").is_none());
+    }
+
+    /// A capped run in the dialog (EP-43a): on Headless with the autopilot on, the prompt says
+    /// the brief's cap and its start, which Start headless stamps again unless the owner has
+    /// edited the prompt, and the note under the choices names the cap; in Visual, or with the
+    /// autopilot off, neither says a cap.
+    #[test]
+    fn a_capped_runs_prompt_and_note_say_its_cap_and_start_headless_stamps_it() {
+        // Harbor's EP-4 is an L.
+        let mut capped = dialog_with_plan();
+        assert!(capped.visual());
+        assert!(!capped.prompt.contains("stops this run"));
+        capped.set_mode(LaunchMode::Headless);
+        assert!(
+            capped
+                .prompt
+                .contains("so the window stops this run at L's cap of 3 h 00 min of working time"),
+            "{}",
+            capped.prompt
+        );
+        let note = capped.headless_note();
+        assert!(
+            note.contains(
+                "the ledger records it, and the window stops it at L's cap of 3 h 00 min of \
+                 working time, the autopilot being on. Closing the window"
+            ),
+            "{note}"
+        );
+        capped.stamp_start("21:07");
+        assert!(
+            capped
+                .prompt
+                .contains("counted from its start at 21:07 local time")
+        );
+        assert!(!capped.edited());
+        // An edited prompt stays as written; the generated one takes the stamp.
+        capped.prompt.push_str("\n\nMine.");
+        capped.stamp_start("21:30");
+        assert!(capped.prompt.contains("its start at 21:07") && capped.prompt.ends_with("Mine."));
+        assert!(capped.generated.contains("its start at 21:30"));
+        // The autopilot off: no cap in the prompt or the note.
+        let mut off = dialog(registry(Vec::new()));
+        off.set_mode(LaunchMode::Headless);
+        off.stamp_start("21:07");
+        assert!(!off.prompt.contains("stops this run"));
+        assert!(
+            off.headless_note()
+                .contains("the ledger records it. Closing the window")
+        );
     }
 
     /// Harbor's dialog with its autopilot on and the chain plan after EP-4: EP-5 (M), then EP-6,

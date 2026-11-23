@@ -224,6 +224,14 @@ visual session).
   resets" would say what lifts it. And the words of a re-read after a run when the registry does
   not read (a key the running build does not know): "was not read again: the registry does not
   list it" (2026-11-15, the case IN-14 fixed for the gate).
+- *(EP-43a)* A warning sent into a run that nears its cap, such as "fifteen minutes of your cap
+  remain: close with what is done", so that a run which misjudged its row at the brief closes
+  before the window stops it. The runner's input stream, which carries the control protocol's
+  answers, could carry it; whether a message sent in the middle of a turn reaches the session
+  before the turn ends is the CLI's behaviour and unexercised. EP-43a made the run's own judgment
+  at its brief the first guard (its opener says the cap and its start) and parked this, as its
+  brief note said. With it: a resumed run told the cap of its new run, since each resume has a
+  cap of its own and its message is the owner's word or an answer, never an opener.
 
 ## 2 Analytics
 
