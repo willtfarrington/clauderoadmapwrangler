@@ -124,11 +124,13 @@ autopilot turned on or off while the dialog is open gives a run whose cap and op
 project's template that does not name `{cap}` says no cap. The screenshot run and `crw prompt`
 show the words; the next re-plan's walk reads how the first capped runs used them.
 
-> **Completion note (2026-11-23; claude-opus-5-5/max, a visual session; about 30 minutes to the
-> commit, the install after it).** Launched from the window into VS Code at 17:23 (ledger row
-> `57b5c79f`), the panel running the model and effort the launch suggested. The work commit and
-> the record commit, then the install, whose restart the window takes once nothing stands in the
-> way.
+> **Completion note (2026-11-23; claude-opus-5-5/max, a visual session; 22 minutes from the launch
+> to the work commit, the install a minute after it).** Launched from the window into VS Code at
+> 17:23 (ledger row `57b5c79f`), the panel running the model and effort the launch suggested. The
+> work commit (17:45) and the record commit, then the install, whose restart the window took at
+> once: the rolling log's "Restarted into the installed build of 2026-11-23 17:44" at 17:45:37.
+> This note's time was corrected in a docs commit after the install, the first figure having been
+> written before the end.
 >
 > **Owner decisions.** None arose: nothing outward-facing, nothing in the owner's settings or
 > another project, and no change of scope; the brief note settled the rule the opener states. The
