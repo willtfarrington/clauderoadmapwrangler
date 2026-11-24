@@ -2465,7 +2465,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-46 | [Two trims: the Projects pane without its Brief column, the Usage pane without "The last seven days"](EP-46-two-trims.md) (D-25, D-23) | S | EP-45 | core | ☑ `8fd04f0` |
 | EP-47 | [The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself](EP-47-chat-send.md) (D-27) | M | EP-45 | core | ☑ `3912c69` |
 | EP-48 | [A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only](EP-48-reread-on-change.md) (D-9, D-20) | M | EP-45 | core | ☑ `aaf8322` |
-| EP-49 | [The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings](EP-49-darker-dark-theme.md) (D-25) | M | EP-46 | core | ☐ |
+| EP-49 | [The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings](EP-49-darker-dark-theme.md) (D-25) | M | EP-46 | core | ☑ `c879c7c` |
 | EP-50 | The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted (D-10, D-25) | M | EP-46 | core | ☐ |
 | EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
 | EP-52 | The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding (D-22, D-25) | S | EP-51 | core | ☐ |

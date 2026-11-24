@@ -158,7 +158,8 @@ for OT-31 shows it.
 > time. Judged at the brief to fit with room, so nothing was split: the code and its tests
 > passed at 23:02, the screenshot series and the review ran by 23:11, when the owner's question
 > went out; it was answered from the phone at 00:14, and the review's fixes, the final pictures,
-> the checks and the records followed. The work commit, the record commit, then the install.
+> the checks and the records followed. The work commit `c879c7c` at 00:27, the record commit,
+> then the install.
 >
 > **Owner decisions** (one `AskUserQuestion` at 23:11, both answered with the recommended
 > option).
