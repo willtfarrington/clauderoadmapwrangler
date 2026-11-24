@@ -126,15 +126,15 @@ header is cut by egui at the pane's edge and shows whole on hover; the hover was
 picture, only its truncation looked at.
 
 > **Completion note (2026-11-24; claude-opus-5-5/max, a headless run the window chained after
-> EP-51a; about 40 minutes of working time from the start at 12:54 to the work commit, no question
+> EP-51a; about 28 minutes of working time from the start at 12:54 to the work commit, no question
 > asked).**
 > Chained by the window after EP-51a at 12:54 (ledger row `5f17fcb7`) under S's cap of 1 h 15
 > min. Judged at the brief (about 12:59) to fit, so not split. The code compiled clean at about
 > 13:03 with the touched tests passing; the full tests passed by 13:09, the screenshot-feature
 > tests, both clippy runs and the format check by 13:12, the pictures over the fixtures and over a
 > copy by 13:15. One line changed after them (the held chains' label, below), so every check ran
-> again on the final tree, then the release build, then the records, the work commit, the record
-> commit and the install.
+> again on the final tree by 13:21, then the release build and the records. The work commit
+> `a36c735` at 13:21, the record commit, then the install.
 >
 > **Owner decisions.** None was asked: the brief's notes settle the pane's contents, the fold and
 > where a chain's Show leads, and the rest are routine choices, below. The commits are the
