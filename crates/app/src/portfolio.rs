@@ -434,8 +434,8 @@ impl ProjectRow {
         (counts.total > 0).then(|| counts.total - counts.done)
     }
 
-    /// The owner's open items counted as waiting (D-10 addendum of 2026-11-11): the open owner
-    /// tasks where `owner-tasks.md` is kept, else the older forms' open items.
+    /// The owner's open items counted as waiting (D-10 addendum of 2026-11-22; EP-50): the open
+    /// lines of `owner-tasks.md`, none where the file is not kept.
     pub fn open_items(&self) -> usize {
         self.snapshot.open_waiting()
     }
@@ -2238,7 +2238,11 @@ pub(crate) mod tests {
                 .proposals(now)
                 .is_empty()
         );
-        assert_eq!(portfolio.project("orchard").unwrap().open_items(), 3);
+        // orchard keeps no owner-tasks.md: nothing counts, its older forms hold three open
+        // items (D-10 addendum of 2026-11-22; EP-50).
+        let orchard = portfolio.project("orchard").unwrap();
+        assert_eq!(orchard.open_items(), 0);
+        assert_eq!(orchard.snapshot.older_open(), 3);
         assert!(portfolio.project("tundra").unwrap().folder.is_none());
         assert_eq!(portfolio.project("atlas").unwrap().counts().total, 0);
     }

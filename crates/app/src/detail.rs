@@ -1,8 +1,8 @@
 //! The Detail pane (D-25): everything the files say about the selected project — its proposals
 //! (confirmed or dismissed here, a dismissed one restored), its next brief with the brief notes
 //! verbatim, why a session is taken to be in progress, the progress per phase, its badges spelt
-//! out (EP-7) with this week's usage share (EP-18b), what waits on the owner (ticked here when it
-//! lives in `owner-tasks.md`), the inbox
+//! out (EP-7) with this week's usage share (EP-18b), a line saying what waits on the owner that
+//! leads to the Owner tasks pane, where the tasks are ticked (EP-50), the inbox
 //! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
 //! met. For an unadopted folder: what it holds, Adopt and Ignore. From EP-12 a session that runs
 //! there, by the window's or Claude Code's account, joins the in-progress reasons, which from
@@ -210,10 +210,10 @@ fn project(
     history(ui, row, &measured, actions);
     analytics::section(ui, row, portfolio, analytics, &measured);
     status(ui, row, portfolio, week, actions);
-    owner_items(ui, row, actions);
+    // The tasks and the older forms live in the Owner tasks pane; one line leads there (EP-50).
+    crate::owner_tasks::detail_line(ui, row, actions);
     inbox(ui, row, drafts, actions);
     handed_on(ui, row);
-    older_forms(ui, row);
     decisions(ui, snapshot);
     house_style(ui, row, actions);
     problems(ui, row);
@@ -1015,178 +1015,6 @@ pub(crate) fn without_gate<'a>(text: &'a str, gate: Option<&Gate>) -> &'a str {
         .map_or(text, |at| trimmed[..at].trim_end())
 }
 
-/// What a gate's chip says on hover.
-fn gate_hint(gate: &Gate) -> String {
-    match gate {
-        Gate::Before(id) => format!("Due before {id} starts (D-10)"),
-        Gate::OnOrAfter(date) => format!("Not before {date}"),
-        Gate::When(words) => format!("At a decision point: {words}"),
-    }
-}
-
-/// What waits on the owner (D-10): the open owner tasks where `owner-tasks.md` is kept, else the
-/// older forms' open items (the D-10 addendum of 2026-11-11), each tickable or locked, then the
-/// ticked tasks folded.
-fn owner_items(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
-    let items = row.snapshot.waiting();
-    let folder = row
-        .folder
-        .as_ref()
-        .map(|f| f.path.clone())
-        .unwrap_or_default();
-    let open: Vec<&OwnerItem> = items.iter().filter(|item| item.is_open()).collect();
-    let resolved = items.len() - open.len();
-    section(
-        ui,
-        &format!(
-            "Waiting on the owner: {} open, {resolved} resolved",
-            open.len()
-        ),
-    );
-    if items.is_empty() {
-        let nothing = if row.snapshot.older_forms_wait() {
-            "Nothing: no owner tasks and none of the older forms."
-        } else {
-            "Nothing: no open owner task."
-        };
-        ui.label(RichText::new(nothing).weak());
-        return;
-    }
-    for item in &open {
-        owner_item(ui, row, item, &folder, actions);
-    }
-    let ticked: Vec<&OwnerItem> = items
-        .iter()
-        .filter(|item| !item.is_open() && item.is_tickable())
-        .collect();
-    if !ticked.is_empty() {
-        egui::CollapsingHeader::new(format!("Ticked owner tasks ({})", ticked.len()))
-            .id_salt(("ticked", row.name()))
-            .show(ui, |ui| {
-                for item in ticked {
-                    ui.horizontal(|ui| {
-                        if let Some(id) = &item.id {
-                            if ui
-                                .small_button("Untick")
-                                .on_hover_text("Clear its box in owner-tasks.md")
-                                .clicked()
-                            {
-                                actions.push(Action::Untick {
-                                    project: row.name().to_owned(),
-                                    id: id.clone(),
-                                });
-                            }
-                            ui.label(RichText::new(id).monospace());
-                        }
-                        let weak = Look {
-                            weak: true,
-                            ..Look::default()
-                        };
-                        let text = markup::job(ui, &markup::reflow(&item.text), weak);
-                        ui.add(egui::Label::new(text).truncate());
-                    });
-                }
-            });
-    }
-}
-
-/// One open owner item: its box when it is a line of `owner-tasks.md`, the lock of an older
-/// form, then its id and gate, its text and its meta line.
-fn owner_item(
-    ui: &mut egui::Ui,
-    row: &ProjectRow,
-    item: &OwnerItem,
-    folder: &std::path::Path,
-    actions: &mut Vec<Action>,
-) {
-    ui.horizontal_top(|ui| {
-        if item.is_tickable() {
-            let mut done = false;
-            if ui
-                .checkbox(&mut done, "")
-                .on_hover_text("Tick it: the box changes in owner-tasks.md, nothing else")
-                .clicked()
-                && let Some(id) = &item.id
-            {
-                actions.push(Action::Tick {
-                    project: row.name().to_owned(),
-                    id: id.clone(),
-                });
-            }
-        } else {
-            ui.label(style::icon(
-                icons::ICON_LOCK,
-                Some(ui.visuals().weak_text_color()),
-            ))
-            .on_hover_text("An older form: shown here, changed only in its file");
-        }
-        ui.vertical(|ui| {
-            // An id the text opens with (a register's `**R-2**`) is not said twice.
-            let id = item
-                .id
-                .as_ref()
-                .filter(|id| !item.text.contains(id.as_str()));
-            if id.is_some() || item.gate.is_some() {
-                ui.horizontal(|ui| {
-                    if let Some(id) = id {
-                        ui.label(RichText::new(id).monospace().strong());
-                    }
-                    if let Some(gate) = &item.gate {
-                        style::chip(ui, &gate.to_string(), style::amber(ui))
-                            .on_hover_text(gate_hint(gate));
-                    }
-                });
-            }
-            markup::note(
-                ui,
-                without_gate(&item.text, item.gate.as_ref()),
-                Look {
-                    sentences: true,
-                    ..Look::default()
-                },
-            );
-            ui.label(RichText::new(meta(item, folder)).small().weak());
-        });
-    });
-    ui.add_space(4.0);
-}
-
-/// The older forms of a project that keeps `owner-tasks.md` (D-10 addendum of 2026-11-11): its
-/// README's risks list, the registers, the latest brief's blocks and handoff notes, readable
-/// under a heading of their own and counted nowhere, since the tasks file is what waits on the
-/// owner. Nothing for a project without the file, whose older forms count above.
-fn older_forms(ui: &mut egui::Ui, row: &ProjectRow) {
-    let items = row.snapshot.uncounted();
-    if items.is_empty() {
-        return;
-    }
-    let folder = row
-        .folder
-        .as_ref()
-        .map(|f| f.path.clone())
-        .unwrap_or_default();
-    let open: Vec<&OwnerItem> = items.iter().filter(|item| item.is_open()).collect();
-    let resolved = items.len() - open.len();
-    section(
-        ui,
-        &format!(
-            "Risks and older forms: {} open, {resolved} resolved, not counted",
-            open.len()
-        ),
-    );
-    ui.label(
-        RichText::new(
-            "Read-only, from the README and the older files; the project keeps owner-tasks.md, \
-             which is what waits on the owner (D-10).",
-        )
-        .weak(),
-    );
-    ui.add_space(4.0);
-    for item in &open {
-        owner_item(ui, row, item, &folder, &mut Vec::new());
-    }
-}
-
 fn inbox(
     ui: &mut egui::Ui,
     row: &ProjectRow,
@@ -1798,72 +1626,6 @@ mod tests {
         });
         let line = testing::text_containing(&output, "19 min (the ledger)");
         assert!(line.is_some(), "the measured time of EP-1's headless row");
-    }
-
-    /// The older forms of a project that keeps owner-tasks.md are listed under a heading of
-    /// their own and counted nowhere; without the file they are what waits (D-10 addendum of
-    /// 2026-11-11; EP-38).
-    #[test]
-    fn the_older_forms_of_a_project_with_a_tasks_file_are_listed_uncounted() {
-        use crate::portfolio::tests::{Scratch, fake_store};
-        use crate::testing::{self, Screen};
-        use crw_core::tasks::State;
-
-        let scratch = Scratch::new("detail-older-forms");
-        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
-        let mut harbor = portfolio.project("harbor").unwrap().clone();
-        let mut screen = Screen::new();
-        // Two open tasks and no older form: no section.
-        assert_eq!(harbor.open_items(), 2);
-        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
-        assert!(!shows(&output, "Risks and older forms"));
-        let readme = harbor.snapshot.folder.join("roadmap").join("README.md");
-        let risk = |line, id: &str, text: &str, state| OwnerItem {
-            form: Form::Risk,
-            path: readme.clone(),
-            line,
-            id: Some(id.to_owned()),
-            text: text.to_owned(),
-            gate: None,
-            state,
-            raised: None,
-            date: None,
-        };
-        harbor.snapshot.legacy = vec![
-            risk(
-                60,
-                "1",
-                "**The tide cache goes stale.** Read again in March.",
-                State::Open,
-            ),
-            risk(61, "2", "~~**The CSV's encoding.**~~", State::Resolved),
-        ];
-        // The tasks file is what waits: the risks are listed, uncounted, with the lock.
-        assert_eq!(harbor.open_items(), 2);
-        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
-        assert!(shows(
-            &output,
-            "Risks and older forms: 1 open, 1 resolved, not counted"
-        ));
-        assert!(shows(&output, "The tide cache goes stale."));
-        assert!(!shows(&output, "The CSV's encoding."));
-        let in_readme = std::path::Path::new("roadmap").join("README.md");
-        assert!(shows(
-            &output,
-            &format!("risk · {}:60", in_readme.display())
-        ));
-        let output = screen.pass(Vec::new(), |ui| owner_items(ui, &harbor, &mut Vec::new()));
-        assert!(shows(&output, "Waiting on the owner: 2 open, 1 resolved"));
-        assert!(!shows(&output, "The tide cache goes stale."));
-        // Without the file the same forms count, under the waiting heading alone.
-        harbor.snapshot.tasks = None;
-        assert_eq!(harbor.open_items(), 1);
-        let output = screen.pass(Vec::new(), |ui| older_forms(ui, &harbor));
-        assert!(!shows(&output, "Risks and older forms"));
-        let output = screen.pass(Vec::new(), |ui| owner_items(ui, &harbor, &mut Vec::new()));
-        assert!(shows(&output, "Waiting on the owner: 1 open, 1 resolved"));
-        assert!(shows(&output, "The tide cache goes stale."));
-        assert!(testing::text_at(&output, "1").is_some());
     }
 
     #[test]

@@ -173,23 +173,27 @@ leaves a proposed state out until the fact it rests on changes (`crw undismiss` 
 `CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) is a set of docked
-panes (Projects, Detail, Decisions, Sessions, Chat, Usage, Diagnostics) that can be dragged into
-another layout, which it keeps, and View > Reset layout restores. It shows the registry's projects
-grouped by state, each with its next brief, its progress, what waits on the owner (the open owner
-tasks and inbox messages of a project that keeps `roadmap/owner-tasks.md`, else the open items of its
-older forms), its badges (this
+panes (Projects, Detail, Owner tasks, Decisions, Sessions, Chat, Usage, Diagnostics) that can be
+dragged into another layout, which it keeps, and View > Reset layout restores. It shows the
+registry's projects grouped by state, each with its next brief, its progress, what waits on the
+owner (the open lines of `roadmap/owner-tasks.md` and the open inbox messages; a project without
+the file shows a small mark for its older forms, counted nowhere), its badges (this
 week's share of the usage among them) and whether a session is in progress, in columns as wide as
 their widest value under a header row, the brief's title giving way before a badge column does; the
 Legend switch shows a key to every mark; a click anywhere on a row selects it and a right click opens
 its menu. A row expands inline to its phases and a burn-up sparkline of done and total by day, and
 the toolbar's Expand all and Collapse all open or fold every row it shows; the Cards switch shows
 the same groups as cards, as many to a line as fit, each with the name, state, next brief, progress,
-badges and sparkline, and answering a click as a row does (EP-26a). The detail pane shows the selected project's brief notes, status, owner items, inbox,
-handed-on mail, the risks and older forms of a project with a tasks file (read-only, counted
-nowhere) and problems, the notes set for reading: each `From …:` segment under its label,
-numbered parts as a list, lines of about a hundred characters, and labels, references, gates and
-runnable code in three colours of the window's, a long owner item a sentence to a bullet with its
-gate as a chip beside its id.
+badges and sparkline, and answering a click as a row does (EP-26a). The detail pane shows the
+selected project's brief notes, status, a line on its owner tasks that opens the Owner tasks pane
+on it, its inbox, handed-on mail and problems, the notes set for reading: each `From …:` segment
+under its label, numbered parts as a list, lines of about a hundred characters, and labels,
+references, gates and runnable code in three colours of the window's. The Owner tasks pane holds
+every project's open owner tasks, grouped by project in the list's order and ticked there, a long
+one a sentence to a bullet with its gate as a chip beside its id, amber when it holds the
+project's next brief; its two switches show the selected project alone and the tasks the window
+ticked in the last week, with Untick; at each project's foot its older forms (a risks list, parked
+blocks, open questions) lie folded, read-only and counted nowhere (EP-50).
 It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. A project whose session ended, the

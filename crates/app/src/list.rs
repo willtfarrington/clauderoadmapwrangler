@@ -23,7 +23,8 @@ use eframe::egui::{self, Align, Checkbox, Layout, Rect, RichText, Sense, Stroke,
 
 use crate::analytics::{self, Loaded};
 use crate::badges::{
-    self, FOLDER, GIT_PENDING, MESSAGES, OWNER_ITEMS, PINNED, PROPOSAL, SESSION, URGENT,
+    self, FOLDER, GIT_PENDING, MESSAGES, OLDER_FORMS, OWNER_ITEMS, PINNED, PROPOSAL, SESSION,
+    URGENT,
 };
 use crate::board::{Action, Board, View};
 use crate::markup::{self, Look};
@@ -170,8 +171,9 @@ impl Column {
             Column::Progress => ("Done", "Rows done of all rows"),
             Column::Items => (
                 "Waiting",
-                "Open owner tasks (the older forms' open items where there is no owner-tasks.md), \
-                 and open inbox messages",
+                "Open owner tasks (the lines of roadmap/owner-tasks.md, ticked in the Owner tasks \
+                 pane) and open inbox messages; a project without the file shows a mark for its \
+                 older forms, never counted",
             ),
             Column::Stack => ("Stack", "The first stack found, and how many more"),
             Column::Hosting => ("Hosting", "Where the repository lives"),
@@ -1285,14 +1287,20 @@ fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: Counts) {
     ));
 }
 
-/// What waits on the owner: open owner items, open inbox messages (red when one is urgent).
+/// What waits on the owner: open owner tasks, open inbox messages (red when one is urgent); a
+/// project without `owner-tasks.md` shows no count but a mark for its older forms' open items,
+/// which no one waits on (D-10 addendum of 2026-11-22; EP-50).
 fn counts_cell(ui: &mut egui::Ui, row: &ProjectRow) {
     // Each icon close to its number, the two pairs apart.
     ui.spacing_mut().item_spacing.x = 3.0;
     let items = row.open_items();
     if items > 0 {
-        OWNER_ITEMS.show(ui, &format!("{items} open owner items"));
+        OWNER_ITEMS.show(ui, &task_words(items));
         ui.label(items.to_string());
+        ui.add_space(6.0);
+    }
+    if let Some(hover) = older_forms_words(row) {
+        OLDER_FORMS.show(ui, &hover);
         ui.add_space(6.0);
     }
     let (messages, urgent) = row.open_messages();
@@ -1303,6 +1311,37 @@ fn counts_cell(ui: &mut egui::Ui, row: &ProjectRow) {
         };
         ui.label(messages.to_string());
     }
+}
+
+/// The Waiting cell's hover for `n` open owner tasks.
+fn task_words(n: usize) -> String {
+    match n {
+        1 => {
+            "1 open owner task in roadmap/owner-tasks.md: the Owner tasks pane ticks it".to_owned()
+        }
+        n => format!(
+            "{n} open owner tasks in roadmap/owner-tasks.md: the Owner tasks pane ticks them"
+        ),
+    }
+}
+
+/// The "older forms" mark's hover, for a project without `owner-tasks.md` whose older forms
+/// hold open items; `None` for any other (EP-50).
+pub(crate) fn older_forms_words(row: &ProjectRow) -> Option<String> {
+    let open = row.snapshot.older_open();
+    if row.snapshot.keeps_tasks() || open == 0 {
+        return None;
+    }
+    let items = if open == 1 {
+        "1 open item".to_owned()
+    } else {
+        format!("{open} open items")
+    };
+    Some(format!(
+        "No roadmap/owner-tasks.md: its older forms (a risks list, parked blocks, open \
+         questions) hold {items}, read-only and counted nowhere, folded in the Owner tasks pane. \
+         Formalise… gives the project a task file (D-10)."
+    ))
 }
 
 /// The first stack chip (`RS+1` when there are more), every chip on hover.

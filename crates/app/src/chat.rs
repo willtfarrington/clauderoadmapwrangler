@@ -294,7 +294,7 @@ impl Board {
                         title: next.brief.title.clone(),
                     }),
                     open_tasks: row.open_items(),
-                    older_forms: row.snapshot.older_forms_wait(),
+                    older_forms: (!row.snapshot.keeps_tasks()).then(|| row.snapshot.older_open()),
                     open_messages,
                     urgent,
                     sessions,

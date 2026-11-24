@@ -257,39 +257,35 @@ impl Snapshot {
             .collect()
     }
 
-    /// Whether the older forms are what waits on the owner (D-10 addendum of 2026-11-11): only
-    /// where the project keeps no `owner-tasks.md`. A project that keeps the file counts its
-    /// tasks (and its inbox, counted beside them), and its older forms, a README's risks list
-    /// among them, are read-only context that no one waits on.
-    pub fn older_forms_wait(&self) -> bool {
-        self.tasks.is_none()
+    /// Whether the project keeps `roadmap/owner-tasks.md`, the one form counted as waiting on
+    /// the owner (D-10 addendum of 2026-11-22). A project without it shows no count, and its
+    /// older forms, a README's risks list among them, are read-only context that no one waits on.
+    pub fn keeps_tasks(&self) -> bool {
+        self.tasks.is_some()
     }
 
-    /// The items counted as waiting on the owner: the lines of `owner-tasks.md` where the file
-    /// is kept, else the older forms.
+    /// The items counted as waiting on the owner: the lines of `owner-tasks.md`, none where the
+    /// file is not kept (D-10 addendum of 2026-11-22; EP-50).
     pub fn waiting(&self) -> Vec<OwnerItem> {
-        match &self.tasks {
-            Some(tasks) => tasks.items().collect(),
-            None => self.legacy.clone(),
-        }
+        self.tasks.iter().flat_map(Tasks::items).collect()
     }
 
-    /// How many of [`Self::waiting`] are open.
+    /// How many of [`Self::waiting`] are open: the open lines of `owner-tasks.md`.
     pub fn open_waiting(&self) -> usize {
-        match &self.tasks {
-            Some(tasks) => tasks.open().count(),
-            None => self.legacy.iter().filter(|item| item.is_open()).count(),
-        }
+        self.tasks.as_ref().map_or(0, |tasks| tasks.open().count())
     }
 
-    /// The older forms shown uncounted, under a heading of their own: every older form of a
-    /// project that keeps `owner-tasks.md`; none elsewhere, where [`Self::waiting`] holds them.
+    /// The older forms, read-only and counted nowhere (EP-50): a README's risks list, the
+    /// registers, the latest brief's blocks and handoff notes, whether or not the project keeps
+    /// `owner-tasks.md`.
     pub fn uncounted(&self) -> &[OwnerItem] {
-        if self.tasks.is_some() {
-            &self.legacy
-        } else {
-            &[]
-        }
+        &self.legacy
+    }
+
+    /// How many of [`Self::uncounted`] are open: what the list's "older forms" mark says of a
+    /// project without `owner-tasks.md` (EP-50).
+    pub fn older_open(&self) -> usize {
+        self.legacy.iter().filter(|item| item.is_open()).count()
     }
 }
 

@@ -631,10 +631,13 @@ pub struct Project {
     pub next: Next,
     /// The next brief's note as written, its own `**EP-n.**` label left out.
     pub note: Option<String>,
-    /// What waits on the owner (D-10): the open items, and how many are resolved.
+    /// What waits on the owner (D-10): the open lines of `owner-tasks.md`, and how many are
+    /// resolved.
     pub waiting: Vec<Item>,
     pub resolved: usize,
-    /// The older forms of a project that keeps `owner-tasks.md`, open, counted nowhere.
+    /// The project keeps `owner-tasks.md` (EP-50): the page's words for the older forms follow.
+    pub keeps_tasks: bool,
+    /// The older forms, open, counted nowhere, with or without the file (EP-50).
     pub uncounted: Vec<Item>,
     /// The inbox; none when the project keeps no `roadmap/inbox.md`.
     pub inbox: Option<Mail>,
@@ -813,6 +816,7 @@ impl Project {
             note,
             waiting: open,
             resolved,
+            keeps_tasks: row.snapshot.keeps_tasks(),
             uncounted,
             inbox,
             sessions: crate::list::session_words(row, live),
@@ -1145,7 +1149,7 @@ pub struct Line {
     pub autopilot: bool,
     pub next: Next,
     pub counts: Counts,
-    /// The owner's open items counted as waiting (D-10).
+    /// The open owner tasks, the one form counted as waiting (D-10 addendum of 2026-11-22).
     pub owner_items: usize,
     /// Open inbox messages, and how many are urgent (D-13).
     pub messages: usize,
@@ -1911,6 +1915,7 @@ mod tests {
             note: None,
             waiting: Vec::new(),
             resolved: 0,
+            keeps_tasks: true,
             uncounted: Vec::new(),
             inbox: None,
             sessions: Vec::new(),

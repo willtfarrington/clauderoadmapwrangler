@@ -227,6 +227,8 @@ impl Board {
                 let (name, folder) = self.writable_folder(&project)?;
                 self.no_revert(&name)?;
                 *wrote = true;
+                // The Owner tasks pane's ticks of the week read again (EP-50's review).
+                self.ticks.stale();
                 self.tick_in(&folder, &name, &id, true, &today)
             }
             Order::TickMessage {

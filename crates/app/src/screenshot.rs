@@ -34,8 +34,9 @@
 //!   sparklines);
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
 //!   `expand=all` (every registered project's row expanded, EP-26a);
-//! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat` or `usage` to
-//!   the front of its group);
+//! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat`, `usage`,
+//!   `diagnostics` or `owner tasks` to the front of its group); `tasks-one` and `tasks-ticked`
+//!   (the Owner tasks pane's toggles, EP-50);
 //! - `keys=<chord>;<chord>…` (key presses such as `Down`, `Enter` or `ctrl+F`, key names as
 //!   egui spells them, fed one per frame through eframe's input hook as if typed);
 //! - `adopt=<folder>`, `ignore=<folder>`, `pin=<project>`, `tick=<project>:<OT-n>` (the action a
@@ -338,6 +339,9 @@ impl Run {
                 "legend" => board.view.legend = true,
                 // The cards view (EP-26a); pair it with `analytics` for the sparklines.
                 "cards" => board.view.cards = true,
+                // The Owner tasks pane's toggles (EP-50); pair them with `tile=owner tasks`.
+                "tasks-one" => board.view.tasks_one = true,
+                "tasks-ticked" => board.view.tasks_ticked = true,
                 // A canned history import on harbor's row (EP-25): the Detail pane's History
                 // section with a flagged EP; pair it with `select=harbor`.
                 "history" => board.loader.put_history("harbor", canned_history()),

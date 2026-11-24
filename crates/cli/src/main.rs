@@ -1492,13 +1492,17 @@ fn waiting(target: &str) -> ExitCode {
         count(tasks::State::Partly),
         count(tasks::State::Resolved)
     );
-    // Which of them the window counts as waiting (D-10 addendum of 2026-11-11).
-    let counted = if snapshot.older_forms_wait() {
-        format!("counted as waiting: no roadmap/{} (D-10)", tasks::FILE)
+    // The window counts the tasks file's open lines alone (D-10 addendum of 2026-11-22).
+    let counted = if snapshot.keeps_tasks() {
+        format!(
+            "counted nowhere: the open lines of roadmap/{} and the open inbox messages are \
+             what waits (D-10)",
+            tasks::FILE
+        )
     } else {
         format!(
-            "not counted as waiting: the project keeps roadmap/{}, whose open tasks and the \
-             open inbox messages are what waits (D-10)",
+            "counted nowhere: the window counts only the open lines of roadmap/{}, which \
+             formalising gives the project (D-10)",
             tasks::FILE
         )
     };
@@ -1571,14 +1575,9 @@ fn waiting(target: &str) -> ExitCode {
     }
     let open: Vec<&OwnerItem> = legacy.iter().filter(|item| item.is_open()).collect();
     println!(
-        "\nopen items in the older forms ({} of {}, {})",
+        "\nopen items in the older forms ({} of {}, read-only, counted nowhere)",
         open.len(),
-        legacy.len(),
-        if snapshot.older_forms_wait() {
-            "counted as waiting"
-        } else {
-            "not counted"
-        }
+        legacy.len()
     );
     for item in open {
         let what = match &item.id {

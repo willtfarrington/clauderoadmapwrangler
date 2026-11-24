@@ -2466,7 +2466,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-47 | [The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself](EP-47-chat-send.md) (D-27) | M | EP-45 | core | ☑ `3912c69` |
 | EP-48 | [A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only](EP-48-reread-on-change.md) (D-9, D-20) | M | EP-45 | core | ☑ `aaf8322` |
 | EP-49 | [The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings](EP-49-darker-dark-theme.md) (D-25) | M | EP-46 | core | ☑ `c879c7c` |
-| EP-50 | The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted (D-10, D-25) | M | EP-46 | core | ☐ |
+| EP-50 | [The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted](EP-50-owner-tasks-pane.md) (D-10, D-25) | M | EP-46 | core | ☐ |
 | EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
 | EP-52 | The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding (D-22, D-25) | S | EP-51 | core | ☐ |
 | EP-53 | The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller (D-4) | M | EP-45 | core | ☐ |
@@ -2676,6 +2676,17 @@ inbox through the tool, on the owner's word).
   message of a project whose remote is public when its words hit the registry's
   `private_words` (`crw_core::wordcheck`, EP-42), so it is reworded before a commit carries
   it, and `crw tasks` says the same. Screenshot runs and one over a copy (rule 5).
+
+  > **Addendum (2026-11-24, from EP-50).** Parked here on the owner's choice. The Owner tasks
+  > pane (`crates/app/src/owner_tasks.rs`, `owner_item`) draws each open task in full through
+  > `markup::note` with `sentences`, as the Detail pane did; over the copy of the real roadmaps
+  > one project's task, a single `owner-tasks.md` line of several paragraphs, filled most of the
+  > pane's height at 1600 × 1000, the other projects' tasks below it. This session folds an item
+  > longer than about six lines to its first sentence with a "more…" toggle that opens it in
+  > place, the fold remembered per item for the window's life, in both the Owner tasks pane and
+  > the new Inbox pane, which share the renderer; or splits it off at pickup if it will not fit
+  > M's cap with the rest (D-4 addendum). The pane's two switches (`View::tasks_one`,
+  > `View::tasks_ticked`) are the model for the Inbox pane's. Then this block goes.
 - **EP-52.** Added at EP-45, the owner's request 6. `autopilot_section`
   (`crates/app/src/autopilot.rs`), drawn at the head of the Sessions pane's All tab
   (`all_tab`, `crates/app/src/sessions.rs`), becomes `Pane::Autopilot`: the state, Pause, the

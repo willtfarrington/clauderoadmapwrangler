@@ -1656,6 +1656,7 @@ mod tests {
                 tickable: true,
             }],
             resolved: 0,
+            keeps_tasks: true,
             uncounted: Vec::new(),
             inbox: None,
             sessions: Vec::new(),
@@ -1717,7 +1718,7 @@ mod tests {
         );
         assert!(list.body.contains("harbor"), "{}", list.body);
         assert!(list.body.contains("<code>scan</code>"), "{}", list.body);
-        assert!(list.body.contains("1 owner item"), "{}", list.body);
+        assert!(list.body.contains("1 owner task"), "{}", list.body);
         for header in [
             "cache-control: no-store",
             "x-content-type-options: nosniff",

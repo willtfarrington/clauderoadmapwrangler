@@ -97,6 +97,10 @@ pub struct View {
     pub sessions: SessionFilter,
     /// The cards view in place of the rows (D-25; EP-26a).
     pub cards: bool,
+    /// The Owner tasks pane shows the selected project alone (EP-50).
+    pub tasks_one: bool,
+    /// The Owner tasks pane shows the tasks the tool ticked in the last week (EP-50).
+    pub tasks_ticked: bool,
 }
 
 impl Default for View {
@@ -114,6 +118,8 @@ impl Default for View {
             legend: false,
             sessions: SessionFilter::default(),
             cards: false,
+            tasks_one: false,
+            tasks_ticked: false,
         }
     }
 }
@@ -185,6 +191,9 @@ pub enum Action {
     Select(Selection),
     /// Selects and brings the Detail pane forward (Enter, a double click).
     Open(Selection),
+    /// Selects the project and brings the Owner tasks pane forward on it alone (the Detail
+    /// pane's line, EP-50).
+    OpenTasks(String),
     ToggleExpanded(String),
     ToggleGroup(GroupKind),
     Adopt(String),
@@ -484,6 +493,9 @@ pub struct Board {
     pub meter: Meter,
     /// The Detail pane's graphs and their latest read of the ledger (D-26; EP-26).
     pub analytics: crate::analytics::Analytics,
+    /// The ticks of the last week the Owner tasks pane shows, as the ledger last gave them
+    /// (EP-50).
+    pub ticks: crate::owner_tasks::Ticks,
     /// The autopilot's chains, held chains and log (D-22; EP-19).
     pub autopilot: crate::autopilot::Pilot,
     /// The offer of `auto` while it is open (EP-19b): a project whose autopilot is being turned
@@ -601,6 +613,7 @@ impl Board {
             tray: None,
             meter: Meter::default(),
             analytics: crate::analytics::Analytics::default(),
+            ticks: crate::owner_tasks::Ticks::default(),
             autopilot: crate::autopilot::Pilot::default(),
             offer: None,
             hidden: false,
@@ -1677,6 +1690,11 @@ impl Board {
                 self.view.selected = Some(selection);
                 self.bring = Some(Pane::Detail);
             }
+            Action::OpenTasks(name) => {
+                self.view.selected = Some(Selection::Project(name));
+                self.view.tasks_one = true;
+                self.bring = Some(Pane::OwnerTasks);
+            }
             Action::OpenLaunch(name) => self.open_launch(&name),
             Action::OpenCompose(name) => self.open_compose(&name),
             Action::Send => self.send_message(),
@@ -1880,8 +1898,14 @@ impl Board {
                 self.report_change(changed.map(|_| format!("{name} has priority {priority}.")));
                 return true;
             }
-            Action::Tick { project, id } => return self.tick(&project, &id, true, &today),
-            Action::Untick { project, id } => return self.tick(&project, &id, false, &today),
+            Action::Tick { project, id } => {
+                self.ticks.stale();
+                return self.tick(&project, &id, true, &today);
+            }
+            Action::Untick { project, id } => {
+                self.ticks.stale();
+                return self.tick(&project, &id, false, &today);
+            }
             Action::TickMessage { project, id } => {
                 let key = (project.clone(), id.clone());
                 let disposition = self.drafts.get(&key).cloned().unwrap_or_default();
@@ -3233,7 +3257,7 @@ impl Dashboard {
                 let mail: usize = portfolio.projects.iter().map(|r| r.open_messages().0).sum();
                 ui.label(
                     RichText::new(format!(
-                        "{} projects · {} unadopted · {waiting} owner items · {mail} inbox",
+                        "{} projects · {} unadopted · {waiting} owner tasks · {mail} inbox",
                         portfolio.projects.len(),
                         portfolio.unadopted.len(),
                     ))

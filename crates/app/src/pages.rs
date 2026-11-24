@@ -132,8 +132,8 @@ impl LineView {
         let mut waits = Vec::new();
         match line.owner_items {
             0 => {}
-            1 => waits.push(("1 owner item".to_owned(), "warn")),
-            n => waits.push((format!("{n} owner items"), "warn")),
+            1 => waits.push(("1 owner task".to_owned(), "warn")),
+            n => waits.push((format!("{n} owner tasks"), "warn")),
         }
         if line.messages > 0 {
             let messages = match line.messages {
@@ -450,6 +450,8 @@ struct ProjectPage {
     note: String,
     waiting: Vec<ItemView>,
     resolved: usize,
+    /// The project keeps `owner-tasks.md` (EP-50).
+    keeps_tasks: bool,
     uncounted: Vec<ItemView>,
     has_inbox: bool,
     inbox_counts: String,
@@ -691,6 +693,7 @@ pub fn project(
                 .unwrap_or_default(),
             waiting: project.waiting.iter().map(ItemView::of).collect(),
             resolved: project.resolved,
+            keeps_tasks: project.keeps_tasks,
             uncounted: project.uncounted.iter().map(ItemView::of).collect(),
             has_inbox,
             inbox_counts,
@@ -1291,7 +1294,7 @@ pub fn list(published: &Published, said: Option<&Said>) -> Result<String, askama
     let summary = format!(
         "{} · {} · {}",
         plural(projects.len(), "project"),
-        plural(owner_items, "owner item"),
+        plural(owner_items, "owner task"),
         plural(messages, "inbox message")
     );
     let decisions = match published.decisions.count() {
@@ -1418,6 +1421,7 @@ mod tests {
                 },
             ],
             resolved: 4,
+            keeps_tasks: true,
             uncounted: vec![Item {
                 id: None,
                 gate: None,
@@ -1486,6 +1490,7 @@ mod tests {
         assert!(html.contains("An older form: changed only in its file."));
         assert!(html.contains("2 open, 4 resolved"));
         assert!(html.contains("Risks and older forms"));
+        assert!(html.contains("the project keeps owner-tasks.md, which is what waits"));
         // The inbox: the urgent message with its disposition's form; the compose form.
         assert!(html.contains("1 open of 3"));
         assert!(html.contains(r#"<span class="mark bad">urgent</span>"#));
@@ -1514,6 +1519,19 @@ mod tests {
             .unwrap();
         assert!(html.contains(r#"<p class="said failed">"#));
         assert!(!html.contains("<form"), "{html}");
+        // A project without owner-tasks.md: nothing counted, its older forms said to be so
+        // (EP-50's review).
+        let mut bare = harbor_page();
+        bare.keeps_tasks = false;
+        bare.waiting.clear();
+        page.projects = vec![bare];
+        let html = project(&page, "harbor & co", None).unwrap().unwrap();
+        assert!(
+            html.contains("Nothing counted: the project keeps no owner-tasks.md."),
+            "{html}"
+        );
+        assert!(html.contains("the project keeps no owner-tasks.md, so nothing here is counted"));
+        assert!(!html.contains("which is what waits on the owner"), "{html}");
         // A revert open there: its words in place of every form (the review's).
         let mut reverting = harbor_page();
         reverting.revert = true;
@@ -1747,7 +1765,7 @@ mod tests {
             ),
             "{page}"
         );
-        assert!(page.contains("2 owner items"));
+        assert!(page.contains("2 owner tasks"));
         assert!(page.contains("3 inbox messages, 1 urgent"));
         assert!(page.contains("a headless EP-4 started here at 10:00 is working"));
         assert!(
@@ -1772,7 +1790,7 @@ mod tests {
             "the Done group is folded: {page}"
         );
         assert!(page.contains("<li>new-folder</li>"));
-        assert!(page.contains("2 projects · 2 owner items · 3 inbox messages"));
+        assert!(page.contains("2 projects · 2 owner tasks · 3 inbox messages"));
         // Nothing from outside the window's own server.
         assert!(
             !page.contains("http://") && !page.contains("https://"),

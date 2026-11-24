@@ -50,7 +50,7 @@
 
 <section class="part-of-page" data-part="waiting">
 <h2>Waiting on the owner <span class="count">{{ waiting.len() }} open, {{ resolved }} resolved</span></h2>
-{% if waiting.is_empty() %}<p class="weak">Nothing: no open owner task.</p>{% endif %}
+{% if waiting.is_empty() %}<p class="weak">{% if keeps_tasks %}Nothing: no open owner task.{% else %}Nothing counted: the project keeps no owner-tasks.md.{% endif %}</p>{% endif %}
 {% for item in waiting %}
 <article class="item">
 {% if !item.id.is_empty() || !item.gate.is_empty() %}<div class="head">{% if !item.id.is_empty() %}<strong class="ep">{{ item.id }}</strong>{% endif %}{% if !item.gate.is_empty() %} <span class="mark warn">{{ item.gate }}</span>{% endif %}</div>{% endif %}
@@ -72,7 +72,7 @@
 {% if !uncounted.is_empty() %}
 <section class="part-of-page">
 <h2>Risks and older forms <span class="count">{{ uncounted.len() }} open, not counted</span></h2>
-<p class="weak small">Read-only, from the README and the older files; the project keeps owner-tasks.md, which is what waits on the owner.</p>
+<p class="weak small">Read-only, from the README and the older files; {% if keeps_tasks %}the project keeps owner-tasks.md, which is what waits on the owner.{% else %}the project keeps no owner-tasks.md, so nothing here is counted as waiting.{% endif %}</p>
 {% for item in uncounted %}
 <article class="item older">
 {% if !item.id.is_empty() || !item.gate.is_empty() %}<div class="head">{% if !item.id.is_empty() %}<strong class="ep">{{ item.id }}</strong>{% endif %}{% if !item.gate.is_empty() %} <span class="mark warn">{{ item.gate }}</span>{% endif %}</div>{% endif %}

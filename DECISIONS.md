@@ -544,6 +544,21 @@ forms only with ticks in the registry; tasks only in the registry.
 > project, worded without names (EP-55). *Alternatives.* Two counts side by side; the older
 > forms nowhere in the list; a sweep feature built into the window; inbox messages alone.
 
+> **Addendum (2026-11-24, EP-50).** The count as built: `Snapshot::waiting` and
+> `open_waiting` read the lines of `owner-tasks.md` alone, none where the file is not kept;
+> `uncounted` is every older form, with or without the file, and `older_open` their open
+> items. Every reader follows from those two: the list's Waiting cell and the status bar's
+> sum, the Owner tasks pane's tab, the phone's list ("owner tasks") and project page, the
+> chat's digest, which says of a project without the file "No owner-tasks.md (N open items in
+> older forms, …, counted nowhere, …)", and `crw tasks`, which calls the older forms counted
+> nowhere in both cases. `crw status`, the tray and the daily export counted no owner items
+> and are unchanged. The list's mark for a project without the file is a weak icon whose
+> hover gives the open items' count and Formalise… as the way to a task file. Over a copy of
+> the portfolio's twelve non-data roadmaps the list now counts 4 open tasks, where the old
+> reading counted about 78 items. *Alternatives.* The mark with the count beside it; the
+> older forms' count left in `crw tasks`' "counted as waiting" line for a project without the
+> file.
+
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
 the `.code-workspace` file. It **never edits `roadmap/README.md`, briefs or `DECISIONS.md`**; sessions do,
@@ -2671,6 +2686,29 @@ state; graphs only in the detail tile or a separate window.
 > (`#75797D`, `#0A0A0A`), under 4.5 to 1 or unseen on the black (the review's findings); its pink
 > focus and selection, a colour the window does not use; its blue buttons, which would read as
 > busy; its accents in place of the window's.
+
+> **Addendum (2026-11-24, EP-50).** The Owner tasks pane as built. `Pane::OwnerTasks`
+> ("Owner tasks · N" while N tasks are open) is a tab behind Detail in the default layout,
+> where `complete` puts it in a saved one, so the two agree. It lists every project's open
+> tasks in the list's order (its groups and sort key, its filters left aside, so a filter
+> never hides what waits), each project under its name (a click selects it) with its state
+> chip and how many of its tasks hold its next brief; a task has its box, its id, its gate as
+> a chip (amber when it holds the next brief by the autopilot's rule, `prompt::due`, weak for a
+> later brief), its text in the Detail pane's renderer and its meta line. A box ticks through
+> the same action as before, with its backup, the status bar's line and today's refusals. Two
+> switches are saved with the view: **This project only** and **Ticked in the last week**,
+> the latter the tasks ticked now whose latest tick the ledger's `tick` events date within
+> seven days (read at most once a minute while the switch is on, and again after a tick, with
+> the window's short ledger wait), each with Untick; a tick written into the file by hand is
+> dated nowhere and is not shown. At each project's foot its older forms are folded shut,
+> read-only, with the lock. The Detail pane loses its owner-items and older-forms sections for
+> one line under Status (how many tasks are open and how many hold the next brief, or that the
+> project keeps no task file) with **Open in Owner tasks**, which selects the project, sets
+> This project only and brings the pane forward. The screenshot setup takes
+> `tile=owner tasks`, `tasks-one` and `tasks-ticked`. *Alternatives.* The pane in the
+> right-hand group behind Decisions, where a saved layout would not put it; the list's
+> filters applied to the pane; the ticked tasks of all time, as the Detail pane folded them;
+> a tick date read from the backups' copies or from git.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

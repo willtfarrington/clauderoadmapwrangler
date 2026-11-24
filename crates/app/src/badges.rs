@@ -168,7 +168,14 @@ pub const PINNED: Sign = Sign::icon(icons::ICON_PUSH_PIN, Tone::Weak, "pinned");
 pub const PROPOSAL: Sign = Sign::icon(icons::ICON_LIGHTBULB, Tone::Warn, "state change proposed");
 pub const SESSION: Sign = Sign::icon(icons::ICON_EDIT_NOTE, Tone::Warn, "session in progress");
 pub const GIT_PENDING: Sign = Sign::icon(icons::ICON_SCHEDULE, Tone::Weak, "git not asked yet");
-pub const OWNER_ITEMS: Sign = Sign::icon(icons::ICON_TASK_ALT, Tone::Warn, "open owner items");
+pub const OWNER_ITEMS: Sign = Sign::icon(icons::ICON_TASK_ALT, Tone::Warn, "open owner tasks");
+/// A project without `owner-tasks.md` whose older forms hold open items, counted nowhere (D-10
+/// addendum of 2026-11-22; EP-50).
+pub const OLDER_FORMS: Sign = Sign::icon(
+    icons::ICON_HISTORY_EDU,
+    Tone::Weak,
+    "no task file; older forms, not counted",
+);
 pub const MESSAGES: Sign = Sign::icon(icons::ICON_INBOX, Tone::Warn, "open inbox messages");
 pub const URGENT: Sign = Sign::icon(icons::ICON_INBOX, Tone::Bad, "an urgent message");
 pub const FOLDER: Sign = Sign::icon(icons::ICON_FOLDER, Tone::Weak, "folder not adopted");
@@ -239,6 +246,7 @@ pub const KEY: [Group; 7] = [
             SESSION,
             GIT_PENDING,
             OWNER_ITEMS,
+            OLDER_FORMS,
             MESSAGES,
             URGENT,
             FOLDER,
