@@ -149,15 +149,16 @@ lines below Status lie beyond the pictures' height for a project with a long Sta
 looked at on the one fixture short enough (atlas), shut and open.
 
 > **Completion note (2026-11-24; claude-opus-5-5/max, a headless run the window chained after
-> EP-50; under an hour of working time from the start at 11:46 to the work commit, the owner's
-> one question answered within a minute).**
+> EP-50; about 40 minutes of working time from the start at 11:46 to the work commit, the
+> owner's one question answered within a minute).**
 > Chained by the window after EP-50 at 11:46 (ledger row `517c9221`) under M's cap of 1 h 30 min
 > of working time. Judged at the brief (about 11:50) not to fit whole, so it was split there: the
 > pane, the Detail pane's end and the routes into the pane were built here; IN-15's flag and the
 > long items' fold went to EP-51a. The code compiled at the first build at 12:00, the review ran
 > in the background from then, the screenshot series and the runs over the copy by 12:10, the
 > owner's question at 12:12, the first full checks by 12:13, the review back at 12:15 and its
-> fixes by 12:20, then the checks again and the records, the commits and the install.
+> fixes by 12:20, then the checks again and the records. The work commit `a8b9d8b` at 12:26,
+> the record commit, then the install.
 >
 > **Owner decision** (one `AskUserQuestion` at 12:12, answered with the recommended option).
 >
