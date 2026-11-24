@@ -59,7 +59,7 @@ use crw_core::signals::{self, relay};
 use crw_core::tasks::{self, OwnerItem};
 use crw_core::{
     autostart, export, files, formalise, git, notify, paths, plugin, process, prompt, proposal,
-    rules, usage, workspace,
+    rules, usage, wordcheck, workspace,
 };
 
 const USAGE: &str = "\
@@ -159,8 +159,10 @@ commands:
                                  and the decision log found, whether a session is in progress
   roadmap <README.md|EP-n-*.md>  print one roadmap README's tables, or one brief's parse
   tasks <project|folder>         print what waits on the owner: the owner tasks, the inbox, the
-                                 handed-on blocks and the open items of the older forms
-  tick <project|folder> OT-n     tick an owner task in roadmap/owner-tasks.md
+                                 handed-on blocks and the open items of the older forms; a
+                                 message whose words hold one of private_words is marked when
+                                 the project's remote is public or of unknown visibility
+  tick <project|folder> OT-n    tick an owner task in roadmap/owner-tasks.md
   tick <project|folder> IN-n <disposition...>
                                  tick an inbox message, its disposition written on its line
   untick <project|folder> OT-n   clear an owner task's tick
@@ -1428,6 +1430,46 @@ fn project_folder(target: &str) -> Result<PathBuf, String> {
     }
 }
 
+/// The account's repositories as the window's GitHub pass last cached them in the ledger, with
+/// the time they were fetched; `None` without a ledger or a cached list.
+fn cached_account() -> Option<(Vec<Listed>, DateTime<Utc>)> {
+    let row = paths::ledger_file()
+        .and_then(|path| Ledger::open_read_only(&path).ok())
+        .and_then(|ledger| ledger.cached_one("", online::ACCOUNT).ok().flatten())?;
+    match Reading::from_cache(&row.project, &row.source, &row.data) {
+        Some(Reading::Account(Ok(list))) => Some((list, row.fetched_at)),
+        _ => None,
+    }
+}
+
+/// `crw tasks`' line on the private words (IN-15; EP-51a): whether the inbox's messages were
+/// read against the registry's `private_words`, and how many hit. Never a word, nor the list's
+/// size.
+fn words_line(
+    words: Option<&Result<wordcheck::List, String>>,
+    exposure: Option<&str>,
+    hits: usize,
+) -> String {
+    match (words, exposure) {
+        (None, _) => "no private_words list is named (crw setting private_words): messages \
+                      unchecked"
+            .to_owned(),
+        (Some(Err(why)), _) => format!("the private_words list did not read ({why}): unchecked"),
+        (Some(Ok(_)), None) => {
+            "the remote is private or there is none: messages unchecked against \
+                                the private words"
+                .to_owned()
+        }
+        (Some(Ok(_)), Some(exposure)) => match hits {
+            0 => format!("no message holds a private word; {exposure}"),
+            1 => format!("1 message holds a private word; {exposure}: reword it before a commit"),
+            n => {
+                format!("{n} messages hold a private word; {exposure}: reword them before a commit")
+            }
+        },
+    }
+}
+
 /// Prints what waits on the owner in one project (D-10, D-13): the owner tasks, the inbox, the
 /// handed-on blocks with their recipients, and the older forms' open items. Reads, never writes.
 fn waiting(target: &str) -> ExitCode {
@@ -1478,6 +1520,30 @@ fn waiting(target: &str) -> ExitCode {
             );
         }
         None => println!("  inbox     no roadmap/{}", inbox::FILE),
+    }
+    // IN-15's check (EP-51a): the messages against the private words, when the remote is public
+    // or of unknown visibility, by the window's cached list of the account's repositories.
+    let words = registry
+        .as_ref()
+        .and_then(|registry| wordcheck::List::named(registry.private_words()));
+    let account = cached_account();
+    let folder_name = folder
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    let exposure = hosting::classify(
+        &[folder_name.as_str()],
+        git::remote_url(&folder, "origin").as_deref(),
+        account.as_ref().map(|(list, _)| list.as_slice()),
+    )
+    .exposure();
+    let flagged = |message: &inbox::Message| match (&words, exposure) {
+        (Some(Ok(list)), Some(_)) => message.hits(list),
+        _ => false,
+    };
+    if let Some(file) = &snapshot.inbox {
+        let hits = file.messages.iter().filter(|m| flagged(m)).count();
+        println!("  words     {}", words_line(words.as_ref(), exposure, hits));
     }
     let legacy = &snapshot.legacy;
     let count = |state| legacy.iter().filter(|item| item.state == state).count();
@@ -1556,6 +1622,12 @@ fn waiting(target: &str) -> ExitCode {
             );
             if let Some(disposition) = &message.disposition {
                 println!("             {}", one_line(disposition, 100));
+            }
+            if flagged(message) {
+                println!(
+                    "             private word: its words hold one of private_words; reword the \
+                     line before a commit carries it (D-3)"
+                );
             }
         }
     }
@@ -2265,15 +2337,7 @@ fn act_preview(project: Option<&str>, verb: &str) -> ExitCode {
             Some(Target::read(&found.name, &folder, found.data, has_commit))
         }
     };
-    let cached = paths::ledger_file()
-        .and_then(|path| Ledger::open_read_only(&path).ok())
-        .and_then(|ledger| ledger.cached_one("", online::ACCOUNT).ok().flatten());
-    let account = cached.as_ref().and_then(|row| {
-        match Reading::from_cache(&row.project, &row.source, &row.data) {
-            Some(Reading::Account(Ok(list))) => Some((list, row.fetched_at)),
-            _ => None,
-        }
-    });
+    let account = cached_account();
     if verb != Verb::BackUpNow {
         match &account {
             Some((list, at)) => println!(
@@ -2352,15 +2416,7 @@ fn export_site(write: bool) -> ExitCode {
         Some(folder) => println!("  into      {}", export::site_data(folder).display()),
         None => println!("  into      no site set (crw setting site <project>)"),
     }
-    let cached = paths::ledger_file()
-        .and_then(|path| Ledger::open_read_only(&path).ok())
-        .and_then(|ledger| ledger.cached_one("", online::ACCOUNT).ok().flatten());
-    let account = cached.as_ref().and_then(|row| {
-        match Reading::from_cache(&row.project, &row.source, &row.data) {
-            Some(Reading::Account(Ok(list))) => Some((list, row.fetched_at)),
-            _ => None,
-        }
-    });
+    let account = cached_account();
     match &account {
         Some((list, at)) => println!(
             "  github    {} repositories, the window's list of {} ago",
@@ -4410,6 +4466,30 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `crw tasks`' words line (IN-15; EP-51a): unchecked without a list, with one that does not
+    /// read, or for a private remote or none; else how many messages hit and why, never a word
+    /// nor the list's size.
+    #[test]
+    fn the_tasks_words_line_says_whether_the_messages_were_checked() {
+        let list = Ok(wordcheck::List::parse("harbour\nnorth gate\n"));
+        let public = Some("this project's remote is public");
+        assert!(words_line(None, public, 0).contains("no private_words list is named"));
+        let unread = Err("words.txt did not read: missing".to_owned());
+        assert!(words_line(Some(&unread), public, 0).contains("did not read"));
+        assert!(words_line(Some(&list), None, 0).contains("unchecked"));
+        assert_eq!(
+            words_line(Some(&list), public, 0),
+            "no message holds a private word; this project's remote is public"
+        );
+        let one = words_line(Some(&list), public, 1);
+        assert!(
+            one.starts_with("1 message holds") && one.contains("reword it"),
+            "{one}"
+        );
+        assert!(!one.contains('2'), "the list's size is never said: {one}");
+        assert!(words_line(Some(&list), public, 3).starts_with("3 messages hold"));
+    }
 
     #[test]
     fn send_takes_the_flag_anywhere() {

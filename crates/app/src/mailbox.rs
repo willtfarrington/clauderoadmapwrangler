@@ -332,9 +332,13 @@ fn every_ticked(ui: &mut egui::Ui, row: &ProjectRow) {
     .default_open(false)
     .show(ui, |ui| {
         for message in done {
-            ui.label(RichText::new(&message.id).monospace().weak());
-            markup::note(
+            ui.horizontal_wrapped(|ui| {
+                ui.label(RichText::new(&message.id).monospace().weak());
+                private_chip(ui, row, message);
+            });
+            markup::long_note(
                 ui,
+                (row.name(), message.id.as_str()),
                 &message.text,
                 Look {
                     weak: true,
@@ -401,6 +405,7 @@ fn message_ui(
             style::chip(ui, "urgent", style::red(ui))
                 .on_hover_text("Flagged [urgent]: the owner is notified, not the session (D-13)");
         }
+        private_chip(ui, row, message);
         let from = [message.from.clone(), message.date.clone()]
             .into_iter()
             .flatten()
@@ -416,8 +421,9 @@ fn message_ui(
     } else {
         &message.text
     };
-    markup::note(
+    markup::long_note(
         ui,
+        (row.name(), message.id.as_str()),
         text,
         Look {
             sentences: true,
@@ -449,6 +455,27 @@ fn message_ui(
     ui.add_space(4.0);
 }
 
+/// Why a message is flagged (IN-15; EP-51a): its words hit the registry's `private_words` and its
+/// project's remote is public or of unknown visibility (`Hosting::exposure`); `None` otherwise.
+/// The word itself is never said.
+pub(crate) fn private_word(row: &ProjectRow, id: &str) -> Option<String> {
+    if !row.word_hits.iter().any(|hit| hit == id) {
+        return None;
+    }
+    let exposure = row.badges.hosting.exposure()?;
+    Some(format!(
+        "Its words hold one of the private words (crw setting private_words), and {exposure}: \
+         reword the line before a commit carries it (D-3). The word is not shown."
+    ))
+}
+
+/// The amber chip of a flagged message, its reason on hover.
+fn private_chip(ui: &mut egui::Ui, row: &ProjectRow, message: &Message) {
+    if let Some(why) = private_word(row, &message.id) {
+        style::chip(ui, "private word", style::amber(ui)).on_hover_text(why);
+    }
+}
+
 /// The receiver's messages ticked in the last week, each with the day and its disposition.
 fn ticked(ui: &mut egui::Ui, row: &ProjectRow, since: NaiveDate) {
     let recent = recently_ticked(row, since);
@@ -465,6 +492,7 @@ fn ticked(ui: &mut egui::Ui, row: &ProjectRow, since: NaiveDate) {
                     .small()
                     .weak(),
             );
+            private_chip(ui, row, message);
             let weak = Look {
                 weak: true,
                 ..Look::default()
@@ -622,8 +650,9 @@ fn letter_ui(ui: &mut egui::Ui, letter: &Letter<'_>) {
         });
     });
     // The block's text after its label, which the line above says (EP-15a).
-    markup::note(
+    markup::long_note(
         ui,
+        (letter.sender, &block.path, block.line),
         mail_text(&block.text),
         Look {
             sentences: true,
@@ -865,6 +894,93 @@ mod tests {
                 id: "IN-2".to_owned()
             }]
         );
+    }
+
+    /// How many painted texts contain `part`.
+    fn count(output: &egui::FullOutput, part: &str) -> usize {
+        output
+            .shapes
+            .iter()
+            .filter(|clipped| match &clipped.shape {
+                egui::Shape::Text(shape) => shape.galley.text().contains(part),
+                _ => false,
+            })
+            .count()
+    }
+
+    /// IN-15's flag (EP-51a): the fake registry's synthetic word list hits harbor's open IN-2
+    /// (from meadow) and its ticked IN-1 (from lantern), read with the files; a public remote, or
+    /// one of unknown visibility, flags them in amber with the reason on hover, in the open
+    /// messages and the week's ticked (the fold of every ticked one, shut here, draws the same
+    /// chip); a private remote or none does not. The word itself is never said.
+    #[test]
+    fn a_private_word_flags_a_message_of_a_public_project() {
+        use crw_core::badges::hosting::{self, Listed, Repo, Visibility};
+        let scratch = Scratch::new("inbox-words");
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        assert_eq!(
+            portfolio.project("harbor").unwrap().word_hits,
+            ["IN-1", "IN-2"]
+        );
+        assert!(portfolio.project("lantern").unwrap().word_hits.is_empty());
+        let listed = |visibility| Listed {
+            repo: Repo {
+                owner: "example".to_owned(),
+                name: "harbor".to_owned(),
+            },
+            visibility,
+            archived: false,
+            pushed_at: None,
+            default_branch: None,
+        };
+        let remote = Some("https://github.com/example/harbor.git");
+        let since = NaiveDate::parse_from_str("2026-10-08", "%Y-%m-%d").unwrap();
+        let mut screen = Screen::new();
+        let mut drafts = Drafts::new();
+        let mut flags = |portfolio: &Portfolio| {
+            let harbor = portfolio.project("harbor").unwrap();
+            let output = screen.pass(Vec::new(), |ui| {
+                receiver(ui, harbor, Some(since), true, &mut drafts, &mut Vec::new());
+            });
+            count(&output, "private word")
+        };
+        // No remote: nothing is flagged.
+        assert_eq!(flags(&portfolio), 0);
+        assert!(private_word(portfolio.project("harbor").unwrap(), "IN-2").is_none());
+        let set = |portfolio: &mut Portfolio, hosting| {
+            let row = portfolio
+                .projects
+                .iter_mut()
+                .find(|row| row.name() == "harbor");
+            row.unwrap().badges.hosting = hosting;
+        };
+        // A public remote: the open IN-2, and IN-1 in the week's ticked.
+        let list = [listed(Visibility::Public)];
+        set(
+            &mut portfolio,
+            hosting::classify(&["harbor"], remote, Some(&list)),
+        );
+        assert_eq!(flags(&portfolio), 2);
+        let harbor = portfolio.project("harbor").unwrap();
+        let why = private_word(harbor, "IN-2").unwrap();
+        assert!(
+            why.contains("remote is public") && why.contains("reword"),
+            "{why}"
+        );
+        assert!(!why.contains("meadow"), "the word is never said");
+        assert!(private_word(harbor, "IN-9").is_none());
+        // The account's list not read yet: checked as if public, and said so.
+        set(&mut portfolio, hosting::classify(&["harbor"], remote, None));
+        assert_eq!(flags(&portfolio), 2);
+        let why = private_word(portfolio.project("harbor").unwrap(), "IN-2").unwrap();
+        assert!(why.contains("not known"), "{why}");
+        // A listed private repository: nothing.
+        let list = [listed(Visibility::Private)];
+        set(
+            &mut portfolio,
+            hosting::classify(&["harbor"], remote, Some(&list)),
+        );
+        assert_eq!(flags(&portfolio), 0);
     }
 
     /// The toggle's ticked messages are dated by their dispositions: harbor's IN-1, ticked on

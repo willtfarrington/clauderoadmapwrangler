@@ -100,6 +100,23 @@ instead of a central registry; everything under `%LOCALAPPDATA%` including plann
 > exists to keep out of sight); the words passed to `git log -G` (a command line other processes
 > can read).
 
+> **Addendum (2026-11-24, EP-51a).** A third guard, IN-15's (EP-45): the mailman had written a
+> private project's name into this public repository's inbox, which rule 3's check caught only at
+> the commit. Each files pass reads the same list once and keeps, per project, the ids of the
+> inbox messages whose sender, text or disposition holds a word (`Message::hits`); the words stay
+> unshown, unlogged and uncounted, and a list not named or not read flags nothing. The Inbox pane
+> marks such a message, open or ticked, with an amber "private word" chip whose hover says why
+> and asks for the line to be reworded before a commit carries it; `crw tasks` says the same on
+> the message's line and whether the inbox was checked. A project is checked when its remote is
+> public or its visibility is not known (`Hosting::exposure`: a GitHub remote the account's list
+> does not match, that list not read yet, or a remote elsewhere), since a missed flag costs a
+> leak and a false one a glance; a listed private repository and a project without a remote are
+> not. The CLI reads the account's list from the window's cache in the ledger, as `crw act` does.
+> *Alternatives.* Public remotes alone (a project is unchecked until the GitHub pass has run);
+> every project whatever its remote (a private project's own names would flag in its own inbox);
+> the mailman refusing such a letter (the sender's words are the sender's to fix, and the owner
+> may not have named every word yet).
+
 **D-4 Cadence, horizon and sizes.** Two to three sessions a week, six to nine hours. Sizes S ≈ 30 min,
 M ≈ 1 h, L ≈ 2 h of one Claude session with the owner supervising; anything larger is split at pickup; L is
 reserved for six engines (the tile shell, the session runner, the decisions tile, the autopilot, the chat
@@ -2747,6 +2764,17 @@ state; graphs only in the detail tile or a separate window.
 > `tile=inbox`, `inbox-one`, `inbox-ticked` and `folds-open`. *Alternatives.* A fold kept per
 > project; the problems shut by default like the others; the outgoing mail in a pane of its
 > own; the Inbox pane on the right behind Decisions, where a saved layout would not put it.
+
+> **Addendum (2026-11-24, EP-51a).** The long items folded, EP-50's addendum built: in the Owner
+> tasks and Inbox panes an owner task, a message or a handed-on block whose blocks lay out to
+> more than six lines at the pane's width (`markup::lines`, egui's own wrapping) shows its first
+> sentence, cut at a word near 280 characters, and a small **more…** button that opens it in
+> place, with **less** under it open (`markup::long_note`). Each item's fold is kept in egui's
+> memory by its project and id for the window's life and never saved. The Detail pane's notes
+> and the other callers of `markup::note` draw in full as before. *Alternatives.* The fold kept
+> with the view across restarts; a fixed character count in place of the laid-out lines; a link
+> in place of the button (egui's link did not take a click in the test harness, and the button
+> matches Compose…).
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

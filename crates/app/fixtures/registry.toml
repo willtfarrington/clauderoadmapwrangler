@@ -6,6 +6,8 @@ ignore = ["attic"]
 
 [settings]
 data_root = @DATA_ROOT@
+# A synthetic word list for the Inbox pane's private-word flag (EP-51a), never the owner's.
+private_words = "private-words.txt"
 
 [[project]]
 name = "harbor"

@@ -202,7 +202,12 @@ that wait or name an unknown receiver shown and the rest folded, and the mailman
 two switches show the selected project alone, with every message it ever ticked folded, and the
 messages ticked in the last week, dated by their dispositions. An urgent message's Show opens it
 on its project, and the tray's Show opens it while a new message is among what its amber dot
-marks (EP-51).
+marks (EP-51). With `crw setting private_words <file>` naming a list of words that must not reach
+a public repository, a message whose sender, text or disposition holds one is flagged in amber
+"private word" when its project's remote is public or of unknown visibility, so it is reworded
+before a commit carries it; `crw tasks` says the same, and the word is never shown. In both panes
+an item longer than about six lines shows its first sentence with "more…", which opens it in
+place for as long as the window runs (EP-51a).
 It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. A project whose session ended, the

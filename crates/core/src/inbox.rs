@@ -81,6 +81,22 @@ impl Inbox {
     }
 }
 
+impl Message {
+    /// Whether its sender, its text or its disposition holds one of the owner's private words
+    /// (IN-15; EP-51a): the mailman writes the sending project's name into the parenthesis, where
+    /// IN-15's name was. The word that hit is never named.
+    pub fn hits(&self, list: &crate::wordcheck::List) -> bool {
+        [
+            self.from.as_deref(),
+            Some(&self.text),
+            self.disposition.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|text| list.hits(text))
+    }
+}
+
 /// The bold labels a disposition opens with.
 const DISPOSITIONS: [&str; 2] = ["**Disposition", "**Triaged"];
 
@@ -390,6 +406,26 @@ Read right after the roadmap. One message per line: `- [ ] IN-n (from <project> 
         assert_eq!(from_of("from beta, 2026-10-02"), Some("beta".to_owned()));
         assert_eq!(from_of("2026-10-02"), None);
         assert_eq!(from_of("urgent"), Some("urgent".to_owned()));
+    }
+
+    /// A private word in the sender (where the mailman writes a project's name), the text or the
+    /// disposition hits; the date and the id are not read (IN-15; EP-51a).
+    #[test]
+    fn a_message_hits_the_private_words_in_its_sender_text_or_disposition() {
+        let (messages, _) = parse(INBOX);
+        let list = crate::wordcheck::List::parse("BETA\n");
+        let hit: Vec<bool> = messages.iter().map(|m| m.hits(&list)).collect();
+        assert_eq!(hit, [true, false, false, false, false], "the sender");
+        let text = crate::wordcheck::List::parse("export\n");
+        assert!(
+            messages[2].hits(&text) && !messages[1].hits(&text),
+            "the text"
+        );
+        let disposition = crate::wordcheck::List::parse("ep-5's brief\n");
+        assert!(messages[3].hits(&disposition), "the disposition");
+        let none = crate::wordcheck::List::parse("2026-10-02\nIN-1\n");
+        assert!(!messages[0].hits(&none), "neither the date nor the id");
+        assert!(!messages[0].hits(&crate::wordcheck::List::parse("")));
     }
 
     #[test]

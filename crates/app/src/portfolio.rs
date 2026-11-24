@@ -38,7 +38,7 @@ use crw_core::proposal::{self, Facts, Proposal};
 use crw_core::registry::{Project, Registry, State, Store};
 use crw_core::roadmap::snapshot::{self, GitReading, InProgress, Snapshot};
 use crw_core::roadmap::table::{Counts, Profile, Row};
-use crw_core::{export, git, log, paths};
+use crw_core::{export, git, log, paths, wordcheck};
 use eframe::egui;
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher, event::ModifyKind};
 use serde::{Deserialize, Serialize};
@@ -183,6 +183,9 @@ pub struct ProjectRow {
     pub outgoing: Vec<Outgoing>,
     /// What the mailman made of each block (EP-20), set into the row at each pass.
     pub mail: Vec<Mark>,
+    /// The ids of its inbox messages, open or ticked, whose words hit the registry's
+    /// `private_words` (IN-15; EP-51a), read with the files; the words are never kept here.
+    pub word_hits: Vec<String>,
     /// The git pass's reading; `None` until it reaches the project, and for a folder that is
     /// not a repository.
     pub git: Option<Git>,
@@ -528,15 +531,36 @@ pub fn read_files(store: &Store) -> Portfolio {
         }
     };
     portfolio.unadopted = view.unadopted;
+    let words = private_words(&registry);
     portfolio.projects = view
         .registered
         .into_iter()
-        .map(|registered| row(registered, &registry))
+        .map(|registered| row(registered, &registry, words.as_ref()))
         .collect();
     portfolio
 }
 
-fn row(registered: Registered, registry: &Registry) -> ProjectRow {
+/// The registry's `private_words` list, read once a pass (IN-15; EP-51a): `None` while it names
+/// none or the file does not read, and then no message is flagged (Make public's dialog and `crw
+/// act` say why it does not read). Its words are never shown, logged or counted.
+fn private_words(registry: &Registry) -> Option<wordcheck::List> {
+    wordcheck::List::named(registry.private_words())?.ok()
+}
+
+/// The ids of `snapshot`'s inbox messages whose words hit `words`.
+fn word_hits(snapshot: &Snapshot, words: Option<&wordcheck::List>) -> Vec<String> {
+    let (Some(words), Some(inbox)) = (words, &snapshot.inbox) else {
+        return Vec::new();
+    };
+    inbox
+        .messages
+        .iter()
+        .filter(|message| message.hits(words))
+        .map(|message| message.id.clone())
+        .collect()
+}
+
+fn row(registered: Registered, registry: &Registry, words: Option<&wordcheck::List>) -> ProjectRow {
     let (snapshot, badges) = match &registered.folder {
         Some(folder) => (
             snapshot::read_tree(&folder.path),
@@ -559,6 +583,7 @@ fn row(registered: Registered, registry: &Registry) -> ProjectRow {
         project: registered.project,
         path: registered.path,
         folder: registered.folder,
+        word_hits: word_hits(&snapshot, words),
         snapshot,
         facts,
         outgoing,
@@ -582,7 +607,11 @@ pub fn read_project(store: &Store, name: &str) -> Option<ProjectRow> {
         project,
         path,
     };
-    Some(row(registered, &registry))
+    Some(row(
+        registered,
+        &registry,
+        private_words(&registry).as_ref(),
+    ))
 }
 
 /// Each project's counts as read, kept once a day and at every change (D-26; EP-25).

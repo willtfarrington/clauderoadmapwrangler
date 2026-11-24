@@ -912,6 +912,93 @@ fn gap(previous: Option<&Block>, block: &Block) -> f32 {
 pub fn note(ui: &mut egui::Ui, text: &str, look: Look) {
     let blocks = blocks(text, look.sentences);
     let width = measure(ui).min(ui.available_width());
+    draw(ui, &blocks, look, width);
+}
+
+/// Over this many lines at the width it takes, an owner item or a message folds (EP-51a).
+pub const FOLD_OVER: usize = 6;
+
+/// The most characters a folded item shows of its first sentence.
+const FOLDED_CHARS: usize = 280;
+
+/// A step's or a part's mark and its spacing, about: what [`lines`] takes off the width.
+const MARK_ROOM: f32 = 20.0;
+
+/// `text` as [`note`] draws it, unless it lays out to more than [`FOLD_OVER`] lines at the width
+/// it takes (EP-51a, EP-50's addendum): then its first sentence and a "more…" toggle that opens
+/// it in place, with a "less" toggle under it open. Each item's fold is kept by `key` (its
+/// project and id) in egui's memory for the window's life, never saved.
+pub fn long_note(
+    ui: &mut egui::Ui,
+    key: impl std::hash::Hash + std::fmt::Debug,
+    text: &str,
+    look: Look,
+) {
+    let blocks = blocks(text, look.sentences);
+    let width = measure(ui).min(ui.available_width());
+    if lines(ui, &blocks, look, width) <= FOLD_OVER {
+        draw(ui, &blocks, look, width);
+        return;
+    }
+    let id = egui::Id::unique(("long note", key));
+    let open = ui.data(|data| data.get_temp::<bool>(id)).unwrap_or(false);
+    let toggle = |ui: &mut egui::Ui, words: &str, hint: &str| {
+        let button = egui::Button::new(RichText::new(words).small()).small();
+        ui.add(button).on_hover_text(hint).clicked()
+    };
+    if open {
+        draw(ui, &blocks, look, width);
+        if toggle(ui, "less", "Fold it to its first sentence") {
+            ui.data_mut(|data| data.insert_temp(id, false));
+        }
+        return;
+    }
+    let first = folded(text);
+    ui.scope(|ui| {
+        ui.set_max_width(width);
+        ui.add(egui::Label::new(coloured(ui, &first, look, false)).wrap());
+        if toggle(ui, "more…", "Show the whole of it here") {
+            ui.data_mut(|data| data.insert_temp(id, true));
+        }
+    });
+}
+
+/// What a folded item shows: its first sentence, reflowed, cut at a word before
+/// [`FOLDED_CHARS`] characters with an ellipsis when it runs longer.
+pub fn folded(text: &str) -> String {
+    let flowed = reflow(text).replace('\n', " ");
+    let first = sentences(&flowed)
+        .first()
+        .map_or_else(String::new, |first| (*first).to_owned());
+    if first.chars().count() <= FOLDED_CHARS {
+        return first;
+    }
+    let cut: String = first.chars().take(FOLDED_CHARS).collect();
+    let cut = cut.rsplit_once(' ').map_or(cut.as_str(), |(head, _)| head);
+    format!("{}…", cut.trim_end_matches([',', ';', ':', ' ']))
+}
+
+/// How many lines `blocks` lay out to at `width`: each block's rows as egui wraps them, a step or
+/// a part beside its mark.
+pub fn lines(ui: &egui::Ui, blocks: &[Block], look: Look, width: f32) -> usize {
+    blocks
+        .iter()
+        .map(|block| {
+            let (text, label, room) = match block {
+                Block::Text(text) => (text, false, 0.0),
+                Block::Label(text) => (text, true, 0.0),
+                Block::Part(_, text) | Block::Step(text) => (text, false, LIST_INDENT + MARK_ROOM),
+                Block::Gap => return 0,
+            };
+            let mut job = coloured(ui, text, look, label);
+            job.wrap.max_width = (width - room).max(1.0);
+            ui.ctx().fonts_mut(|fonts| fonts.layout_job(job)).rows.len()
+        })
+        .sum()
+}
+
+/// `blocks` drawn at `width`, as [`note`] sets them.
+fn draw(ui: &mut egui::Ui, blocks: &[Block], look: Look, width: f32) {
     let mark = |mark: &str| {
         let rich = RichText::new(mark).weak();
         if look.small { rich.small() } else { rich }
@@ -941,7 +1028,7 @@ pub fn note(ui: &mut egui::Ui, text: &str, look: Look) {
     ui.scope(|ui| {
         ui.set_max_width(width);
         let mut previous = None;
-        for block in &blocks {
+        for block in blocks {
             ui.add_space(gap(previous, block));
             match block {
                 Block::Text(text) => {
@@ -962,6 +1049,77 @@ pub fn note(ui: &mut egui::Ui, text: &str, look: Look) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A folded item shows its first sentence, reflowed, cut at a word with an ellipsis when it
+    /// runs past [`FOLDED_CHARS`] (EP-51a).
+    #[test]
+    fn a_folded_item_shows_its_first_sentence() {
+        assert_eq!(folded("First one. Second one."), "First one.");
+        assert_eq!(
+            folded("A line\nthat wraps. Next one."),
+            "A line that wraps."
+        );
+        assert_eq!(folded("No full stop at all"), "No full stop at all");
+        assert_eq!(folded(""), "");
+        let long = format!("{}end.", "word ".repeat(100));
+        let cut = folded(&long);
+        assert!(cut.ends_with("word…"), "{cut}");
+        assert!(cut.chars().count() <= FOLDED_CHARS + 1);
+    }
+
+    /// An item of six lines or fewer draws whole; a longer one shows its first sentence and
+    /// "more…", which opens it in place, and "less" folds it again; the fold is kept by its key
+    /// alone, so another item stays shut (EP-51a).
+    #[test]
+    fn a_long_item_folds_to_its_first_sentence_and_opens_in_place() {
+        use crate::testing::{self, Screen};
+        let look = Look {
+            sentences: true,
+            ..Look::default()
+        };
+        let short = "One short sentence. Another one.";
+        let long = format!(
+            "The first sentence says what to do. {}",
+            "Then a long explanation follows, with many words in it to fill the lines. ".repeat(16)
+        );
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| long_note(ui, ("short", 1), short, look));
+        assert!(testing::text_containing(&output, "Another one.").is_some());
+        assert!(testing::text_at(&output, "more…").is_none());
+        let mut draw = |ui: &mut egui::Ui| {
+            long_note(ui, ("long", 1), &long, look);
+            long_note(ui, ("long", 2), &long, look);
+        };
+        let output = screen.pass(Vec::new(), &mut draw);
+        assert_eq!(testing::texts_at(&output, "more…").len(), 2);
+        assert!(testing::text_containing(&output, "Then a long explanation").is_none());
+        assert!(testing::text_containing(&output, "The first sentence says").is_some());
+        let at = testing::text_at(&output, "more…").unwrap();
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, &mut draw);
+        }
+        let output = screen.pass(Vec::new(), &mut draw);
+        assert!(testing::text_containing(&output, "Then a long explanation").is_some());
+        assert_eq!(
+            testing::texts_at(&output, "more…").len(),
+            1,
+            "the other stays shut"
+        );
+        let at = testing::text_at(&output, "less").unwrap();
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, &mut draw);
+        }
+        let output = screen.pass(Vec::new(), &mut draw);
+        assert_eq!(testing::texts_at(&output, "more…").len(), 2);
+    }
 
     /// A result in the shape the ledger's real ones take (EP-20a's pickup): a summary first, then
     /// labelled paragraphs, lists and a list of sources.

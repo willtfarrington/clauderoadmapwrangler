@@ -875,6 +875,7 @@ mod tests {
             facts: Facts::default(),
             outgoing: Vec::new(),
             mail: Vec::new(),
+            word_hits: Vec::new(),
             git: None,
             badges,
             house: Default::default(),

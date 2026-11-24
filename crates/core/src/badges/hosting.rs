@@ -377,6 +377,21 @@ impl Hosting {
         }
     }
 
+    /// Why the project's words may reach the public (IN-15; EP-51a): its remote is public, or its
+    /// visibility is not known (a GitHub remote the account's list does not match, the list not
+    /// read yet, or a remote elsewhere), checked as if public since a missed flag costs a leak and
+    /// a false one a glance; `None` for a listed private repository or no remote.
+    pub fn exposure(&self) -> Option<&'static str> {
+        match self.class() {
+            Class::Public => Some("this project's remote is public"),
+            Class::Remote => Some(
+                "this project's remote may be public: its visibility is not known, so it is \
+                 checked as if public",
+            ),
+            Class::Private | Class::Local => None,
+        }
+    }
+
     /// An orphan or a missing repository: the badges D-21 raises for the owner.
     pub fn needs_attention(&self) -> bool {
         matches!(self, Hosting::Orphan(_) | Hosting::Missing(_))
@@ -507,6 +522,30 @@ mod tests {
             .label(),
             "GitHub"
         );
+    }
+
+    /// A public remote and one of unknown visibility are checked for private words; a listed
+    /// private repository and a project without a remote are not (IN-15; EP-51a).
+    #[test]
+    fn the_exposure_checks_public_and_unknown_remotes() {
+        let list = parse_account(ACCOUNT).unwrap();
+        let account = Some(list.as_slice());
+        let exposure = |remote: Option<&str>, account| classify(&["x"], remote, account).exposure();
+        let public = exposure(Some("https://github.com/example/alpha.git"), account);
+        assert_eq!(public, Some("this project's remote is public"));
+        assert!(exposure(Some("https://github.com/example/beta.git"), account).is_none());
+        for unknown in [
+            exposure(Some("https://github.com/example/delta.git"), account),
+            exposure(Some("https://gitlab.com/example/delta.git"), account),
+            exposure(Some("https://github.com/example/alpha.git"), None),
+        ] {
+            assert!(
+                unknown.is_some_and(|why| why.contains("not known")),
+                "{unknown:?}"
+            );
+        }
+        assert!(exposure(None, account).is_none());
+        assert!(exposure(None, None).is_none());
     }
 
     #[test]

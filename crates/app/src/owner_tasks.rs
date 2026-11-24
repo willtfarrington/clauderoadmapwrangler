@@ -483,8 +483,15 @@ pub(crate) fn owner_item(
                     }
                 });
             }
-            markup::note(
+            markup::long_note(
                 ui,
+                // By its id where it has one, so a line added above keeps the fold.
+                (
+                    row.name(),
+                    &item.path,
+                    item.id.as_deref(),
+                    item.id.is_none().then_some(item.line),
+                ),
                 crate::detail::without_gate(&item.text, item.gate.as_ref()),
                 Look {
                     sentences: true,
