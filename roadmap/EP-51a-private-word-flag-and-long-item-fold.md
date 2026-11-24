@@ -138,7 +138,8 @@ context, not by the owner's hand.
 > min. Judged at the brief (about 12:33) to fit, so not split. The code compiled clean at 12:36,
 > the full tests passed by 12:44, the screenshot-feature tests, both clippy runs and the format
 > check by 12:48, the pictures over the fixtures and over a copy by 12:50, the release build at
-> 12:50, then the records, the work commit, the record commit and the install.
+> 12:50, then the records. The work commit `145b231` at 12:53, the record commit, then the
+> install.
 >
 > **Owner decisions.** None was asked: the brief's notes left the one open call (a project of
 > unknown visibility) to the brief, and the rest are routine choices, below. The commits are the
