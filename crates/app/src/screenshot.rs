@@ -35,9 +35,10 @@
 //! - `select=<project or folder>` (the selection); `expand=<project>` (its row expanded inline);
 //!   `expand=all` (every registered project's row expanded, EP-26a);
 //! - `tile=<pane>` (bring `projects`, `detail`, `decisions`, `sessions`, `chat`, `usage`,
-//!   `diagnostics`, `owner tasks` or `inbox` to the front of its group); `tasks-one` and
-//!   `tasks-ticked` (the Owner tasks pane's toggles, EP-50); `inbox-one` and `inbox-ticked` (the
-//!   Inbox pane's, EP-51); `folds-open` (the Detail pane's headers after Status opened, EP-51);
+//!   `diagnostics`, `owner tasks`, `inbox` or `autopilot` to the front of its group); `tasks-one`
+//!   and `tasks-ticked` (the Owner tasks pane's toggles, EP-50); `inbox-one` and `inbox-ticked`
+//!   (the Inbox pane's, EP-51); `folds-open` (the Detail pane's headers after Status opened, EP-51,
+//!   and the Autopilot pane's chain log, EP-52);
 //! - `keys=<chord>;<chord>…` (key presses such as `Down`, `Enter` or `ctrl+F`, key names as
 //!   egui spells them, fed one per frame through eframe's input hook as if typed);
 //! - `adopt=<folder>`, `ignore=<folder>`, `pin=<project>`, `tick=<project>:<OT-n>` (the action a
@@ -111,15 +112,16 @@
 //!   line); `usage=closed` (the same with the session (five-hour) window closed, as the
 //!   endpoint gives it while none is open, so the pane shows its quiet line, EP-40);
 //!   `tile=usage` brings its pane forward; `sort=usage-share` orders by the shares;
-//! - `autopilot` (from EP-19: the canned sessions, the Sessions pane's All tab in front with the
-//!   Autopilot section: harbor's autopilot turned on in the run's registry, a chain held by the
-//!   Fable figure, and a canned log of a chained run, a cap, a re-plan and a project whose runs
-//!   would wait); `autopilot=<project>` turns that project's on instead of harbor's; harbor's
-//!   canned run is a chained one with its cap, and a beacon EP-2 run of the window's has
-//!   completed under the rule that stops before committing: `transcript=beacon` after it shows
-//!   that tab's Commit button; from EP-19b the section's line per project: harbor turned on as
-//!   it is (its runs would wait, so the gate's refusal shows) and quarry with permission mode
-//!   `auto`, each with its limits;
+//! - `autopilot` (from EP-19: the canned sessions, the Autopilot pane in front (from EP-52; the
+//!   Sessions pane's All tab before, which keeps a line, `tile=sessions`): harbor's autopilot
+//!   turned on in the run's registry, a chain held by the Fable figure, and a canned log of a
+//!   chained run, a cap, a re-plan and a project whose runs would wait, folded under its header
+//!   (`folds-open` opens it)); `autopilot=<project>` turns that project's on instead of
+//!   harbor's; harbor's canned run is a chained one with its cap, and a beacon EP-2 run of the
+//!   window's has completed under the rule that stops before committing: `transcript=beacon`
+//!   after it shows that tab's Commit button; from EP-19b the pane's line per project: harbor
+//!   turned on as it is (its runs would wait, so the gate's refusal shows) and quarry with
+//!   permission mode `auto`, each with its limits;
 //! - `offer=<project>` (from EP-19b: the project's autopilot box ticked, which opens the offer of
 //!   `auto`, since a fixture's runs would wait: the run reads no user settings);
 //!   `keep=<project>:<mode>` (the permission mode kept for the project, as the launch dialog's
@@ -346,9 +348,11 @@ impl Run {
                 // The Inbox pane's toggles (EP-51); pair them with `tile=inbox`.
                 "inbox-one" => board.view.inbox_one = true,
                 "inbox-ticked" => board.view.inbox_ticked = true,
-                // The Detail pane's three headers after Status opened (EP-51).
+                // The Detail pane's three headers after Status opened (EP-51), and the
+                // Autopilot pane's chain log (EP-52).
                 "folds-open" => {
-                    for (name, _) in crate::detail::FOLDS {
+                    let names = crate::detail::FOLDS.map(|(name, _)| name);
+                    for name in names.into_iter().chain([crate::autopilot::CHAIN_LOG]) {
                         board.view.folds.insert(name.to_owned(), true);
                     }
                 }
@@ -517,8 +521,9 @@ impl Run {
                     }
                     let project = if value.is_empty() { "harbor" } else { value };
                     canned_autopilot(board, project);
+                    // The All tab, whose line opens the pane, for `tile=sessions` (EP-52).
                     board.sessions.tab = None;
-                    layout::show(dashboard.layout_mut(), Pane::Sessions);
+                    layout::show(dashboard.layout_mut(), Pane::Autopilot);
                 }
                 "offer" => board
                     .actions
@@ -654,7 +659,7 @@ fn canned_chain_plan(project: &str) -> crw_core::autopilot::Plan {
             why: "EP-6 is a re-plan, the owner's to run".to_owned(),
         }),
         daily: 2,
-        // The chain's own mark (EP-41), so that the Autopilot section shows its picker set.
+        // The chain's own mark (EP-41), so that the Autopilot pane shows its picker set.
         five_hour_mark: Some(70),
     }
 }

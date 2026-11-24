@@ -244,7 +244,7 @@ fn ago(now: DateTime<Utc>, at: DateTime<Utc>) -> String {
     }
 }
 
-/// The autopilot block as the page draws it (EP-30b), in the Autopilot section's words.
+/// The autopilot block as the page draws it (EP-30b), in the Autopilot pane's words (EP-52).
 struct AutopilotView {
     state: &'static str,
     class: &'static str,

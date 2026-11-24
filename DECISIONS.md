@@ -2173,6 +2173,17 @@ committing and recording hashes; one model and effort per project; usage thresho
 > without the time, the session reading the clock at its start; a cap per project in the
 > registry; the warning into the run built now; S's cap at 60 or 90 minutes.
 
+> **Addendum (2026-11-24, EP-52).** **Where the autopilot is set and read.** The Sessions pane's
+> Autopilot section is a pane of its own, Autopilot (the D-25 addendum of this date): the owner's
+> Pause beside the tray's, the day's line with its picker, each project's settings and the gate's
+> verdicts, the held chains, the chain plans with their marks, and the chain log, folded under its
+> header with its newest line beside it. A chain's moment's Show brings that pane forward
+> (before, the Sessions pane's All tab, which keeps one line with the autopilot's state and Open
+> in Autopilot); the moment's ntfy link still opens the phone's list page, whose block is
+> unchanged, and the tray's Pause and Resume stay as they were. The reads are unchanged, the
+> window's pass's, shown or hidden. *Alternatives.* The section left in the All tab with its log
+> folded there; the moment's Show opening the log's fold too.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -2775,6 +2786,24 @@ state; graphs only in the detail tile or a separate window.
 > with the view across restarts; a fixed character count in place of the laid-out lines; a link
 > in place of the button (egui's link did not take a click in the test harness, and the button
 > matches Compose…).
+
+> **Addendum (2026-11-24, EP-52).** The Autopilot pane as built. `Pane::Autopilot` is a tab
+> behind Detail after Inbox in the default layout, where `complete` puts it in a saved one, so the
+> two agree; its tab reads "Autopilot". It draws what the Sessions pane's Autopilot section drew,
+> in a scroll area and without the section's own header: the state chip with the projects it is
+> on in and Pause or Resume, the usage holds, the day's line with its picker, each autopilot
+> project's line with its limit pickers and the gate's verdicts, the held chains, the chain plans
+> with their marks and the log's problem; then the chain log under a folding header, shut by
+> default with its newest line beside the title, cut with an ellipsis at the pane's edge and whole
+> on hover (an empty log says so there), every line under it when open. A click on the triangle,
+> the title or that line toggles it, and the fold is kept in `View::folds` under "Chain log",
+> saved with the view across restarts as the Detail pane's headers are. The Sessions pane's All
+> tab opens with one line: the autopilot's name, its state chip, how many projects have it on,
+> the chains held in amber, and **Open in Autopilot**. The screenshot setup's `autopilot` brings
+> the pane forward, `folds-open` opens the log too, and `tile=autopilot` names it.
+> *Alternatives.* The pane in the right-hand group beside Sessions, where a saved layout would not
+> put it; a count or the state in its tab; the newest line wrapped under the header rather than
+> cut beside it (a folding header's text never wraps, EP-13).
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

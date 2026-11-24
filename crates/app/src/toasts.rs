@@ -69,7 +69,8 @@ pub enum Target {
     VsCode(String),
     /// The window, the Usage pane in front (EP-17).
     Usage,
-    /// The window, the Sessions pane's All tab in front, where the chain log is (EP-19a).
+    /// The window, the Autopilot pane in front, where the chain log is (EP-19a; EP-52, the
+    /// Sessions pane's All tab before).
     ChainLog,
     /// The window, a project selected and the Inbox pane in front on it alone, where its message
     /// is (EP-20a; EP-51, the Detail pane's before).
@@ -131,8 +132,8 @@ impl Toast {
 
     /// A chain's moment (D-22; EP-19a): a brief chained, the chain held or ended, from the chain
     /// log's words, which begin with what happened: the title up to the first colon, the rest
-    /// the text. Its Show brings the Sessions pane's All tab forward, where the log is; a hold
-    /// or an end is a `warning`.
+    /// the text. Its Show brings the Autopilot pane forward, where the log is (EP-52); a hold or
+    /// an end is a `warning`.
     pub fn chain(project: &str, words: &str, warning: bool) -> Self {
         let (what, rest) = words.split_once(": ").unwrap_or((words, ""));
         let mut toast = Self::new(

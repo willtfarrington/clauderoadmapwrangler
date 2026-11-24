@@ -5,15 +5,16 @@
 //! start slot; it then starts headless as the launch dialog starts one, with a cap. A refusal the
 //! pause alone makes holds the chain, read again every five minutes and at the owner's Resume;
 //! any other ends it. A run that works past its cap is stopped gracefully, which ends the chain.
-//! The owner turns a project's autopilot on in the list, pauses every chain in the Sessions pane
-//! or the tray, and reads the log at the top of the Sessions pane's All tab. The **chain plan**
+//! The owner turns a project's autopilot on in the list, pauses every chain in the Autopilot pane
+//! or the tray, and reads the log in that pane, under a header that folds (EP-52; the head of the
+//! Sessions pane's All tab before, which keeps a line that opens the pane). The **chain plan**
 //! (EP-19a) is the owner's word on the briefs a chain may run, made in the launch dialog and
 //! kept here from Start headless until the chain ends: the gate takes the owner's choice of
 //! model and effort for a brief they chose, the rules' for one they left alone, and ends the
 //! chain before one they left out. Each change of a chain's state is a notification of its own
 //! kind (the chain's moment). From EP-19b the window sets what a chain needs (D-18): turning a
 //! project's autopilot on where its runs would wait at each shell command **offers** permission
-//! mode `auto` first, and the Autopilot section shows each project's permission mode, the gate's
+//! mode `auto` first, and the Autopilot pane shows each project's permission mode, the gate's
 //! verdict on the conditions that stand between runs, and its limits, which it sets; an idle
 //! session no longer refuses a chain (the owner's choice), it is named in the chained line. A
 //! screenshot run reads no gate and starts nothing.
@@ -33,6 +34,7 @@ use crw_core::roadmap::{EpId, Size};
 use crw_core::session::{Launch, Outcome, cli};
 use crw_core::sessions::Status;
 use crw_core::{files, process, rules};
+use eframe::egui::collapsing_header::CollapsingState;
 use eframe::egui::{self, RichText};
 
 use crate::board::{Action, Board};
@@ -44,18 +46,24 @@ use crate::toasts::Toast;
 const HOLD_EVERY: Duration = Duration::from_secs(5 * 60);
 /// How often the log and the registry's pause are read again while nothing changed them.
 const READ_EVERY: Duration = Duration::from_secs(30);
-/// The log's lines the Sessions pane shows: `crw autopilot` prints more.
+/// The log's lines the Autopilot pane shows: `crw autopilot` prints more.
 const LOG_LINES: usize = 8;
+/// The chain log's header in the Autopilot pane, and the name the view keeps its fold under
+/// (`View::folds`; EP-52): shut by default.
+pub(crate) const CHAIN_LOG: &str = "Chain log";
+/// What the chain log says while it holds no line.
+const EMPTY_LOG: &str = "The chain log is empty: a headless run of a project whose autopilot is on writes it when it \
+     ends.";
 /// How long a chained start waits for a poll to confirm an idle session in its project before
 /// it counts it (EP-19b's review): two of the poll's turns while the window is not in front.
 const CONFIRM_FOR: chrono::TimeDelta = chrono::TimeDelta::seconds(75);
-/// The runs a day and the budgets the section's pickers offer (EP-19b); `crw set` takes any.
+/// The runs a day and the budgets the pane's pickers offer (EP-19b); `crw set` takes any.
 const DAILY_CHOICES: [u32; 8] = [0, 1, 2, 3, 4, 5, 6, 8];
 const BUDGET_CHOICES: [f64; 6] = [5.0, 10.0, 15.0, 20.0, 30.0, 50.0];
 /// The chained runs a day in all projects the section's own picker offers (EP-31b); `crw
 /// setting autopilot_daily_total` takes any up to `registry::MAX_DAILY`.
 const TOTAL_CHOICES: [u32; 12] = [0, 1, 2, 3, 4, 5, 6, 8, 10, 12, 16, 20];
-/// The day's line (EP-31b), the Autopilot section's and the phone's block's: the words after
+/// The day's line (EP-31b), the Autopilot pane's and the phone's block's: the words after
 /// the day's count and the total, what they say of the two caps (D-22), and the words once the
 /// count is at or over the total.
 pub(crate) const TODAY_WORDS: &str = "chained runs today in all projects";
@@ -943,7 +951,7 @@ impl Board {
             self.autopilot.daily_total = settings.autopilot_daily_total();
         }
         if let Some(ledger) = self.ledger().map(PathBuf::from) {
-            // One read for the section's lines and the day's count, which the gate makes of the
+            // One read for the pane's lines and the day's count, which the gate makes of the
             // same lines on the same local day (EP-31b).
             match autopilot::recent_waiting(&ledger, autopilot::DAY_LINES, crate::pace::LEDGER_WAIT)
             {
@@ -1100,7 +1108,7 @@ impl Board {
     }
 
     /// The sessions started elsewhere that are open in `project`: those busy or waiting, and the
-    /// idle ones. The Autopilot section's verdict reads these alone, since the window's own run
+    /// idle ones. The Autopilot pane's verdict reads these alone, since the window's own run
     /// there is the one whose end the gate weighs (EP-19b's review); so does the phone's start
     /// (EP-30b), beside the window's own runs.
     pub(crate) fn open_elsewhere(&self, project: &str) -> (Vec<String>, Vec<String>) {
@@ -1232,7 +1240,7 @@ impl Board {
         true
     }
 
-    /// Sets one of a project's autopilot limits from the Autopilot section (D-22; EP-19b).
+    /// Sets one of a project's autopilot limits from the Autopilot pane (D-22; EP-19b).
     pub fn set_autopilot_limit(&mut self, name: &str, limit: &Limit) -> bool {
         let changed = self
             .store()
@@ -1247,7 +1255,7 @@ impl Board {
         true
     }
 
-    /// Sets the chained runs a day in all projects from the Autopilot section (D-22; EP-31b),
+    /// Sets the chained runs a day in all projects from the Autopilot pane (D-22; EP-31b),
     /// with the write `crw setting autopilot_daily_total` makes: `None` takes the setting out of
     /// the registry, the default then holding, as the other pickers do with theirs.
     pub fn set_daily_total(&mut self, total: Option<u32>) -> bool {
@@ -1257,7 +1265,7 @@ impl Board {
         });
         match changed {
             Ok(_) => {
-                // A screenshot run reads no setting again, so the section follows the click here.
+                // A screenshot run reads no setting again, so the pane follows the click here.
                 self.autopilot.daily_total = total.unwrap_or(autopilot::DEFAULT_DAILY_TOTAL);
                 self.autopilot.stale = true;
                 self.notify(total_words(total));
@@ -1267,7 +1275,7 @@ impl Board {
         true
     }
 
-    /// A running chain's own five-hour mark changed in the Autopilot section (EP-41): its plan
+    /// A running chain's own five-hour mark changed in the Autopilot pane (EP-41): its plan
     /// takes it from now, the change is a line of the chain log, and a chain held by the pause is
     /// read again at once, since a higher mark may let it go; a gate read while the change came
     /// is read again once it is in, if it held (the review's finding). Nothing in the registry
@@ -1445,10 +1453,10 @@ impl Board {
         self.sessions.commit(key, preflight, route, &ctx);
     }
 
-    /// The autopilot's section at the top of the Sessions pane's All tab: its state with Pause
-    /// or Resume, the chains held, and the log's latest lines.
-    pub fn autopilot_section(&mut self, ui: &mut egui::Ui) {
-        let on: Vec<String> = self
+    /// The projects whose autopilot is on, in the registry's order, and what the usage holds the
+    /// chains for now: the Autopilot pane's state and the All tab's line (EP-52).
+    fn pilot_now(&self) -> (Vec<String>, Vec<Refusal>) {
+        let on = self
             .portfolio
             .projects
             .iter()
@@ -1462,21 +1470,23 @@ impl Board {
             self.autopilot.five_hour_mark.max(1),
             now,
         );
+        (on, usage)
+    }
+
+    /// The Autopilot pane (D-22, D-25; EP-52), once the head of the Sessions pane's All tab: the
+    /// state with Pause or Resume, what the usage holds, the day's line, each autopilot project's
+    /// settings, the held chains, the chain plans with their marks, and the chain log under a
+    /// header that folds, shut by default with its newest line beside it, the fold kept with the
+    /// view.
+    pub fn autopilot_pane(&mut self, ui: &mut egui::Ui) {
+        let (on, usage) = self.pilot_now();
+        let open = self.view.folds.get(CHAIN_LOG).copied().unwrap_or(false);
         let mut actions = Vec::new();
-        egui::CollapsingHeader::new(RichText::new("Autopilot").strong())
-            .id_salt("autopilot-section")
-            .default_open(true)
+        let toggled = egui::ScrollArea::vertical()
+            .auto_shrink(false)
             .show(ui, |ui| {
                 ui.horizontal_wrapped(|ui| {
-                    let (state, colour) = if self.autopilot.paused {
-                        ("paused by you", style::amber(ui))
-                    } else if !usage.is_empty() {
-                        ("held by usage", style::amber(ui))
-                    } else if on.is_empty() {
-                        ("off everywhere", ui.visuals().weak_text_color())
-                    } else {
-                        ("on", style::green(ui))
-                    };
+                    let (state, colour) = state_chip(ui, self.autopilot.paused, &usage, &on);
                     style::chip(ui, state, colour);
                     let projects = match on.len() {
                         0 => "no project has it on".to_owned(),
@@ -1554,22 +1564,53 @@ impl Board {
                 if let Some(problem) = &self.autopilot.problem {
                     ui.label(RichText::new(problem).small().color(style::red(ui)));
                 }
-                if self.autopilot.log.is_empty() {
-                    ui.label(
-                        RichText::new(
-                            "The chain log is empty: a headless run of a project whose autopilot \
-                             is on writes it when it ends.",
-                        )
-                        .small()
-                        .weak(),
-                    );
-                }
-                for row in &self.autopilot.log {
-                    ui.add(egui::Label::new(log_line(row)).wrap());
-                }
-            });
-        ui.separator();
+                chain_log(ui, &self.autopilot.log, open)
+            })
+            .inner;
+        if toggled {
+            self.view.folds.insert(CHAIN_LOG.to_owned(), !open);
+        }
         self.actions.extend(actions);
+    }
+
+    /// The autopilot's line at the head of the Sessions pane's All tab (EP-52): its state, how
+    /// many projects have it on, the chains held, and Open in Autopilot, which brings its pane
+    /// forward.
+    pub fn autopilot_line(&mut self, ui: &mut egui::Ui) {
+        let (on, usage) = self.pilot_now();
+        let mut open = false;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(RichText::new("Autopilot").strong());
+            let (state, colour) = state_chip(ui, self.autopilot.paused, &usage, &on);
+            style::chip(ui, state, colour);
+            let projects = match on.len() {
+                0 => "no project has it on".to_owned(),
+                1 => format!("on in {}", on[0]),
+                n => format!("on in {n} projects"),
+            };
+            ui.label(RichText::new(projects).weak());
+            let held = match self.autopilot.held.len() {
+                0 => None,
+                1 => Some("1 chain held".to_owned()),
+                n => Some(format!("{n} chains held")),
+            };
+            // Kept whole, so that a narrow pane moves it to the next row rather than breaking it
+            // after its count.
+            if let Some(held) = held {
+                ui.add(egui::Label::new(RichText::new(held).color(style::amber(ui))).extend());
+            }
+            open = ui
+                .button("Open in Autopilot")
+                .on_hover_text(
+                    "The Autopilot pane: Pause, the day's line, each project's settings, the \
+                     chain plans and the chain log",
+                )
+                .clicked();
+        });
+        ui.separator();
+        if open {
+            self.actions.push(Action::OpenAutopilot);
+        }
     }
 
     /// The day's line above the projects' (D-22; EP-31b): the day's chained runs in all
@@ -1678,7 +1719,7 @@ impl Board {
 }
 
 /// A chain's own five-hour mark as a small picker (EP-41), for the launch dialog's Chain plan
-/// and the Autopilot section: the setting's entry, which holds the chain at the setting, then
+/// and the Autopilot pane: the setting's entry, which holds the chain at the setting, then
 /// the choices; a mark another way set is offered as it stands. The new mark when the owner
 /// chose another, `Some(None)` for the setting.
 pub(crate) fn mark_picker(
@@ -1722,7 +1763,7 @@ pub(crate) fn mark_picker(
     (chosen != mark).then_some(chosen)
 }
 
-/// A line of a project's verdict in the Autopilot section, small and wrapped.
+/// A line of a project's verdict in the Autopilot pane, small and wrapped.
 fn verdict(ui: &mut egui::Ui, words: String, colour: egui::Color32) {
     ui.add(egui::Label::new(RichText::new(words).small().color(colour)).wrap());
 }
@@ -1852,7 +1893,7 @@ fn total_picker(ui: &mut egui::Ui, total: u32) -> Option<Option<u32>> {
 }
 
 /// The day's line as one sentence (EP-31b), the phone's block's, and whether the count is at or
-/// over the total: the Autopilot section draws the same words around its picker.
+/// over the total: the Autopilot pane draws the same words around its picker.
 pub(crate) fn day_line(count: Option<u32>, total: u32) -> (String, bool) {
     match count {
         Some(count) if count >= total => (
@@ -1996,6 +2037,69 @@ fn offer_ui(ui: &mut egui::Ui, offer: &Offer) -> Option<Action> {
         });
     });
     chosen
+}
+
+/// The autopilot's state as its chip says it, with the chip's colour (the Autopilot pane and the
+/// All tab's line, EP-52): paused by the owner, held by usage, off everywhere, or on.
+fn state_chip(
+    ui: &egui::Ui,
+    paused: bool,
+    usage: &[Refusal],
+    on: &[String],
+) -> (&'static str, egui::Color32) {
+    if paused {
+        ("paused by you", style::amber(ui))
+    } else if !usage.is_empty() {
+        ("held by usage", style::amber(ui))
+    } else if on.is_empty() {
+        ("off everywhere", ui.visuals().weak_text_color())
+    } else {
+        ("on", style::green(ui))
+    }
+}
+
+/// The chain log under its header (EP-52): shut, the newest line beside the header, cut with an
+/// ellipsis at the pane's edge and whole on hover; open, every line under it. A click on the
+/// triangle, the title or the newest line toggles it: `true` then, for the view to keep.
+fn chain_log(ui: &mut egui::Ui, log: &[EventRow], open: bool) -> bool {
+    ui.add_space(6.0);
+    let id = ui.make_persistent_id("chain-log");
+    let mut state = CollapsingState::load_with_default_open(ui.ctx(), id, open);
+    state.set_open(open);
+    let (toggle, header, _) = state
+        .show_header(ui, |ui| {
+            let title = ui.add(
+                egui::Label::new(RichText::new(CHAIN_LOG).strong())
+                    .selectable(false)
+                    .sense(egui::Sense::click()),
+            );
+            let newest = if open {
+                None
+            } else {
+                let text = match log.first() {
+                    Some(row) => log_line(row),
+                    None => RichText::new(EMPTY_LOG).small().weak(),
+                };
+                Some(
+                    ui.add(
+                        egui::Label::new(text)
+                            .truncate()
+                            .selectable(false)
+                            .sense(egui::Sense::click()),
+                    ),
+                )
+            };
+            title.clicked() || newest.is_some_and(|newest| newest.clicked())
+        })
+        .body(|ui| {
+            if log.is_empty() {
+                ui.add(egui::Label::new(RichText::new(EMPTY_LOG).small().weak()).wrap());
+            }
+            for row in log {
+                ui.add(egui::Label::new(log_line(row)).wrap());
+            }
+        });
+    toggle.clicked() || header.inner
 }
 
 /// A line of the chain log: its local time, its project and its words.
@@ -2516,7 +2620,7 @@ mod tests {
     }
 
     /// The day's total (EP-31b): the day's chained starts in all projects read from the chain
-    /// log as the gate counts them, and the total from the registry; the section's line with its
+    /// log as the gate counts them, and the total from the registry; the pane's line with its
     /// picker, amber with a line of its own once the total is reached; the picker's action writes
     /// the setting as `crw setting` does, its default taken out, and a total set from a terminal
     /// counts at the next read.
@@ -2578,7 +2682,7 @@ mod tests {
         assert_eq!(board.autopilot.problem, None);
 
         let mut screen = Screen::new();
-        let output = screen.pass(Vec::new(), |ui| board.autopilot_section(ui));
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_pane(ui));
         assert!(testing::text_at(&output, "2 of").is_some());
         assert!(
             testing::text_at(&output, "3").is_some(),
@@ -2597,7 +2701,7 @@ mod tests {
         board.autopilot.stale = true;
         board.read_pilot();
         assert_eq!(board.autopilot.chained_today, Some(3));
-        let output = screen.pass(Vec::new(), |ui| board.autopilot_section(ui));
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_pane(ui));
         assert!(testing::text_at(&output, "3 of").is_some());
         assert!(testing::text_at(&output, REACHED).is_some(), "reached");
 
@@ -2629,6 +2733,114 @@ mod tests {
         board.autopilot.stale = true;
         board.read_pilot();
         assert_eq!(board.autopilot.daily_total, 7);
+    }
+
+    /// The Autopilot pane (EP-52): the chain log shut by default, its newest line beside its
+    /// header and the older ones not drawn; a click on the header opens it and the view keeps
+    /// the fold, drawn from the view from then on; an empty log says so beside its header. The
+    /// Sessions pane's All tab keeps a line with the state and Open in Autopilot, whose action,
+    /// like a chain notification's Show, brings the pane forward.
+    #[test]
+    fn the_pane_folds_its_chain_log_and_the_all_tab_opens_it() {
+        use crate::layout::{Pane, default_layout};
+        use crate::toasts::Target;
+
+        let scratch = Scratch::new("autopilot-pane");
+        let mut board = board(&scratch);
+        let now = Utc::now();
+        let row = |minutes: i64, project: &str, words: &str| EventRow {
+            id: 0,
+            at: (now - chrono::TimeDelta::minutes(minutes)).to_rfc3339(),
+            kind: autopilot::EVENT_KIND.to_owned(),
+            project: Some(project.to_owned()),
+            detail: Some(words.to_owned()),
+        };
+        board.autopilot.log = vec![
+            row(
+                2,
+                "harbor",
+                "chained EP-5 after EP-4: claude-opus-5-5 at max, the rules' choice",
+            ),
+            row(
+                30,
+                "lantern",
+                "the chain ends after EP-3: EP-4 is a re-plan, the owner's to run",
+            ),
+        ];
+        let newest = |output: &egui::FullOutput| {
+            testing::text_containing(output, "harbor: chained EP-5 after EP-4").is_some()
+        };
+        let older = |output: &egui::FullOutput| {
+            testing::text_containing(output, "lantern: the chain ends after EP-3").is_some()
+        };
+        let mut screen = Screen::new();
+        let settle = |screen: &mut Screen, board: &mut Board| {
+            for _ in 0..30 {
+                screen.pass(Vec::new(), |ui| board.autopilot_pane(ui));
+            }
+            screen.pass(Vec::new(), |ui| board.autopilot_pane(ui))
+        };
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_pane(ui));
+        let at = testing::text_at(&output, CHAIN_LOG).expect("the log's header");
+        assert!(newest(&output), "the newest line beside the header");
+        assert!(!older(&output), "shut by default");
+        assert_eq!(board.view.folds.get(CHAIN_LOG), None);
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| board.autopilot_pane(ui));
+        }
+        assert_eq!(board.view.folds.get(CHAIN_LOG), Some(&true), "kept");
+        let output = settle(&mut screen, &mut board);
+        assert!(newest(&output) && older(&output), "every line, open");
+        // Shut from the view, as a restart's saved view would have it.
+        board.view.folds.insert(CHAIN_LOG.to_owned(), false);
+        let output = settle(&mut screen, &mut board);
+        assert!(newest(&output) && !older(&output));
+        // An empty log says so beside its header, shut as it is.
+        board.autopilot.log.clear();
+        let output = settle(&mut screen, &mut board);
+        assert!(testing::text_containing(&output, "The chain log is empty").is_some());
+
+        // The All tab's line: the state and Open in Autopilot.
+        let output = screen.pass(Vec::new(), |ui| board.autopilot_line(ui));
+        assert!(testing::text_at(&output, "Autopilot").is_some());
+        assert!(testing::text_at(&output, "off everywhere").is_some());
+        assert!(
+            testing::text_at(&output, "Pause").is_none(),
+            "Pause is the pane's"
+        );
+        let at = testing::text_at(&output, "Open in Autopilot").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| board.autopilot_line(ui));
+        }
+        assert_eq!(board.actions, [Action::OpenAutopilot]);
+        let active = |tree: &egui_tiles::Tree<Pane>| -> Vec<Pane> {
+            tree.active_tiles()
+                .into_iter()
+                .filter_map(|id| tree.tiles.get_pane(&id).copied())
+                .collect()
+        };
+        let mut tree = default_layout();
+        board.run_actions(&mut tree);
+        assert!(active(&tree).contains(&Pane::Autopilot));
+        // A chain notification's Show leads there too, the Sessions pane in front of its own
+        // group left as it is.
+        let mut tree = default_layout();
+        crate::layout::show(&mut tree, Pane::Sessions);
+        board.lead(Target::ChainLog);
+        board.run_actions(&mut tree);
+        assert!(active(&tree).contains(&Pane::Autopilot));
+        assert!(
+            active(&tree).contains(&Pane::Sessions),
+            "its group is another"
+        );
     }
 
     #[test]
@@ -2816,10 +3028,10 @@ mod tests {
     }
 
     /// A chain's own five-hour mark (EP-41): named in the log when its run starts, changed in
-    /// the Autopilot section from then on with a line of its own, a held chain read again at
-    /// once; a plan at the setting logs nothing at its start.
+    /// the Autopilot pane from then on with a line of its own, a held chain read again at once;
+    /// a plan at the setting logs nothing at its start.
     #[test]
-    fn a_chains_own_mark_is_logged_and_changed_from_the_autopilot_section() {
+    fn a_chains_own_mark_is_logged_and_changed_from_the_autopilot_pane() {
         let scratch = Scratch::new("autopilot-chain-mark");
         let mut board = board(&scratch);
         let plan = Plan {

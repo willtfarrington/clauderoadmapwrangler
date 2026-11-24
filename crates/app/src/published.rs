@@ -1023,18 +1023,18 @@ impl Usage {
     }
 }
 
-/// The list's autopilot block (D-22; EP-30b): what the Sessions pane's Autopilot section says.
+/// The list's autopilot block (D-22; EP-30b): what the window's Autopilot pane says (EP-52).
 #[derive(Debug, Clone, Default, PartialEq)]
 pub struct Autopilot {
     /// The owner's Pause, as the registry last said it.
     pub paused: bool,
-    /// The automatic pause as it stands, each limit at or over its mark, in the section's words.
+    /// The automatic pause as it stands, each limit at or over its mark, in the pane's words.
     pub held_by_usage: Vec<String>,
     /// The projects whose autopilot is on.
     pub on: Vec<String>,
     /// The chained runs a day in all projects, and the day's chained starts in all projects as
-    /// the gate counts them, none while the chain log does not read (EP-31b): the section's
-    /// line, read-only here (D-28).
+    /// the gate counts them, none while the chain log does not read (EP-31b): the pane's line,
+    /// read-only here (D-28).
     pub daily_total: u32,
     pub chained_today: Option<u32>,
     /// The held chains: the project and the log's words for the hold.
@@ -2119,7 +2119,7 @@ mod tests {
         assert!(matches!(ended, Ok(None)), "{ended:?}");
     }
 
-    /// The autopilot block says what the Autopilot section says (EP-30b): the owner's Pause, the
+    /// The autopilot block says what the Autopilot pane says (EP-30b, EP-52): the owner's Pause, the
     /// held chains, the plans with their marks and the log; the usage strip is off with the
     /// meter.
     #[test]

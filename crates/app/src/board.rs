@@ -107,7 +107,8 @@ pub struct View {
     /// (EP-51).
     pub inbox_ticked: bool,
     /// The Detail pane's folding headers after Status the owner opened or shut, by name
-    /// (`detail::FOLDS`; EP-51); a header not here keeps its default.
+    /// (`detail::FOLDS`; EP-51), and the Autopilot pane's chain log (`autopilot::CHAIN_LOG`,
+    /// EP-52); a header not here keeps its default.
     pub folds: BTreeMap<String, bool>,
 }
 
@@ -208,6 +209,8 @@ pub enum Action {
     /// Selects the project and brings the Inbox pane forward on it alone (the Detail pane's
     /// line, an urgent message's Show; EP-51).
     OpenInbox(String),
+    /// Brings the Autopilot pane forward (the Sessions pane's All tab's line, EP-52).
+    OpenAutopilot,
     ToggleExpanded(String),
     ToggleGroup(GroupKind),
     Adopt(String),
@@ -387,15 +390,15 @@ pub enum Action {
         key: rules::Key,
         value: Option<String>,
     },
-    /// One of a project's autopilot limits set in the Autopilot section (D-22; EP-19b).
+    /// One of a project's autopilot limits set in the Autopilot pane (D-22; EP-19b, EP-52).
     SetAutopilotLimit(String, Limit),
-    /// The chained runs a day in all projects set in the Autopilot section (D-22; EP-31b), or
+    /// The chained runs a day in all projects set in the Autopilot pane (D-22; EP-31b), or
     /// taken back to the default with `None`.
     SetDailyTotal(Option<u32>),
-    /// A running chain's own five-hour mark set in the Autopilot section (EP-41), or taken
-    /// back to the setting with `None`.
+    /// A running chain's own five-hour mark set in the Autopilot pane (EP-41), or taken back
+    /// to the setting with `None`.
     SetChainMark(String, Option<u8>),
-    /// Every chain paused by the owner, or resumed (D-22): the Sessions pane, the tray.
+    /// Every chain paused by the owner, or resumed (D-22): the Autopilot pane, the tray.
     PauseAutopilot(bool),
     /// An ended session resumed with the owner's yes to its commit (D-22): its tab's Commit.
     CommitSession(u64),
@@ -1585,37 +1588,42 @@ impl Board {
     /// The popup, the window shown or hidden (EP-15): a toast's Show leads where it says.
     pub fn popup(&mut self, ctx: &egui::Context) {
         for target in self.toasts.chosen(ctx) {
-            match target {
-                Target::VsCode(name) => self.focus(&name),
-                Target::Decisions => {
-                    self.show();
-                    self.bring = Some(Pane::Decisions);
-                }
-                Target::Session { key, .. } => {
-                    self.show();
-                    self.sessions.tab = Some(key);
-                    self.bring = Some(Pane::Sessions);
-                }
-                Target::Usage => {
-                    self.show();
-                    self.bring = Some(Pane::Usage);
-                }
-                Target::ChainLog => {
-                    self.show();
-                    self.sessions.tab = None;
-                    self.bring = Some(Pane::Sessions);
-                }
-                // An urgent message: the Inbox pane on its project alone (EP-51).
-                Target::Inbox(name) => {
-                    self.show();
-                    self.run(Action::OpenInbox(name));
-                }
-                Target::Chat => {
-                    self.show();
-                    self.bring = Some(Pane::Chat);
-                }
-                Target::Window => self.show(),
+            self.lead(target);
+        }
+    }
+
+    /// Where a toast's Show leads: the window shown on the pane its target names.
+    pub(crate) fn lead(&mut self, target: Target) {
+        match target {
+            Target::VsCode(name) => self.focus(&name),
+            Target::Decisions => {
+                self.show();
+                self.bring = Some(Pane::Decisions);
             }
+            Target::Session { key, .. } => {
+                self.show();
+                self.sessions.tab = Some(key);
+                self.bring = Some(Pane::Sessions);
+            }
+            Target::Usage => {
+                self.show();
+                self.bring = Some(Pane::Usage);
+            }
+            // The chain log is the Autopilot pane's (EP-52).
+            Target::ChainLog => {
+                self.show();
+                self.run(Action::OpenAutopilot);
+            }
+            // An urgent message: the Inbox pane on its project alone (EP-51).
+            Target::Inbox(name) => {
+                self.show();
+                self.run(Action::OpenInbox(name));
+            }
+            Target::Chat => {
+                self.show();
+                self.bring = Some(Pane::Chat);
+            }
+            Target::Window => self.show(),
         }
     }
 
@@ -1734,6 +1742,7 @@ impl Board {
                 self.view.inbox_one = true;
                 self.bring = Some(Pane::Inbox);
             }
+            Action::OpenAutopilot => self.bring = Some(Pane::Autopilot),
             Action::OpenLaunch(name) => self.open_launch(&name),
             Action::OpenCompose(name) => self.open_compose(&name),
             Action::Send => self.send_message(),

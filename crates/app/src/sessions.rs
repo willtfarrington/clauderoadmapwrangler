@@ -1584,9 +1584,10 @@ impl Board {
         self.sessions.tab = tab;
     }
 
-    /// Every session: the window's, those started elsewhere, the ledger's recent rows.
+    /// Every session: the window's, those started elsewhere, the ledger's recent rows; at its
+    /// head the autopilot's line, which opens its pane (EP-52).
     fn all_tab(&mut self, ui: &mut egui::Ui) {
-        self.autopilot_section(ui);
+        self.autopilot_line(ui);
         let names: Vec<String> = self
             .portfolio
             .projects

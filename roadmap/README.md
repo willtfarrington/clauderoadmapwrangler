@@ -2841,6 +2841,15 @@ inbox through the tool, on the owner's word).
   > cannot see the user rules; IN-16 lists them by rule (2, 3, 6, 8, 10, 11 and 13). Then this
   > block goes.
 
+  > **Addendum (2026-11-24, from EP-52).** Seen in passing in EP-52's pictures at 1100 × 900: the
+  > status bar's notice is cut by characters (`NOTICE_CHARS`, `Board::status_bar`), not by the
+  > width the right-hand items leave, so in a narrow window a long notice runs under the chips
+  > and "Up to date" (the screenshot chip in the picture; the usage strip, the newer-build chip
+  > and the reading words in the real window). A fix of an S at most: the notice laid out in the
+  > width left after the right-hand items, cut with an ellipsis, whole on hover. The re-plan
+  > places it as a row in P7 or in v2's first phase, or rolls it into a P6 brief that touches
+  > the status bar. Then this block goes.
+
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 
 | # | Brief | Size | Depends on | Core | Done |

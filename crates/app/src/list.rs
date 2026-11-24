@@ -939,8 +939,8 @@ fn project_row(
         let hover = if on {
             format!(
                 "Autopilot on (A): its runs commit themselves, and after a headless run \
-                 completes the gate may chain its next brief, {} at most, {} a day; the Sessions \
-                 pane's All tab logs each step",
+                 completes the gate may chain its next brief, {} at most, {} a day; the Autopilot \
+                 pane logs each step",
                 row.project.autopilot.max_size(),
                 row.project.autopilot.daily()
             )

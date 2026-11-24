@@ -55,7 +55,7 @@ pub const WAITING_MODES: [&str; 4] = ["acceptEdits", "manual", "plan", "default"
 /// The first word of a chained start's line in the log, by which the day's runs are counted.
 const CHAINED: &str = "chained ";
 /// The chain log's latest lines the day's chained runs are counted from: the gate's reading,
-/// which the window's Autopilot section reads too (EP-31b).
+/// which the window's Autopilot pane reads too (EP-31b, EP-52).
 pub const DAY_LINES: usize = 500;
 
 /// The owner's Pause and its end, as the log says them.
@@ -729,7 +729,7 @@ pub fn chained_on(events: &[EventRow], project: &str, day: NaiveDate) -> (u32, u
 }
 
 /// The chained starts the log records on `day` (local time) in every project: what the gate
-/// weighs against `settings.autopilot_daily_total`, which the window's Autopilot section and the
+/// weighs against `settings.autopilot_daily_total`, which the window's Autopilot pane and the
 /// phone's block say beside the total (EP-31b).
 pub fn chained_in_all(events: &[EventRow], day: NaiveDate) -> u32 {
     // The second count does not depend on the project named.
@@ -898,7 +898,7 @@ pub struct Plan {
     /// The project's chained runs a day: the most briefs listed.
     pub daily: u32,
     /// The share of the session (five-hour) window this chain holds at (EP-41, the owner's ask
-    /// at the P4 walk): set in the launch dialog or the Autopilot section, carried with the plan
+    /// at the P4 walk): set in the launch dialog or the Autopilot pane, carried with the plan
     /// across the window's restarts; none holds at the setting, read when the gate weighs. A
     /// handover written before EP-41 has none.
     #[serde(default)]

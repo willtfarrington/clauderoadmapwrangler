@@ -173,8 +173,9 @@ leaves a proposed state out until the fact it rests on changes (`crw undismiss` 
 `CRW_HOME` to a scratch folder to try the commands without touching those folders.
 
 The window (`clauderoadmapwrangler.exe`, the "Roadmap Wrangler" shortcut) is a set of docked
-panes (Projects, Detail, Owner tasks, Decisions, Sessions, Chat, Usage, Diagnostics) that can be
-dragged into another layout, which it keeps, and View > Reset layout restores. It shows the
+panes (Projects, Detail, Owner tasks, Inbox, Autopilot, Decisions, Sessions, Chat, Usage,
+Diagnostics) that can be dragged into another layout, which it keeps, and View > Reset layout
+restores. It shows the
 registry's projects grouped by state, each with its next brief, its progress, what waits on the
 owner (the open lines of `roadmap/owner-tasks.md` and the open inbox messages; a project without
 the file shows a small mark for its older forms, counted nowhere), its badges (this
@@ -272,7 +273,7 @@ condition that fails: the brief's completion note and its checked row, the next 
 re-plan and no larger than M, no owner task due before it, a clean tree, the day's caps (2 chained
 runs a project, 4 in all), the weekly and Fable figures under 90 % (and recent enough to trust),
 the session (five-hour) figure under 50 % while a window is open (`autopilot_five_hour_percent`,
-or the chain's own mark, which the launch dialog's chain plan and the Autopilot section set for
+or the chain's own mark, which the launch dialog's chain plan and the Autopilot pane set for
 that chain alone, EP-41; a run cut short by a limit is named so in the log and its notification,
 EP-40),
 no other session working or waiting there (an idle tab is named, not counted), and runs that
@@ -293,17 +294,20 @@ min, L 3 h) counted in working time, a question's wait left out, and is stopped 
 its opener says the cap and when the run started, and tells the session that a row which will not
 fit it is split when the brief is written, the first part done and the rest proposed as a row
 (EP-43a). The launch dialog's Headless note names the cap too.
-Pause, in the Sessions pane or the tray, holds every chain; the runs that work go on. The
-Sessions pane's All tab opens with the chain log, the plans in hand, the day's line (the chained
-runs today in all projects, counted as the gate counts them, against the total a day, which a
-picker beside it sets as `crw setting autopilot_daily_total <n|default>` does; amber once it is
-reached, since a chain ends at either cap, EP-31b) and a line for each project
-whose autopilot is on: its permission mode, what the gate would refuse it for between runs (runs
-that would wait, sessions open there) and its limits as pickers, the largest brief, the runs a day
-and a budget a run (`crw set <project> max_size|daily|max_budget_usd` takes any figure). `crw
-autopilot` prints the log; each change of a chain's state, a brief chained, a hold or an end, is
-a notification of its own, whose Show opens that tab. The tool's own project chains like any other:
-its briefs end with the install, and the window restarts into each brief's build before the next.
+Pause, in the Autopilot pane or the tray, holds every chain; the runs that work go on. The
+Autopilot pane (EP-52; the head of the Sessions pane's All tab before, which keeps a line saying
+the autopilot's state, with Open in Autopilot) holds the state with Pause, the day's line (the
+chained runs today in all projects, counted as the gate counts them, against the total a day,
+which a picker beside it sets as `crw setting autopilot_daily_total <n|default>` does; amber once
+it is reached, since a chain ends at either cap, EP-31b), a line for each project whose autopilot
+is on: its permission mode, what the gate would refuse it for between runs (runs that would wait,
+sessions open there) and its limits as pickers, the largest brief, the runs a day and a budget a
+run (`crw set <project> max_size|daily|max_budget_usd` takes any figure), the held chains and the
+plans in hand, and last the chain log, folded under its header with its newest line beside it,
+open or shut as you leave it. `crw autopilot` prints the log; each change of a chain's state, a
+brief chained, a hold or an end, is a notification of its own, whose Show opens that pane. The
+tool's own project chains like any other: its briefs end with the install, and the window
+restarts into each brief's build before the next.
 
 The Decisions pane answers what a headless session asks while it waits: a permission request with
 Allow or Deny (its tool, its call, why it asks and its input shown; a reason optional), a question
