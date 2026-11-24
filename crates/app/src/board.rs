@@ -15,7 +15,7 @@
 //! EP-30 the queued actions run in the hidden pass too, and each pass publishes what the phone's
 //! pages read (`published`, D-28).
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -101,6 +101,14 @@ pub struct View {
     pub tasks_one: bool,
     /// The Owner tasks pane shows the tasks the tool ticked in the last week (EP-50).
     pub tasks_ticked: bool,
+    /// The Inbox pane shows the selected project alone (EP-51).
+    pub inbox_one: bool,
+    /// The Inbox pane shows the messages ticked in the last week, by their dispositions' dates
+    /// (EP-51).
+    pub inbox_ticked: bool,
+    /// The Detail pane's folding headers after Status the owner opened or shut, by name
+    /// (`detail::FOLDS`; EP-51); a header not here keeps its default.
+    pub folds: BTreeMap<String, bool>,
 }
 
 impl Default for View {
@@ -120,6 +128,9 @@ impl Default for View {
             cards: false,
             tasks_one: false,
             tasks_ticked: false,
+            inbox_one: false,
+            inbox_ticked: false,
+            folds: BTreeMap::new(),
         }
     }
 }
@@ -194,6 +205,9 @@ pub enum Action {
     /// Selects the project and brings the Owner tasks pane forward on it alone (the Detail
     /// pane's line, EP-50).
     OpenTasks(String),
+    /// Selects the project and brings the Inbox pane forward on it alone (the Detail pane's
+    /// line, an urgent message's Show; EP-51).
+    OpenInbox(String),
     ToggleExpanded(String),
     ToggleGroup(GroupKind),
     Adopt(String),
@@ -496,6 +510,8 @@ pub struct Board {
     /// The ticks of the last week the Owner tasks pane shows, as the ledger last gave them
     /// (EP-50).
     pub ticks: crate::owner_tasks::Ticks,
+    /// The mailman's last lines the Inbox pane shows, as the ledger last gave them (EP-51).
+    pub mail_log: crate::mailbox::MailLog,
     /// The autopilot's chains, held chains and log (D-22; EP-19).
     pub autopilot: crate::autopilot::Pilot,
     /// The offer of `auto` while it is open (EP-19b): a project whose autopilot is being turned
@@ -614,6 +630,7 @@ impl Board {
             meter: Meter::default(),
             analytics: crate::analytics::Analytics::default(),
             ticks: crate::owner_tasks::Ticks::default(),
+            mail_log: crate::mailbox::MailLog::default(),
             autopilot: crate::autopilot::Pilot::default(),
             offer: None,
             hidden: false,
@@ -771,6 +788,7 @@ impl Board {
         // form's redirect brings shows what its write changed (EP-30a's review).
         if reading && !self.loader.reading_files {
             self.pages.refresh();
+            self.prune_drafts();
         }
         if let Some(why) = self.loader.history_problem.take() {
             self.warn(why);
@@ -1168,7 +1186,23 @@ impl Board {
     /// as the Sessions pane's is (it runs in the same pass when the window is hidden, EP-30).
     pub(crate) fn obey(&mut self, order: Order) {
         match order {
-            Order::Show => self.show(),
+            Order::Show => {
+                // A new inbox message among the badge events the amber dot marks: the Inbox
+                // pane comes forward (EP-51).
+                let mail = self
+                    .toasts
+                    .attention
+                    .unseen()
+                    .iter()
+                    .any(|mark| mark.kind == crw_core::notify::Kind::Inbox);
+                self.show();
+                if mail {
+                    // Every project's mail, whatever an earlier Open in Inbox narrowed it to: the
+                    // new message may be anywhere (EP-51's review).
+                    self.view.inbox_one = false;
+                    self.bring = Some(Pane::Inbox);
+                }
+            }
             Order::Start(name) => {
                 self.show();
                 self.actions.push(Action::OpenLaunch(name));
@@ -1571,10 +1605,10 @@ impl Board {
                     self.sessions.tab = None;
                     self.bring = Some(Pane::Sessions);
                 }
-                Target::Project(name) => {
+                // An urgent message: the Inbox pane on its project alone (EP-51).
+                Target::Inbox(name) => {
                     self.show();
-                    self.view.selected = Some(Selection::Project(name));
-                    self.bring = Some(Pane::Detail);
+                    self.run(Action::OpenInbox(name));
                 }
                 Target::Chat => {
                     self.show();
@@ -1694,6 +1728,11 @@ impl Board {
                 self.view.selected = Some(Selection::Project(name));
                 self.view.tasks_one = true;
                 self.bring = Some(Pane::OwnerTasks);
+            }
+            Action::OpenInbox(name) => {
+                self.view.selected = Some(Selection::Project(name));
+                self.view.inbox_one = true;
+                self.bring = Some(Pane::Inbox);
             }
             Action::OpenLaunch(name) => self.open_launch(&name),
             Action::OpenCompose(name) => self.open_compose(&name),

@@ -154,6 +154,8 @@ impl Board {
 
     fn mail_report(&mut self, report: Report) {
         self.mail.marks = report.marks;
+        // The Inbox pane's lines of the log read again (EP-51).
+        self.mail_log.stale();
         if !report.delivered.is_empty() {
             self.notify(format!("Delivered {}.", report.delivered.join("; ")));
             // The receiver's row shows its new message.

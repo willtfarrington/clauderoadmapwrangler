@@ -308,10 +308,15 @@ impl Board {
         if !self.chat.draft.trim().is_empty() {
             no.push("a chat message is being typed".to_owned());
         }
+        // A message ticked elsewhere meanwhile (the phone, `crw`, a session's triage) leaves no
+        // box to clear, so its draft holds nothing (EP-51's review).
         let mut typed: Vec<String> = self
             .drafts
             .iter()
             .filter(|(_, text)| !text.trim().is_empty())
+            .filter(|((project, id), _)| {
+                !crate::mailbox::closed_message(&self.portfolio, project, id)
+            })
             .map(|((project, id), _)| format!("{project} {id}"))
             .collect();
         if !typed.is_empty() {

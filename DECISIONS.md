@@ -885,6 +885,25 @@ urgent messages into running headless sessions.
 > carried them into v2's first walk with v1's other unmet routes. *Alternatives.* Closed as
 > unexercised, with a watch list for the field check.
 
+> **Addendum (2026-11-24, EP-51).** The mail in one pane (D-25 addendum of the same day). The
+> owner ticks every project's open messages in the Inbox pane with a disposition, as the Detail
+> pane ticked them, and Compose… sits beside each receiver's name and on the Detail pane's
+> line. The blocks the briefs hand on are listed there with the mailman's marks: those that
+> wait or name a receiver the registry does not know are shown; those the mailman has not read
+> yet (a window before its first round) and those delivered or counted at a first reading are
+> folded. The mailman's last lines are the ledger's latest `mail` rows, read at most once a
+> minute and again after a round. A ticked message is dated by its disposition, which the
+> tool's tick and a session's triage both write, where the ledger dates the tool's alone; the
+> pane on one project folds every message it ever ticked, as the Detail pane did. An urgent
+> message's Show opens the Inbox pane on its project, no longer the Detail pane. A disposition
+> typed in the window holds a restart only while the files do not say its message is closed
+> (ticked from the phone, by `crw` or a session meanwhile), and goes when the files land. The
+> flag of a private word in a public project's message (IN-15) was split at pickup from EP-51
+> with the long items' fold. *Alternatives.* The ticked messages dated by the ledger's ticks,
+> as the Owner tasks pane dates the tasks, which would leave a session's triage undated; every
+> block listed with its state; a block without a mark listed as undelivered, as the Detail
+> pane said it, which a window just started would show for every block ever written.
+
 ## Architecture
 
 **D-14 Stack and layout.** A Cargo **workspace**: `core` (model, parsers, registry, session runner, usage,
@@ -2709,6 +2728,25 @@ state; graphs only in the detail tile or a separate window.
 > right-hand group behind Decisions, where a saved layout would not put it; the list's
 > filters applied to the pane; the ticked tasks of all time, as the Detail pane folded them;
 > a tick date read from the backups' copies or from git.
+
+> **Addendum (2026-11-24, EP-51).** The Inbox pane and the Detail pane's end, as built.
+> `Pane::Inbox` ("Inbox · N" while N messages are open) is a tab behind Detail beside Owner
+> tasks in the default layout, where `complete` puts it in a saved one. It lists every
+> project's open messages grouped by receiver in the list's order, its filters left aside;
+> under them the mail the briefs hand on (D-13 addendum of the same day) and the mailman's last
+> lines, in folds shut by default. Two switches are saved with the view: **This project only**
+> and **Ticked in the last week**. The Detail pane runs the proposals, in progress, Next brief,
+> Progress, History, Analytics and Status, then the Owner tasks line and the Inbox line (**Open
+> in Inbox**, which selects the project, sets This project only and brings the pane forward;
+> Compose…), then three folding headers: the decision log and the house style shut by default,
+> the problems open, since that header shows only when the project has one. Each header's fold
+> is kept in the view by its name (`View::folds`), so it holds across projects and restarts. The
+> tray's Show brings the Inbox pane forward on every project (This project only cleared) while a
+> new inbox message is among the badge events its amber dot marks; no key led to the inbox, so
+> the keys stay. The screenshot setup takes
+> `tile=inbox`, `inbox-one`, `inbox-ticked` and `folds-open`. *Alternatives.* A fold kept per
+> project; the problems shut by default like the others; the outgoing mail in a pane of its
+> own; the Inbox pane on the right behind Decisions, where a saved layout would not put it.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

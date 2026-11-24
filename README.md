@@ -185,15 +185,24 @@ its menu. A row expands inline to its phases and a burn-up sparkline of done and
 the toolbar's Expand all and Collapse all open or fold every row it shows; the Cards switch shows
 the same groups as cards, as many to a line as fit, each with the name, state, next brief, progress,
 badges and sparkline, and answering a click as a row does (EP-26a). The detail pane shows the
-selected project's brief notes, status, a line on its owner tasks that opens the Owner tasks pane
-on it, its inbox, handed-on mail and problems, the notes set for reading: each `From …:` segment
-under its label, numbered parts as a list, lines of about a hundred characters, and labels,
+selected project's brief notes, progress, history and status, then a line on its owner tasks that
+opens the Owner tasks pane on it and one on its mail that opens the Inbox pane on it (with
+Compose…), then its decision log, house style and problems under headers that fold as you leave
+them, the problems open while there are any (EP-51); the notes are set for reading: each `From …:`
+segment under its label, numbered parts as a list, lines of about a hundred characters, and labels,
 references, gates and runnable code in three colours of the window's. The Owner tasks pane holds
 every project's open owner tasks, grouped by project in the list's order and ticked there, a long
 one a sentence to a bullet with its gate as a chip beside its id, amber when it holds the
 project's next brief; its two switches show the selected project alone and the tasks the window
 ticked in the last week, with Untick; at each project's foot its older forms (a risks list, parked
-blocks, open questions) lie folded, read-only and counted nowhere (EP-50).
+blocks, open questions) lie folded, read-only and counted nowhere (EP-50). The Inbox pane holds
+every project's open messages, grouped by receiver in the list's order, each ticked there with a
+disposition, Compose… beside each receiver's name; under them the blocks the briefs hand on, those
+that wait or name an unknown receiver shown and the rest folded, and the mailman's last lines; its
+two switches show the selected project alone, with every message it ever ticked folded, and the
+messages ticked in the last week, dated by their dispositions. An urgent message's Show opens it
+on its project, and the tray's Show opens it while a new message is among what its amber dot
+marks (EP-51).
 It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. A project whose session ended, the
@@ -602,8 +611,8 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   block's words are committed and no session works in the receiving project (its first reading of a
   project counts the committed blocks already there as delivered); the receiving
   session triages each open message after reading the roadmap and writes the disposition on the line.
-  The owner may tick a message in the tool, which writes `**Disposition (date):** …` on its line,
-  and may write one, `- [ ] IN-n (from the owner, date) text`, from the tool or by hand.
+  The owner may tick a message in the tool's Inbox pane, which writes `**Disposition (date):** …` on
+  its line, and may write one, `- [ ] IN-n (from the owner, date) text`, from the tool or by hand.
 - **Formalising a project.** `crw formalise <project|folder>` previews the house-style files a
   project is given and `--yes` writes them: a rule block in its `CLAUDE.md` between
   `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->` (the house's rules in short;

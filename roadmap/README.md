@@ -100,6 +100,11 @@ EP-47, EP-48 and EP-56 re-sized from S to M by that rule. By its table P6 now ho
 rows, 5 S (EP-43, EP-43a, EP-46, EP-52, EP-55) and 12 M; the roadmap has one brief more, and
 three of its S are M.
 
+**After EP-51's split (2026-11-24, EP-51).** EP-51 was split at pickup to fit M's cap of 1 h 30
+min (D-4 addendum). The owner's choice: a row after it, EP-51a (S), holds the two parts left, the
+flag of a private word in a public project's message (IN-15) and the long items' fold that EP-50
+parked. By its table P6 now holds eighteen rows, 6 S and 12 M.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -2467,7 +2472,8 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-48 | [A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only](EP-48-reread-on-change.md) (D-9, D-20) | M | EP-45 | core | ☑ `aaf8322` |
 | EP-49 | [The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings](EP-49-darker-dark-theme.md) (D-25) | M | EP-46 | core | ☑ `c879c7c` |
 | EP-50 | [The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted](EP-50-owner-tasks-pane.md) (D-10, D-25) | M | EP-46 | core | ☑ `563825e` |
-| EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
+| EP-51 | [The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded](EP-51-inbox-pane.md) (D-13, D-25) | M | EP-50 | core | ☐ |
+| EP-51a | A private word flagged and a long item folded: IN-15's amber flag on a public project's message whose words hit the registry's `private_words`, in the Inbox pane and in `crw tasks`; an owner task or message longer than about six lines folded to its first sentence with "more…" in the Owner tasks and Inbox panes (D-3, D-25) | S | EP-51 | core | ☐ |
 | EP-52 | The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding (D-22, D-25) | S | EP-51 | core | ☐ |
 | EP-53 | The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller (D-4) | M | EP-45 | core | ☐ |
 | EP-54 | The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes (D-12, D-27) | M | EP-53 | core | ☐ |
@@ -2676,17 +2682,30 @@ inbox through the tool, on the owner's word).
   message of a project whose remote is public when its words hit the registry's
   `private_words` (`crw_core::wordcheck`, EP-42), so it is reworded before a commit carries
   it, and `crw tasks` says the same. Screenshot runs and one over a copy (rule 5).
-
-  > **Addendum (2026-11-24, from EP-50).** Parked here on the owner's choice. The Owner tasks
-  > pane (`crates/app/src/owner_tasks.rs`, `owner_item`) draws each open task in full through
-  > `markup::note` with `sentences`, as the Detail pane did; over the copy of the real roadmaps
-  > one project's task, a single `owner-tasks.md` line of several paragraphs, filled most of the
-  > pane's height at 1600 × 1000, the other projects' tasks below it. This session folds an item
-  > longer than about six lines to its first sentence with a "more…" toggle that opens it in
-  > place, the fold remembered per item for the window's life, in both the Owner tasks pane and
-  > the new Inbox pane, which share the renderer; or splits it off at pickup if it will not fit
-  > M's cap with the rest (D-4 addendum). The pane's two switches (`View::tasks_one`,
-  > `View::tasks_ticked`) are the model for the Inbox pane's. Then this block goes.
+  *(2026-11-24, EP-51: split at pickup, the owner's choice. The flag and EP-50's addendum, the
+  long items' fold, went to EP-51a.)*
+- **EP-51a.** Added at EP-51 (2026-11-24), the two parts its split left, the owner's choice.
+  (1) **IN-15's flag** (from EP-45, the owner's choice): the mailman once wrote a private
+  project's name into this public repository's inbox, which rule 3's check caught only at the
+  commit. The Inbox pane (`crates/app/src/mailbox.rs`, `message_ui` and `ticked`) flags, in
+  amber with its reason, an open or ticked message of a project whose remote is public
+  (`Hosting::class`, `Class::Public`, `crates/core/src/badges/hosting.rs`) when its words hit
+  the registry's `private_words` (`crw_core::wordcheck::List::hits`, EP-42; the list read with
+  the files, never shown, logged or counted beyond a hit), so that it is reworded before a
+  commit carries it; and `crw tasks` (`waiting`, `crates/cli/src/main.rs`) says the same on
+  the message's line. The CLI reads no hosting class today: the cached GitHub listing in the
+  ledger, as the window's GitHub pass reads it, is the likely source; whether a project whose
+  class is unknown is checked as if public is the brief's call. (2) **The long items' fold**, from
+  EP-50's addendum (2026-11-24, the owner's choice there): the Owner tasks pane
+  (`owner_tasks.rs`, `owner_item`) and the Inbox pane (`mailbox.rs`, `message_ui`,
+  `letter_ui`) draw each item in full through `markup::note` with `sentences`; over the copy
+  of the real roadmaps one project's task, a single `owner-tasks.md` line of several
+  paragraphs, filled most of the Owner tasks pane's height at 1600 × 1000, and EP-51's run
+  over the copy found several messages of three or four paragraphs filling the Inbox pane's.
+  An item longer than about six lines folds to its first sentence with a "more…" toggle that
+  opens it in place, the fold remembered per item for the window's life, in both panes, which
+  share the renderer. Screenshot runs and one over a copy (rule 5); a synthetic word list for
+  the flag's pictures, never the owner's.
 - **EP-52.** Added at EP-45, the owner's request 6. `autopilot_section`
   (`crates/app/src/autopilot.rs`), drawn at the head of the Sessions pane's All tab
   (`all_tab`, `crates/app/src/sessions.rs`), becomes `Pane::Autopilot`: the state, Pause, the

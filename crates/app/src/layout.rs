@@ -26,10 +26,12 @@ pub enum Pane {
     Diagnostics,
     /// Every project's open owner tasks, ticked there (D-10, D-25; EP-50).
     OwnerTasks,
+    /// Every project's open messages, ticked there, and the mail handed on (D-13, D-25; EP-51).
+    Inbox,
 }
 
 impl Pane {
-    pub const ALL: [Pane; 8] = [
+    pub const ALL: [Pane; 9] = [
         Pane::Projects,
         Pane::Detail,
         Pane::Decisions,
@@ -38,6 +40,7 @@ impl Pane {
         Pane::Usage,
         Pane::Diagnostics,
         Pane::OwnerTasks,
+        Pane::Inbox,
     ];
 
     pub fn title(self) -> &'static str {
@@ -50,6 +53,7 @@ impl Pane {
             Pane::Usage => "Usage",
             Pane::Diagnostics => "Diagnostics",
             Pane::OwnerTasks => "Owner tasks",
+            Pane::Inbox => "Inbox",
         }
     }
 
@@ -62,14 +66,14 @@ impl Pane {
     }
 }
 
-/// The project list left and wide, the detail in the centre with the owner tasks behind it
-/// (where a saved layout gains them, EP-50), and the tiles later briefs fill tabbed on the right
-/// behind Decisions.
+/// The project list left and wide, the detail in the centre with the owner tasks and the inbox
+/// behind it (where a saved layout gains them, EP-50, EP-51), and the tiles later briefs fill
+/// tabbed on the right behind Decisions.
 pub fn default_layout() -> Tree<Pane> {
     let mut tiles = Tiles::default();
     let groups: [(&[Pane], f32); 3] = [
         (&[Pane::Projects], 1.75),
-        (&[Pane::Detail, Pane::OwnerTasks], 1.0),
+        (&[Pane::Detail, Pane::OwnerTasks, Pane::Inbox], 1.0),
         (
             &[
                 Pane::Decisions,
@@ -182,6 +186,11 @@ impl egui_tiles::Behavior<Pane> for Board {
                 0 => "Owner tasks".into(),
                 count => format!("Owner tasks · {count}").into(),
             },
+            // The open messages of every project, as the status bar sums them (EP-51).
+            Pane::Inbox => match self.open_messages().0 {
+                0 => "Inbox".into(),
+                count => format!("Inbox · {count}").into(),
+            },
             pane => pane.title().into(),
         }
     }
@@ -198,6 +207,7 @@ impl egui_tiles::Behavior<Pane> for Board {
                 Pane::Usage => self.usage_pane(ui),
                 Pane::Diagnostics => self.diagnostics_pane(ui),
                 Pane::OwnerTasks => self.owner_tasks_pane(ui),
+                Pane::Inbox => self.inbox_pane(ui),
             });
         UiResponse::None
     }
@@ -288,8 +298,10 @@ pub(crate) mod tests {
         // The Diagnostics pane is a tab of the right-hand group, behind Decisions (EP-28).
         let group = |pane| tree.tiles.parent_of(tree.tiles.find_pane(&pane).unwrap());
         assert_eq!(group(Pane::Diagnostics), group(Pane::Decisions));
-        // The Owner tasks pane is a tab behind Detail, where a saved layout gains it (EP-50).
+        // The Owner tasks and Inbox panes are tabs behind Detail, where a saved layout gains
+        // them (EP-50, EP-51).
         assert_eq!(group(Pane::OwnerTasks), group(Pane::Detail));
+        assert_eq!(group(Pane::Inbox), group(Pane::Detail));
         show(&mut tree, Pane::Diagnostics);
         assert_eq!(
             shown(&tree),
@@ -299,6 +311,11 @@ pub(crate) mod tests {
         assert_eq!(
             shown(&tree),
             [Pane::Projects, Pane::Diagnostics, Pane::OwnerTasks]
+        );
+        show(&mut tree, Pane::Inbox);
+        assert_eq!(
+            shown(&tree),
+            [Pane::Projects, Pane::Diagnostics, Pane::Inbox]
         );
     }
 
@@ -338,6 +355,7 @@ pub(crate) mod tests {
         assert_eq!(group(Pane::Usage), group(Pane::Detail));
         assert_eq!(group(Pane::Diagnostics), group(Pane::Detail));
         assert_eq!(group(Pane::OwnerTasks), group(Pane::Detail));
+        assert_eq!(group(Pane::Inbox), group(Pane::Detail));
         // The Detail pane stays in front: the new tab draws nothing, and so gathers nothing,
         // until it is chosen.
         assert!(
@@ -345,22 +363,29 @@ pub(crate) mod tests {
                 .active_tiles()
                 .into_iter()
                 .filter_map(|id| completed.tiles.get_pane(&id).copied())
-                .all(|pane| pane != Pane::Diagnostics && pane != Pane::OwnerTasks)
+                .all(|pane| ![Pane::Diagnostics, Pane::OwnerTasks, Pane::Inbox].contains(&pane))
         );
-        // A layout saved before EP-50, every pane but the new one, gains it beside Detail.
-        let mut before = default_layout();
-        let tasks = before.tiles.find_pane(&Pane::OwnerTasks).unwrap();
-        before.remove_recursively(tasks);
-        assert!(panes_once(&before).is_some_and(|found| !found.contains(&Pane::OwnerTasks)));
-        eframe::set_value(&mut storage, LAYOUT_KEY, &before);
-        let completed = restore(Some(&storage));
-        assert!(holds_every_pane_once(&completed));
-        let detail = completed.tiles.find_pane(&Pane::Detail).unwrap();
-        let tasks = completed.tiles.find_pane(&Pane::OwnerTasks).unwrap();
-        assert_eq!(
-            completed.tiles.parent_of(tasks),
-            completed.tiles.parent_of(detail)
-        );
+        // A layout saved before EP-50 or EP-51, every pane but the new ones, gains them beside
+        // Detail.
+        for new in [&[Pane::OwnerTasks, Pane::Inbox][..], &[Pane::Inbox]] {
+            let mut before = default_layout();
+            for pane in new {
+                let id = before.tiles.find_pane(pane).unwrap();
+                before.remove_recursively(id);
+            }
+            assert!(panes_once(&before).is_some_and(|found| !found.contains(&Pane::Inbox)));
+            eframe::set_value(&mut storage, LAYOUT_KEY, &before);
+            let completed = restore(Some(&storage));
+            assert!(holds_every_pane_once(&completed));
+            let detail = completed.tiles.find_pane(&Pane::Detail).unwrap();
+            for pane in new {
+                let id = completed.tiles.find_pane(pane).unwrap();
+                assert_eq!(
+                    completed.tiles.parent_of(id),
+                    completed.tiles.parent_of(detail)
+                );
+            }
+        }
     }
 
     #[test]

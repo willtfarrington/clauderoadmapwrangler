@@ -2,16 +2,18 @@
 //! (confirmed or dismissed here, a dismissed one restored), its next brief with the brief notes
 //! verbatim, why a session is taken to be in progress, the progress per phase, its badges spelt
 //! out (EP-7) with this week's usage share (EP-18b), a line saying what waits on the owner that
-//! leads to the Owner tasks pane, where the tasks are ticked (EP-50), the inbox
-//! (ticked here with a disposition), the mail its briefs hand on, and the problems the readers
-//! met. For an unadopted folder: what it holds, Adopt and Ignore. From EP-12 a session that runs
-//! there, by the window's or Claude Code's account, joins the in-progress reasons, which from
-//! EP-13 show whatever the roadmap holds.
+//! leads to the Owner tasks pane, where the tasks are ticked (EP-50), and one saying what its
+//! inbox holds and what its briefs hand on that leads to the Inbox pane (EP-51). After Status
+//! three headers fold as the owner left them, saved with the view (EP-51): the decision log and
+//! the house style shut by default, the problems the readers met open. For an unadopted folder:
+//! what it holds, Adopt and Ignore. From EP-12 a session that runs there, by the window's or
+//! Claude Code's account, joins the in-progress reasons, which from EP-13 show whatever the
+//! roadmap holds.
+
+use std::collections::BTreeMap;
 
 use chrono::{Local, Utc};
 use crw_core::badges::short_age;
-use crw_core::inbox::Recipient;
-use crw_core::inbox::mailman::State;
 use crw_core::roadmap::brief::Kind;
 use crw_core::roadmap::snapshot::{InProgress, Snapshot};
 use crw_core::roadmap::table::Done;
@@ -53,7 +55,7 @@ impl Board {
                             week: &self.meter.week,
                             analytics: &mut self.analytics,
                         },
-                        &mut self.drafts,
+                        &mut self.view.folds,
                         &mut actions,
                     ),
                     None => gone(ui, &name),
@@ -125,7 +127,7 @@ fn project(
     running: &[InProgress],
     portfolio: &Portfolio,
     figures: Figures<'_>,
-    drafts: &mut std::collections::HashMap<(String, String), String>,
+    folds: &mut BTreeMap<String, bool>,
     actions: &mut Vec<Action>,
 ) {
     let Figures { week, analytics } = figures;
@@ -210,28 +212,80 @@ fn project(
     history(ui, row, &measured, actions);
     analytics::section(ui, row, portfolio, analytics, &measured);
     status(ui, row, portfolio, week, actions);
-    // The tasks and the older forms live in the Owner tasks pane; one line leads there (EP-50).
+    // The tasks and the older forms live in the Owner tasks pane, the mail in and out in the
+    // Inbox pane; a line leads to each (EP-50, EP-51).
     crate::owner_tasks::detail_line(ui, row, actions);
-    inbox(ui, row, drafts, actions);
-    handed_on(ui, row);
-    decisions(ui, snapshot);
-    house_style(ui, row, actions);
-    problems(ui, row);
+    crate::mailbox::detail_line(ui, row, actions);
+    // Then the three headers, folded as the owner left them (EP-51).
+    decisions(ui, snapshot, folds);
+    house_style(ui, row, folds, actions);
+    problems(ui, row, folds);
+}
+
+/// The Detail pane's folding headers after Status by the names the view keeps them under, each
+/// with its default: the decision log and the house style shut, the problems open, since that
+/// header shows only when the project has a problem (EP-51).
+pub(crate) const FOLDS: [(&str, bool); 3] = [
+    ("Decisions", false),
+    ("House style", false),
+    ("Problems", true),
+];
+
+/// A header after Status (EP-51): open or shut as the owner left it, which `folds` keeps by
+/// `name` with the view, else as [`FOLDS`] says; `title` is what it reads.
+fn fold(
+    ui: &mut egui::Ui,
+    folds: &mut BTreeMap<String, bool>,
+    name: &str,
+    title: &str,
+    body: impl FnOnce(&mut egui::Ui),
+) {
+    let default = FOLDS
+        .iter()
+        .find(|(fold, _)| *fold == name)
+        .is_some_and(|&(_, open)| open);
+    let open = folds.get(name).copied().unwrap_or(default);
+    ui.add_space(8.0);
+    let shown = egui::CollapsingHeader::new(RichText::new(title).strong())
+        .id_salt(("detail fold", name))
+        .open(Some(open))
+        .show(ui, body);
+    if shown.header_response.clicked() {
+        folds.insert(name.to_owned(), !open);
+    }
 }
 
 /// What the house style still asks of the project (D-9, D-11; EP-21a): the files Formalise…
 /// would write, what refuses it, and an older roadmap's Migrate…; only when that matters
 /// (`House::matters`: the tasks file or the inbox to create, a refusal, an older form; D-11
 /// addendum of 2026-11-11) or in the unformalised state. A missing template or rule block alone
-/// leaves Formalise… in the row's menu and no section here.
-fn house_style(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec<Action>) {
+/// leaves Formalise… in the row's menu and no section here. Folded shut by default (EP-51).
+fn house_style(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    folds: &mut BTreeMap<String, bool>,
+    actions: &mut Vec<Action>,
+) {
     let house = &row.house;
     let unformalised = row.project.state == crw_core::registry::State::Unformalised;
     let formalise = house.wants() || unformalised;
     if row.folder.is_none() || !(house.matters() || unformalised) {
         return;
     }
-    section(ui, "House style");
+    fold(ui, folds, "House style", "House style", |ui| {
+        house_style_body(ui, row, formalise, unformalised, actions);
+    });
+}
+
+/// The House style header's lines and buttons.
+fn house_style_body(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    formalise: bool,
+    unformalised: bool,
+    actions: &mut Vec<Action>,
+) {
+    let house = &row.house;
     if !house.writes.is_empty() {
         ui.add(
             egui::Label::new(format!("Formalise… would write {}.", house.writes_words())).wrap(),
@@ -1015,207 +1069,31 @@ pub(crate) fn without_gate<'a>(text: &'a str, gate: Option<&Gate>) -> &'a str {
         .map_or(text, |at| trimmed[..at].trim_end())
 }
 
-fn inbox(
-    ui: &mut egui::Ui,
-    row: &ProjectRow,
-    drafts: &mut std::collections::HashMap<(String, String), String>,
-    actions: &mut Vec<Action>,
-) {
-    // Compose… beside the section's title (D-13; EP-20c): the owner's message into the inbox,
-    // which the append creates when the project keeps none.
-    let compose = |ui: &mut egui::Ui, title: &str, actions: &mut Vec<Action>| {
-        ui.add_space(10.0);
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(title).strong());
-            if ui
-                .add_enabled(row.folder.is_some(), egui::Button::new("Compose…").small())
-                .on_hover_text(
-                    "Write a message from you into this project's roadmap/inbox.md, for its \
-                     next session to triage (D-13)",
-                )
-                .on_disabled_hover_text("The project's folder is missing")
-                .clicked()
-            {
-                actions.push(Action::OpenCompose(row.name().to_owned()));
-            }
-        });
-        ui.add_space(2.0);
-    };
-    let Some(inbox) = &row.snapshot.inbox else {
-        compose(ui, "Inbox", actions);
-        ui.label(RichText::new("No roadmap/inbox.md: Compose… creates it.").weak());
-        return;
-    };
-    let open: Vec<_> = inbox.open().collect();
-    compose(
-        ui,
-        &format!("Inbox: {} open of {}", open.len(), inbox.messages.len()),
-        actions,
-    );
-    for message in open {
-        ui.horizontal_wrapped(|ui| {
-            ui.label(RichText::new(&message.id).monospace().strong());
-            if message.urgent {
-                style::chip(ui, "urgent", style::red(ui)).on_hover_text(
-                    "Flagged [urgent]: the owner is notified, not the session (D-13)",
-                );
-            }
-            let from = [message.from.clone(), message.date.clone()]
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>()
-                .join(", ");
-            if !from.is_empty() {
-                ui.label(RichText::new(format!("from {from}")).weak());
-            }
-        });
-        // A trailing `[urgent]` is the chip's to say (EP-20a).
-        let text = if message.urgent {
-            crw_core::inbox::without_urgent(&message.text)
-        } else {
-            &message.text
-        };
-        markup::note(
-            ui,
-            text,
-            Look {
-                sentences: true,
-                ..Look::default()
-            },
-        );
-        let key = (row.name().to_owned(), message.id.clone());
-        let draft = drafts.entry(key).or_default();
-        ui.horizontal(|ui| {
-            ui.add(
-                egui::TextEdit::singleline(draft)
-                    .hint_text("Disposition: rolled into EP-n, parked in …, declined because …")
-                    .desired_width(ui.available_width() - 70.0),
-            );
-            let ready = !draft.trim().is_empty();
-            if ui
-                .add_enabled(ready, egui::Button::new("Tick"))
-                .on_hover_text("Write the disposition on its line and tick it (D-13)")
-                .on_disabled_hover_text("A disposition first: it is written on the message's line")
-                .clicked()
-            {
-                actions.push(Action::TickMessage {
-                    project: row.name().to_owned(),
-                    id: message.id.clone(),
-                });
-            }
-        });
-        ui.add_space(4.0);
-    }
-    let done: Vec<_> = inbox.messages.iter().filter(|m| m.done).collect();
-    if !done.is_empty() {
-        egui::CollapsingHeader::new(format!("Ticked messages ({})", done.len()))
-            .id_salt(("ticked messages", row.name()))
-            .show(ui, |ui| {
-                for message in done {
-                    ui.label(RichText::new(&message.id).monospace().weak());
-                    markup::note(
-                        ui,
-                        &message.text,
-                        Look {
-                            weak: true,
-                            ..Look::default()
-                        },
-                    );
-                    if let Some(disposition) = &message.disposition {
-                        markup::note(
-                            ui,
-                            disposition,
-                            Look {
-                                small: true,
-                                ..Look::default()
-                            },
-                        );
-                    }
-                    ui.add_space(4.0);
-                }
-            });
-    }
-}
-
-fn handed_on(ui: &mut egui::Ui, row: &ProjectRow) {
-    if row.outgoing.is_empty() {
-        return;
-    }
-    section(
-        ui,
-        &format!("Handed on to other projects: {}", row.outgoing.len()),
-    );
-    for block in &row.outgoing {
-        let mark = row
-            .mail
-            .iter()
-            .find(|mark| mark.path == block.path && mark.line == block.line);
-        ui.horizontal_wrapped(|ui| {
-            ui.label(style::icon(icons::ICON_OUTBOX, None));
-            ui.label(RichText::new(format!("{} → {}", block.brief, block.to)).strong());
-            // What the mailman made of it (EP-20).
-            let (words, colour) = match (&block.recipient, mark.map(|mark| &mark.state)) {
-                (Recipient::Unknown, _) | (_, Some(State::Unknown)) => {
-                    (State::Unknown.words(), Some(style::amber(ui)))
-                }
-                (_, Some(state @ State::Delivered { .. })) => {
-                    (state.words(), Some(style::green(ui)))
-                }
-                (_, Some(state @ State::Waits(_))) => (state.words(), Some(style::amber(ui))),
-                (_, Some(state @ State::Counted)) => (state.words(), None),
-                (Recipient::Project(name), None) => (
-                    format!("to {name}: the mailman reads it at its next round"),
-                    None,
-                ),
-            };
-            let text = RichText::new(words);
-            ui.label(match colour {
-                Some(colour) => text.color(colour),
-                None => text.weak(),
-            });
-        });
-        // The block's text after its label, which the line above says (EP-15a).
-        markup::note(
-            ui,
-            mail_text(&block.text),
-            Look {
-                sentences: true,
-                ..Look::default()
-            },
-        );
-        ui.add_space(4.0);
-    }
-}
-
-/// A handed-on block's text without its `**Handed on (to …).**` label.
-fn mail_text(text: &str) -> &str {
-    let text = text.trim_start();
-    text.strip_prefix("**Handed on")
-        .and_then(|rest| rest.find("**").map(|end| rest[end + 2..].trim_start()))
-        .unwrap_or(text)
-}
-
-fn decisions(ui: &mut egui::Ui, snapshot: &Snapshot) {
+/// The decision log's counts, under a header folded shut by default (EP-51).
+fn decisions(ui: &mut egui::Ui, snapshot: &Snapshot, folds: &mut BTreeMap<String, bool>) {
     let decisions = &snapshot.decisions;
     let Some(path) = &decisions.path else {
         return;
     };
-    section(ui, "Decision log");
     let name = path.strip_prefix(&snapshot.folder).unwrap_or(path);
     let last = decisions
         .log
         .last_addendum()
         .map(|date| format!(", the last {date}"))
         .unwrap_or_default();
-    ui.label(format!(
-        "{}: {} decisions, {} addenda{last}",
-        name.display(),
-        decisions.log.entries.len(),
-        decisions.log.addenda.len()
-    ));
+    fold(ui, folds, "Decisions", "Decision log", |ui| {
+        ui.label(format!(
+            "{}: {} decisions, {} addenda{last}",
+            name.display(),
+            decisions.log.entries.len(),
+            decisions.log.addenda.len()
+        ));
+    });
 }
 
-fn problems(ui: &mut egui::Ui, row: &ProjectRow) {
+/// The problems the readers met, under a header open by default (EP-51), shown only when there
+/// is one.
+fn problems(ui: &mut egui::Ui, row: &ProjectRow, folds: &mut BTreeMap<String, bool>) {
     let snapshot = &row.snapshot;
     let folder = &snapshot.folder;
     let relative = |path: &std::path::Path| {
@@ -1248,10 +1126,12 @@ fn problems(ui: &mut egui::Ui, row: &ProjectRow) {
     if lines.is_empty() {
         return;
     }
-    section(ui, &format!("Problems the readers met: {}", lines.len()));
-    for line in lines {
-        ui.add(egui::Label::new(RichText::new(line).color(style::amber(ui))).wrap());
-    }
+    let title = format!("Problems the readers met: {}", lines.len());
+    fold(ui, folds, "Problems", &title, |ui| {
+        for line in lines {
+            ui.add(egui::Label::new(RichText::new(line).color(style::amber(ui))).wrap());
+        }
+    });
 }
 
 #[cfg(test)]
@@ -1313,7 +1193,18 @@ mod tests {
         assert!(lantern.house.matters());
         let mut screen = Screen::new();
         let mut actions = Vec::new();
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, lantern, &mut actions));
+        // Folded shut by default (EP-51): the header alone.
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, lantern, &mut BTreeMap::new(), &mut actions);
+        });
+        assert!(testing::text_at(&output, "House style").is_some());
+        assert!(!shows(&output, "Formalise… would write"));
+        // The owner opened it: the view keeps it so.
+        let open = || BTreeMap::from([("House style".to_owned(), true)]);
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, lantern, &mut open(), &mut actions);
+        });
         assert!(shows(
             &output,
             "Formalise… would write CLAUDE.md (created), roadmap/owner-tasks.md (created) and \
@@ -1326,20 +1217,24 @@ mod tests {
             testing::button(at, egui::PointerButton::Primary, true),
             testing::button(at, egui::PointerButton::Primary, false),
         ] {
-            screen.pass(events, |ui| house_style(ui, lantern, &mut actions));
+            screen.pass(events, |ui| {
+                house_style(ui, lantern, &mut open(), &mut actions);
+            });
         }
         assert_eq!(actions, [Action::OpenFormalise("lantern".to_owned())]);
         // harbor lacks only CLAUDE.md and the template: Formalise… stays in the row's menu
         // (`wants`), and the pane shows no section (EP-38).
         let harbor = portfolio.project("harbor").unwrap();
         assert!(harbor.house.wants() && !harbor.house.matters());
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, harbor, &mut Vec::new()));
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, harbor, &mut open(), &mut Vec::new());
+        });
         assert!(testing::text_at(&output, "House style").is_none());
         // Unformalised, the section stays, saying what Formalise… would write.
         let mut unformalised = harbor.clone();
         unformalised.project.state = crw_core::registry::State::Unformalised;
         let output = screen.pass(Vec::new(), |ui| {
-            house_style(ui, &unformalised, &mut Vec::new())
+            house_style(ui, &unformalised, &mut open(), &mut Vec::new());
         });
         assert!(shows(
             &output,
@@ -1348,11 +1243,15 @@ mod tests {
         // Every file there and house tables: no section.
         let mut whole = harbor.clone();
         whole.house = House::default();
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, &whole, &mut open(), &mut Vec::new());
+        });
         assert!(testing::text_at(&output, "House style").is_none());
         // A refusal matters.
         whole.house.refused = vec!["CLAUDE.md: an end marker without a begin".to_owned()];
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, &whole, &mut open(), &mut Vec::new());
+        });
         assert!(shows(
             &output,
             "Refused: CLAUDE.md: an end marker without a begin"
@@ -1360,7 +1259,9 @@ mod tests {
         whole.house.refused.clear();
         // An older roadmap: Migrate…, and no Formalise… while every file is there.
         whole.house.migrates = Some(Profile::House5);
-        let output = screen.pass(Vec::new(), |ui| house_style(ui, &whole, &mut Vec::new()));
+        let output = screen.pass(Vec::new(), |ui| {
+            house_style(ui, &whole, &mut open(), &mut Vec::new());
+        });
         assert!(testing::text_at(&output, "Migrate…").is_some());
         assert!(testing::text_at(&output, "Formalise…").is_none());
         assert!(shows(&output, "the five-column tables, read-only (D-9)"));
@@ -1628,12 +1529,60 @@ mod tests {
         assert!(line.is_some(), "the measured time of EP-1's headless row");
     }
 
+    /// The headers after Status fold as the owner left them, saved with the view (EP-51): the
+    /// decision log shut by default, a click on its header opening it and the view keeping that.
     #[test]
-    fn the_mail_leaves_its_label_to_the_line_above() {
+    fn the_headers_after_status_fold_as_the_view_keeps_them() {
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+
+        let scratch = Scratch::new("detail-folds");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio.project("harbor").unwrap();
+        let snapshot = &harbor.snapshot;
+        assert!(snapshot.decisions.path.is_some(), "the fixture keeps a log");
+        let mut folds = BTreeMap::new();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| decisions(ui, snapshot, &mut folds));
+        assert!(shows(&output, "Decision log"));
+        assert!(!shows(&output, " decisions, "), "shut by default");
+        let at = testing::text_at(&output, "Decision log").expect("its header");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| decisions(ui, snapshot, &mut folds));
+        }
+        assert_eq!(folds.get("Decisions"), Some(&true));
+        // Drawn open from then on, the next frames' animation done.
+        for _ in 0..30 {
+            screen.pass(Vec::new(), |ui| decisions(ui, snapshot, &mut folds));
+        }
+        let output = screen.pass(Vec::new(), |ui| decisions(ui, snapshot, &mut folds));
+        assert!(shows(&output, " decisions, "));
+        // The problems open by default, shut once the owner shuts them.
+        let mut broken = harbor.clone();
+        broken
+            .snapshot
+            .problems
+            .push("roadmap/EP-9.md: no front matter".to_owned());
+        let mut folds = BTreeMap::new();
+        let output = screen.pass(Vec::new(), |ui| problems(ui, &broken, &mut folds));
+        assert!(shows(&output, "Problems the readers met: 1"));
+        assert!(shows(&output, "no front matter"));
+        folds.insert("Problems".to_owned(), false);
+        for _ in 0..30 {
+            screen.pass(Vec::new(), |ui| problems(ui, &broken, &mut folds));
+        }
+        let output = screen.pass(Vec::new(), |ui| problems(ui, &broken, &mut folds));
+        assert!(!shows(&output, "no front matter"));
+        // No problem, no header.
+        let output = screen.pass(Vec::new(), |ui| problems(ui, harbor, &mut BTreeMap::new()));
+        assert!(!shows(&output, "Problems the readers met"));
         assert_eq!(
-            mail_text("**Handed on (to Beta).** The registry's format is 2."),
-            "The registry's format is 2."
+            FOLDS.map(|(name, _)| name),
+            ["Decisions", "House style", "Problems"]
         );
-        assert_eq!(mail_text("No label here."), "No label here.");
     }
 }

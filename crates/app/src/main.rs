@@ -29,6 +29,7 @@ mod launch;
 mod layout;
 mod list;
 mod mail;
+mod mailbox;
 mod markup;
 mod meter;
 mod owner_tasks;

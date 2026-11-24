@@ -274,7 +274,9 @@ fn contents(ui: &mut egui::Ui, items: &[Item]) -> Option<Choice> {
                     Target::ChainLog => {
                         "Show the window on the Sessions pane's All tab, where the chain log is"
                     }
-                    Target::Project(_) => "Show the window on the project's Detail pane",
+                    Target::Inbox(_) => {
+                        "Show the window on the project's messages, in the Inbox pane"
+                    }
                     Target::Chat => "Show the window on the Chat pane, where the question waits",
                     Target::Window => "Show the window",
                 };

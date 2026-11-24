@@ -71,8 +71,9 @@ pub enum Target {
     Usage,
     /// The window, the Sessions pane's All tab in front, where the chain log is (EP-19a).
     ChainLog,
-    /// The window, a project selected and the Detail pane in front, where its inbox is (EP-20a).
-    Project(String),
+    /// The window, a project selected and the Inbox pane in front on it alone, where its message
+    /// is (EP-20a; EP-51, the Detail pane's before).
+    Inbox(String),
     /// The window, the Chat pane in front, where a conversation's question waits (EP-24a).
     Chat,
     /// The window as it stands.
@@ -146,7 +147,7 @@ impl Toast {
     }
 
     /// A message flagged urgent arrived in `project`'s inbox (D-13, D-21; EP-20a): who sent it and
-    /// what it says, its Show bringing the project's Detail pane forward, where its inbox is.
+    /// what it says, its Show bringing the Inbox pane forward on the project (EP-51).
     pub fn urgent(project: &str, message: &Message) -> Self {
         let text = crw_core::inbox::without_urgent(&message.text);
         let text = match &message.from {
@@ -158,7 +159,7 @@ impl Toast {
             project,
             format!("{project}: {} is urgent", message.id),
             text,
-            Target::Project(project.to_owned()),
+            Target::Inbox(project.to_owned()),
         )
     }
 
@@ -194,7 +195,7 @@ impl Toast {
             Target::VsCode(_) => server::DECISIONS_ROUTE.to_owned(),
             Target::Window if ended => server::SESSIONS_ROUTE.to_owned(),
             Target::Window | Target::Usage | Target::ChainLog => server::PAGES_ROOT.to_owned(),
-            Target::Project(name) => server::project_path(name),
+            Target::Inbox(name) => server::project_path(name),
             Target::Chat => return None,
         })
     }
@@ -1558,7 +1559,7 @@ mod tests {
         let toast = &toasts[0];
         assert_eq!(toast.title, "harbor: IN-6 is urgent");
         assert_eq!(toast.text, "From quarry EP-4: A second change.");
-        assert_eq!(toast.target, Target::Project("harbor".to_owned()));
+        assert_eq!(toast.target, Target::Inbox("harbor".to_owned()));
         assert_eq!((toast.kind, toast.what), (Some(Kind::Urgent), "urgent"));
         assert!(toast.is_warning());
         assert!(urgent_arrivals(&mut seen, look(&[&later])).is_empty());
