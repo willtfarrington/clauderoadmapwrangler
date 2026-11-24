@@ -157,13 +157,14 @@ beyond the pictures' height, and is checked by unit tests alone. The phone's pag
 tasks" now, checked as HTML out (rule 5), not in a browser.
 
 > **Completion note (2026-11-24; claude-opus-5-5/max, a headless run the owner started; about
-> an hour of working time from the start at 10:54 to the work commit, the owner's one question
-> answered within a minute).**
+> 51 minutes of working time from the start at 10:54 to the work commit, the owner's one
+> question answered within a minute).**
 > Started by the owner from the window at 10:54 (ledger row `63120ec4`) under M's cap of
 > 1 h 30 min of working time. Judged at the brief to fit, so nothing was split: the count and
 > the pane compiled at the first build at 11:09, the review ran in the background from then,
 > the screenshot series and the copy run by 11:19, the review's fixes and the checks by 11:41,
-> the owner's question at 11:43, then the records, the commits and the install.
+> the owner's question at 11:43, then the records. The work commit `563825e` at 11:45, the
+> record commit, then the install.
 >
 > **Owner decision** (one `AskUserQuestion` at 11:43, answered with the recommended option).
 >
