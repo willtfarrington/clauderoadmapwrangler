@@ -142,12 +142,12 @@ screenshot run shows the changed brief's line canned over the fixtures; the redr
 covered by the board's test, not seen in a real window. While a headless run of the window's own
 works in a project, a commit made there in a terminal shows only at the run's end, as before.
 
-> **Completion note (2026-11-23; claude-opus-5-5/max, a chained headless run; about an hour from
-> the start to the work commit, one owner question).**
+> **Completion note (2026-11-23; claude-opus-5-5/max, a chained headless run; 55 minutes from the
+> start to the work commit, one owner question).**
 > Chained at 21:53 after EP-47 (ledger row `e7f00dc5`) under M's cap of 1 h 30 min. Judged at the
 > brief to fit only narrowly, with checkpoints at 22:35 and 22:55 for splitting the watcher off
 > as EP-48a; the three parts compiled and their tests passed at 22:09, so nothing was split.
-> The work commit, the record commit, then the install.
+> The work commit `aaf8322` at 22:48, the record commit, then the install.
 >
 > **Owner decisions** (one `AskUserQuestion` at 22:12, both answered with the recommended
 > option).
