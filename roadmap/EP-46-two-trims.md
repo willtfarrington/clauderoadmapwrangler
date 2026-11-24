@@ -116,10 +116,10 @@ fixtures. The meter no longer reads the week's samples at its start, so nothing 
 reads them until v2's view of usage over time; the ledger keeps writing them. The next re-plan's
 walk reads how the trimmed list serves in daily use.
 
-> **Completion note (2026-11-23; claude-opus-5-5/max, a headless run; 36 minutes from the start
+> **Completion note (2026-11-23; claude-opus-5-5/max, a headless run; 32 minutes from the start
 > to the work commit, the owner's answer included).** Started headless from the window at 20:37
 > (ledger row `46493945`) under S's cap of 1 h 15 min; the row was judged to fit at the brief and
-> was not split. The work commit and the record commit, then the install.
+> was not split. The work commit `8fd04f0` at 21:08, the record commit, then the install.
 >
 > **Owner decisions.**
 >
