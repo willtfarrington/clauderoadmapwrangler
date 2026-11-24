@@ -21,6 +21,10 @@ use crate::version::{MIN_CLAUDE_CODE, Version};
 /// How long a preflight's answers are trusted.
 pub const MAX_AGE: Duration = Duration::from_secs(60 * 60);
 
+/// How long before its answers lapse the shown window asks the CLI again (EP-47), so that a
+/// Send or a launch finds them fresh.
+pub const RENEW_BEFORE: Duration = Duration::from_secs(5 * 60);
+
 /// The flag by which a host takes a `-p` run's permission prompts and questions; the stream-json
 /// host passes `stdio`, as the Agent SDK does (EP-14).
 pub const PROMPT_TOOL: &str = "--permission-prompt-tool";
@@ -134,8 +138,24 @@ impl Preflight {
 
     /// Whether the answers are recent enough to launch on.
     pub fn is_fresh(&self) -> bool {
-        self.taken.elapsed() < MAX_AGE
+        fresh(self.taken.elapsed())
     }
+
+    /// Whether the answers lapse within [`RENEW_BEFORE`], or have lapsed: the shown window asks
+    /// again (EP-47).
+    pub fn is_due(&self) -> bool {
+        due(self.taken.elapsed())
+    }
+}
+
+/// Whether answers `age` old may be launched on.
+fn fresh(age: Duration) -> bool {
+    age < MAX_AGE
+}
+
+/// Whether answers `age` old are due to be asked again (EP-47).
+fn due(age: Duration) -> bool {
+    age + RENEW_BEFORE >= MAX_AGE
 }
 
 /// The latest preflight, asked again when it is an hour old or was taken of another program.
@@ -477,5 +497,20 @@ Commands:
     fn the_setting_wins() {
         let set = Path::new(r"D:\Tools\claude.exe");
         assert_eq!(locate(Some(set)), Some(set.to_owned()));
+    }
+
+    /// Answers within five minutes of lapsing, or lapsed, are due to be asked again; fresher ones
+    /// are not (EP-47).
+    #[test]
+    fn answers_near_their_lapse_are_due() {
+        let minute = Duration::from_secs(60);
+        let fresh_answers = preflight(MIN_CLAUDE_CODE, true, HELP);
+        assert!(fresh_answers.is_fresh() && !fresh_answers.is_due());
+        let young = MAX_AGE - RENEW_BEFORE - minute;
+        assert!(fresh(young) && !due(young));
+        let near = MAX_AGE - RENEW_BEFORE + minute;
+        assert!(fresh(near) && due(near), "fresh still, and due");
+        let lapsed = MAX_AGE + minute;
+        assert!(!fresh(lapsed) && due(lapsed));
     }
 }

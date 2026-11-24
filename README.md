@@ -388,7 +388,12 @@ buttons under it that open the window's own dialogs with the project filled in (
 first whether the folder is a data repository, Formalise…, Migrate…, Compose… with the words
 typed), nothing written before the owner's click there; the session runs the tool's own `crw`
 reading commands under exact permission rules, and an `@<project>` in a message gives it that
-project's context as the prompt hook gives an interactive session (EP-24b).
+project's context as the prompt hook gives an interactive session (EP-24b). Enter sends a message
+and Shift+Enter starts a new line (Ctrl+Enter sends too). A message sent before `claude` has
+answered the questions asked before every session (its version, login and flags, kept an hour),
+or while another session is starting, waits in the box with Cancel and goes by itself once they
+come; while the window is shown, answers near the end of their hour are asked again in the
+background (EP-47).
 
 Each project's history is imported from its git log and its briefs' completion notes (EP-25): the
 commits that record an EP date it, the note cross-checks the date and wins when they differ by

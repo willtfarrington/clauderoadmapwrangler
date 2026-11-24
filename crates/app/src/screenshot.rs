@@ -85,7 +85,9 @@
 //!   the conversations' fold open, its rows in view); `chat=actions` (the same with the
 //!   second turn ended on a reply that ran `crw tasks` and proposes every action form, its
 //!   chips under it, EP-24b); `chat=adopt` (the same with the Adopt chip taken, its
-//!   confirmation at the exchange's end with the data box ticked);
+//!   confirmation at the exchange's end with the data box ticked); `chat=queued` (the same as
+//!   `actions` with a third message waiting for claude's answers, greyed in the box with the
+//!   wait and Cancel under it, EP-47);
 //! - `quit` (the canned sessions, and the question Quit asks before it stops harbor's run, from
 //!   EP-15); `restart` (the canned sessions, and File > Install and restart refused with its
 //!   reasons in the status bar, from EP-37); `newer` (a newer build installed, canned, so that
@@ -1025,7 +1027,8 @@ fn canned_chat(board: &mut Board, form: &str) {
     use crw_core::ledger::ConversationRow;
 
     let asks = form == "asks";
-    let actions = form == "actions" || form == "adopt";
+    // `queued` ends the second turn as `actions` does, so that a third message can wait (EP-47).
+    let actions = form == "actions" || form == "adopt" || form == "queued";
     let first = "What does harbor's next brief plan, in plain words?";
     let mut launch = Launch::new(chat::PROJECT, Path::new("chat"), chat::MODEL, first);
     launch.effort = Some(chat::EFFORT.to_owned());
@@ -1163,6 +1166,12 @@ fn canned_chat(board: &mut Board, form: &str) {
             folder: "sketchbook".to_owned(),
             data: true,
         });
+    }
+    // A third message sent before claude's answers came (EP-47): greyed in the box, the wait
+    // and Cancel under it; a screenshot run's queue is drawn, never sent.
+    if form == "queued" {
+        board.chat.draft = "And which of them waits longest on me?".to_owned();
+        board.chat.queued = Some(crate::chat::SendWait::Answers);
     }
     // The ledger's conversations, canned: this one and two earlier.
     let row = |id: &str,

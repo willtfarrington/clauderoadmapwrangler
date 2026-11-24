@@ -219,6 +219,8 @@ pub enum Action {
     /// reply's turn interrupted, the conversation let go for a new one, and (EP-24a) a
     /// conversation picked up from the ledger's list by its session id, the next Send its turn.
     ChatSend,
+    /// Cancel under a message waiting to be sent (EP-47): it stays in the box.
+    ChatCancel,
     ChatStop,
     ChatNew,
     ChatPickUp(String),
@@ -1143,7 +1145,8 @@ impl Board {
 
     /// The window's pass before each frame and, while it is hidden in the tray, without one
     /// (`Dashboard::logic`, D-29): the phone's forms that came while the window slept or drew,
-    /// before the pass's own reads and writes (EP-43); what came in, the notifications' share;
+    /// before the pass's own reads and writes (EP-43); what came in; the CLI's answers renewed
+    /// while shown and the chat's queued message (EP-47); the notifications' share;
     /// the forms again, those that came meanwhile (EP-30a); then, while hidden, the queued
     /// actions, which no frame will run (EP-30: the tray's Pause acts at once); then what the
     /// phone's pages read. Each part is timed, and a slow pass has its line in the rolling log
@@ -1155,6 +1158,13 @@ impl Board {
         self.obey_pages();
         self.pace.mark("the forms");
         self.receive(ctx);
+        // The CLI's answers kept fresh while the window is shown (EP-47; the hidden window asks
+        // nothing, D-29), then a chat message queued at Send goes once its wait is over.
+        if !self.hidden {
+            self.sessions.renew_preflight(ctx);
+        }
+        self.chat_send_queued();
+        self.pace.mark("the chat's queue");
         // The registry's remote view record for the tray and the Diagnostics pane (EP-31a),
         // read every half minute and after Enable or Disable.
         self.read_remote_view();
@@ -1644,6 +1654,7 @@ impl Board {
                 }
             }
             Action::ChatSend => self.chat_send(),
+            Action::ChatCancel => self.chat_cancel(),
             Action::ChatStop => self.chat_stop(),
             Action::ChatNew => self.chat_new(),
             Action::ChatPickUp(session_id) => self.chat_pick_up(&session_id),
@@ -2088,8 +2099,7 @@ impl Board {
         &mut self,
         registry: &Registry,
     ) -> (PathBuf, Vec<String>, (Route, Option<String>)) {
-        let program = cli::locate(registry.settings.claude_cli.as_deref())
-            .unwrap_or_else(|| PathBuf::from("claude.exe"));
+        let program = cli_program(registry);
         let preflight = self.sessions.preflight(&program, &self.ctx);
         let levels: Vec<String> = preflight
             .as_ref()
@@ -2859,6 +2869,14 @@ impl Board {
             }
         }
     }
+}
+
+/// The CLI a launch or a chat turn starts: the registry's `claude_cli`, else where Claude Code
+/// installs it (`cli::locate`), else `claude.exe` on PATH; the chat's queue reads it without
+/// asking the CLI (EP-47).
+pub(crate) fn cli_program(registry: &Registry) -> PathBuf {
+    cli::locate(registry.settings.claude_cli.as_deref())
+        .unwrap_or_else(|| PathBuf::from("claude.exe"))
 }
 
 /// The `crw.exe` beside the window's own exe, which the defer route's hooks run (D-19; EP-14).

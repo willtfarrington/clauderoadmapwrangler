@@ -2982,6 +2982,26 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > *Alternatives.* The sentence left to a P5 fix row with any other wording for the four skills;
 > the skill left as it is, the roadmap's own note carrying the method.
 
+> **Addendum (2026-11-23, EP-47).** The chat's send waits rather than refuses (the owner's
+> request at EP-45). A message sent before the CLI's answers are in hand (its version, login and
+> flags, asked on a worker thread before a session starts and trusted an hour, D-15), or while
+> another start is on its way (one start goes at a time, D-29), waits in the box, greyed, with
+> Cancel under it, and the window's pass sends it once the answers came or the other start came
+> back, the hidden window's pass too, since the owner sent it; one whose wait ended as the
+> conversation began a reply (a deferred question's resume) waits for that reply. A refusal the
+> answers give (no CLI, not logged in, below the minimum, a flag missing) is said as before, the
+> message kept; an ask that ended without answers drops the queue with words, so that a queue
+> never asks the CLI a second time by itself. While the window is shown, answers within five
+> minutes of their hour's end, or past it, are asked again in the background, the old ones handed
+> out meanwhile while still fresh, so that a Send or the launch dialog finds them in hand; the
+> hidden window asks nothing, and answers never asked are asked by the first Send or launch, as
+> before. Enter sends and Shift+Enter makes a new line; Ctrl+Enter still sends.
+> *Alternatives.* The answers asked at the window's start and kept fresh while it runs, hidden
+> or not (three children an hour with no one to use them, D-29); the refusal kept with the
+> button pressing itself again (the owner would still read the refusal); a queue that asks again
+> after an ask that ended without answers (a thread that died at each ask would start children
+> at every pass).
+
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and
 8443 belong to another project), tailnet only, never Funnel; the tool checks `tailscale serve status` and

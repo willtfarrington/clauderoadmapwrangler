@@ -34,7 +34,7 @@ use crw_core::usage;
 use eframe::egui::{self, OutputCommand, RichText};
 use egui_commonmark::{CommonMarkCache, CommonMarkViewer};
 
-use crate::board::{Action, Board, crw_exe};
+use crate::board::{Action, Board, cli_program, crw_exe};
 use crate::decisions::{self, Draft, Wait};
 use crate::launch;
 use crate::sessions::Live;
@@ -43,6 +43,10 @@ use crate::transcript::{self, Entry, Transcript};
 
 /// The room the footer keeps under the exchange: the notes, the input and its buttons.
 const FOOTER: f32 = 132.0;
+
+/// The footer's room beside [`FOOTER`] while a message waits to be sent (EP-47): its line, with
+/// Cancel, wraps to two or three lines in a narrow pane.
+const WAIT_ROOM: f32 = 36.0;
 
 /// The most conversations the list shows, the latest activity first (the ledger keeps them all;
 /// `crw chats --all` prints every one).
@@ -75,6 +79,9 @@ pub struct Chat {
     pub title: Option<String>,
     /// The message being typed.
     pub draft: String,
+    /// The message was sent before its turn could start: it waits for this, greyed in the box,
+    /// and goes by itself once it came (EP-47).
+    pub queued: Option<SendWait>,
     /// Why the last turn did not start.
     pub error: Option<String>,
     /// A turn is starting: the worker thread waits its turn and the spacing.
@@ -104,6 +111,47 @@ pub struct Chat {
     catalog: Option<Catalog>,
     /// The Markdown viewer's cache, one per conversation.
     cache: CommonMarkCache,
+}
+
+/// What a message sent before its turn could start waits for (EP-47).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SendWait {
+    /// The CLI's answers (its version, login and flags), asked at the Send.
+    Answers,
+    /// Another start the window has on its way: one start goes at a time.
+    Start,
+    /// The conversation's reply, which began while the message waited (a deferred question's
+    /// resume came back): the message goes as the next turn.
+    Reply,
+}
+
+impl SendWait {
+    /// The line under the box while the message waits, short enough for a narrow pane.
+    pub fn words(self) -> &'static str {
+        match self {
+            SendWait::Answers => "Waits for claude's answers, then goes by itself.",
+            SendWait::Start => "Waits for the session starting now, then goes by itself.",
+            SendWait::Reply => "Waits for the reply to end, then goes by itself.",
+        }
+    }
+
+    /// What the line says on hover.
+    pub fn hover(self) -> &'static str {
+        match self {
+            SendWait::Answers => {
+                "claude is asked its version, login and flags before a session starts: your \
+                 message goes as soon as they come. Cancel keeps it in the box, unsent."
+            }
+            SendWait::Start => {
+                "One session starts at a time: your message goes as soon as the one starting now \
+                 has started. Cancel keeps it in the box, unsent."
+            }
+            SendWait::Reply => {
+                "The conversation is replying: your message goes as its next turn once the reply \
+                 ends, or once you Stop it. Cancel keeps it in the box, unsent."
+            }
+        }
+    }
 }
 
 /// The Adopt chip's confirmation (EP-24b): the folder, and whether the owner marks it a data
@@ -139,6 +187,9 @@ pub struct Pending {
     pub session_id: String,
     pub title: String,
     pub mentioned: Vec<String>,
+    /// The box's text as it was sent: only that leaves the box once the start comes back, what
+    /// was typed after it meanwhile staying (EP-47's review).
+    pub sent: String,
 }
 
 /// The ledger's conversations as the list shows them (EP-24a), read as the Sessions pane reads
@@ -415,7 +466,11 @@ impl Board {
 
     /// Send (EP-24): one turn of the conversation, a new session or the conversation's resumed
     /// with the message, off the UI thread as every start is; a screenshot run starts nothing.
+    /// A message sent while another start is on its way, or while the CLI's answers are asked,
+    /// waits for them and goes by itself (EP-47, `chat_send_queued`).
     pub(crate) fn chat_send(&mut self) {
+        // Sent now or not at all, whatever it waited for: a wait below queues it again.
+        let was_queued = self.chat.queued.take().is_some();
         if self.fixtures {
             self.warn("A screenshot run starts no session: its projects are fixtures or a copy.");
             return;
@@ -424,11 +479,20 @@ impl Board {
         if message.is_empty() {
             return;
         }
-        if self.sessions.is_starting() || self.chat.starting {
+        if self.chat.starting {
             self.chat.error = Some("A session is starting: try again in a moment.".to_owned());
             return;
         }
         if self.conversation().is_some_and(Live::is_running) {
+            // Send is greyed while a reply streams; a queued message whose wait ended as the
+            // conversation began one (a deferred question's resume came back) waits for it.
+            if was_queued {
+                self.chat_queue(SendWait::Reply);
+            }
+            return;
+        }
+        if self.sessions.is_starting() {
+            self.chat_queue(SendWait::Start);
             return;
         }
         let registry = match self.store().load() {
@@ -451,8 +515,8 @@ impl Board {
         let (program, _, route) = self.launch_cli(&registry);
         let ctx = self.ctx().clone();
         let Some(preflight) = self.sessions.preflight(&program, &ctx) else {
-            self.chat.error =
-                Some("claude has not answered yet: try again in a moment.".to_owned());
+            // Asked now, or already under way: the message waits for the answers.
+            self.chat_queue(SendWait::Answers);
             return;
         };
         let refusals = preflight.refusals();
@@ -536,6 +600,7 @@ impl Board {
             session_id: turn.session_id().to_owned(),
             title,
             mentioned,
+            sent: self.chat.draft.clone(),
         });
         self.chat.error = None;
         self.sessions.chat(preflight, launch, resumes, &ctx);
@@ -547,6 +612,53 @@ impl Board {
         }
     }
 
+    /// The message waits for `wait`, greyed in the box with Cancel under it (EP-47).
+    fn chat_queue(&mut self, wait: SendWait) {
+        self.chat.queued = Some(wait);
+        self.chat.error = None;
+    }
+
+    /// The window's pass (EP-47), after the starts and the CLI's answers are taken in: a queued
+    /// message goes once what it waits for has come, the other start back, the reply ended, or
+    /// fresh answers in hand for the CLI a Send starts (their refusal said as at a Send). The
+    /// answers' wait never asks: while any ask runs it waits, and with none running and no
+    /// answers for that CLI it drops the queue with words, so that a queue never asks the CLI by
+    /// itself (D-29; the review's finding: two callers asking for two CLIs would replace each
+    /// other's ask at every pass).
+    pub(crate) fn chat_send_queued(&mut self) {
+        match self.chat.queued {
+            // A screenshot run's queue is drawn, never sent: it starts nothing.
+            _ if self.fixtures => {}
+            None => {}
+            Some(SendWait::Start) if self.sessions.is_starting() => {}
+            Some(SendWait::Reply) if self.conversation().is_some_and(Live::is_running) => {}
+            Some(SendWait::Answers) => {
+                let program = self
+                    .store()
+                    .load()
+                    .ok()
+                    .map(|loaded| cli_program(&loaded.registry));
+                let in_hand = program
+                    .is_some_and(|program| self.sessions.preflight_in_hand(&program).is_some());
+                if in_hand {
+                    self.chat_send();
+                } else if !self.sessions.is_asking() {
+                    self.chat.queued = None;
+                    self.chat.error = Some(
+                        "claude gave no answers (its version, login and flags): send again."
+                            .to_owned(),
+                    );
+                }
+            }
+            Some(_) => self.chat_send(),
+        }
+    }
+
+    /// Cancel under a waiting message (EP-47): it stays in the box, unsent.
+    pub(crate) fn chat_cancel(&mut self) {
+        self.chat.queued = None;
+    }
+
     /// A turn that started, or did not (EP-24): the conversation's live found by its id.
     pub(crate) fn chat_started(&mut self, started: Result<String, String>) {
         self.chat.starting = false;
@@ -556,7 +668,7 @@ impl Board {
                     self.chat.session_id = Some(pending.session_id);
                     self.chat.title = Some(pending.title);
                     self.chat.mentioned = pending.mentioned;
-                    self.chat.draft.clear();
+                    self.chat.draft = after_sent(&self.chat.draft, &pending.sent);
                 }
                 let wanted = self.chat.session_id.clone();
                 self.chat.key = self
@@ -587,6 +699,10 @@ impl Board {
     /// start is on its way (a deferred question's resume among them, the review's finding),
     /// which would leave a running chat no pane shows.
     fn chat_can_let_go(&mut self) -> bool {
+        if self.chat.queued.is_some() {
+            self.warn("A message waits to be sent: Cancel it first.");
+            return false;
+        }
         if self.conversation().is_some_and(Live::is_running)
             || self.chat.starting
             || self.sessions.is_starting()
@@ -694,9 +810,12 @@ impl Board {
         self.chat.list.refresh(ledger.as_deref());
         let preflight = self.sessions.preflight_ready();
         let mut actions = Vec::new();
-        // A turn of this conversation on its way; another start's only holds Send back.
+        // A turn of this conversation on its way. Another start's, or a message waiting to be
+        // sent (EP-47), holds back what would start or let the conversation go; Send itself
+        // queues behind another start.
         let starting = self.chat.starting;
-        let busy = self.sessions.is_starting();
+        let queued = self.chat.queued;
+        let busy = self.sessions.is_starting() || queued.is_some();
         let (running, stopping, state, colour, dropped, ended, init) = match self.conversation() {
             Some(live) => (
                 live.is_running(),
@@ -836,7 +955,14 @@ impl Board {
                 .find(|one| one.name.eq_ignore_ascii_case(&adopting.folder))
                 .map(|one| one.first_state().to_string())
         });
-        let height = (ui.available_height() - FOOTER).max(80.0);
+        // A waiting message's line may wrap in a narrow pane: the footer keeps room for it.
+        let footer = FOOTER
+            + if self.chat.queued.is_some() {
+                WAIT_ROOM
+            } else {
+                0.0
+            };
+        let height = (ui.available_height() - footer).max(80.0);
         let known = self.chat_known();
         let mut opened = Vec::new();
         let mut dismiss = false;
@@ -928,24 +1054,52 @@ impl Board {
         if let Some(error) = &self.chat.error {
             ui.label(RichText::new(error).color(style::red(ui)));
         }
-        let response = ui.add(
-            egui::TextEdit::multiline(&mut self.chat.draft)
-                .desired_rows(3)
-                .desired_width(f32::INFINITY)
-                .hint_text("Ask about the portfolio (Ctrl+Enter sends)"),
-        );
-        let ready = !running && !starting && !busy && !self.chat.draft.trim().is_empty();
-        let sent_by_key = response.has_focus()
-            && ready
-            && ui.input(|i| i.modifiers.command && i.key_pressed(egui::Key::Enter));
-        let send = ui
-            .add_enabled(ready, egui::Button::new("Send"))
-            .on_hover_text(
-                "One turn of the conversation: a new read-only session, or the conversation's \
-                 resumed with this message",
-            );
-        if send.clicked() || sent_by_key {
-            actions.push(Action::ChatSend);
+        // Enter sends and Shift+Enter makes a new line (EP-47): the box's own new-line key is
+        // Shift+Enter, so Enter alone or with Ctrl makes none, and sends while Send could be
+        // pressed. A message waiting to be sent shows greyed and read-only until Cancel, yet
+        // keeps the focus: a disabled box would drop it, and the keys typed next would reach the
+        // window's shortcuts (the review's finding).
+        let response = match queued {
+            None => ui.add(draft_box(&mut self.chat.draft)),
+            Some(_) => {
+                let mut shown: &str = &self.chat.draft;
+                let weak = ui.visuals().weak_text_color();
+                ui.add(draft_box(&mut shown).text_color(weak))
+            }
+        };
+        let ready = !running && !starting && queued.is_none() && !self.chat.draft.trim().is_empty();
+        let sent_by_key = response.has_focus() && ready && ui.input(enter_sends);
+        match queued {
+            Some(wait) => {
+                // Cancel first, then the wait in words, wrapped: a narrow pane wraps the words,
+                // never Cancel off its edge; the whole sentence on hover.
+                ui.horizontal_wrapped(|ui| {
+                    if ui
+                        .button("Cancel")
+                        .on_hover_text("Keep the message in the box, unsent")
+                        .clicked()
+                    {
+                        actions.push(Action::ChatCancel);
+                    }
+                    ui.spinner();
+                    ui.label(RichText::new(wait.words()).weak())
+                        .on_hover_text(wait.hover());
+                });
+            }
+            None => {
+                let words = if self.sessions.is_starting() {
+                    "Another session is starting: your message waits for it and goes by itself"
+                } else {
+                    "One turn of the conversation: a new read-only session, or the \
+                     conversation's resumed with this message"
+                };
+                let send = ui
+                    .add_enabled(ready, egui::Button::new("Send"))
+                    .on_hover_text(words);
+                if send.clicked() || sent_by_key {
+                    actions.push(Action::ChatSend);
+                }
+            }
         }
         // The session's short id on a line of its own, which wraps; its full id on hover.
         let short = self.chat.session_id.as_deref().map(crw_core::revert::short);
@@ -1020,6 +1174,47 @@ impl Board {
         }
         lines.join("\n")
     }
+}
+
+/// What stays in the box once a sent message's turn started (EP-47's review): what was typed
+/// after it meanwhile, Enter sending as it does; a box changed inside the sent text is cleared,
+/// as every box was before.
+fn after_sent(draft: &str, sent: &str) -> String {
+    draft
+        .strip_prefix(sent)
+        .map(|rest| rest.trim_start().to_owned())
+        .unwrap_or_default()
+}
+
+/// The message box (EP-47): one id whether it edits the draft or shows a waiting message
+/// read-only, so that the focus stays across the switch; Shift+Enter its new-line key.
+fn draft_box(text: &mut dyn egui::TextBuffer) -> egui::TextEdit<'_> {
+    egui::TextEdit::multiline(text)
+        .id_salt("chat-draft")
+        .desired_rows(3)
+        .desired_width(f32::INFINITY)
+        .return_key(egui::KeyboardShortcut::new(
+            egui::Modifiers::SHIFT,
+            egui::Key::Enter,
+        ))
+        .hint_text("Ask about the portfolio (Enter sends, Shift+Enter starts a new line)")
+}
+
+/// Whether this pass pressed Enter to send (EP-47): Enter alone or with Ctrl, never with Shift,
+/// which makes a new line, nor with Alt; a held key's repeats send nothing.
+fn enter_sends(input: &egui::InputState) -> bool {
+    input.events.iter().any(|event| {
+        matches!(
+            event,
+            egui::Event::Key {
+                key: egui::Key::Enter,
+                pressed: true,
+                repeat: false,
+                modifiers,
+                ..
+            } if !modifiers.shift && !modifiers.alt
+        )
+    })
 }
 
 /// The Adopt chip's confirmation (EP-24b): what the adoption writes, the data box, Adopt and
@@ -2244,6 +2439,304 @@ mod tests {
         assert!(
             !refusals.iter().any(|why| why.contains("chat:")),
             "{refusals:?}"
+        );
+    }
+
+    /// The board's registry names a `claude_cli` that is no file, so that the CLI's answers
+    /// start no child (EP-47; rule 5): that program.
+    fn no_cli(scratch: &Scratch) -> PathBuf {
+        let program = scratch.0.join("no-cli").join("claude.exe");
+        let registry = scratch.0.join("registry.toml");
+        let text = fs::read_to_string(&registry).unwrap();
+        let set = format!("[settings]\nclaude_cli = {:?}\n", program.display());
+        fs::write(&registry, text.replacen("[settings]\n", &set, 1)).unwrap();
+        program
+    }
+
+    /// A Send before claude's answers are in waits for them (EP-47): the message stays, the ask
+    /// under way is not asked again, and when the answers come and refuse (no CLI there), their
+    /// refusal is said as at a Send, the message kept and the queue gone; Cancel keeps it too.
+    #[test]
+    fn a_send_before_the_answers_waits_for_them() {
+        let scratch = Scratch::new("chat-queue-answers");
+        let mut board = board(&scratch);
+        let program = no_cli(&scratch);
+        let ctx = board.ctx().clone();
+        let answer = board.sessions.asking(&program, None);
+        board.chat.draft = "Which project is next?".to_owned();
+        board.chat_send();
+        assert_eq!(board.chat.queued, Some(SendWait::Answers));
+        assert!(board.chat.error.is_none());
+        assert!(!board.chat.starting, "nothing handed to a start");
+        // Passes while the ask runs leave it waiting.
+        board.receive(&ctx);
+        board.chat_send_queued();
+        assert_eq!(board.chat.queued, Some(SendWait::Answers));
+        // The answers come: no CLI there, so their refusal is said, the message kept.
+        answer
+            .send(crw_core::session::Preflight::run(&program))
+            .unwrap();
+        board.receive(&ctx);
+        board.chat_send_queued();
+        assert!(board.chat.queued.is_none());
+        let error = board.chat.error.clone().unwrap_or_default();
+        assert!(error.contains("no Claude Code CLI"), "{error}");
+        assert_eq!(board.chat.draft, "Which project is next?");
+        assert!(!board.chat.starting);
+        // Cancel under a waiting message keeps it typed.
+        board.chat.queued = Some(SendWait::Answers);
+        board.chat_cancel();
+        assert!(board.chat.queued.is_none());
+        assert_eq!(board.chat.draft, "Which project is next?");
+    }
+
+    /// A queue whose ask ended without answers gives up with words and asks nothing more
+    /// (EP-47): a queue never asks the CLI again by itself.
+    #[test]
+    fn a_queue_whose_ask_ended_without_answers_gives_up() {
+        let scratch = Scratch::new("chat-queue-gone");
+        let mut board = board(&scratch);
+        let program = no_cli(&scratch);
+        let ctx = board.ctx().clone();
+        let answer = board.sessions.asking(&program, None);
+        board.chat.draft = "Which project is next?".to_owned();
+        board.chat_send();
+        assert_eq!(board.chat.queued, Some(SendWait::Answers));
+        drop(answer);
+        board.receive(&ctx);
+        board.chat_send_queued();
+        assert!(board.chat.queued.is_none());
+        let error = board.chat.error.clone().unwrap_or_default();
+        assert!(error.contains("claude gave no answers"), "{error}");
+        assert!(!board.sessions.is_asking(), "nothing asked again");
+        assert_eq!(board.chat.draft, "Which project is next?");
+    }
+
+    /// A message sent while another start is on its way waits for it (EP-47), the case that
+    /// said "A session is starting", and once that start came back goes on to the CLI's
+    /// answers, which it then waits for in turn.
+    #[test]
+    fn a_send_behind_another_start_waits_for_it() {
+        let scratch = Scratch::new("chat-queue-start");
+        let mut board = board(&scratch);
+        let program = no_cli(&scratch);
+        let ctx = board.ctx().clone();
+        let start = board.sessions.starting_elsewhere();
+        board.chat.draft = "Which project is next?".to_owned();
+        board.chat_send();
+        assert_eq!(board.chat.queued, Some(SendWait::Start));
+        assert!(board.chat.error.is_none());
+        board.chat_send_queued();
+        assert_eq!(
+            board.chat.queued,
+            Some(SendWait::Start),
+            "the start is still on its way"
+        );
+        let _answer = board.sessions.asking(&program, None);
+        start.send(Err("refused for the test".to_owned())).unwrap();
+        board.receive(&ctx);
+        assert!(!board.sessions.is_starting());
+        board.chat_send_queued();
+        assert_eq!(
+            board.chat.queued,
+            Some(SendWait::Answers),
+            "now the answers it waits for"
+        );
+    }
+
+    /// A queued message whose wait ended as the conversation began a reply (a deferred
+    /// question's resume came back) waits for the reply rather than leaving the queue unsent,
+    /// and once the reply ended goes on (here to the CLI's answers, which it waits for) (EP-47).
+    #[test]
+    fn a_queued_message_waits_for_a_reply_that_began() {
+        let scratch = Scratch::new("chat-queue-reply");
+        let mut board = board(&scratch);
+        let program = no_cli(&scratch);
+        let mut live = Live::canned(
+            957,
+            canned_launch(),
+            chat::EFFORT,
+            vec![Event::TextDelta("It plans".to_owned())],
+        );
+        live.project = chat::PROJECT.to_owned();
+        board.sessions.live.insert(0, live);
+        board.chat.key = Some(957);
+        board.chat.draft = "And after that?".to_owned();
+        board.chat.queued = Some(SendWait::Start);
+        board.chat_send_queued();
+        assert_eq!(board.chat.queued, Some(SendWait::Reply));
+        board.chat_send_queued();
+        assert_eq!(board.chat.queued, Some(SendWait::Reply), "still replying");
+        board.sessions.live[0].end_canned(crw_core::session::Ended {
+            outcome: Outcome::Completed,
+            exit_code: Some(0),
+            result: None,
+            stderr: Vec::new(),
+        });
+        let _answer = board.sessions.asking(&program, None);
+        board.chat_send_queued();
+        assert_eq!(board.chat.queued, Some(SendWait::Answers));
+        assert_eq!(board.chat.draft, "And after that?");
+    }
+
+    /// The answers' wait never asks (EP-47's review): with answers in hand for another CLI than
+    /// the one a Send starts and no ask running, the queue goes with words, nothing asked.
+    #[test]
+    fn a_queue_never_asks_for_another_clis_answers() {
+        let scratch = Scratch::new("chat-queue-other");
+        let mut board = board(&scratch);
+        no_cli(&scratch);
+        board.sessions.answered(crw_core::session::Preflight {
+            program: scratch.0.join("other").join("claude.exe"),
+            ..launch::canned_preflight()
+        });
+        board.chat.draft = "Which project is next?".to_owned();
+        board.chat.queued = Some(SendWait::Answers);
+        board.chat_send_queued();
+        assert!(board.chat.queued.is_none());
+        let error = board.chat.error.clone().unwrap_or_default();
+        assert!(error.contains("claude gave no answers"), "{error}");
+        assert!(!board.sessions.is_asking(), "nothing asked");
+    }
+
+    /// A waiting message keeps the box's focus (EP-47's review): a disabled box would drop it,
+    /// and the keys typed next would reach the window's shortcuts; typing changes nothing.
+    #[test]
+    fn a_waiting_message_keeps_the_focus() {
+        let scratch = Scratch::new("chat-queue-focus");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        board.chat.draft = "Which project".to_owned();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        let field = testing::text_at(&output, "Which project").expect("the box");
+        click(&mut screen, &mut board, field);
+        assert!(screen.ctx.egui_wants_keyboard_input(), "focused");
+        board.chat.queued = Some(SendWait::Answers);
+        screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        screen.pass(vec![egui::Event::Text("x".to_owned())], |ui| {
+            board.chat_pane(ui);
+        });
+        assert!(screen.ctx.egui_wants_keyboard_input(), "still focused");
+        assert_eq!(
+            board.chat.draft, "Which project",
+            "read-only while it waits"
+        );
+        board.chat.queued = None;
+        screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(screen.ctx.egui_wants_keyboard_input(), "and after");
+    }
+
+    /// Only the sent text leaves the box once its turn started (EP-47's review): what was typed
+    /// after it stays, and a box changed inside it is cleared as before.
+    #[test]
+    fn only_the_sent_text_leaves_the_box() {
+        assert_eq!(after_sent("Which?", "Which?"), "");
+        assert_eq!(after_sent("Which?\nAnd then?", "Which?"), "And then?");
+        assert_eq!(after_sent("Which? And", "Which?"), "And");
+        assert_eq!(after_sent("Edited", "Which?"), "");
+    }
+
+    /// A waiting message is drawn greyed with its wait and Cancel under it, no Send (EP-47);
+    /// Cancel's click asks for ChatCancel, after which Send is back.
+    #[test]
+    fn a_waiting_message_shows_its_wait_and_cancel() {
+        let scratch = Scratch::new("chat-queue-tile");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        board.chat.draft = "Which project is next?".to_owned();
+        board.chat.queued = Some(SendWait::Answers);
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, SendWait::Answers.words()).is_some());
+        assert!(
+            testing::text_at(&output, "Send").is_none(),
+            "Cancel stands in Send's place"
+        );
+        let cancel = testing::text_at(&output, "Cancel").expect("the Cancel button");
+        click(&mut screen, &mut board, cancel);
+        assert_eq!(board.actions, [Action::ChatCancel]);
+        board.actions.clear();
+        board.chat_cancel();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        assert!(testing::text_at(&output, "Send").is_some());
+        assert!(testing::text_at(&output, SendWait::Answers.words()).is_none());
+    }
+
+    /// Enter sends and Ctrl+Enter too; Shift+Enter makes a new line and sends nothing (EP-47).
+    #[test]
+    fn enter_sends_and_shift_enter_makes_a_new_line() {
+        let scratch = Scratch::new("chat-enter");
+        let mut board = board(&scratch);
+        board.fixtures = true;
+        board.chat.draft = "Which project".to_owned();
+        let mut screen = Screen::new();
+        let output = screen.pass(Vec::new(), |ui| board.chat_pane(ui));
+        // The box takes the focus from a click on its text.
+        let field = testing::text_at(&output, "Which project").expect("the box");
+        click(&mut screen, &mut board, field);
+        assert!(board.actions.is_empty(), "{:?}", board.actions);
+        // A press and its release: a press while the key is still down is a repeat to egui,
+        // which sends nothing.
+        let enter = |modifiers: egui::Modifiers| {
+            [true, false]
+                .map(|pressed| egui::Event::Key {
+                    key: egui::Key::Enter,
+                    physical_key: None,
+                    pressed,
+                    repeat: false,
+                    modifiers,
+                })
+                .to_vec()
+        };
+        screen.pass(enter(egui::Modifiers::SHIFT), |ui| board.chat_pane(ui));
+        assert!(board.actions.is_empty(), "{:?}", board.actions);
+        assert_eq!(
+            board.chat.draft.matches('\n').count(),
+            1,
+            "Shift+Enter made a new line: {:?}",
+            board.chat.draft
+        );
+        screen.pass(enter(egui::Modifiers::NONE), |ui| board.chat_pane(ui));
+        assert_eq!(board.actions, [Action::ChatSend]);
+        assert_eq!(
+            board.chat.draft.matches('\n').count(),
+            1,
+            "Enter made no new line"
+        );
+        board.actions.clear();
+        // Ctrl as Windows reports it: ctrl and command both.
+        let ctrl = egui::Modifiers::CTRL | egui::Modifiers::COMMAND;
+        screen.pass(enter(ctrl), |ui| board.chat_pane(ui));
+        assert_eq!(board.actions, [Action::ChatSend]);
+        assert_eq!(board.chat.draft.matches('\n').count(), 1);
+    }
+
+    /// The hidden window's pass asks the CLI nothing (EP-47; D-29), the shown window's renews
+    /// answers that have lapsed.
+    #[test]
+    fn only_the_shown_window_renews_the_answers() {
+        use crw_core::session::cli::MAX_AGE;
+
+        let scratch = Scratch::new("chat-renew-hidden");
+        let mut board = board(&scratch);
+        let ctx = board.ctx().clone();
+        let Some(taken) = Instant::now().checked_sub(MAX_AGE) else {
+            return;
+        };
+        board.sessions.answered(crw_core::session::Preflight {
+            program: scratch.0.join("no-cli").join("claude.exe"),
+            taken,
+            ..launch::canned_preflight()
+        });
+        board.hidden = true;
+        board.pass(&ctx);
+        assert!(!board.sessions.is_asking(), "hidden: nothing asked");
+        board.hidden = false;
+        board.pass(&ctx);
+        assert!(
+            board.sessions.is_asking(),
+            "shown: lapsed answers asked again"
         );
     }
 }

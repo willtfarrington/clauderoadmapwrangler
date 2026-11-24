@@ -528,6 +528,8 @@ enum Asked {
     Asking {
         program: PathBuf,
         receiver: Receiver<Preflight>,
+        /// The answers a renewal asks again for, in hand while they are fresh (EP-47).
+        previous: Option<Arc<Preflight>>,
     },
     Ready(Arc<Preflight>),
 }
@@ -701,20 +703,42 @@ fn version_of(preflight: &Preflight) -> Option<String> {
 }
 
 impl Sessions {
-    /// The CLI's answers about `program`: at once when they are fresh, else asked on a worker
-    /// thread (three children, one at a time) and `None` until they come.
+    /// The CLI's answers about `program`: at once when they are fresh (the old ones while a
+    /// renewal asks again, EP-47), else asked on a worker thread (three children, one at a time)
+    /// and `None` until they come.
     pub fn preflight(&mut self, program: &Path, ctx: &egui::Context) -> Option<Arc<Preflight>> {
+        if let Some(in_hand) = self.preflight_in_hand(program) {
+            return Some(in_hand);
+        }
+        if matches!(&self.asked, Asked::Asking { program: asked, .. } if asked == program) {
+            return None;
+        }
+        self.ask(program, None, ctx);
+        None
+    }
+
+    /// The answers about `program` when they are in hand and fresh, the old ones a renewal holds
+    /// among them, never asking (EP-47): a chat message queued for the answers goes on them, so
+    /// that a queue never asks the CLI by itself.
+    pub fn preflight_in_hand(&mut self, program: &Path) -> Option<Arc<Preflight>> {
         if let Some(canned) = &self.canned {
             return Some(Arc::clone(canned));
         }
         self.poll_preflight();
         match &self.asked {
-            Asked::Ready(preflight) if preflight.program == program && preflight.is_fresh() => {
-                return Some(Arc::clone(preflight));
+            Asked::Ready(preflight)
+            | Asked::Asking {
+                previous: Some(preflight),
+                ..
+            } if preflight.program == program && preflight.is_fresh() => {
+                Some(Arc::clone(preflight))
             }
-            Asked::Asking { program: asked, .. } if asked == program => return None,
-            _ => {}
+            _ => None,
         }
+    }
+
+    /// Asks `program` on a worker thread, `previous` in hand meanwhile.
+    fn ask(&mut self, program: &Path, previous: Option<Arc<Preflight>>, ctx: &egui::Context) {
         let (sender, receiver) = mpsc::channel();
         let (asked, ctx) = (program.to_owned(), ctx.clone());
         let spawned = thread::Builder::new()
@@ -727,10 +751,31 @@ impl Sessions {
             Ok(_) => Asked::Asking {
                 program: program.to_owned(),
                 receiver,
+                previous,
             },
             Err(_) => Asked::Not,
         };
-        None
+    }
+
+    /// The shown window's pass (EP-47): answers in hand that lapse within
+    /// [`crw_core::session::cli::RENEW_BEFORE`], or have lapsed, are asked again of the program they were taken of,
+    /// the old ones in hand meanwhile, so that a Send or a launch finds them fresh. Answers never
+    /// asked are not asked here, and the hidden window does not call it (D-29: no child without
+    /// a reason).
+    pub fn renew_preflight(&mut self, ctx: &egui::Context) {
+        if self.canned.is_some() {
+            return;
+        }
+        self.poll_preflight();
+        let Asked::Ready(preflight) = &self.asked else {
+            return;
+        };
+        if !preflight.is_due() {
+            return;
+        }
+        let previous = Arc::clone(preflight);
+        let program = previous.program.clone();
+        self.ask(&program, Some(previous), ctx);
     }
 
     fn poll_preflight(&mut self) {
@@ -747,10 +792,12 @@ impl Sessions {
         self.canned.is_none() && matches!(self.asked, Asked::Asking { .. })
     }
 
-    /// Drops the answers, so that the next launch asks again (after a refused start).
+    /// Drops the answers, so that the next launch asks again (after a refused start); an ask
+    /// under way goes on, without the old answers a renewal held (EP-47).
     pub fn forget_preflight(&mut self) {
-        if !self.is_asking() {
-            self.asked = Asked::Not;
+        match &mut self.asked {
+            Asked::Asking { previous, .. } if self.canned.is_none() => *previous = None,
+            _ => self.asked = Asked::Not,
         }
     }
 
@@ -1351,16 +1398,61 @@ impl Sessions {
     }
 
     /// The CLI's answers when they are in hand, without asking: a screenshot run's canned ones,
-    /// or the last preflight that came back, fresh or not (the Chat tile's effort picker reads
-    /// the levels from them, EP-24a).
+    /// or the last preflight that came back, fresh or not, the old one while a renewal asks again
+    /// (the Chat tile's effort picker reads the levels from them, EP-24a; EP-47).
     pub fn preflight_ready(&self) -> Option<Arc<Preflight>> {
         if let Some(canned) = &self.canned {
             return Some(Arc::clone(canned));
         }
         match &self.asked {
-            Asked::Ready(preflight) => Some(Arc::clone(preflight)),
+            Asked::Ready(preflight)
+            | Asked::Asking {
+                previous: Some(preflight),
+                ..
+            } => Some(Arc::clone(preflight)),
             _ => None,
         }
+    }
+
+    /// A preflight in hand as if it had come back (EP-47's tests): `preflight`'s own.
+    #[cfg(test)]
+    pub(crate) fn answered(&mut self, preflight: Preflight) {
+        self.asked = Asked::Ready(Arc::new(preflight));
+    }
+
+    /// An ask under way whose answer the test sends, `previous` in hand meanwhile as a renewal
+    /// holds it (EP-47's tests): no thread, no child.
+    #[cfg(test)]
+    pub(crate) fn asking(
+        &mut self,
+        program: &Path,
+        previous: Option<Preflight>,
+    ) -> mpsc::Sender<Preflight> {
+        let (sender, receiver) = mpsc::channel();
+        self.asked = Asked::Asking {
+            program: program.to_owned(),
+            receiver,
+            previous: previous.map(Arc::new),
+        };
+        sender
+    }
+
+    /// Another project's start on its way, whose outcome the test sends (EP-47's tests): no
+    /// thread, no child.
+    #[cfg(test)]
+    pub(crate) fn starting_elsewhere(&mut self) -> mpsc::Sender<Result<Session, String>> {
+        let (sender, receiver) = mpsc::channel();
+        self.starting = Some(Starting {
+            receiver,
+            launch: Launch::new("alpha", Path::new("alpha"), "claude-opus-5-5", "Run EP-2"),
+            program: PathBuf::from("claude.exe"),
+            version: None,
+            effort: "medium".to_owned(),
+            resumes: None,
+            message: "Run EP-2".to_owned(),
+            run: Run::default(),
+        });
+        sender
     }
 
     /// Sends the owner's `response` to the request `request` the session `key` waits on (D-19);
@@ -2297,10 +2389,100 @@ pub(crate) fn ending(ended: &Ended) -> String {
 
 #[cfg(test)]
 pub(crate) mod tests {
+    use crw_core::session::cli::{MAX_AGE, RENEW_BEFORE};
     use crw_core::session::{Finish, ToolUse};
 
     use super::*;
     use crate::transcript::Entry;
+
+    /// Answers taken `age` ago of a program that is no file, so that asking again starts no
+    /// child (EP-47); `None` on a machine up for less than `age`.
+    fn answers_aged(age: Duration) -> Option<Preflight> {
+        let taken = Instant::now().checked_sub(age)?;
+        Some(Preflight {
+            program: PathBuf::from(r"C:\nowhere\ep47\claude.exe"),
+            taken,
+            ..crate::launch::canned_preflight()
+        })
+    }
+
+    /// The shown window's renewal (EP-47): nothing never asked is asked, fresh answers stay, and
+    /// answers near their lapse are asked again with the old ones in hand meanwhile, which
+    /// `forget_preflight` drops; the new answers then replace them.
+    #[test]
+    fn answers_near_their_lapse_are_asked_again_the_old_ones_in_hand() {
+        let ctx = egui::Context::default();
+        let mut sessions = Sessions::default();
+        sessions.renew_preflight(&ctx);
+        assert!(!sessions.is_asking(), "never asked: nothing to renew");
+        let young = answers_aged(Duration::ZERO).expect("now is always there");
+        let program = young.program.clone();
+        sessions.answered(young);
+        sessions.renew_preflight(&ctx);
+        assert!(!sessions.is_asking(), "fresh answers are not asked again");
+        let Some(near) = answers_aged(MAX_AGE - RENEW_BEFORE + Duration::from_secs(60)) else {
+            return;
+        };
+        let taken = near.taken;
+        sessions.answered(near);
+        sessions.renew_preflight(&ctx);
+        assert!(sessions.is_asking(), "due: asked again");
+        assert_eq!(
+            sessions.preflight_ready().map(|held| held.taken),
+            Some(taken),
+            "the old answers in hand while the new are asked"
+        );
+        // A second pass asks nothing more while the first ask runs.
+        sessions.renew_preflight(&ctx);
+        // The new answers come (a program that is no file: no child) and replace the old.
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while sessions.is_asking() && Instant::now() < deadline {
+            sessions.receive(&ctx);
+            thread::sleep(Duration::from_millis(10));
+        }
+        let new = sessions.preflight_ready().expect("the new answers");
+        assert!(new.taken > taken && new.program == program && !new.found);
+    }
+
+    /// While a renewal asks (EP-47): fresh old answers are handed out for their program without
+    /// a second ask, never for another program; `forget_preflight` drops them and the ask goes
+    /// on; lapsed old answers are not handed out. No thread, no child.
+    #[test]
+    fn a_renewals_old_answers_are_handed_out_until_forgotten() {
+        let ctx = egui::Context::default();
+        let mut sessions = Sessions::default();
+        let old = answers_aged(Duration::ZERO).expect("now is always there");
+        let program = old.program.clone();
+        let _answer = sessions.asking(&program, Some(old));
+        assert!(
+            sessions.preflight(&program, &ctx).is_some(),
+            "the old answers"
+        );
+        assert!(sessions.is_asking(), "the ask goes on, none added");
+        assert!(
+            sessions
+                .preflight_in_hand(Path::new(r"C:\nowhere\other.exe"))
+                .is_none()
+        );
+        sessions.forget_preflight();
+        assert!(sessions.is_asking(), "the ask goes on");
+        assert!(
+            sessions.preflight_ready().is_none(),
+            "the old answers forgotten"
+        );
+        assert!(sessions.preflight(&program, &ctx).is_none());
+        if let Some(lapsed) = answers_aged(MAX_AGE + Duration::from_secs(60)) {
+            let _answer = sessions.asking(&program, Some(lapsed));
+            assert!(
+                sessions.preflight(&program, &ctx).is_none(),
+                "lapsed: not handed out"
+            );
+            assert!(
+                sessions.preflight_ready().is_some(),
+                "in hand for the effort picker"
+            );
+        }
+    }
 
     /// The sessions' rows, read in the window's pass and its frame, give up on a ledger another
     /// connection holds within a moment, keep what they had without a word, and are read again
