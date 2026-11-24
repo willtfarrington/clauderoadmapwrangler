@@ -66,6 +66,9 @@ const READINESS_EVERY: Duration = Duration::from_secs(2);
 /// `<project> migration`, in place of a brief's id.
 pub const MIGRATION: &str = "migration";
 
+/// Why the start waits while the dialog's read runs (EP-48).
+const CHECKING: &str = "Reading the project again, so that the brief is the one its files name now";
+
 /// A migration's title, which the rules resolve it by and the dialog shows (EP-21a).
 pub fn migration_title(profile: Profile) -> String {
     format!(
@@ -139,6 +142,9 @@ pub struct Dialog {
     /// The setting's five-hour mark, which the chain plan's own mark is chosen against
     /// (EP-41). The board keeps it current.
     pub five_hour_setting: u8,
+    /// The project is being read again as the dialog opened (EP-48): Start headless and Open in
+    /// VS Code wait for it. The board clears it once the read has landed.
+    pub checking: bool,
 }
 
 /// What a dialog opens on, besides the draft.
@@ -205,6 +211,7 @@ impl Dialog {
             newer_build: None,
             session_notice: None,
             five_hour_setting: crw_core::autopilot::DEFAULT_FIVE_HOUR_PERCENT,
+            checking: false,
         }
     }
 
@@ -258,6 +265,7 @@ impl Dialog {
             newer_build: None,
             session_notice: None,
             five_hour_setting: crw_core::autopilot::DEFAULT_FIVE_HOUR_PERCENT,
+            checking: false,
         };
         dialog.set_mode(LaunchMode::Headless);
         dialog
@@ -1292,6 +1300,8 @@ impl Dialog {
             )
         } else if opening {
             Some("A visual launch is waiting for VS Code".to_owned())
+        } else if self.checking {
+            Some(CHECKING.to_owned())
         } else if preflight.is_none() {
             Some("Waiting for claude's answers: its version, login and flags".to_owned())
         } else if !refusals.is_empty() {
@@ -1309,6 +1319,8 @@ impl Dialog {
             Some("Waiting for the project's window to show the Claude Code extension".to_owned())
         } else if starting {
             Some("A headless session is starting".to_owned())
+        } else if self.checking {
+            Some(CHECKING.to_owned())
         } else if self.readiness.code.is_none() {
             Some("VS Code was not found: set its Code.exe with crw setting vscode".to_owned())
         } else if self.prompt.trim().is_empty() {
@@ -1870,6 +1882,31 @@ mod tests {
                 levels: Vec::new(),
             },
         )
+    }
+
+    /// While the dialog's read as it opened runs (EP-48), Start headless and Open in VS Code are
+    /// greyed and say why; once it has landed they are not.
+    #[test]
+    fn the_start_waits_for_the_dialogs_read() {
+        let mut dialog = dialog(registry(Vec::new()));
+        let preflight = canned_preflight();
+        dialog.checking = true;
+        assert_eq!(
+            dialog.visual_blocked(false, false).as_deref(),
+            Some(CHECKING)
+        );
+        assert_eq!(
+            dialog
+                .headless_blocked(Some(&preflight), false, false)
+                .as_deref(),
+            Some(CHECKING)
+        );
+        dialog.checking = false;
+        assert_eq!(dialog.visual_blocked(false, false), None);
+        assert_eq!(
+            dialog.headless_blocked(Some(&preflight), false, false),
+            None
+        );
     }
 
     /// The line that a newer build is installed, with its Install and restart (EP-39): drawn

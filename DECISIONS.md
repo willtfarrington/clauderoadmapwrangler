@@ -1513,6 +1513,37 @@ tool. *Alternatives.* Polling only; hooks only.
 > sessions, and the end hook's re-read of a project (EP-25a) shows in the window's log after
 > each session's end; both points close.
 
+> **Addendum (2026-11-23, EP-48).** A project is read again on its own at more moments than a
+> session's end (the owner's request 2 at EP-45: a VS Code tab left open after its brief's
+> commit never ends, so the row kept offering the brief it ran). The Stop hook of a visual or
+> manual session in a registered project, or the poll's move of such a session from busy or
+> waiting to idle, owes that project a read (`Moment::TurnEnded`); so does a change in its
+> `roadmap` folder or its `.git/logs/HEAD`, which a commit, an amend, a reset or a checkout
+> appends to (`Moment::Changed`), seen by notify's polling watcher every 3 s without subfolders,
+> set up again at each read of every project's files and settled for 600 ms as the data root's
+> is: a commit made in a terminal counts, and `.git` itself is never watched, since `git status`
+> may write its index. It polls because a watch through the system's change notifications holds
+> each watched folder open, so a project folder could not be renamed ("Access is denied", found
+> by the review and checked by a test); the poll compares whole seconds, so a write in the
+> second of the scan before it waits for the next change. The loader keeps the owed reads, one
+> per project, each started once due while no read of the project runs: any read on its own
+> asked while one runs, a session's end, the menu's and a run's drain among them, is owed, not
+> dropped as before; none within five seconds of the project's last read on its own; and a read
+> of every project's files that began before such a read and lands after it has it owed again.
+> The new moments are quiet, a line of the rolling log and the Detail pane's note rather than
+> the status bar's notice, a failure still warned. A turn's end or a
+> change in a project where a headless run of the window's own works or starts owes nothing:
+> its drain reads the project. The launch dialog owes its project a read as it opens
+> (`Moment::Launch`, at once), its Start headless and Open in VS Code greyed until the read
+> lands; a next brief other than the dialog's drafts the dialog again, a mode the owner chose
+> kept, its first line saying "The row offered EP-a; read again as this dialog opened, the
+> project's next brief is EP-b."; no brief left closes it with the reason. No GitHub read.
+> *Alternatives.* The system's change notifications on each project's `roadmap` folder and
+> `HEAD` log (they hold the folders open); a recursive watch of the data root (it sees the data
+> repositories' file names, and every build's); a watch of each project's whole folder (every
+> build's writes, and `.git`'s index a loop); a read at every Stop hook with no gap; the
+> dialog's start not held while it reads.
+
 **D-21 Notifications.** Windows toasts (WinRT through notify-rust, attributed to the tool's Start-menu
 entry); a tray icon with a badge count and a menu (Show, Start next for a pinned project, Pause autopilot,
 Quit); the Claude app's own push for the phone; **ntfy over the tailnet** (a topic configured in the

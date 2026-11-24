@@ -194,7 +194,14 @@ It reads each project's files at once and adds what git says one
 repository at a time; GitHub (through `gh`) and each origin's head are asked daily and on F5, the
 answers cached in the ledger, and nothing is ever fetched. A project whose session ended, the
 window's own run or one the hooks saw, is read again on its own (its files, git and history), as
-is one whose row's menu says Refresh this project, the other rows left as they are (EP-25a). The backup badge reads an existing backup
+is one whose row's menu says Refresh this project, the other rows left as they are (EP-25a). So
+is a project whose visual or manual session ends a turn, whose `roadmap` folder changes, or whose
+git `HEAD` moves (a commit made in a terminal too, seen through `.git/logs/HEAD`, which the window
+polls every 3 seconds, holding no folder open), each at most once in five seconds and quietly, a
+line in the rolling log; while a headless run of the window's works there, its end reads the
+project instead. The launch dialog reads its project again as it
+opens, its start waiting a moment for the read, and when the row's brief was done meanwhile it
+drafts the next one and says so in its first line (EP-48). The backup badge reads an existing backup
 job's settings file and run log, named by the `backup_settings` and `backup_log` settings. It writes
 only what the tool owns: the registry (Adopt, Ignore, a confirmed or dismissed proposal, pin,
 priority), the workspace files Adopt writes (and a visual launch, when a project's own one is

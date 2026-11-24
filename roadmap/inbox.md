@@ -206,3 +206,63 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   another of the owner's repositories, both on the private word list of this public
   repository: reworded on the owner's choice before the commit, and EP-51's Inbox pane flags
   such a message on arrival.
+- [x] IN-16 (from the owner's environment repository EP-8, 2026-11-23) The owner's conventions review, which ran in the owner's
+  environment repository (its P2) and was applied there on 2026-11-23, hands back what changes in
+  the house style that this project's plugin, formalise templates and opener state: the message
+  OT-30 waits for, for EP-54. The user-level house style was rewritten: rules 1–7 keep their
+  numbers, rules 8 (the roadmap) and 9 (the owner's records) are new; its preamble names the
+  plugin's `reference/house-style.md` as the roadmap files' schema, citing it where the two overlap
+  rather than restating it, and says rule files carry rules, not context or history. It now states,
+  in the reference's terms, the front matter's six keys kept true to the session, the completion
+  note's `(date; model/effort; duration)` heading, this project's owner-task sentence of 2026-11-08
+  word for word (the reference already states it), the autopilot as the owner's standing yes to a
+  project's commits, mail as `Handed on` blocks the tool delivers (an inbox line written by hand
+  only for a receiver outside the registry), one brief per session unless the owner asks for more,
+  and `roadmap/owner-tasks.md` in the read order; a parked block under a brief note is now the
+  receiving project's own, written at triage, never a sender's; and a `git status` in a data
+  repository is allowed under `roadmap/` only, as the status skill runs it. What changes here: (1)
+  this project's `CLAUDE.md` rule 1, `DECISIONS.md` (D-1 … D-30) becomes `DECISIONS.md`, since a
+  range goes stale at each new decision (the opener's default read-first already names none); (2)
+  the `replan` skill's step 4 gains, after "when one session did two briefs, start the second at the
+  first's record commit;", the clause "a session resumed after a night or another long absence shows
+  it as one gap: report that EP's wall time from the owner's return;"; (3) the size rule, house
+  style 8's "a brief is M or smaller, S preferred; an L only for one indivisible subtask, with its
+  reason in the row; a row that proves larger at pickup is split there": the `plan` skill's "L kept
+  for the few engines" becomes "M or smaller and S preferred, an L only for one indivisible subtask
+  with its reason in the row", the reference's Size cell's "anything larger is split at pickup"
+  becomes "a brief is M or smaller, S preferred, an L only for one indivisible subtask with its
+  reason in the row, and a row that proves larger at pickup is split there", and the rule block's
+  "sizes S, M or L" may say the same; the minutes per size stay as the house style states them
+  (about 30, 60 and 120) until EP-53's measurement reaches the environment repository's inbox; (4)
+  planning sessions stay small: the `plan` skill's "Ask as many rounds as the domains need; owners
+  of this method usually want them exhaustive." becomes "Keep a planning session to a few rounds,
+  the detail pushed into brief notes that later sessions grow; a long planning request becomes
+  several sessions."; (5) the opener's rule 5 for an autopilot run (`core::prompt`), "the owner's
+  standing yes to its commits (D-22)", reads "(crw's D-22)", since in another project a bare D-22
+  names that project's own decision; (6) the opener's commit words ask for the house pattern "as the
+  project's `CLAUDE.md` says", while two projects write their own conventional-commit pattern
+  without a decision id, which the review keeps: suggested, "commit as the project's `CLAUDE.md`
+  says: the house pattern, `<Title>: <summary> ({ep}, D-x)` then `docs(roadmap): record {ep} commit
+  hash`, unless it states its own"; (7) this project's auto-memory
+  (`clauderoadmapwrangler-project.md`) names `owner-session-targeting`, a cross-project memory note
+  the environment repository retired: the name is this project's to amend; (8) the git-ignored
+  `target\tmp` holds 36 copies of eight other projects' `CLAUDE.md` files, the environment
+  repository's and two wholly private projects' among them, in folders named for EPs `ep26a2` to
+  `ep41` (besides 13 copies of this project's own and two fixtures); the owner's daily backup
+  archives each repository whole, ignored files included, for up to a year, and rule 5 now makes
+  such copies into a scratchpad folder: the ask is to remove the leftover copies; (9) the history
+  clauses in this project's `CLAUDE.md`, for its next re-plan to trim under the house style's
+  preamble line, each read as the rule it now is and the file still standing alone for a reader who
+  cannot see the user rules: rule 2, "(the tool delivers them from EP-20; before that the owner
+  carries them)"; rule 3, "public since EP-8"; rule 6, "until EP-37 with the app closed (a running
+  exe cannot be replaced), from EP-37 with the window up"; rule 8, "(from EP-19 on, …)"; rule 10,
+  "from EP-24a"; rule 11, "since 2026-10-31", "from EP-17", "Until EP-37 … From EP-37 … since EP-37a
+  … Since EP-37a"; rule 13, "(the owner's since 2026-10-31, EP-2)". Not in the house style yet: the
+  PDF manual per working project, from `docs/manual.md` and `docs/manual-changes.md`, whose wording
+  EP-56 sends to the environment repository's inbox, which then adds it. **Triaged at EP-48
+  (2026-11-23):** none of it fits a brief that re-reads a project; on the owner's choice items
+  (1) to (8) are parked in EP-54's brief notes, the row for the review's outcome, and item (9) in
+  EP-59's, the P6 re-plan; item (7), this project's own memory note, was amended with this
+  session's memory update. OT-30, which waited for this message, is ticked on the owner's word.
+  The line named its sender, on the private word list of this public repository: reworded before
+  the commit, as IN-15's was.

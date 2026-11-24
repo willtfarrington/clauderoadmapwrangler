@@ -74,6 +74,10 @@ pub struct Watch {
     /// them (EP-25a), each read again on its own; a headless run is the window's, read at its
     /// drain.
     ended_projects: Vec<String>,
+    /// The projects of the visual and manual sessions that ended a turn since the window last
+    /// took them (EP-48): the Stop hook, or the poll's move from busy or waiting to idle; each
+    /// is owed a read on its own.
+    turned_projects: Vec<String>,
     /// The status lines heard since the usage meter last took them (EP-17).
     lines: Vec<StatusLine>,
     /// The sessions that worked since the meter's last reading took them (D-23; EP-18a): a turn's
@@ -317,6 +321,27 @@ impl Watch {
         std::mem::take(&mut self.ended_projects)
     }
 
+    /// The projects whose visual or manual session ended a turn since the last call (EP-48),
+    /// each once.
+    pub fn take_turned_projects(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.turned_projects)
+    }
+
+    /// Notes that `session_id` ended a turn, when it is a visual or manual session in a
+    /// registered project (EP-48); a headless run's turn is the window's or another program's.
+    fn turned(&mut self, session_id: &str) {
+        if let Some(seen) = self.model.get(session_id)
+            && matches!(seen.mode, Mode::Visual | Mode::Manual)
+            && let Some(project) = &seen.project
+            && !self
+                .turned_projects
+                .iter()
+                .any(|known| known.eq_ignore_ascii_case(project))
+        {
+            self.turned_projects.push(project.clone());
+        }
+    }
+
     /// Reads what Claude Code's user settings hold of the tool's (at the start and on F5).
     pub fn read_entries(&mut self) {
         let Some(settings) = install::settings_file() else {
@@ -379,10 +404,7 @@ impl Watch {
             for listing in listings {
                 match listing {
                     Ok((agents, left_out)) => {
-                        self.reconcile(&agents, left_out, ledger, now);
-                        for change in self.model.poll(&agents, &projects, now) {
-                            self.record(&change, ledger);
-                        }
+                        self.take_listing(&agents, left_out, &projects, ledger, now);
                     }
                     Err(why) => {
                         // Two listings in a row, for the start's reconciliation (EP-28a).
@@ -404,9 +426,42 @@ impl Watch {
         self.lapse(ledger);
     }
 
+    /// Takes in one listing of the live sessions: the start's reconciliation, each session's
+    /// status with the rows and ends it brings, and the end of a turn of each visual or manual
+    /// session it moves from busy or waiting to idle (EP-48).
+    fn take_listing(
+        &mut self,
+        agents: &[Agent],
+        left_out: usize,
+        projects: &[Registered],
+        ledger: Option<&Path>,
+        now: DateTime<Utc>,
+    ) {
+        self.reconcile(agents, left_out, ledger, now);
+        let working: Vec<String> = self
+            .model
+            .all()
+            .into_iter()
+            .filter(|seen| matches!(seen.status, Status::Busy | Status::Waiting))
+            .map(|seen| seen.session_id.clone())
+            .collect();
+        for change in self.model.poll(agents, projects, now) {
+            self.record(&change, ledger);
+        }
+        for id in working {
+            if self
+                .model
+                .get(&id)
+                .is_some_and(|seen| seen.status == Status::Idle)
+            {
+                self.turned(&id);
+            }
+        }
+    }
+
     /// Takes in one hook: the state model's change kept in the ledger, a start in a registered
     /// project with its switch on read for a revert (EP-15b), and the start of a session that
-    /// ended without working dropped with its copies.
+    /// ended without working dropped with its copies; a Stop ends a turn (EP-48).
     fn take_hook(
         &mut self,
         hook: &Hook,
@@ -434,6 +489,9 @@ impl Watch {
             self.worked.insert(hook.session_id.clone());
         }
         self.record(&change, ledger);
+        if hook.event == "Stop" {
+            self.turned(&hook.session_id);
+        }
         if hook.event == "SessionEnd"
             && self.model.get(&hook.session_id).is_none_or(Seen::is_new)
             && let Some(start) = self.starts.pending.remove(&hook.session_id)
@@ -963,6 +1021,69 @@ mod tests {
         );
         assert_eq!(watch.take_ended_projects(), ["alpha"]);
         assert!(watch.take_ended_projects().is_empty(), "taken once");
+    }
+
+    /// A visual or manual session's turn that ends names its project for a read on its own
+    /// (EP-48), each project once until taken: the Stop hook, or with no hook the poll's move
+    /// from busy to idle. A headless run's turn and a session outside the registry name none,
+    /// nor does a session the poll lists idle again.
+    #[test]
+    fn a_turns_end_names_its_project_to_read_again() {
+        let folder = PathBuf::from(r"C:\Data\alpha");
+        let projects = vec![Registered {
+            name: "alpha".to_owned(),
+            folder: folder.clone(),
+            revert: false,
+        }];
+        let mut watch = Watch::default();
+        for id in ["m1", "m2", "h1"] {
+            watch.take_hook(
+                &hook("SessionStart", id, &folder),
+                &projects,
+                None,
+                Utc::now(),
+            );
+        }
+        watch.model.set_mode("h1", Mode::Headless);
+        watch.take_hook(&hook("Stop", "h1", &folder), &projects, None, Utc::now());
+        assert!(
+            watch.take_turned_projects().is_empty(),
+            "a headless run's turn"
+        );
+        for id in ["m1", "m2"] {
+            watch.take_hook(&hook("Stop", id, &folder), &projects, None, Utc::now());
+        }
+        let elsewhere = PathBuf::from(r"C:\Elsewhere");
+        watch.take_hook(
+            &hook("SessionStart", "x1", &elsewhere),
+            &projects,
+            None,
+            Utc::now(),
+        );
+        watch.take_hook(&hook("Stop", "x1", &elsewhere), &projects, None, Utc::now());
+        assert_eq!(watch.take_turned_projects(), ["alpha"]);
+        assert!(watch.take_turned_projects().is_empty(), "taken once");
+        assert!(
+            watch.take_ended_projects().is_empty(),
+            "a turn's end is no session's end"
+        );
+        // The poll alone: busy, then idle, then idle again.
+        let listed = |status: &str| Agent {
+            session_id: Some("m1".to_owned()),
+            cwd: Some(folder.clone()),
+            kind: Some("interactive".to_owned()),
+            status: Some(status.to_owned()),
+            ..Agent::default()
+        };
+        watch.take_listing(&[listed("busy")], 0, &projects, None, Utc::now());
+        assert!(watch.take_turned_projects().is_empty(), "still working");
+        watch.take_listing(&[listed("idle")], 0, &projects, None, Utc::now());
+        assert_eq!(watch.take_turned_projects(), ["alpha"]);
+        watch.take_listing(&[listed("idle")], 0, &projects, None, Utc::now());
+        assert!(
+            watch.take_turned_projects().is_empty(),
+            "idle again is no new turn"
+        );
     }
 
     /// A session the window first meets through a later hook takes its ledger row's mode

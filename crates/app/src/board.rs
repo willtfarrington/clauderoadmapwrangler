@@ -551,6 +551,10 @@ pub struct Board {
     /// That dialog opens on Headless (a screenshot run's `launch=<project>:headless`), where
     /// the chain plan shows (EP-19a).
     pub open_headless: bool,
+    /// That dialog shows the line its read as it opened writes when the row's brief was done
+    /// meanwhile (a screenshot run's `launch=<project>:changed`, EP-48).
+    #[cfg(feature = "screenshot")]
+    pub launch_changed: bool,
     /// The ledger a session is recorded in.
     ledger: Option<PathBuf>,
     ctx: egui::Context,
@@ -627,6 +631,8 @@ impl Board {
             catalog_folder: Catalog::folder(),
             open_when_read: None,
             open_headless: false,
+            #[cfg(feature = "screenshot")]
+            launch_changed: false,
             ledger,
             ctx: ctx.clone(),
             notice: None,
@@ -764,6 +770,14 @@ impl Board {
             Some(Err(why)) => self.warn(why),
             None => {}
         }
+        // A quiet read on its own (EP-48): the rolling log, not the status bar; the analytics
+        // read the ledger again only after an import of the history (the review's finding).
+        for (line, imported) in std::mem::take(&mut self.loader.reread_lines) {
+            if imported {
+                self.analytics.invalidate();
+            }
+            crw_core::log::line("reread", &line);
+        }
         self.pace.mark("the files");
         match self.sessions.receive(ctx) {
             // The phone's start neither closes the dialog nor takes the pane (EP-30b): its page
@@ -883,6 +897,24 @@ impl Board {
                 self.loader.read_project(&project, Moment::SessionEnded);
             }
         }
+        // A visual or manual session's turn that ended, and a change of a project's roadmap or
+        // HEAD (EP-48): the project is owed a read on its own, unless a run of the window's own
+        // works or starts there, which its drain reads (EP-25a).
+        let turned = self.watch.take_turned_projects().into_iter();
+        let changed = self.loader.take_changed().into_iter();
+        let owed: Vec<(String, Moment)> = turned
+            .map(|project| (project, Moment::TurnEnded))
+            .chain(changed.map(|project| (project, Moment::Changed)))
+            .collect();
+        for (project, moment) in owed {
+            if !self.fixtures && self.sessions.summary(&project).is_none() {
+                self.loader.owe(&project, moment);
+            }
+        }
+        if let Some(next) = self.loader.read_owed() {
+            ctx.request_repaint_after(next);
+        }
+        self.launch_reread();
         // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
         self.autopilot_pass();
         self.pace.mark("the autopilot");
@@ -2000,8 +2032,83 @@ impl Board {
 
     /// Opens the launch dialog on `name`'s next brief (D-17, D-22): the rule table's resolution
     /// and the prompt, from the registry as it stands and the project's snapshot; or says why
-    /// there is nothing to launch. The CLI's preflight is asked meanwhile.
+    /// there is nothing to launch. The CLI's preflight is asked meanwhile, and the project is
+    /// read again at once (EP-48), its start waiting for the read: a row read before a session's
+    /// last commit would otherwise offer that brief a second time.
     pub(crate) fn open_launch(&mut self, name: &str) {
+        self.draft_launch(name);
+        if self.fixtures {
+            // A screenshot run reads nothing: `launch=<project>:changed` cans the line (EP-48).
+            #[cfg(feature = "screenshot")]
+            if std::mem::take(&mut self.launch_changed)
+                && let Some(dialog) = self.launch.as_mut()
+                && let Some(ep) = dialog.ep
+            {
+                let before = crw_core::roadmap::EpId::new(ep.number.saturating_sub(1).max(1));
+                dialog
+                    .warnings
+                    .insert(0, changed_brief(&before.to_string(), ep));
+            }
+            return;
+        }
+        if let Some(dialog) = self.launch.as_mut()
+            && dialog.migrates.is_none()
+            && dialog.project.eq_ignore_ascii_case(name)
+        {
+            dialog.checking = true;
+            self.loader.owe(name, Moment::Launch);
+        }
+    }
+
+    /// The launch dialog's read as it opened, once it has landed (EP-48): a next brief other
+    /// than the dialog's drafts the dialog again from the fresh row, a mode the owner chose
+    /// kept, its first line saying what changed; no brief left closes it with the reason.
+    fn launch_reread(&mut self) {
+        let Some(dialog) = self.launch.as_ref().filter(|dialog| dialog.checking) else {
+            return;
+        };
+        let project = dialog.project.clone();
+        if self.loader.reads_project(&project) || self.loader.reading_files {
+            return;
+        }
+        let was = dialog.ep;
+        let now = self
+            .portfolio
+            .project(&project)
+            .and_then(|row| row.next().map(|next| next.id));
+        if now == was {
+            if let Some(dialog) = self.launch.as_mut() {
+                dialog.checking = false;
+            }
+            return;
+        }
+        let Some(old) = self.launch.take() else {
+            return;
+        };
+        self.draft_launch(&project);
+        let offered = old.label();
+        match (self.launch.as_mut(), now) {
+            (Some(dialog), Some(now)) => {
+                if old.resolution.mode.source == rules::Source::Owner {
+                    dialog.set_mode(old.resolution.mode.value);
+                }
+                dialog.warnings.insert(0, changed_brief(&offered, now));
+            }
+            // The next brief did not draft: `draft_launch` said why in the status bar.
+            (None, Some(_)) => {}
+            (_, None) => {
+                self.launch = None;
+                self.warn(format!(
+                    "{project}: read again as its launch dialog opened, the row's {offered} is \
+                     no longer its next brief and nothing is left to launch, so the dialog closed."
+                ));
+            }
+        }
+    }
+
+    /// The launch dialog on `name`'s next brief as the row's snapshot gives it, or the reason
+    /// there is none (`open_launch`'s first half, which `launch_reread` drafts again with).
+    fn draft_launch(&mut self, name: &str) {
         let Some(row) = self.portfolio.project(name) else {
             self.warn(format!("{name}: no such project to start."));
             return;
@@ -2237,7 +2344,8 @@ impl Board {
         if self.visual.is_opening() || self.sessions.is_starting() {
             return;
         }
-        let Some(dialog) = self.launch.as_mut() else {
+        // The dialog's read as it opened has not landed (EP-48): its button is greyed.
+        let Some(dialog) = self.launch.as_mut().filter(|dialog| !dialog.checking) else {
             return;
         };
         let Some(code) = dialog.readiness.code.clone() else {
@@ -2264,7 +2372,8 @@ impl Board {
         if self.sessions.is_starting() {
             return;
         }
-        let Some(dialog) = self.launch.as_mut() else {
+        // The dialog's read as it opened has not landed (EP-48): its button is greyed.
+        let Some(dialog) = self.launch.as_mut().filter(|dialog| !dialog.checking) else {
             return;
         };
         let Some(preflight) = self.sessions.preflight(&dialog.program, &self.ctx) else {
@@ -2879,6 +2988,14 @@ pub(crate) fn cli_program(registry: &Registry) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from("claude.exe"))
 }
 
+/// The launch dialog's first line when its read as it opened found another next brief (EP-48).
+fn changed_brief(offered: &str, now: impl std::fmt::Display) -> String {
+    format!(
+        "The row offered {offered}; read again as this dialog opened, the project's next brief \
+         is {now}."
+    )
+}
+
 /// The `crw.exe` beside the window's own exe, which the defer route's hooks run (D-19; EP-14).
 pub(crate) fn crw_exe() -> Option<PathBuf> {
     std::env::current_exe()
@@ -3249,6 +3366,128 @@ mod tests {
             "the day turned: every project read again"
         );
         assert!(!board.loader.day_turned());
+    }
+
+    /// The launch dialog reads its project again as it opens (EP-48): its start waits for the
+    /// read; a brief done since the row was read drafts the dialog on the next one, its first
+    /// line saying so; the same brief says nothing; no brief left closes the dialog with words.
+    #[test]
+    fn the_launch_dialog_reads_its_project_again_as_it_opens() {
+        let scratch = crate::portfolio::tests::Scratch::new("board-launch-reread");
+        let root = scratch.0.join("data");
+        let readme = root.join("alpha").join("roadmap").join("README.md");
+        std::fs::create_dir_all(readme.parent().unwrap()).unwrap();
+        let table = |done: usize| {
+            let rows: String = (1..=3)
+                .map(|n| {
+                    let mark = if n <= done { "☑ `abc1234`" } else { "☐" };
+                    format!("| EP-{n} | Brief {n} | S | — | core | {mark} |\n")
+                })
+                .collect();
+            format!(
+                "# alpha\n\n## Phase P1\n\n| # | Brief | Size | Depends on | Core | Done |\n\
+                 |---|---|---|---|---|---|\n{rows}"
+            )
+        };
+        std::fs::write(&readme, table(1)).unwrap();
+        let registry = scratch.0.join("registry.toml");
+        std::fs::write(
+            &registry,
+            format!(
+                "format = 1\n\n[settings]\ndata_root = {:?}\n\n[[project]]\nname = \"alpha\"\n\
+                 path = \"alpha\"\nstate = \"active\"\n",
+                root.display()
+            ),
+        )
+        .unwrap();
+        let store = Store::new(
+            registry,
+            scratch.0.join("backups"),
+            crw_core::registry::Defaults {
+                repository: root.join("alpha"),
+                data_root: root.clone(),
+            },
+        );
+        let places = Places {
+            store,
+            ledger: None,
+            online: false,
+            crash_log: None,
+        };
+        let ctx = egui::Context::default();
+        let mut board = Board::new(places, &ctx, View::default(), egui::ThemePreference::Light);
+        // Canned answers and VS Code, never the real CLI (rule 5); the built-in catalog.
+        board.sessions.canned = Some(Arc::new(crate::launch::canned_preflight()));
+        board.visual.canned = Some((
+            PathBuf::from(r"C:\Tools\VS Code\Code.exe"),
+            crw_core::version::Version::new(2, 1, 314),
+        ));
+        board.catalog_folder = None;
+        let pump = |board: &mut Board, done: &dyn Fn(&Board) -> bool| {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while !done(board) && Instant::now() < deadline {
+                board.receive(&ctx);
+                std::thread::sleep(Duration::from_millis(20));
+            }
+        };
+        pump(&mut board, &|board| {
+            board.portfolio.project("alpha").is_some()
+        });
+        let checked = |board: &Board| board.launch.as_ref().is_none_or(|dialog| !dialog.checking);
+
+        // The row says EP-2; its brief is done before the dialog's read lands.
+        board.open_launch("alpha");
+        let dialog = board.launch.as_ref().expect("the dialog");
+        assert_eq!(dialog.label(), "EP-2");
+        assert!(dialog.checking && board.loader.reads_project("alpha"));
+        std::fs::write(&readme, table(2)).unwrap();
+        pump(&mut board, &checked);
+        let dialog = board.launch.as_ref().expect("drafted again");
+        assert_eq!(dialog.label(), "EP-3");
+        assert!(!dialog.checking);
+        assert_eq!(
+            dialog.warnings.first().map(String::as_str),
+            Some(
+                "The row offered EP-2; read again as this dialog opened, the project's next \
+                 brief is EP-3."
+            )
+        );
+        assert_eq!(
+            board
+                .portfolio
+                .project("alpha")
+                .and_then(|row| row.next().map(|next| next.id)),
+            dialog.ep
+        );
+
+        // Opened again with nothing changed: nothing said.
+        board.launch = None;
+        board.open_launch("alpha");
+        pump(&mut board, &checked);
+        let dialog = board.launch.as_ref().expect("the dialog");
+        assert_eq!(dialog.label(), "EP-3");
+        assert!(
+            !dialog
+                .warnings
+                .iter()
+                .any(|line| line.starts_with("The row offered")),
+            "{:?}",
+            dialog.warnings
+        );
+
+        // Every brief done before the read lands: the dialog closes, saying why.
+        board.launch = None;
+        board.open_launch("alpha");
+        std::fs::write(&readme, table(3)).unwrap();
+        pump(&mut board, &|board| board.launch.is_none());
+        assert!(board.launch.is_none());
+        assert!(
+            board
+                .notice_text()
+                .is_some_and(|text| text.contains("nothing is left to launch")),
+            "{:?}",
+            board.notice_text()
+        );
     }
 
     /// The tray's Pause while the window is hidden (EP-30; the P4 walk's finding): the pass with

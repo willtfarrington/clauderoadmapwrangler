@@ -2464,7 +2464,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-43a | [The run's cap as a guard: S's cap of 75 minutes, and a headless run told its cap, to split a row that will not fit it when it writes its brief](EP-43a-run-cap-guard.md) (D-22, D-4) | S | EP-43 | core | ☑ `dc1fd9e` |
 | EP-46 | [Two trims: the Projects pane without its Brief column, the Usage pane without "The last seven days"](EP-46-two-trims.md) (D-25, D-23) | S | EP-45 | core | ☑ `8fd04f0` |
 | EP-47 | [The Chat pane's send: Enter alone sends, and a message sent while the CLI's preflight is being asked waits for it and goes by itself](EP-47-chat-send.md) (D-27) | M | EP-45 | core | ☑ `3912c69` |
-| EP-48 | A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only (D-9, D-20) | M | EP-45 | core | ☐ |
+| EP-48 | [A project read again when its session's work is complete: at the end of a turn of a visual or manual session and when its roadmap or its HEAD changes, the one project's files and git only](EP-48-reread-on-change.md) (D-9, D-20) | M | EP-45 | core | ☐ |
 | EP-49 | The dark theme on a darker base with more contrast, after the One Hunter extension's Vercel theme, the accents keeping their meanings (D-25) | M | EP-46 | core | ☐ |
 | EP-50 | The Owner tasks pane: every project's open tasks in one place, ticked there; the list counts owner-tasks lines alone, the older forms marked and folded, never counted (D-10, D-25) | M | EP-46 | core | ☐ |
 | EP-51 | The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded (D-13, D-25) | M | EP-50 | core | ☐ |
@@ -2719,6 +2719,21 @@ inbox through the tool, on the owner's word).
   EP-55's steps name. The plugin's version raised, and the owner task to update it in their
   sessions. If the review has not come in when this row is next, EP-56 … EP-58 may run before
   it: the order is the table's, but those rows do not depend on this one.
+
+  > **Addendum (2026-11-23, from IN-16).** The review's outcome came in as IN-16 (the owner's
+  > environment repository's EP-8), parked here at EP-48 on the owner's choice; OT-30 is ticked,
+  > so this row is no longer gated. The inbox line holds the full wording; by its numbers: (1)
+  > this project's `CLAUDE.md` rule 1 names `DECISIONS.md` without its range of ids; (2) the
+  > `replan` skill's step 4 gains the clause on a session resumed after a long absence, its wall
+  > time reported from the owner's return; (3) the size rule, "a brief is M or smaller, S
+  > preferred, an L only for one indivisible subtask with its reason in the row, and a row that
+  > proves larger at pickup is split there", in the `plan` skill, the reference's Size cell and
+  > the rule block, the minutes per size kept until EP-53's measurement; (4) the `plan` skill
+  > keeps a planning session to a few rounds; (5) the opener's autopilot rule says "(crw's
+  > D-22)"; (6) the opener's commit words defer to a project's own pattern when its `CLAUDE.md`
+  > states one; (8) the leftover copies of other projects' `CLAUDE.md` files under the
+  > git-ignored `target\tmp` removed (copies go to a scratchpad folder now). Item (7) was done at
+  > EP-48, and item (9) is EP-59's. Then this block goes.
 - **EP-55.** Added at EP-45, the owner's request 9, the sweep, and their choice: owner tasks,
   one per project. A short interview first (which projects, in what order: the unformalised
   and the paused first, then maintenance and done; for each, what the owner already knows
@@ -2788,6 +2803,13 @@ inbox through the tool, on the owner's word).
   (D-15); `docs/manual-changes.md` folded into the manual for the first time; addenda; and P7
   confirmed: EP-44 cut to the size rule, the interview as several sessions if one would be an
   L, and the routes carried into v2's first walk less those EP-58's walkthrough closed.
+
+  > **Addendum (2026-11-23, from IN-16).** Item (9) of the conventions review's outcome, parked
+  > here at EP-48 on the owner's choice: the history clauses in this project's `CLAUDE.md`
+  > trimmed under the house style's preamble line (rule files carry rules, not context or
+  > history), each read as the rule it now is and the file still standing alone for a reader who
+  > cannot see the user rules; IN-16 lists them by rule (2, 3, 6, 8, 10, 11 and 13). Then this
+  > block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 

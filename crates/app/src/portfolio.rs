@@ -5,11 +5,13 @@
 //! spacing (D-29), each project's row filled in as its turn ends; and the GitHub pass, from the
 //! ledger's cache at once and from the network when the cache is a day old or on F5, its children
 //! taking turns with git's. A watcher on the data root's top level asks for a new read of the files
-//! when a folder appears, goes or is renamed (D-7). The groups, the sort keys and the filters are
-//! here too, as plain functions the list pane and its keys share.
+//! when a folder appears, goes or is renamed (D-7); another, polling each project's `roadmap`
+//! folder and its git `HEAD`'s log, owes that project a read on its own (EP-48), as a turn's end
+//! in a session there and the launch dialog's opening do. The groups, the sort keys and the filters are here
+//! too, as plain functions the list pane and its keys share.
 
 use std::cmp::Ordering;
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering as Atomic};
@@ -44,6 +46,27 @@ use serde::{Deserialize, Serialize};
 /// While the window is open, the GitHub pass looks at its cache's age this often; it asks the
 /// network only when the cache is older than [`online::FRESH_FOR`].
 const ONLINE_CHECK_EVERY: Duration = Duration::from_secs(3600);
+
+/// The least time between two reads of one project on its own that a turn's end or a change
+/// asks for (EP-48): a session that ends turns or writes its roadmap often is read at this pace
+/// at most, the last ask read once the gap is past.
+pub const REREAD_GAP: Duration = Duration::from_secs(5);
+
+/// How long a burst of changes in a project's watched paths settles before its read (EP-48), as
+/// a burst at the data root's top level does.
+pub const CHANGE_SETTLE: Duration = Duration::from_millis(600);
+
+/// How often the projects' watcher scans their `roadmap` folders and `HEAD` logs (EP-48): it
+/// polls, holding no handle between scans, since a watch through the system's change
+/// notifications holds the folders open and a project folder could not be renamed (the review's
+/// finding). notify's poll compares modification times in whole seconds, so a second write in
+/// the second of the scan before it is seen at the next change; a turn's end and the launch
+/// dialog read the project whatever the watcher saw. The tests scan faster.
+const PROJECTS_POLL: Duration = if cfg!(test) {
+    Duration::from_millis(150)
+} else {
+    Duration::from_secs(3)
+};
 
 /// The portfolio as one read of the files found it, with the git and GitHub readings added as
 /// they come.
@@ -185,6 +208,13 @@ pub enum Moment {
     Menu,
     /// A hosting action the window ran on it (EP-34).
     Acted,
+    /// A visual or manual session there ended a turn (EP-48): the Stop hook, or the poll's
+    /// move from busy or waiting to idle.
+    TurnEnded,
+    /// Its `roadmap` folder or its git `HEAD`'s log changed (EP-48).
+    Changed,
+    /// Its launch dialog opened (EP-48), which waits for the read.
+    Launch,
 }
 
 impl Moment {
@@ -195,6 +225,56 @@ impl Moment {
             Moment::SessionEnded => "after a session ended there",
             Moment::Menu => "from its row's menu",
             Moment::Acted => "after an action on its hosting",
+            Moment::TurnEnded => "after a session's turn ended there",
+            Moment::Changed => "after its roadmap or its HEAD changed",
+            Moment::Launch => "as its launch dialog opened",
+        }
+    }
+
+    /// A read the window asks for by itself, often (EP-48): its note goes to the row and the
+    /// rolling log, not the status bar; a failure is still said.
+    pub fn is_quiet(self) -> bool {
+        matches!(self, Moment::TurnEnded | Moment::Changed | Moment::Launch)
+    }
+
+    /// A read owed at once (EP-48): every moment but a turn's end and a change, which wait out
+    /// the gap and settle.
+    fn is_at_once(self) -> bool {
+        !matches!(self, Moment::TurnEnded | Moment::Changed)
+    }
+
+    /// Which of two moments an owed read keeps (EP-48): one the status bar tells of, then one
+    /// at once, then either.
+    fn weight(self) -> u8 {
+        match (self.is_quiet(), self.is_at_once()) {
+            (false, _) => 2,
+            (true, true) => 1,
+            (true, false) => 0,
+        }
+    }
+}
+
+/// A read on its own the window owes a project (EP-48): why, and when it falls due.
+#[derive(Debug, Clone)]
+struct Owed {
+    name: String,
+    moment: Moment,
+    due: Instant,
+}
+
+/// A read's last message, sent if its thread ends without sending it (EP-48's review): a read
+/// that stops short (a panic) still ends.
+struct Landing {
+    tx: Sender<Message>,
+    ctx: egui::Context,
+    message: Option<Message>,
+}
+
+impl Drop for Landing {
+    fn drop(&mut self) {
+        if let Some(message) = self.message.take() {
+            let _ = self.tx.send(message);
+            self.ctx.request_repaint();
         }
     }
 }
@@ -683,6 +763,11 @@ pub enum Message {
         project: String,
         summary: Summary,
     },
+    /// Paths the projects' watcher saw change (EP-48): inside a watched `roadmap` folder, or a
+    /// watched `HEAD` log.
+    Changed {
+        paths: Vec<PathBuf>,
+    },
     /// A Re-import that could not run, in words for the status bar.
     HistoryFailed {
         project: String,
@@ -771,6 +856,24 @@ pub struct Loader {
     pub rereading: BTreeSet<String>,
     /// What a read on its own said, or why it read nothing, read once by the window.
     pub reread_notice: Option<Result<String, String>>,
+    /// What each quiet read on its own said (EP-48), for the rolling log alone, taken by the
+    /// window, with whether it imported the history again.
+    pub reread_lines: Vec<(String, bool)>,
+    /// The reads on their own the window owes (EP-48), by key: each started once due and while
+    /// no read of its project runs, so a change made during a read is read after it.
+    owed: HashMap<String, Owed>,
+    /// When each project's latest read on its own started, and why, by key (EP-48): a turn's
+    /// end or a change waits out [`REREAD_GAP`] after it, and a read of every project's files
+    /// that started before it and lands after it has it owed again.
+    read_at: HashMap<String, (Instant, Moment)>,
+    /// When the latest read of every project's files started (EP-48).
+    files_started: Option<Instant>,
+    /// The watcher on each registered project's `roadmap` folder and its git `HEAD`'s log
+    /// (EP-48), polling, and each path it watches with its project's name.
+    projects_watcher: Option<notify::PollWatcher>,
+    watched: BTreeMap<PathBuf, String>,
+    /// The projects a watched path changed in since the window last took them (EP-48).
+    changed: Vec<String>,
     backups: Option<(backup::Reading, HashMap<String, Backup>)>,
     fetched: Online,
     /// A read of the files is under way.
@@ -814,6 +917,13 @@ impl Loader {
             rereads: HashMap::new(),
             rereading: BTreeSet::new(),
             reread_notice: None,
+            reread_lines: Vec::new(),
+            owed: HashMap::new(),
+            read_at: HashMap::new(),
+            files_started: None,
+            projects_watcher: None,
+            watched: BTreeMap::new(),
+            changed: Vec::new(),
             backups: None,
             fetched: Online::default(),
             reading_files: false,
@@ -851,6 +961,7 @@ impl Loader {
     pub fn read_files(&mut self) {
         let generation = self.files.fetch_add(1, Atomic::SeqCst) + 1;
         self.reading_files = true;
+        self.files_started = Some(Instant::now());
         self.rereads.clear();
         self.day = Local::now().date_naive();
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
@@ -873,18 +984,34 @@ impl Loader {
 
     /// Reads one project again on a worker thread (EP-25a): its files as the files pass reads
     /// them, then, for a repository, its git reading in one turn and its history check (an
-    /// import when `HEAD` moved), the other rows left as they are. A read of `name` already
-    /// under way is left to finish; a read of every project's files started after this one
-    /// supersedes its files.
+    /// import when `HEAD` moved), the other rows left as they are. An ask while a read of `name`
+    /// is under way is owed and runs once that read ends (EP-48), since the read may have read
+    /// the files before the change the ask follows; a read of every project's files started
+    /// after this one supersedes its files.
     pub fn read_project(&mut self, name: &str, moment: Moment) {
-        if !self.rereading.insert(key(name)) {
+        if self.rereading.contains(&key(name)) {
+            self.owe(name, moment);
             return;
         }
+        self.rereading.insert(key(name));
+        self.read_at.insert(key(name), (Instant::now(), moment));
         let generation = self.files.load(Atomic::SeqCst);
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         let (ledger, name) = (self.ledger.clone(), name.to_owned());
         thread::spawn(move || {
+            // A read that stops short (a panic) still ends: else its project would stay read
+            // forever, and a launch dialog waiting for it greyed (EP-48's review).
+            let mut landing = Landing {
+                tx: tx.clone(),
+                ctx: ctx.clone(),
+                message: Some(Message::Reread {
+                    generation,
+                    project: name.clone(),
+                    result: Err("its read stopped short (the crash log says why)".to_owned()),
+                }),
+            };
             let Some(row) = read_project(&store, &name) else {
+                landing.message = None;
                 let _ = tx.send(Message::Reread {
                     generation,
                     project: name,
@@ -936,6 +1063,7 @@ impl Loader {
                     Some((_, None)) | None => "the files and git".to_owned(),
                 };
             }
+            landing.message = None;
             let _ = tx.send(Message::Reread {
                 generation,
                 project,
@@ -947,6 +1075,77 @@ impl Loader {
             });
             ctx.request_repaint();
         });
+    }
+
+    /// Owes `name` a read on its own (EP-48): a turn's end's once [`REREAD_GAP`] has passed
+    /// since the project's latest read on its own started, a change's once its burst has
+    /// settled too ([`CHANGE_SETTLE`]), any other at once (a launch dialog's, the row's menu, an
+    /// end's asked while a read runs). A read owed already keeps its place: it takes the earlier
+    /// time when either ask is at once, else the later, and the moment that says the most (one
+    /// the status bar tells of, then one at once, then the latest).
+    pub fn owe(&mut self, name: &str, moment: Moment) {
+        let now = Instant::now();
+        let gap = self
+            .read_at
+            .get(&key(name))
+            .map_or(now, |(at, _)| (*at + REREAD_GAP).max(now));
+        let due = match moment {
+            Moment::TurnEnded => gap,
+            Moment::Changed => gap.max(now + CHANGE_SETTLE),
+            _ => now,
+        };
+        self.owed
+            .entry(key(name))
+            .and_modify(|owed| {
+                owed.due = if moment.is_at_once() || owed.moment.is_at_once() {
+                    owed.due.min(due)
+                } else {
+                    owed.due.max(due)
+                };
+                if moment.weight() >= owed.moment.weight() {
+                    owed.moment = moment;
+                }
+            })
+            .or_insert_with(|| Owed {
+                name: name.to_owned(),
+                moment,
+                due,
+            });
+    }
+
+    /// Whether a read of `name` on its own is owed or under way (EP-48): the launch dialog waits
+    /// for it.
+    pub fn reads_project(&self, name: &str) -> bool {
+        let key = key(name);
+        self.owed.contains_key(&key) || self.rereading.contains(&key)
+    }
+
+    /// Starts each owed read that is due while no read of its project runs (EP-48), and says
+    /// how long until the next one falls due, for the pass's repaint; a read waiting for one
+    /// under way starts at the pass its end brings.
+    pub fn read_owed(&mut self) -> Option<Duration> {
+        let now = Instant::now();
+        let due: Vec<String> = self
+            .owed
+            .iter()
+            .filter(|(key, owed)| owed.due <= now && !self.rereading.contains(*key))
+            .map(|(key, _)| key.clone())
+            .collect();
+        for key in due {
+            if let Some(owed) = self.owed.remove(&key) {
+                self.read_project(&owed.name, owed.moment);
+            }
+        }
+        self.owed
+            .iter()
+            .filter(|(key, _)| !self.rereading.contains(*key))
+            .map(|(_, owed)| owed.due.saturating_duration_since(now))
+            .min()
+    }
+
+    /// The projects a watched path changed in since the last call (EP-48), each once.
+    pub fn take_changed(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.changed)
     }
 
     /// Keeps a note of a read on its own for `project`, put into its row at the next read of the
@@ -1204,6 +1403,20 @@ impl Loader {
                     *portfolio = read;
                     self.reading_files = false;
                     self.watch(&portfolio.data_root);
+                    self.watch_projects(&portfolio.projects);
+                    // A project read on its own since this read began may have been read after
+                    // it: owed again, so that the older files do not stand (EP-48's review).
+                    if let Some(started) = self.files_started {
+                        let again: Vec<(String, Moment)> = self
+                            .read_at
+                            .iter()
+                            .filter(|(_, (at, _))| *at > started)
+                            .map(|(key, (_, moment))| (key.clone(), *moment))
+                            .collect();
+                        for (name, moment) in again {
+                            self.owe(&name, moment);
+                        }
+                    }
                     changed = true;
                 }
                 // One project's files read on their own (EP-25a): its row swapped in place with
@@ -1250,7 +1463,7 @@ impl Loader {
                     if generation != self.files.load(Atomic::SeqCst) {
                         continue;
                     }
-                    self.reread_notice = Some(match result {
+                    match result {
                         Ok(reread) => {
                             if let Some(row) = portfolio
                                 .projects
@@ -1260,11 +1473,30 @@ impl Loader {
                                 row.reread = Some(reread.clone());
                             }
                             let notice = reread.notice(&project);
+                            // A quiet read's note goes to the rolling log alone (EP-48).
+                            if reread.moment.is_quiet() {
+                                let imported = reread.what.ends_with("(imported again)");
+                                self.reread_lines.push((notice, imported));
+                            } else {
+                                self.reread_notice = Some(Ok(notice));
+                            }
                             self.rereads.insert(key(&project), reread);
-                            Ok(notice)
                         }
-                        Err(why) => Err(format!("{project} was not read again: {why}")),
-                    });
+                        Err(why) => {
+                            self.reread_notice =
+                                Some(Err(format!("{project} was not read again: {why}")));
+                        }
+                    }
+                }
+                // A watched path changed (EP-48): its project, each once until taken.
+                Message::Changed { paths } => {
+                    for path in paths {
+                        if let Some(name) = self.watched_project(&path)
+                            && !self.changed.iter().any(|known| known == name)
+                        {
+                            self.changed.push(name.to_owned());
+                        }
+                    }
                 }
                 Message::Backups {
                     generation,
@@ -1406,6 +1638,108 @@ impl Loader {
             }
         }
     }
+
+    /// Watches each registered project's `roadmap` folder and its git `HEAD`'s log (EP-48), each
+    /// without its subfolders, the paths following the projects read: one no longer read is let
+    /// go, a new one watched. The watcher polls every [`PROJECTS_POLL`], holding no handle
+    /// between its scans, so a project folder can still be renamed or removed.
+    fn watch_projects(&mut self, projects: &[ProjectRow]) {
+        let wanted: BTreeMap<PathBuf, String> = projects
+            .iter()
+            .filter_map(|row| Some((row.name(), &row.folder.as_ref()?.path)))
+            .flat_map(|(name, folder)| {
+                watched_paths(folder)
+                    .into_iter()
+                    .map(move |path| (path, name.to_owned()))
+            })
+            .collect();
+        if wanted == self.watched {
+            return;
+        }
+        if self.projects_watcher.is_none() {
+            let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
+            let started = notify::PollWatcher::new(
+                move |event: notify::Result<notify::Event>| {
+                    if let Ok(event) = event
+                        && changes_files(&event.kind)
+                        && !event.paths.is_empty()
+                    {
+                        let _ = tx.send(Message::Changed { paths: event.paths });
+                        ctx.request_repaint();
+                    }
+                },
+                notify::Config::default().with_poll_interval(PROJECTS_POLL),
+            );
+            match started {
+                Ok(watcher) => self.projects_watcher = Some(watcher),
+                Err(e) => {
+                    log::line(
+                        "watch",
+                        &format!("the projects' roadmaps and HEADs are not watched: {e}"),
+                    );
+                    return;
+                }
+            }
+        }
+        let Some(watcher) = self.projects_watcher.as_mut() else {
+            return;
+        };
+        for path in self.watched.keys() {
+            if !wanted.contains_key(path) {
+                let _ = watcher.unwatch(path);
+            }
+        }
+        let mut watched = BTreeMap::new();
+        for (path, name) in wanted {
+            if self.watched.contains_key(&path) {
+                watched.insert(path, name);
+                continue;
+            }
+            match watcher.watch(&path, RecursiveMode::NonRecursive) {
+                Ok(()) => {
+                    watched.insert(path, name);
+                }
+                Err(e) => log::line(
+                    "watch",
+                    &format!("{name}: {} is not watched: {e}", path.display()),
+                ),
+            }
+        }
+        self.watched = watched;
+    }
+
+    /// The project whose watched path holds `path` (EP-48): a file in its `roadmap` folder, the
+    /// folder itself, or its `HEAD` log.
+    fn watched_project(&self, path: &Path) -> Option<&str> {
+        self.watched
+            .iter()
+            .find(|(watched, _)| path.starts_with(watched))
+            .map(|(_, name)| name.as_str())
+    }
+}
+
+/// What the projects' watcher sees of one project folder (EP-48): its `roadmap` folder, and the
+/// log of its git `HEAD`, which a commit, an amend, a reset or a checkout appends to; each when it
+/// exists. Never `.git` itself, whose index a `git status` may write, nor any other folder.
+fn watched_paths(folder: &Path) -> Vec<PathBuf> {
+    let roadmap = folder.join("roadmap");
+    let head = folder.join(".git").join("logs").join("HEAD");
+    let mut paths = Vec::new();
+    if roadmap.is_dir() {
+        paths.push(roadmap);
+    }
+    if head.is_file() {
+        paths.push(head);
+    }
+    paths
+}
+
+/// A file written, created, removed or renamed in a watched path (EP-48); a read is no change.
+fn changes_files(kind: &EventKind) -> bool {
+    matches!(
+        kind,
+        EventKind::Create(_) | EventKind::Remove(_) | EventKind::Modify(_) | EventKind::Any
+    )
 }
 
 /// The backup job as the registry names it, and each of `projects`' units by key; nothing when
@@ -2080,7 +2414,11 @@ pub(crate) mod tests {
         loader.read_project("Harbor", Moment::RunEnded { chained: true });
         assert!(loader.rereading.contains("harbor"));
         loader.read_project("harbor", Moment::Menu);
-        assert_eq!(loader.rereading.len(), 1, "a second ask is dropped");
+        assert_eq!(loader.rereading.len(), 1, "a second ask starts no read");
+        assert!(
+            loader.owed.contains_key("harbor"),
+            "it is owed, for after the read under way (EP-48)"
+        );
         let deadline = Instant::now() + Duration::from_secs(10);
         while loader.rereading.contains("harbor") && Instant::now() < deadline {
             loader.receive(&mut portfolio);
@@ -2167,6 +2505,193 @@ pub(crate) mod tests {
         assert_eq!(
             read_project(&store, "LANTERN").map(|row| row.name().to_owned()),
             Some("lantern".to_owned())
+        );
+    }
+
+    /// A scratch registry over a scratch data root holding `alpha`, whose folder is returned.
+    fn alpha_store(scratch: &Scratch) -> (Store, PathBuf) {
+        let root = scratch.0.join("data");
+        let folder = root.join("alpha");
+        fs::create_dir_all(folder.join("roadmap")).unwrap();
+        let registry = scratch.0.join("registry.toml");
+        fs::write(
+            &registry,
+            format!(
+                "format = 1\n\n[settings]\ndata_root = {:?}\n\n[[project]]\nname = \"alpha\"\n\
+                 path = \"alpha\"\nstate = \"active\"\n",
+                root.display()
+            ),
+        )
+        .unwrap();
+        let store = Store::new(
+            registry,
+            scratch.0.join("backups"),
+            Defaults {
+                repository: folder.clone(),
+                data_root: root,
+            },
+        );
+        (store, folder)
+    }
+
+    /// The reads a project is owed (EP-48): a turn's end on a project never read goes at once;
+    /// an ask while that read runs is owed, not dropped, and falls due at the gap's end; a
+    /// launch's goes at once whatever the gap, in the owed one's place; a change's burst settles
+    /// into one read.
+    #[test]
+    fn owed_reads_wait_out_the_gap_and_a_read_under_way() {
+        let scratch = Scratch::new("portfolio-owed");
+        let store = fake_store(&scratch);
+        let mut portfolio = read_files(&store);
+        let mut loader = Loader::new(Arc::new(store), None, false, egui::Context::default());
+        loader.owe("harbor", Moment::TurnEnded);
+        assert!(loader.reads_project("Harbor"));
+        assert_eq!(loader.read_owed(), None, "started, nothing left owed");
+        assert!(loader.rereading.contains("harbor"));
+        loader.owe("harbor", Moment::Changed);
+        assert_eq!(loader.read_owed(), None, "waits for the read under way");
+        assert!(loader.owed.contains_key("harbor") && loader.reads_project("harbor"));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while loader.rereading.contains("harbor") && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        let wait = loader.read_owed().expect("owed for the gap's end");
+        assert!(
+            wait > Duration::from_secs(2) && wait <= REREAD_GAP,
+            "{wait:?}"
+        );
+        assert!(!loader.rereading.contains("harbor"), "not before the gap");
+        // A quiet read's note is for the rolling log, not the status bar.
+        assert_eq!(loader.reread_notice.take(), None);
+        assert_eq!(
+            loader.reread_lines,
+            [(
+                "harbor read again after a session's turn ended there: the files".to_owned(),
+                false
+            )]
+        );
+        loader.owe("harbor", Moment::Launch);
+        assert_eq!(loader.read_owed(), None);
+        assert!(loader.rereading.contains("harbor") && !loader.owed.contains_key("harbor"));
+        // A change on a project never read settles first; the burst's next change moves its
+        // time on, still one read owed.
+        loader.owe("lantern", Moment::Changed);
+        let first = loader.owed["lantern"].due;
+        let wait = loader.read_owed().expect("settling");
+        assert!(wait > Duration::ZERO && wait <= CHANGE_SETTLE, "{wait:?}");
+        thread::sleep(Duration::from_millis(30));
+        loader.owe("lantern", Moment::Changed);
+        assert!(loader.owed["lantern"].due > first);
+        assert_eq!(loader.owed.len(), 1);
+        assert_eq!(loader.owed["lantern"].moment, Moment::Changed);
+        // A launch's ask makes it due at once, and a change asked after it leaves it so (the
+        // review's finding).
+        loader.owe("lantern", Moment::Launch);
+        loader.owe("lantern", Moment::Changed);
+        assert_eq!(loader.owed["lantern"].moment, Moment::Launch);
+        assert!(loader.owed["lantern"].due <= Instant::now());
+    }
+
+    /// A project folder the projects' watcher watches inside can still be renamed (EP-48's
+    /// review: a watch through the system's change notifications held it, "Access is denied");
+    /// the poll holds it for a moment of a scan at most, so a rename that meets one is tried
+    /// again.
+    #[test]
+    fn a_watched_project_folder_can_still_be_renamed() {
+        let scratch = Scratch::new("portfolio-rename");
+        let (store, folder) = alpha_store(&scratch);
+        let logs = folder.join(".git").join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(logs.join("HEAD"), "one\n").unwrap();
+        let mut loader = Loader::new(Arc::new(store), None, false, egui::Context::default());
+        let mut portfolio = Portfolio::default();
+        loader.read_files();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while loader.reading_files && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(loader.watched.len(), 2, "{:?}", loader.watched);
+        let renamed = folder.with_file_name("alpha-renamed");
+        let rename = |from: &Path, to: &Path| {
+            (0..5).any(|_| {
+                fs::rename(from, to).is_ok() || {
+                    thread::sleep(Duration::from_millis(30));
+                    false
+                }
+            })
+        };
+        assert!(rename(&folder, &renamed), "renamed while watched");
+        assert!(rename(&renamed, &folder), "and back");
+    }
+
+    /// The projects' watcher (EP-48): a file written in a project's `roadmap` folder, and a line
+    /// appended to its `.git/logs/HEAD`, each name that project; a file elsewhere in the folder
+    /// names none.
+    #[test]
+    fn a_change_in_a_watched_roadmap_or_head_names_its_project() {
+        let scratch = Scratch::new("portfolio-watched");
+        let (store, folder) = alpha_store(&scratch);
+        let logs = folder.join(".git").join("logs");
+        fs::create_dir_all(&logs).unwrap();
+        fs::write(folder.join("roadmap").join("README.md"), "# alpha\n").unwrap();
+        fs::write(logs.join("HEAD"), "one\n").unwrap();
+        // The poll compares whole seconds: the log's last commit is older, as a real one is.
+        fs::File::options()
+            .write(true)
+            .open(logs.join("HEAD"))
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(10))
+            .unwrap();
+        let mut loader = Loader::new(Arc::new(store), None, false, egui::Context::default());
+        let mut portfolio = Portfolio::default();
+        loader.read_files();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while loader.reading_files && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert_eq!(
+            loader.watched.keys().cloned().collect::<Vec<_>>(),
+            [
+                folder.join(".git").join("logs").join("HEAD"),
+                folder.join("roadmap")
+            ]
+        );
+        let changed_within = |loader: &mut Loader, portfolio: &mut Portfolio, wait: Duration| {
+            let deadline = Instant::now() + wait;
+            let mut changed = Vec::new();
+            while changed.is_empty() && Instant::now() < deadline {
+                loader.receive(portfolio);
+                changed = loader.take_changed();
+                thread::sleep(Duration::from_millis(20));
+            }
+            changed
+        };
+        fs::write(folder.join("notes.md"), "not watched\n").unwrap();
+        fs::write(folder.join(".git").join("index"), "not watched\n").unwrap();
+        assert!(
+            changed_within(&mut loader, &mut portfolio, Duration::from_millis(400)).is_empty(),
+            "outside the watched paths"
+        );
+        fs::write(folder.join("roadmap").join("EP-1-boot.md"), "# EP-1\n").unwrap();
+        assert_eq!(
+            changed_within(&mut loader, &mut portfolio, Duration::from_secs(10)),
+            ["alpha"]
+        );
+        thread::sleep(Duration::from_millis(200));
+        loader.receive(&mut portfolio);
+        loader.take_changed();
+        let mut head = fs::OpenOptions::new()
+            .append(true)
+            .open(logs.join("HEAD"))
+            .unwrap();
+        std::io::Write::write_all(&mut head, b"two\n").unwrap();
+        drop(head);
+        assert_eq!(
+            changed_within(&mut loader, &mut portfolio, Duration::from_secs(10)),
+            ["alpha"]
         );
     }
 

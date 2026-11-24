@@ -47,6 +47,8 @@
 //!   `private`, `remote`, `local`), each adding to its filter;
 //! - `launch=<project>` (the launch dialog open on the project's next brief, once it is read;
 //!   with `usage`, lantern's EP-3, an S launched visually, shows the Fable downshift, EP-18);
+//!   `launch=<project>:changed` (the same with the line its read as it opened writes when the
+//!   row's brief was done meanwhile, the brief before standing in for the row's, EP-48);
 //! - `compose=<project>[:urgent]` (the compose dialog open on the project once it is read, its
 //!   text canned, the Urgent box ticked with `:urgent`, a session said to work there; its Send
 //!   is refused, as every write is, EP-20c);
@@ -401,6 +403,9 @@ impl Run {
                     let (project, mode) = value.split_once(':').unwrap_or((value, ""));
                     board.open_when_read = Some(project.to_owned());
                     board.open_headless = mode == "headless";
+                    // `launch=harbor:changed`: the line the dialog's read writes when the row's
+                    // brief was done meanwhile, canned (EP-48).
+                    board.launch_changed = mode == "changed";
                 }
                 "compose" => {
                     // `compose=lantern:urgent` opens the compose dialog on the project once it

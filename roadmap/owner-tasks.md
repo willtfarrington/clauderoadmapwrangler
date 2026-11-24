@@ -332,7 +332,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   `tailscale serve --https=9443 --set-path=/m off`; afterwards the link no longer answers, and
   `tailscale serve status` shows your other entries as they were. Anything odd goes to
   `roadmap/inbox.md`.
-- [ ] OT-30 (EP-45, 2026-11-22) The conventions review, in your environment repository (another
+- [x] OT-30 (EP-45, 2026-11-22) The conventions review, in your environment repository (another
   project's sessions, which only you can start and answer). EP-45 sent its charter to that
   project's inbox with `crw send`; the text is kept in this repository's git-ignored
   `private\ep-45-review-charter.txt`. (1) In Roadmap Wrangler, select your environment
