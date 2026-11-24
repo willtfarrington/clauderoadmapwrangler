@@ -133,11 +133,11 @@ tests need answers older than the machine's uptime, so on a machine up for less 
 fresh CI runner) they skip their due part; core's rule is tested on durations whatever the
 uptime.
 
-> **Completion note (2026-11-23; claude-opus-5-5/max, a chained headless run; 44 minutes from the
+> **Completion note (2026-11-23; claude-opus-5-5/max, a chained headless run; 42 minutes from the
 > start to the work commit, no owner question).** Chained at 21:09 after EP-46 (ledger row
 > `004c2758`) under M's cap of 1 h 30 min; the row was judged at the brief to fit with its checks
-> and its close, and was not split. The work commit at 21:53, the record commit, then the
-> install.
+> and its close, and was not split. The work commit `3912c69` at 21:52, the record commit,
+> then the install.
 >
 > **Owner decisions.** None arose: the brief note settled the behaviour, nothing outward-facing
 > changed, and the commits are the autopilot's standing yes (D-22); the push is the owner's.
