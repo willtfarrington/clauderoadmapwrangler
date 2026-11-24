@@ -105,6 +105,11 @@ min (D-4 addendum). The owner's choice: a row after it, EP-51a (S), holds the tw
 flag of a private word in a public project's message (IN-15) and the long items' fold that EP-50
 parked. By its table P6 now holds eighteen rows, 6 S and 12 M.
 
+**After EP-53's measurement (2026-11-24).** The sizes measured over every house-style project's
+transcripts (D-4 addendum): an S about 30 minutes of active work, an M about 45, and no L, the
+owner's choices; the Sizes paragraph below holds the rule. EP-44, P7's one L, is cut into M
+sessions by EP-59, as planned; no row changes here.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -134,7 +139,14 @@ rule; D-4 addendum.)* **An S is a change whose shape is known when it is planned
 touches a handful of files; a brief that holds an investigation, a state machine or the choice
 of a tool is an M, or is cut into a row that finds and a row that fixes.** A code brief here
 carries about twenty minutes whatever its size (read-first, the brief, the checks, the release
-build, the close), which a size counts in.
+build, the close), which a size counts in. *(EP-53, 2026-11-24, the owner's choices; D-4
+addendum.)* Measured over seven house-style projects' 161 briefs, an S took 30 minutes of active
+work, an M 41 and an L 47, every L within M's cap. **An S is about 30 minutes of active work and
+an M about 45; there is no L. A brief is S or M: an S where its shape is known at planning and it
+touches a handful of files; an M for an investigation, a state machine or the choice of a tool,
+or cut into a row that finds and a row that fixes. A row is not cut only to make it smaller (each
+brief carries about 15 minutes of read-first, brief, checks and close), and a row that proves
+larger at pickup is split there, never run long.** The autopilot's caps stay: S 75 minutes, M 90.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -2475,7 +2487,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-51 | [The Inbox pane: every project's open messages and the outgoing mail in one place with Compose; the Detail pane ends at Status, with Decisions, House style and Problems folded](EP-51-inbox-pane.md) (D-13, D-25) | M | EP-50 | core | ☑ `a8b9d8b` |
 | EP-51a | A private word flagged and a long item folded: IN-15's amber flag on a public project's message whose words hit the registry's `private_words`, in the Inbox pane and in `crw tasks`; an owner task or message longer than about six lines folded to its first sentence with "more…" in the Owner tasks and Inbox panes (D-3, D-25) | S | EP-51 | core | ☑ `145b231` |
 | EP-52 | [The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding](EP-52-autopilot-pane.md) (D-22, D-25) | S | EP-51 | core | ☑ `a36c735` |
-| EP-53 | The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller (D-4) | M | EP-45 | core | ☐ |
+| EP-53 | [The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller](EP-53-sizes-measured.md) (D-4) | M | EP-45 | core | ☐ |
 | EP-54 | The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes (D-12, D-27) | M | EP-53 | core | ☐ |
 | EP-55 | The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☐ |
 | EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | M | EP-45 | core | ☐ |
@@ -2764,6 +2776,15 @@ inbox through the tool, on the owner's word).
   > states one; (8) the leftover copies of other projects' `CLAUDE.md` files under the
   > git-ignored `target\tmp` removed (copies go to a scratchpad folder now). Item (7) was done at
   > EP-48, and item (9) is EP-59's. Then this block goes.
+
+  > **Addendum (2026-11-24, from EP-53).** The sizes this row carries into the plugin's files (the
+  > `plan` skill, the reference's Size cell, the rule block and the formalise templates, the
+  > top-level README's house-style section, the opener where it says a size): an S about 30
+  > minutes of active work, an M about 45, **no L**, in the words of the D-4 addendum of
+  > 2026-11-24 (an S where the shape is known, an M for an investigation, a state machine or the
+  > choice of a tool; no row cut only to make it smaller). This settles item (3)'s "the minutes
+  > per size kept until EP-53's measurement". The parser keeps reading an L, which done rows in
+  > every project hold, and the autopilot's caps stay. Then this block goes.
 - **EP-55.** Added at EP-45, the owner's request 9, the sweep, and their choice: owner tasks,
   one per project. A short interview first (which projects, in what order: the unformalised
   and the paused first, then maintenance and done; for each, what the owner already knows
@@ -2849,6 +2870,10 @@ inbox through the tool, on the owner's word).
   > width left after the right-hand items, cut with an ellipsis, whole on hover. The re-plan
   > places it as a row in P7 or in v2's first phase, or rolls it into a P6 brief that touches
   > the status bar. Then this block goes.
+
+  > **Addendum (2026-11-24, from EP-53).** No L remains (D-4 addendum): EP-44 is cut into M
+  > sessions, and the retro times P6's briefs against an S of about 30 minutes of active work and
+  > an M of about 45. Then this block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 

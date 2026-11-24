@@ -230,6 +230,31 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > row again at pickup, which a headless run cannot do to its own cap; waiting for EP-53, five
 > rows on.
 
+> **Addendum (2026-11-24, EP-53).** The sizes measured over every house-style project: 161
+> executed briefs of seven projects timed from their transcripts by the `replan` skill's step 4
+> with IN-15's rule for a wait (active minutes, the owner's waits out; 121 more checked rows left
+> no transcript of their own sessions: every row of four projects, three of two others). An S
+> took 30 minutes of active work (median; three quarters under 35, 47 briefs), an M 41 (three
+> quarters under 51, 95 briefs; this repository's 50, the other projects' 34), an L 47 (28 to 80,
+> 19 briefs, every one within M's cap of 90): the L label bought no time. A brief carries about 15 minutes whatever its size (the
+> median code brief: about 9 from its first entry to its brief, about 6 from its last code edit to
+> its record commit; EP-43's transcript put it at about twenty), so a brief cut in two takes about
+> 15 minutes more. The overruns were code briefs and the old S-sized re-plans; S's cap of 75
+> minutes covers 45 of the 47 S, M's of 90 covers 93 of the 95 M. **The owner's choices:** an S
+> is **about 30 minutes** of active work and an M **about 45**; **there is no L**; the rule reads:
+> **a brief is S or M: an S where its shape is known at planning and it touches a handful of
+> files; an M for an investigation, a state machine or the choice of a tool, or cut into a row
+> that finds and a row that fixes. A row is not cut only to make it smaller (each brief carries
+> about 15 minutes of read-first, brief, checks and close), and a row that proves larger at pickup
+> is split there, never run long.** The caps stay (S 75 minutes, M 90; L's 3 hours only for a
+> brief with no size), and the registry's launch rule for L, the owner's, no longer meets a row.
+> EP-44, P7's one L, is cut into M sessions by EP-59, as planned. The measurement names projects,
+> so its table lives in the git-ignored `private/`; the environment repository's house-style rule
+> takes the sizes through a message sent on the owner's word, and EP-54 brings the plugin's files
+> in line. *Alternatives.* M kept at an hour, as at every re-plan, or set at the median of 40 or 41; L
+> kept as the exception for one indivisible subtask; "S preferred" kept as it was, or no
+> preference between S and M.
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it
