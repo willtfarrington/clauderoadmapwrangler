@@ -4,7 +4,9 @@
 //! owner's arrangement survives an upgrade.
 
 use eframe::egui;
-use egui_tiles::{Container, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse};
+use egui_tiles::{
+    Container, ResizeState, SimplificationOptions, Tile, TileId, Tiles, Tree, UiResponse,
+};
 use serde::{Deserialize, Serialize};
 
 use crate::board::Board;
@@ -196,6 +198,30 @@ impl egui_tiles::Behavior<Pane> for Board {
             ..SimplificationOptions::default()
         }
     }
+
+    /// The lines between the panes ([`resting_line`] at rest); hovered and dragged as egui_tiles
+    /// draws them.
+    fn resize_stroke(&self, style: &egui::Style, resize_state: ResizeState) -> egui::Stroke {
+        let visuals = &style.visuals;
+        match resize_state {
+            ResizeState::Idle => {
+                resting_line(visuals, self.gap_width(style), self.tab_bar_color(visuals))
+            }
+            ResizeState::Hovering => visuals.widgets.hovered.fg_stroke,
+            ResizeState::Dragging => visuals.widgets.active.fg_stroke,
+        }
+    }
+}
+
+/// The line between two panes at rest. egui_tiles draws it in the tab bars' colour, which in
+/// the dark theme is a near-black the black panels leave unseen, so there it takes the
+/// separators' colour (EP-49), as the line under the tab bars does; Light keeps egui_tiles' own.
+fn resting_line(visuals: &egui::Visuals, width: f32, tab_bar: egui::Color32) -> egui::Stroke {
+    if visuals.dark_mode {
+        egui::Stroke::new(width, visuals.widgets.noninteractive.bg_stroke.color)
+    } else {
+        egui::Stroke::new(width, tab_bar)
+    }
 }
 
 #[cfg(test)]
@@ -322,5 +348,19 @@ pub(crate) mod tests {
             eframe::set_value(&mut storage, LAYOUT_KEY, &tree);
             assert_eq!(restore(Some(&storage)), default_layout());
         }
+    }
+
+    /// The lines between the panes show on the dark theme's black (EP-49); Light's are
+    /// egui_tiles' own, in its tab bars' colour.
+    #[test]
+    fn the_lines_between_panes_take_the_separators_colour_in_dark() {
+        let tab_bar = egui::Color32::from_gray(200);
+        let dark = crate::style::dark();
+        let line = resting_line(&dark, 1.0, tab_bar);
+        assert_eq!(line.width, 1.0);
+        assert_eq!(line.color, dark.widgets.noninteractive.bg_stroke.color);
+        assert_ne!(line.color, dark.panel_fill);
+        let light = resting_line(&egui::Visuals::light(), 1.0, tab_bar);
+        assert_eq!(light.color, tab_bar);
     }
 }

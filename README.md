@@ -79,7 +79,7 @@ What it does, by area (the sections below give the detail):
 
 ![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief's id and size, progress, owner items and badge columns under a header row, the Detail pane of the selected project with its brief notes, phases and graphs, and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
 
-![The dashboard in the dark theme: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
+![The dashboard in the dark theme, black panels with bright text and grey frames: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
 
 *Both pictures show the fake portfolio tracked in `crates/app/fixtures/portfolio`, taken by the app of
 its own window (`--features screenshot`, below) from a copy at a neutral path.*
@@ -680,4 +680,5 @@ launch cannot pass the flag, so a VS Code session has the plugin once it is inst
 Built for one developer's workflow: one user, one house style, configurability only where it costs
 nothing. The tool drives the user's own installed Claude Code CLI and claude.ai login; it offers neither,
 and it never stores the login's token. Developed with AI assistance (Claude Code), reviewed and directed by
-the owner. License: [MIT](LICENSE).
+the owner. The dark theme's colours follow the One Hunter Theme's Vercel variant by Railly Hugo (MIT).
+License: [MIT](LICENSE).

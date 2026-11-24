@@ -996,7 +996,8 @@ pub fn sparkline_points(series: &BurnUp, rect: &Rect, today: NaiveDate) -> (Vec<
 }
 
 /// The burn-up as a sparkline `width` wide (EP-26a): the total in the text colour, the done in
-/// green over a tint of its area, on the panel's darker fill; the hover text says done of total
+/// green over a tint of its area, on egui's extreme background, a well off the panel (a step
+/// above the black in the dark theme, EP-49); the hover text says done of total
 /// today, the first day drawn and the total's last change.
 pub fn sparkline(
     ui: &mut egui::Ui,

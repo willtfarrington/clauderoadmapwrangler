@@ -14,21 +14,25 @@
   --bad: #c62f2f;
   --chip: #e9edf3;
   --code: #eef1f5;
+  --on-accent: #ffffff;
 }
 
+/* The window's dark theme (EP-49): the near-black base after the One Hunter extension's Vercel
+   theme, the accents kept; a button's words in black on the light accent. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --bg: #15171b;
-    --card: #1e2127;
-    --text: #e6e8ec;
-    --weak: #9aa1ad;
-    --line: #333842;
+    --bg: #000000;
+    --card: #0a0a0a;
+    --text: #dce3ea;
+    --weak: #8f9498;
+    --line: #34393e;
     --accent: #7aa7f0;
     --good: #5cc98a;
     --warn: #e0a640;
     --bad: #f07272;
-    --chip: #2b3039;
-    --code: #2a2f37;
+    --chip: #1a1c1f;
+    --code: #1f2225;
+    --on-accent: #000000;
   }
 }
 
@@ -191,7 +195,7 @@ button {
   border-radius: 8px;
   border: 1px solid var(--accent);
   background: var(--accent);
-  color: #ffffff;
+  color: var(--on-accent);
   cursor: pointer;
 }
 button.deny { background: transparent; color: var(--bad); border-color: var(--bad); }

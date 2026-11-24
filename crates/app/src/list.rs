@@ -1262,7 +1262,7 @@ fn progress_cell(ui: &mut egui::Ui, rect: Rect, counts: Counts) {
         vec2(rect.width() - 4.0, (rect.height() - 8.0).min(18.0)),
     );
     let painter = ui.painter_at(rect);
-    painter.rect_filled(pill, 5.0, ui.visuals().faint_bg_color);
+    painter.rect_filled(pill, 5.0, style::track(ui));
     painter.rect_filled(
         Rect::from_min_size(pill.min, vec2(pill.width() * fraction, pill.height())),
         5.0,

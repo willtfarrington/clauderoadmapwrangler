@@ -2646,6 +2646,32 @@ state; graphs only in the detail tile or a separate window.
 > rest at the row's end (the switches then float mid-row); a short mark in the Next cell for a
 > project with no next brief, its words on hover.
 
+> **Addendum (2026-11-24, EP-49).** Dark as built. egui's own Dark is replaced by
+> `style::dark()`, set as egui's dark visuals once as the window is created, so System and Dark
+> draw it; Light stays egui's own. Its palette is the One Hunter extension's Vercel theme's
+> `colors`, an alpha value composed over the black as VS Code composes it: the panels and a text
+> box's well black; dialogs, menus, tooltips, the popup and a pressed or focused button `#0A0A0A`;
+> the text `#DCE3EA`, the weak text the text at 72 % (`#9EA3A8`, lifted from the theme's 53 % so
+> that it keeps 4.5 to 1 on every surface); the separators and the fills of checkboxes `#34393E`,
+> stepped over the black for the cards (35 %), a button at rest and the wells (50 %: egui's
+> extreme background, so the tab bars, the tracks, a plot's and a sparkline's ground, a heatmap's
+> empty day and a code block, which egui's Dark sinks below its panels, stand a step above the
+> black), code's background and a progress pill's track (60 %) and a hovered button or row
+> (75 %); the frames of dialogs, buttons and text boxes `#454D54`; the selection `#43AAF9` at a
+> third, a selected button's words `#A7D1F5`; links in the violet of references. The accents keep
+> their meanings and shades: a test measures each accent, the text and the weak text at 4.5 to 1
+> or more on every surface the code fills (the panel, a dialog, a card, code, a well, a button at
+> rest, pressed and hovered, the selected row and the selection) and each chip's ink on its tint,
+> and none needed tuning; the warnings' amber stays egui's orange, and egui's own error colour
+> takes the window's red. The lines between panes take the separators' colour in Dark (egui_tiles
+> draws them in its tab bars' colour), and the chat's Markdown drops the resting frame inside it,
+> so a code block keeps one outline. The phone pages' dark style sheet takes the same base, card,
+> text, weak, line, chip and code values, a button's words black on the light accent. The README
+> credits the theme (the owner's choice). *Alternatives.* The theme's own weak text and wells
+> (`#75797D`, `#0A0A0A`), under 4.5 to 1 or unseen on the black (the review's findings); its pink
+> focus and selection, a colour the window does not use; its blue buttons, which would read as
+> busy; its accents in place of the window's.
+
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
 completion dates; completion-note dates cross-check; the single-commit published project gets note dates

@@ -1673,6 +1673,10 @@ fn markdown(ui: &mut egui::Ui, cache: &mut CommonMarkCache, text: &str, id: egui
     ui.push_id(id, |ui| {
         let violet = style::reference(ui);
         ui.visuals_mut().hyperlink_color = violet;
+        // egui frames a read-only text box with the resting widgets' stroke, and egui_commonmark
+        // draws a code block as one inside an outline of its own, so the dark theme's resting
+        // frame (EP-49) would outline each block twice.
+        ui.visuals_mut().widgets.inactive.bg_stroke = egui::Stroke::NONE;
         ui.style_mut().url_in_tooltip = true;
         CommonMarkViewer::new().show_with_id(id, ui, cache, text);
     });

@@ -3036,6 +3036,7 @@ impl Dashboard {
         egui_material_icons::initialize(&cc.egui_ctx);
         let theme: ThemePreference = stored(cc.storage, THEME_KEY).unwrap_or_default();
         let view: View = stored(cc.storage, VIEW_KEY).unwrap_or_default();
+        crate::style::apply_themes(&cc.egui_ctx);
         cc.egui_ctx.set_theme(theme);
         view.density.apply(&cc.egui_ctx);
         let mut board = Board::new(places, &cc.egui_ctx, view, theme);

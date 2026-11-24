@@ -343,3 +343,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   EP-52. (3) When its last brief hands the outcome back, a message from it shows in this
   project's inbox (the Inbox pane from EP-51): tick this task then. EP-54 changes the plugin's
   skills, its house-style reference and the formalise templates from that message [before EP-54]
+- [ ] OT-31 (EP-49, 2026-11-24) Retake the README's phone picture in the new dark style (nothing
+  waits on it). EP-49 moved the phone pages' dark style sheet to the window's near-black palette,
+  so `docs\phone-list.png` shows the old shades. (1) Open `target\ep49-phone\phone-list.html` in
+  this repository in a browser set to dark mode, at a phone's width (about 390 px, as the
+  browser's device view gives it). It is the fake portfolio's list page, rendered from a neutral
+  copy with the style sheet inlined and no script, and git-ignored; it should read black, with
+  near-black cards and bright text. (2) Capture the page from its top, as at EP-32, and save it
+  over `docs\phone-list.png`. (3) Commit that one file yourself, for example `git commit -m
+  "Phone picture: the list page in the new dark style (EP-49, D-25)" -- docs/phone-list.png`,
+  since a change left in the tree stops a chain at its gate. The push stays yours
