@@ -77,7 +77,7 @@ What it does, by area (the sections below give the detail):
 - **The plugin.** The roadmap method as a Claude Code plugin with four skills: plan, replan,
   formalise and status.
 
-![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief, progress, owner items and badge columns under a header row, the Detail pane of the selected project with its brief notes, phases and graphs, and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
+![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief's id and size, progress, owner items and badge columns under a header row, the Detail pane of the selected project with its brief notes, phases and graphs, and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
 
 ![The dashboard in the dark theme: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
 
@@ -363,7 +363,7 @@ backoff from 1 to 30 minutes while it fails. Each poll reads the OAuth token fro
 HTTP stack; the token is never written, logged or shown. The status bar shows the weekly limit, the
 Fable-scoped one and the five-hour window while it is open, each a small bar with its percent
 (amber from 80 %, red from 95 %). The Usage pane shows each limit with its reset countdown, the
-week's use by surface, extra usage and a sparkline of the last seven days; the session (five-hour)
+week's use by surface and extra usage; the session (five-hour)
 window is one row, read from the endpoint's `session` entry and its older `five_hour` object
 together, with a quiet line while no window is open (EP-40). The status lines' rate
 limits are the meter's second series: when the endpoint fails, it shows the newest figures it has,

@@ -2247,6 +2247,14 @@ every minute or on demand; no downshift or downshift for every size; parsing tra
 > *Alternatives.* The merged row hidden while closed, or always a bar at 0 %; the downshift
 > kept to S briefs.
 
+> **Addendum (2026-11-23, EP-46).** The Usage pane without its spark line, the owner's request
+> at EP-45 (D-25 addendum): the pane shows each limit, "This week by surface" and extra usage.
+> The window no longer keeps a week of samples in memory (`Meter::samples`, its start-up read
+> and its trims went with the spark line that alone read them); the ledger keeps every sample as
+> before, the endpoint's at each poll and a status line's when its figures change, for a view of
+> usage over time in v2 (v2 §2). *Alternatives.* The spark line folded under a heading; the
+> samples kept in memory for a later view.
+
 ## Hosting, views, history
 
 **D-24 Hosting, backup and the site.** Remote badges none / private / public, ahead / behind / diverged by
@@ -2588,6 +2596,24 @@ state; graphs only in the detail tile or a separate window.
 > spark line (EP-46). Each project that works gets a manual opened from its row (EP-56 …
 > EP-58; D-12). *Alternatives.* A fourth theme choice beside the stock Dark, or both themes
 > rebuilt; the Detail pane ending at Status exactly; a third pane for a project's notes.
+
+> **Addendum (2026-11-23, EP-46).** The list without the brief's one-liner, as built. The row
+> keeps the next EP's id and size in the Next column, and the id's hover carries the one-liner
+> with its markup drawn; the Next header's hover says so. A project with no next brief says why
+> in the Next cell, which is measured to hold the words whole (EP-7a's rule: a column as wide as
+> the widest value the portfolio holds); a registered project whose folder is gone says so
+> across the cells it leaves empty, from Next to the Usage column (Session's when Usage has given
+> way), its progress and counts not drawn, a gone folder having no reading. `list::Plan` takes
+> the first of D-25's give-way forms that fits the row, so the title's least (EP-38's
+> `TITLE_AT_LEAST` and `TITLE_FLOOR`) is gone: with no title to give way, a form shows exactly
+> when it fits, and at the default layout the counts come back before the full badges do. The
+> spare width is shared among the gaps after the name, each up to EP-7a's cap of 12 points, and
+> what they leave goes before the session column, so the session mark and the two switches keep
+> the row's right edge as they did while the title took the rest. The cards keep the title on
+> two lines (`TITLE_ROWS`): a card has no Detail pane beside it by necessity. *Alternatives.*
+> The spare width spread evenly with no cap (a wide pane spreads the columns far apart); the
+> rest at the row's end (the switches then float mid-row); a short mark in the Next cell for a
+> project with no next brief, its words on hover.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

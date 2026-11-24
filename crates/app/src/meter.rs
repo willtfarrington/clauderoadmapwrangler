@@ -5,10 +5,11 @@
 //! session's figures change. The frame loop takes in the polls, logs the meter's changes of state
 //! (degraded, back) as `usage` events, and hands the 80 % and 95 % marks to the notifications,
 //! once per mark and limit window. It draws the strip in the status bar and the Usage pane: each
-//! limit's bar with its reset countdown, the week's use by surface, extra usage and a sparkline of
-//! the last seven days. It also reads each project's share of the week from the ledger, which
-//! the list's Usage badge and the Detail pane show (EP-18b). Nothing polls before `main` starts
-//! it: never in a test or a screenshot run, whose meter is canned.
+//! limit's bar with its reset countdown, the week's use by surface and extra usage (the spark
+//! line of the last seven days went at EP-46; the samples stay in the ledger, usage over time
+//! being v2's). It also reads each project's share of the week from the ledger, which the list's
+//! Usage badge and the Detail pane show (EP-18b). Nothing polls before `main` starts it: never in
+//! a test or a screenshot run, whose meter is canned.
 
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
@@ -24,23 +25,14 @@ use crw_core::usage::{
     self, Alerts, Crossing, Extra, Fetched, Figure, Figures, Gauge, Line, Problem, Reading,
     Schedule, Shift, Source,
 };
-use eframe::egui::{self, Color32, Pos2, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
+use eframe::egui::{self, Color32, Rect, RichText, Sense, Stroke, StrokeKind, vec2};
 
 use crate::board::Board;
 use crate::portfolio::{Portfolio, Usage};
 use crate::style;
 
-/// The days the sparkline spans, and the samples the window keeps.
-const DAYS: i64 = 7;
-
-/// A gap between two samples longer than this breaks the sparkline's line.
-const GAP: TimeDelta = TimeDelta::minutes(30);
-
 /// The pane's countdowns are drawn again this often.
 const TICK: Duration = Duration::from_secs(30);
-
-/// One series of the sparkline: a sample's figure.
-type Pick = fn(&Sample) -> Option<f64>;
 
 /// What the frame loop tells the worker.
 enum Order {
@@ -65,8 +57,6 @@ struct Worker {
 #[derive(Default)]
 pub struct Meter {
     pub gauge: Gauge,
-    /// The samples of the last [`DAYS`] days, the oldest first.
-    pub samples: Vec<Sample>,
     /// When the worker polls next.
     pub next: Option<DateTime<Utc>>,
     /// A ledger write or read that failed, until the window starts again.
@@ -172,8 +162,8 @@ impl Week {
 }
 
 impl Meter {
-    /// Shows the ledger's cached reading and the week's samples, then starts the polls of the
-    /// endpoint with the token in `credentials` (D-23).
+    /// Shows the ledger's cached reading, then starts the polls of the endpoint with the token in
+    /// `credentials` (D-23).
     pub fn start(
         &mut self,
         credentials: Option<PathBuf>,
@@ -182,7 +172,7 @@ impl Meter {
     ) {
         self.on = true;
         self.ledger = ledger.clone();
-        self.restore(Utc::now());
+        self.restore();
         let (orders, inbox) = mpsc::channel();
         let (outbox, polls) = mpsc::channel();
         let wake = ctx.clone();
@@ -195,9 +185,8 @@ impl Meter {
         }
     }
 
-    /// The cache first (EP-7's pattern): the endpoint's last reading, the marks notified, the
-    /// week's samples.
-    fn restore(&mut self, now: DateTime<Utc>) {
+    /// The cache first (EP-7's pattern): the endpoint's last reading and the marks notified.
+    fn restore(&mut self) {
         let Some(path) = &self.ledger else {
             return;
         };
@@ -205,11 +194,10 @@ impl Meter {
             Ok((
                 ledger.cached_one("", usage::CACHE_SOURCE)?,
                 ledger.cached_one("", usage::ALERTS_SOURCE)?,
-                ledger.samples_since(now - TimeDelta::days(DAYS))?,
             ))
         });
         match read {
-            Ok((reading, alerts, samples)) => {
+            Ok((reading, alerts)) => {
                 if let Some(row) = reading
                     && let Some(reading) = Reading::from_json(&row.data)
                 {
@@ -223,7 +211,6 @@ impl Meter {
                 {
                     self.gauge.alerts = alerts;
                 }
-                self.samples = samples;
             }
             Err(e) => self.problem = Some(format!("The ledger's usage did not read: {e}")),
         }
@@ -244,8 +231,7 @@ impl Meter {
             if let Ok(reading) = &polled.outcome {
                 let sample = usage::endpoint_sample(reading, polled.at);
                 let before = self.previous.replace(sample.clone());
-                self.readings.push((before, sample.clone()));
-                self.samples.push(sample);
+                self.readings.push((before, sample));
             }
             if let Err(e) = polled.stored {
                 self.problem = Some(format!("The ledger did not keep a usage reading: {e}"));
@@ -254,8 +240,6 @@ impl Meter {
                 self.log(&shift);
             }
         }
-        let since = now - TimeDelta::days(DAYS);
-        self.samples.retain(|sample| sample.taken_at >= since);
         self.check(now);
     }
 
@@ -278,7 +262,6 @@ impl Meter {
                 "The ledger did not keep a status line's figures: {e}"
             ));
         }
-        self.samples.push(sample);
         self.check(now);
     }
 
@@ -472,9 +455,6 @@ impl Meter {
                         ui.label(RichText::new(extra_words(extra)).weak());
                     }
                 }
-                ui.add_space(8.0);
-                ui.label(RichText::new("The last seven days").strong());
-                sparkline(ui, &self.samples, now);
             });
     }
 }
@@ -741,123 +721,12 @@ fn bar(ui: &mut egui::Ui, percent: f64, size: egui::Vec2) -> egui::Response {
     response
 }
 
-/// The last seven days of samples: the endpoint's weekly line in the text's colour and its
-/// Fable line in the notes' violet, the status lines' weekly figures as points, faint lines at
-/// 80 % and 95 % and at each local midnight; a line breaks where the samples have a gap.
-fn sparkline(ui: &mut egui::Ui, samples: &[Sample], now: DateTime<Utc>) {
-    let width = ui.available_width().max(60.0);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, 72.0), Sense::hover());
-    let painter = ui.painter_at(rect);
-    let visuals = ui.visuals();
-    painter.rect_filled(rect, 3.0, visuals.extreme_bg_color);
-    let start = now - TimeDelta::days(DAYS);
-    let span = (now - start).num_seconds() as f32;
-    let at = |taken: DateTime<Utc>, percent: f64| {
-        let x = rect.left() + rect.width() * ((taken - start).num_seconds() as f32 / span);
-        let y = rect.bottom() - rect.height() * (percent.clamp(0.0, 100.0) as f32 / 100.0);
-        Pos2::new(x, y)
-    };
-    for (mark, ink) in [
-        (usage::WARN, style::amber(ui)),
-        (usage::ALARM, style::red(ui)),
-    ] {
-        let y = at(now, mark).y;
-        painter.line_segment(
-            [Pos2::new(rect.left(), y), Pos2::new(rect.right(), y)],
-            Stroke::new(1.0, ink.gamma_multiply(0.35)),
-        );
-    }
-    // A faint line at each local midnight, so that the days can be counted.
-    let day_line = Stroke::new(1.0, visuals.weak_text_color().gamma_multiply(0.3));
-    let mut day = Some(now.with_timezone(&Local).date_naive());
-    for _ in 0..=DAYS {
-        let Some(date) = day else {
-            break;
-        };
-        if let Some(midnight) = date
-            .and_hms_opt(0, 0, 0)
-            .and_then(|time| time.and_local_timezone(Local).earliest())
-            .map(|midnight| midnight.with_timezone(&Utc))
-            .filter(|midnight| *midnight > start)
-        {
-            let x = at(midnight, 0.0).x;
-            painter.line_segment(
-                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
-                day_line,
-            );
-        }
-        day = date.pred_opt();
-    }
-    let text = visuals.text_color();
-    let violet = style::reference(ui);
-    let endpoint: Vec<&Sample> = samples
-        .iter()
-        .filter(|sample| sample.source == Source::Endpoint.as_str() && sample.taken_at >= start)
-        .collect();
-    let series: [(Pick, Color32); 2] = [
-        (|sample| sample.weekly_percent, text),
-        (|sample| sample.fable_percent, violet),
-    ];
-    for (pick, ink) in series {
-        let mut run: Vec<Pos2> = Vec::new();
-        let mut last: Option<DateTime<Utc>> = None;
-        for sample in &endpoint {
-            let Some(percent) = pick(sample) else {
-                continue;
-            };
-            if last.is_some_and(|last| sample.taken_at - last > GAP) {
-                draw_run(&painter, std::mem::take(&mut run), ink);
-            }
-            run.push(at(sample.taken_at, percent));
-            last = Some(sample.taken_at);
-        }
-        draw_run(&painter, run, ink);
-    }
-    let weak = visuals.weak_text_color();
-    let mut lines = 0;
-    for sample in samples
-        .iter()
-        .filter(|sample| sample.source == Source::StatusLine.as_str() && sample.taken_at >= start)
-    {
-        if let Some(percent) = sample.weekly_percent {
-            painter.circle_filled(at(sample.taken_at, percent), 1.6, weak);
-            lines += 1;
-        }
-    }
-    response.on_hover_text(format!(
-        "{} readings of the endpoint and {lines} of the status lines since {}",
-        endpoint.len(),
-        start.with_timezone(&Local).format("%a %d %b %H:%M")
-    ));
-    ui.horizontal_wrapped(|ui| {
-        ui.label(RichText::new("━ weekly").small().color(text));
-        ui.label(RichText::new("━ Fable").small().color(violet));
-        ui.label(RichText::new("• status lines").small().color(weak));
-        ui.label(
-            RichText::new("| midnights; now at the right")
-                .small()
-                .weak(),
-        );
-    });
-}
-
-fn draw_run(painter: &egui::Painter, run: Vec<Pos2>, ink: Color32) {
-    match run.len() {
-        0 => {}
-        1 => {
-            painter.circle_filled(run[0], 1.6, ink);
-        }
-        _ => {
-            painter.add(egui::Shape::line(run, Stroke::new(1.5, ink)));
-        }
-    }
-}
-
 /// A screenshot run's meter (rule 5): an endpoint's reading two minutes old with Fable past its
-/// 80 % mark, a status line, a week of hourly samples across the weekly reset, and the week's
-/// shares of four fake projects; `degraded` adds the endpoint's failure a minute ago and a newer
-/// status line; `closed` gives the session (five-hour) window inactive with no reset, as the
-/// endpoint gives it while none is open (EP-40), and no status line with a figure for it.
+/// 80 % mark, a session's status lines, and the week's shares of four fake projects (the week of
+/// hourly samples the spark line drew went with it at EP-46); `degraded` adds the endpoint's
+/// failure a minute ago and a newer status line; `closed` gives the session (five-hour) window
+/// inactive with no reset, as the endpoint gives it while none is open (EP-40), and no status
+/// line with a figure for it.
 #[cfg(feature = "screenshot")]
 pub fn canned(now: DateTime<Utc>, degraded: bool, closed: bool) -> Meter {
     use crw_core::usage::{Limit, Scoped, Surface};
@@ -909,42 +778,14 @@ pub fn canned(now: DateTime<Utc>, degraded: bool, closed: bool) -> Meter {
     };
     let mut gauge = Gauge::default();
     gauge.polled(now - TimeDelta::minutes(2), Ok(reading));
-    // The week began 89 hours ago; the one before ended at 72 %.
+    // The week began 89 hours ago.
     let began = resets - TimeDelta::days(7);
-    let mut samples: Vec<Sample> = (1..=7 * 24)
-        .rev()
-        .map(|hours| {
-            let taken = now - TimeDelta::hours(hours);
-            let weekly = if taken < began {
-                72.0 * (1.0 - (began - taken).num_minutes() as f64 / (7.0 * 1440.0))
-            } else {
-                41.0 * (taken - began).num_minutes() as f64 / (now - began).num_minutes() as f64
-            };
-            Sample {
-                taken_at: taken,
-                source: Source::Endpoint.as_str().to_owned(),
-                session_id: None,
-                weekly_percent: Some(weekly),
-                weekly_resets_at: None,
-                fable_percent: Some((weekly * 2.0).min(99.0)),
-                fable_resets_at: None,
-                five_hour_percent: None,
-                five_hour_resets_at: None,
-            }
-        })
-        // A night the window was closed.
-        .filter(|sample| {
-            !(now - sample.taken_at > TimeDelta::hours(50)
-                && now - sample.taken_at < TimeDelta::hours(58))
-        })
-        .collect();
     for minutes in [300, 240, 180, 120, 60, 1] {
         let line = Line {
             at: now - TimeDelta::minutes(minutes),
             weekly: Some(limit(41.0 - minutes as f64 / 120.0, resets)),
             five_hour: (!closed).then(|| limit(23.0, five_hour_resets)),
         };
-        samples.push(usage::line_sample("canned-session", &line));
         gauge.line("canned-session", line);
     }
     if degraded {
@@ -963,7 +804,6 @@ pub fn canned(now: DateTime<Utc>, degraded: bool, closed: bool) -> Meter {
             },
         );
     }
-    samples.sort_by_key(|sample| sample.taken_at);
     // The week's shares of four fake projects (EP-18b): 16 of the 41 points attributed, and
     // orchard's manual session worked through no rise.
     let share = |project: &str, weekly, fable, sessions| ProjectShare {
@@ -985,7 +825,6 @@ pub fn canned(now: DateTime<Utc>, degraded: bool, closed: bool) -> Meter {
     };
     Meter {
         gauge,
-        samples,
         next: Some(now + TimeDelta::minutes(if degraded { 1 } else { 3 })),
         week,
         on: true,
@@ -1020,24 +859,42 @@ mod tests {
         }
     }
 
+    /// The samples the ledger at `path` keeps since 2026-11-01.
+    fn kept(path: &Path) -> usize {
+        Ledger::open(path)
+            .unwrap()
+            .samples_since(at("2026-11-01T00:00:00Z"))
+            .unwrap()
+            .len()
+    }
+
     #[test]
     fn a_meter_that_is_off_takes_no_status_line_and_keeps_no_sample() {
-        let mut meter = Meter::default();
+        let scratch = crate::portfolio::tests::Scratch::new("meter-off");
+        let path = scratch.0.join("ledger.sqlite");
+        let mut meter = Meter {
+            ledger: Some(path.clone()),
+            ..Meter::default()
+        };
         meter.status_line(&status(91.0), at("2026-11-04T12:00:00Z"));
-        assert!(meter.samples.is_empty());
+        assert_eq!(kept(&path), 0);
         assert!(meter.gauge.lines.is_empty());
     }
 
     #[test]
     fn a_status_line_past_a_mark_is_kept_and_notified_once() {
+        let scratch = crate::portfolio::tests::Scratch::new("meter-line");
+        let path = scratch.0.join("ledger.sqlite");
         let mut meter = Meter {
             on: true,
+            ledger: Some(path.clone()),
             ..Meter::default()
         };
         let now = at("2026-11-04T12:00:00Z");
         meter.status_line(&status(91.0), now);
         meter.status_line(&status(91.0), now + TimeDelta::seconds(30));
-        assert_eq!(meter.samples.len(), 1, "the same figures make one sample");
+        assert_eq!(kept(&path), 1, "the same figures make one sample");
+        assert_eq!(meter.problem, None);
         let crossings = meter.take_crossings();
         assert_eq!(crossings.len(), 1);
         assert_eq!(crossings[0].mark, usage::WARN);

@@ -1,11 +1,12 @@
 //! The Projects pane (D-25): a toolbar (the name filter, the sort key, the stack and hosting
 //! filters, the legend's switch, Expand all and Collapse all, the Cards switch), a header row
 //! that names the columns, then the groups by state, each with a header that folds it, and one
-//! dense row per project: its next brief, its progress, what waits on the owner, its badges
+//! dense row per project: its next brief's id and size (the one-liner on the id's hover, the
+//! Detail pane showing the brief whole; EP-46), its progress, what waits on the owner, its badges
 //! (EP-7) with this week's usage share (EP-18b), whether a session is in progress, and the
 //! switches. Each column is as wide as the widest value the portfolio holds (EP-7a); a wide
-//! window shares its spare width between the title and the gaps, a narrow one drops the optional
-//! columns in D-25's order. A row expands inline to its phases and the burn-up sparkline
+//! window shares its spare width among the gaps, a narrow one drops the optional columns in
+//! D-25's order. A row expands inline to its phases and the burn-up sparkline
 //! (EP-26a); a right click pins it or sets its priority or its state; an unadopted folder offers
 //! Adopt and Ignore. The cards view (EP-26a) draws the same groups as cards, as many to a line as
 //! fit, each with the name, the state chip, the next brief, the progress pill, the badges and the
@@ -34,24 +35,12 @@ const EXPANDER: f32 = 20.0;
 const PIN: f32 = 20.0;
 const AUTOPILOT: f32 = 26.0;
 const START: f32 = 32.0;
-/// The title's least in the full form: below it the badges shrink to their compact form.
-const TITLE_AT_LEAST: f32 = 160.0;
-/// The title's least in the compact forms (D-25 addendum of 2026-11-11; EP-38): the title, cut
-/// with an ellipsis and whole on hover, gives way down to it before the counts leave, and again
-/// before the compact badges leave and before the progress does, so a long project name costs
-/// the title first and a badge column last. Set from pictures of a copy of the real roadmaps at
-/// 1440 and 1600 points (the owner's choice at EP-38: the compact badges show at 1600 at the
-/// default layout, without the counts, the title cut at 89).
-const TITLE_FLOOR: f32 = 80.0;
-/// The title's floor when even the fewest columns leave it less.
-const TITLE_MIN: f32 = 40.0;
-const _: () = assert!(TITLE_MIN < TITLE_FLOOR && TITLE_FLOOR < TITLE_AT_LEAST);
 /// Between two columns; the expander, the pin and the name sit closer.
 const GAP: f32 = 10.0;
 const TIGHT: f32 = 2.0;
-/// On a wide row the gaps after the name take this share of the width beyond the title's least,
-/// each widening by at most [`SPREAD`]; the title takes the rest.
-const SPREAD_SHARE: f32 = 0.3;
+/// On a wide row the gaps after the name share the spare width, each widening by at most this
+/// (EP-7a); what they leave goes before the session column, so that the session mark and the two
+/// switches keep the row's right edge, as they did while the brief's title took it (EP-46).
 const SPREAD: f32 = 12.0;
 /// Around the progress pill's text.
 const PILL_PAD: f32 = 16.0;
@@ -74,7 +63,8 @@ const CARD_STROKE: f32 = 1.0;
 /// The lines a card gives the next brief's title before an ellipsis.
 const TITLE_ROWS: usize = 2;
 
-/// The columns of a row, left to right; the title takes what the others leave.
+/// The columns of a row, left to right. The brief's one-liner has none since EP-46: the next
+/// EP's id carries it on hover, and the Detail pane shows the brief.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Column {
     Expander,
@@ -82,7 +72,6 @@ enum Column {
     Name,
     State,
     Next,
-    Title,
     Progress,
     Items,
     Stack,
@@ -98,13 +87,12 @@ enum Column {
 }
 
 impl Column {
-    const ALL: [Column; 18] = [
+    const ALL: [Column; 17] = [
         Column::Expander,
         Column::Pin,
         Column::Name,
         Column::State,
         Column::Next,
-        Column::Title,
         Column::Progress,
         Column::Items,
         Column::Stack,
@@ -119,13 +107,12 @@ impl Column {
         Column::Start,
     ];
     /// Before the optional columns, always.
-    const LEFT: [Column; 6] = [
+    const LEFT: [Column; 5] = [
         Column::Expander,
         Column::Pin,
         Column::Name,
         Column::State,
         Column::Next,
-        Column::Title,
     ];
     /// After them, always.
     const RIGHT: [Column; 3] = [Column::Session, Column::Autopilot, Column::Start];
@@ -177,9 +164,9 @@ impl Column {
             Column::Next => (
                 "Next",
                 "The next brief in table order and its size: S about 30 minutes, M about an \
-                 hour, L about two hours",
+                 hour, L about two hours; its one-line summary on the id's hover, the brief in \
+                 the Detail pane",
             ),
-            Column::Title => ("Brief", "The next brief's one-line summary"),
             Column::Progress => ("Done", "Rows done of all rows"),
             Column::Items => (
                 "Waiting",
@@ -217,8 +204,8 @@ impl Column {
     }
 }
 
-/// How wide each column is but the title: the fixed ones, and for the others the widest value
-/// the portfolio holds, at least its header's name.
+/// How wide each column is: the fixed ones, and for the others the widest value the portfolio
+/// holds, at least its header's name.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Widths([f32; Column::ALL.len()]);
 
@@ -266,8 +253,10 @@ impl Widths {
             if row.folder.is_none() {
                 continue;
             }
-            if let Some(next) = row.next() {
-                widths.fit(ui, Column::Next, |ui| next_cell(ui, next));
+            match row.next() {
+                Some(next) => widths.fit(ui, Column::Next, |ui| next_cell(ui, next)),
+                // Why there is none is the cell's value then, in its short words.
+                None => widths.fit(ui, Column::Next, |ui| no_next_label(ui, row)),
             }
             let counts = row.counts();
             if counts.total > 0 {
@@ -293,9 +282,10 @@ impl Widths {
 }
 
 /// Where each column of a row sits: the measured widths left to right with the gaps between
-/// them. The optional columns give way while the title would have less than its least; then the
-/// gaps after the name share part of the spare width, up to a cap, and the title takes the rest,
-/// so the row is filled to its right edge. One plan serves the header row and every row.
+/// them. The optional columns give way, in D-25's order, while the row cannot hold them; then
+/// the gaps after the name share the spare width, each up to [`SPREAD`], and what they leave
+/// goes before the session column, so the row is filled to its right edge (EP-46). One plan
+/// serves the header row and every row.
 #[derive(Clone, Debug, PartialEq)]
 struct Plan {
     /// Each column shown: its left edge from the row's left, and its width.
@@ -314,33 +304,29 @@ impl Plan {
         };
         let columns = Column::GIVE_WAY
             .iter()
-            .enumerate()
-            .map(|(choice, optional)| (choice, columns_with(optional)))
-            .find(|(choice, columns)| {
-                width - Self::least(widths, columns) >= Self::title_least(*choice)
-            })
-            .map(|(_, columns)| columns)
+            .map(|optional| columns_with(optional))
+            .find(|columns| Self::least(widths, columns) <= width)
             .unwrap_or_else(|| columns_with(&[]));
-        let room = width - Self::least(widths, &columns);
+        let room = (width - Self::least(widths, &columns)).max(0.0);
         let spreading = columns
             .iter()
             .take(columns.len().saturating_sub(1))
             .filter(|column| column.spreads())
             .count() as f32;
         let extra = if spreading > 0.0 {
-            ((room - TITLE_AT_LEAST).max(0.0) * SPREAD_SHARE / spreading).min(SPREAD)
+            (room / spreading).min(SPREAD)
         } else {
             0.0
         };
-        let title = (room - extra * spreading).max(TITLE_MIN);
+        let rest = room - extra * spreading;
         let mut x = 0.0;
         let cells = columns
             .iter()
             .map(|&column| {
-                let width = match column {
-                    Column::Title => title,
-                    column => widths.of(column),
-                };
+                if column == Column::RIGHT[0] {
+                    x += rest;
+                }
+                let width = widths.of(column);
                 let cell = (column, x, width);
                 x += width + column.gap();
                 if column.spreads() {
@@ -352,25 +338,9 @@ impl Plan {
         Self { cells }
     }
 
-    /// The title's least with the `choice`th of [`Column::GIVE_WAY`]: the full form keeps
-    /// [`TITLE_AT_LEAST`], and every narrower one lets the title give way to [`TITLE_FLOOR`]
-    /// before the next column leaves (EP-38).
-    fn title_least(choice: usize) -> f32 {
-        if choice == 0 {
-            TITLE_AT_LEAST
-        } else {
-            TITLE_FLOOR
-        }
-    }
-
-    /// What a row of `columns` takes besides its title: their widths and the gaps between them
-    /// at their least.
+    /// What a row of `columns` takes: their widths and the gaps between them at their least.
     fn least(widths: &Widths, columns: &[Column]) -> f32 {
-        let cells: f32 = columns
-            .iter()
-            .filter(|&&column| column != Column::Title)
-            .map(|&column| widths.of(column))
-            .sum();
+        let cells: f32 = columns.iter().map(|&column| widths.of(column)).sum();
         let gaps: f32 = columns
             .iter()
             .take(columns.len().saturating_sub(1))
@@ -385,6 +355,17 @@ impl Plan {
             .iter()
             .find(|cell| cell.0 == column)
             .map(|&(_, x, width)| (x, width))
+    }
+
+    /// The room in `row` from `from`'s left edge to the gap before the first of `until` the plan
+    /// shows: where a row's words go across the cells it leaves empty.
+    fn reach(&self, row: Rect, from: Column, until: &[Column]) -> Option<Rect> {
+        let (left, _) = self.span(from)?;
+        let (right, _) = until.iter().find_map(|&column| self.span(column))?;
+        Some(Rect::from_min_max(
+            egui::pos2(row.left() + left, row.top()),
+            egui::pos2(row.left() + right - GAP, row.bottom()),
+        ))
     }
 
     /// The column's cell in `row`.
@@ -915,40 +896,31 @@ fn project_row(
     plan.draw(ui, rect, Column::State, |ui| state_cell(ui, row, now));
     let counts = row.counts();
     match (&row.folder, row.next()) {
+        // A gone folder has no reading: its words take the cells up to the ledger's figures.
         (None, _) => {
-            plan.draw(ui, rect, Column::Title, |ui| {
-                ui.add(
-                    egui::Label::new(RichText::new(missing_folder(row)).color(style::red(ui)))
-                        .truncate(),
-                );
-            });
-        }
-        (Some(_), Some(next)) => {
-            plan.draw(ui, rect, Column::Next, |ui| next_cell(ui, next));
-            plan.draw(ui, rect, Column::Title, |ui| {
-                let title = markup::job(ui, &next.brief.title, Look::default());
-                ui.add(egui::Label::new(title).truncate());
-            });
-        }
-        (Some(_), None) => {
-            let text = no_next(row);
-            if let (Some(next), Some(title)) = (
-                plan.rect(Column::Next, rect),
-                plan.rect(Column::Title, rect),
-            ) {
-                cell(ui, next.union(title), |ui| {
-                    ui.add(egui::Label::new(RichText::new(text).weak()).truncate());
+            if let Some(room) = plan.reach(rect, Column::Next, &[Column::Usage, Column::Session]) {
+                cell(ui, room, |ui| {
+                    ui.add(
+                        egui::Label::new(RichText::new(missing_folder(row)).color(style::red(ui)))
+                            .truncate(),
+                    );
                 });
             }
         }
+        (Some(_), Some(next)) => {
+            plan.draw(ui, rect, Column::Next, |ui| next_cell(ui, next));
+        }
+        (Some(_), None) => {
+            plan.draw(ui, rect, Column::Next, |ui| no_next_label(ui, row));
+        }
     }
-    if let Some(progress) = plan.rect(Column::Progress, rect)
-        && counts.total > 0
-    {
-        progress_cell(ui, progress, counts);
-    }
-    plan.draw(ui, rect, Column::Items, |ui| counts_cell(ui, row));
     if row.folder.is_some() {
+        if let Some(progress) = plan.rect(Column::Progress, rect)
+            && counts.total > 0
+        {
+            progress_cell(ui, progress, counts);
+        }
+        plan.draw(ui, rect, Column::Items, |ui| counts_cell(ui, row));
         plan.draw(ui, rect, Column::Stack, |ui| stack_cell(ui, row));
         plan.draw(ui, rect, Column::Hosting, |ui| hosting_cell(ui, row, now));
         plan.draw(ui, rect, Column::Sync, |ui| sync_cell(ui, row, now));
@@ -1214,15 +1186,21 @@ fn house_hint(house: &crate::portfolio::House) -> String {
     }
 }
 
-/// Why a project with its folder shows no next brief, in the row's words; the phone's list says
-/// the same (EP-30).
+/// Why a project with its folder shows no next brief, in the words of the Next cell's hover and
+/// of the cards; the phone's list says the same (EP-30).
 pub(crate) fn no_next(row: &ProjectRow) -> &'static str {
+    why_no_next(row).1
+}
+
+/// The same, short and long: the short words fill the Next cell, which is measured to hold them
+/// and stays about as wide as an EP's id and size (EP-46).
+fn why_no_next(row: &ProjectRow) -> (&'static str, &'static str) {
     if row.counts().all_checked() {
-        "Every row is checked"
+        ("all checked", "Every row is checked")
     } else if row.snapshot.current().is_none() {
-        "No roadmap/README.md"
+        ("no roadmap", "No roadmap/README.md")
     } else {
-        "No phase table read"
+        ("no table", "No phase table read")
     }
 }
 
@@ -1251,9 +1229,21 @@ fn unadopted_chip(ui: &mut egui::Ui) {
     style::chip(ui, "unadopted", style::state_colour(None));
 }
 
-/// The next EP's id and its size.
+/// Why a project with its folder has no next brief, short in the Next cell, whole on hover
+/// (EP-46).
+fn no_next_label(ui: &mut egui::Ui, row: &ProjectRow) {
+    let (short, words) = why_no_next(row);
+    ui.label(RichText::new(short).weak()).on_hover_text(words);
+}
+
+/// The next EP's id and its size; the id's hover carries the brief's one-liner, its markup drawn
+/// (EP-46: the row has no column for it).
 fn next_cell(ui: &mut egui::Ui, next: &Row) {
-    ui.label(RichText::new(next.id.to_string()).monospace());
+    ui.label(RichText::new(next.id.to_string()).monospace())
+        .on_hover_ui(|ui| {
+            let title = markup::job(ui, &next.brief.title, Look::default());
+            ui.label(title);
+        });
     if let Some(size) = next.size {
         ui.label(RichText::new(size.as_str()).small().strong())
             .on_hover_text(size_hint(size));
@@ -2275,16 +2265,12 @@ mod tests {
         plan.cells.iter().map(|cell| cell.0).collect()
     }
 
-    /// No cell narrower than its column's widest value; the title at least its floor; the cells
-    /// in order without overlap.
+    /// No cell narrower than its column's widest value; the cells in order without overlap.
     fn check(plan: &Plan, widths: &Widths) {
         let mut right = 0.0;
         for &(column, x, width) in &plan.cells {
             assert!(x >= right, "{column:?} overlaps the cell before it");
-            match column {
-                Column::Title => assert!(width >= TITLE_MIN),
-                column => assert!(width >= widths.of(column), "{column:?} is clipped"),
-            }
+            assert!(width >= widths.of(column), "{column:?} is clipped");
             right = x + width;
         }
     }
@@ -2293,91 +2279,66 @@ mod tests {
         plan.cells.last().map_or(0.0, |&(_, x, width)| x + width)
     }
 
+    /// The space between the end of `before`'s cell and the start of `after`'s.
+    fn space(plan: &Plan, before: Column, after: Column) -> f32 {
+        let (left, width) = plan.span(before).unwrap();
+        plan.span(after).unwrap().0 - (left + width)
+    }
+
     #[test]
-    fn a_wide_row_shows_every_column_and_loosens_its_gaps() {
+    fn a_wide_row_shows_every_column_and_keeps_its_switches_at_the_edge() {
         let widths = widths(30.0);
         let plan = Plan::new(&widths, 3000.0);
         check(&plan, &widths);
         assert_eq!(shown(&plan), Column::ALL);
         assert!((right_edge(&plan) - 3000.0).abs() < 0.01);
-        // So much spare width that every gap after the name widens by the cap.
-        let (state, _) = plan.span(Column::State).unwrap();
-        let (name, name_width) = plan.span(Column::Name).unwrap();
-        assert!((state - (name + name_width) - (GAP + SPREAD)).abs() < 0.01);
+        // So much spare width that every gap after the name widens by the cap…
+        assert!((space(&plan, Column::Name, Column::State) - (GAP + SPREAD)).abs() < 0.01);
+        assert!((space(&plan, Column::Session, Column::Autopilot) - (GAP + SPREAD)).abs() < 0.01);
+        // … and the rest goes before the session column.
+        assert!(space(&plan, Column::Usage, Column::Session) > 2000.0);
         // The expander and the pin stay close to the name.
-        let (pin, _) = plan.span(Column::Pin).unwrap();
-        assert!((name - (pin + PIN) - TIGHT).abs() < 0.01);
+        assert!((space(&plan, Column::Pin, Column::Name) - TIGHT).abs() < 0.01);
     }
 
     #[test]
-    fn the_spare_width_is_shared_and_fills_the_row() {
+    fn the_spare_width_is_shared_among_the_gaps_and_fills_the_row() {
         let widths = widths(30.0);
         let full = columns_with(Column::GIVE_WAY[0]);
         let least = Plan::least(&widths, &full);
-        // A row with the title's least and 100 points to spare: the gaps take 40 of them.
-        let plan = Plan::new(&widths, least + TITLE_AT_LEAST + 100.0);
+        let spreading = full
+            .iter()
+            .take(full.len() - 1)
+            .filter(|column| column.spreads())
+            .count() as f32;
+        // Half the gaps' cap to spare: each gap after the name widens by half of it, the
+        // session column keeps its gap, and the row is filled to its edge.
+        let plan = Plan::new(&widths, least + spreading * SPREAD / 2.0);
         check(&plan, &widths);
         assert_eq!(shown(&plan), full);
-        let (_, title) = plan.span(Column::Title).unwrap();
-        assert!((title - (TITLE_AT_LEAST + 100.0 * (1.0 - SPREAD_SHARE))).abs() < 0.01);
-        assert!((right_edge(&plan) - (least + TITLE_AT_LEAST + 100.0)).abs() < 0.01);
-        // At the title's least exactly, the gaps keep theirs.
-        let tight = Plan::new(&widths, least + TITLE_AT_LEAST);
-        let (_, title) = tight.span(Column::Title).unwrap();
-        assert!((title - TITLE_AT_LEAST).abs() < 0.01);
-    }
-
-    /// The title gives way before a column does (D-25 addendum of 2026-11-11): the badges
-    /// compact first, then the title shrinks from its least to the floor while the compact
-    /// badges and the counts stay, and only under the floor do the counts leave, then the
-    /// badges, each time with the title at the floor again first.
-    #[test]
-    fn the_title_gives_way_before_the_counts_and_the_compact_badges() {
-        let widths = widths(30.0);
-        let full = columns_with(Column::GIVE_WAY[0]);
-        let compact = columns_with(Column::GIVE_WAY[1]);
-        let fewer = columns_with(Column::GIVE_WAY[2]);
-        // A point short of the full form's least: the badges compact, the title keeps its least.
-        let plan = Plan::new(&widths, Plan::least(&widths, &full) + TITLE_AT_LEAST - 1.0);
-        check(&plan, &widths);
-        assert_eq!(shown(&plan), compact);
-        assert!(plan.span(Column::Title).unwrap().1 >= TITLE_AT_LEAST);
-        // From there down to the floor the title alone gives way: the compact badges and the
-        // counts stay, the gaps keep their least, and the row is still filled to its edge.
-        let least = Plan::least(&widths, &compact);
-        for room in [
-            TITLE_AT_LEAST - 1.0,
-            (TITLE_AT_LEAST + TITLE_FLOOR) / 2.0,
-            TITLE_FLOOR,
+        assert!((right_edge(&plan) - (least + spreading * SPREAD / 2.0)).abs() < 0.01);
+        for (before, after) in [
+            (Column::Name, Column::State),
+            (Column::Next, Column::Progress),
+            (Column::Usage, Column::Session),
         ] {
-            let plan = Plan::new(&widths, least + room);
-            check(&plan, &widths);
-            assert_eq!(shown(&plan), compact, "{room}");
-            let (_, title) = plan.span(Column::Title).unwrap();
-            assert!((title - room).abs() < 0.01, "{room}: {title}");
-            assert!((right_edge(&plan) - (least + room)).abs() < 0.01, "{room}");
+            let space = space(&plan, before, after);
+            assert!(
+                (space - (GAP + SPREAD / 2.0)).abs() < 0.01,
+                "{after:?}: {space}"
+            );
         }
-        // A point under the floor and the counts leave; the title takes the room they free.
-        let plan = Plan::new(&widths, least + TITLE_FLOOR - 1.0);
-        check(&plan, &widths);
-        assert_eq!(shown(&plan), fewer);
-        assert!(plan.span(Column::Title).unwrap().1 > TITLE_FLOOR);
-        // The compact badges leave only once the title is at the floor again.
-        let least = Plan::least(&widths, &fewer);
-        assert_eq!(shown(&Plan::new(&widths, least + TITLE_FLOOR)), fewer);
-        assert_eq!(
-            shown(&Plan::new(&widths, least + TITLE_FLOOR - 1.0)),
-            columns_with(Column::GIVE_WAY[3])
-        );
+        // At the full form's least exactly, the gaps keep theirs.
+        let tight = Plan::new(&widths, least);
+        assert_eq!(shown(&tight), full);
+        assert!((right_edge(&tight) - least).abs() < 0.01);
+        assert!((space(&tight, Column::Next, Column::Progress) - GAP).abs() < 0.01);
     }
 
     #[test]
     fn a_narrowing_row_gives_way_in_d25s_order() {
         let widths = widths(30.0);
-        let fitting = |choice: usize| {
-            Plan::least(&widths, &columns_with(Column::GIVE_WAY[choice]))
-                + Plan::title_least(choice)
-        };
+        let fitting = |choice: usize| Plan::least(&widths, &columns_with(Column::GIVE_WAY[choice]));
         for choice in 0..Column::GIVE_WAY.len() {
             let plan = Plan::new(&widths, fitting(choice));
             check(&plan, &widths);
@@ -2392,7 +2353,7 @@ mod tests {
                 assert_eq!(shown(&plan), columns_with(Column::GIVE_WAY[choice + 1]));
             }
         }
-        // Narrower than the fewest columns allow: the title keeps its floor, nothing is clipped.
+        // Narrower than the fewest columns allow: nothing is clipped, the row runs past its edge.
         let plan = Plan::new(&widths, 200.0);
         check(&plan, &widths);
         assert_eq!(shown(&plan), columns_with(&[]));
@@ -2416,6 +2377,72 @@ mod tests {
             .unwrap();
         assert_eq!(rect.width(), 52.0);
         assert_eq!(rect.height(), 26.0);
+    }
+
+    /// The row draws no brief's title (EP-46): the next EP's id carries it on hover. A project
+    /// with no next brief says why in the Next cell, in short words drawn whole; one whose folder
+    /// is gone says so across the cells it leaves empty.
+    #[test]
+    fn the_brief_is_on_the_ids_hover() {
+        let scratch = Scratch::new("list-row-title");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let mut screen = Screen::new();
+        let title = "Ledger view";
+        let (_, _, next, output) =
+            harbor_cell_pass(&mut screen, &portfolio, Vec::new(), Column::Next);
+        assert!(
+            testing::text_containing(&output, title).is_none(),
+            "the row draws no title"
+        );
+        let at = next.left_center() + vec2(8.0, 0.0);
+        let mut output =
+            harbor_cell_pass(&mut screen, &portfolio, testing::moved(at), Column::Next).3;
+        // The hover waits for the pointer to rest.
+        for _ in 0..20 {
+            output = harbor_cell_pass(&mut screen, &portfolio, Vec::new(), Column::Next).3;
+        }
+        assert!(
+            testing::text_containing(&output, title).is_some(),
+            "the id's hover"
+        );
+
+        let view = View::default();
+        let mut next = 0.0;
+        let output = screen.pass(Vec::new(), |ui| {
+            let widths = Widths::measure(ui, &portfolio, Utc::now());
+            next = widths.of(Column::Next);
+            let plan = Plan::new(&widths, ui.available_width());
+            let drawing = drawing(&view, None);
+            for name in ["orchard", "atlas", "tundra"] {
+                project_row(ui, portfolio.project(name).unwrap(), &plan, None, &drawing);
+            }
+        });
+        let drawn = |text: &str| {
+            output
+                .shapes
+                .iter()
+                .find_map(|clipped| match &clipped.shape {
+                    egui::Shape::Text(shape) if shape.galley.text() == text => {
+                        Some(shape.galley.clone())
+                    }
+                    _ => None,
+                })
+                .unwrap_or_else(|| panic!("{text} is not drawn"))
+        };
+        for (name, short) in [("orchard", "all checked"), ("atlas", "no roadmap")] {
+            let row = portfolio.project(name).unwrap();
+            assert!(row.next().is_none(), "{name}");
+            assert_eq!(why_no_next(row).0, short);
+            assert!(!drawn(short).elided, "{name}: {short}");
+            // The Next cell stays about as wide as an EP's id and size.
+            assert!(drawn(short).rect.width() <= next, "{name}");
+        }
+        assert!(next < 100.0, "{next}");
+        // A path may be long: cut where the empty cells end, whole on hover, and wider than the
+        // Next cell alone.
+        let tundra = portfolio.project("tundra").unwrap();
+        assert!(tundra.folder.is_none());
+        assert!(drawn(&missing_folder(tundra)).rect.width() > next + GAP);
     }
 
     #[test]

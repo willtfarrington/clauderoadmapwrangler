@@ -97,8 +97,9 @@
 //!   asked, and its Revert reverts nothing); `revert=<project>:refused` (the same plan refused,
 //!   with Close alone) and `revert=<project>:done` (what the revert did);
 //! - `usage` (the usage meter's strip and pane with a canned reading, from EP-17: weekly 41 %,
-//!   Fable past its 80 % mark, a five-hour window open, the week by surface, a status line and a
-//!   week of samples across the weekly reset; from EP-18b also the week's shares of harbor,
+//!   Fable past its 80 % mark, a five-hour window open, the week by surface and a status line
+//!   (its week of samples went with the pane's spark line at EP-46); from EP-18b also the week's
+//!   shares of harbor,
 //!   lantern, quarry and orchard, orchard's `+0 %`, in the list's Usage column and the Detail
 //!   pane); `usage=degraded` (the same with the endpoint's last poll failed and a newer status
 //!   line); `usage=closed` (the same with the session (five-hour) window closed, as the
