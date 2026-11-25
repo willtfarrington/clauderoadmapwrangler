@@ -413,3 +413,17 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   10 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message
   IN-1: Migrate the roadmap… and Formalise… (the old block replaced), or it stays as it is, done;
   the sizes and its manual. Tick when settled
+- [ ] OT-44 (EP-57a, 2026-11-25) The first real open of a manual from the window, once EP-58 has
+  written this project's `docs/manual.md` (nothing waits on it; no session opens your PDF viewer,
+  and until EP-58 no project owes a manual, so every Manual entry is greyed). (1) Make sure the
+  window runs EP-57a's build or newer (File > Install and restart, if the status bar offers a
+  newer build). (2) Right-click the clauderoadmapwrangler row and choose Manual. Expected: the
+  status bar says "building the PDF of docs/manual.md if it is stale", then "…-manual.pdf built
+  from docs/manual.md, dated …, and handed to your PDF viewer", and the PDF opens in your viewer
+  within a few seconds. (3) Click Manual again: "is up to date and was handed to your PDF viewer",
+  and the viewer shows it again. (4) Click the Changes since the last phase link beside the path
+  at the top of the Detail pane: its PDF opens the same way. (5) Look at the Detail pane's Status
+  section, last line Manual: the manual's date beside "P6 closed on …" once EP-59 has closed the
+  phase, or "P5 closed on 2026-11-17" before. If a viewer does not open, or Explorer opens a
+  folder instead, write what the status bar said into this project's inbox (a row's Send a
+  message…). Tick when the PDF has opened

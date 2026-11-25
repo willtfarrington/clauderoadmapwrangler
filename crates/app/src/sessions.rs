@@ -1930,8 +1930,9 @@ impl Board {
                 && ui
                     .add_enabled(!starting, egui::Button::new("Commit"))
                     .on_hover_text(
-                        "Resume the session with your yes to its commit: the house pattern's \
-                         two commits, the hash recorded in the roadmap, never a push",
+                        "Resume the session with your yes to its commit: in the house pattern \
+                         (two commits, the hash recorded in the roadmap) or the project's own \
+                         when its CLAUDE.md states one; never a push",
                     )
                     .clicked()
             {

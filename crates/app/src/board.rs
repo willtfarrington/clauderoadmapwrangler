@@ -263,6 +263,12 @@ pub enum Action {
     /// One project's files, git and history read again, the other rows left as they are
     /// (EP-25a): a row's Refresh this project.
     RefreshProject(String),
+    /// The project's manual, or its changes since the last phase, built when stale and opened
+    /// in the system's viewer (D-12 addendum; EP-57a): a row's menu, the Detail pane's head.
+    OpenManual {
+        project: String,
+        which: crw_core::manual::Which,
+    },
     /// The project's history imported again from its log, whatever HEAD says (D-26; EP-25):
     /// the Detail pane's Re-import.
     Reimport(String),
@@ -497,6 +503,8 @@ pub struct Board {
     pub sessions: Sessions,
     /// The visual launch on its way, if one is.
     pub visual: Visual,
+    /// A manual's build on its way, and whether Typst was found (EP-57a).
+    pub manuals: crate::manuals::Manuals,
     /// The sessions the hooks, the status lines and the poll report (EP-12); started by `main`,
     /// never by a screenshot run or a test.
     pub watch: Watch,
@@ -627,6 +635,7 @@ impl Board {
             launch: None,
             sessions: Sessions::default(),
             visual: Visual::default(),
+            manuals: crate::manuals::Manuals::new(),
             watch: Watch::default(),
             toasts: Toasts::default(),
             tray: None,
@@ -742,6 +751,28 @@ impl Board {
     #[cfg(test)]
     pub fn error_text(&self) -> Option<&str> {
         self.error.as_deref()
+    }
+
+    /// A row's or the Detail pane's Manual entry (EP-57a): the build started on its worker thread,
+    /// or why not; its answer comes in with the other workers' in `receive`.
+    fn open_manual(&mut self, project: &str, which: crw_core::manual::Which) {
+        let state = self.manuals.state();
+        let ready = match self.portfolio.project(project) {
+            None => Err(format!("{project} is no longer in the list")),
+            Some(row) => crate::manuals::availability(row, which, state).and_then(|()| {
+                row.folder
+                    .as_ref()
+                    .map(|folder| folder.path.clone())
+                    .ok_or_else(|| "The project's folder is missing".to_owned())
+            }),
+        };
+        match ready.and_then(|folder| self.manuals.start(project, &folder, which, &self.ctx)) {
+            Ok(()) => self.notify(format!(
+                "{project}: building the PDF of {} if it is stale, then opening it…",
+                which.source()
+            )),
+            Err(why) => self.warn(crate::manuals::refused(project, which, &why)),
+        }
     }
 
     /// Each notice, warning and error goes to the rolling log whole as well (D-29; EP-28), where
@@ -871,6 +902,11 @@ impl Board {
                 Some(dialog) => dialog.error = Some(why),
                 None => self.fail(why),
             },
+            None => {}
+        }
+        match self.manuals.receive(ctx) {
+            Some(crate::manuals::Outcome::Opened(text)) => self.notify(text),
+            Some(crate::manuals::Outcome::Refused(why)) => self.warn(why),
             None => {}
         }
         self.receive_revert(ctx);
@@ -1874,6 +1910,7 @@ impl Board {
             }
             Action::Refresh => {
                 self.analytics.invalidate();
+                self.manuals.look_for_typst();
                 self.loader.read_files();
                 self.loader.read_git();
                 self.loader.read_online(true);
@@ -1886,10 +1923,13 @@ impl Board {
             }
             Action::RefreshProject(name) => {
                 self.loader.read_project(&name, Moment::Menu);
+                // Typst installed since the start offers the Manual entries (EP-57a).
+                self.manuals.look_for_typst();
                 self.notify(format!(
                     "Reading {name} again: the files, then git and its history."
                 ));
             }
+            Action::OpenManual { project, which } => self.open_manual(&project, which),
             Action::Adopt(name) => {
                 if let Some(text) = self.adopt_folder(&name, &today) {
                     self.view.selected = Some(Selection::Project(name));

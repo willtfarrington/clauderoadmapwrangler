@@ -328,6 +328,10 @@ PIN, a path under another hostname, an eframe-wasm page), and the guard's exact 
   name in `Host` (OT-29's arrival line), a request with the owner's login and a loopback `Host`
   refused, though only the machine itself can send one (the owner kept both readings, D-28
   addendum).
+- *(EP-57a)* A project's manual on its phone page: not cheap, so not built. The PDF lives in the
+  window's local folder on this PC; the phone would need a new route serving the file behind the
+  guard (the build too, when stale, on the window's worker thread), the first binary a page sends.
+  The window's Manual entries and `crw manual` are the ways in meanwhile.
 
 ## 5 Hosting and backup
 

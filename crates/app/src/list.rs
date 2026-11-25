@@ -164,9 +164,9 @@ impl Column {
             Column::State => ("State", "Set by hand (D-6); a bulb marks a proposed change"),
             Column::Next => (
                 "Next",
-                "The next brief in table order and its size: S about 30 minutes, M about an \
-                 hour, L about two hours; its one-line summary on the id's hover, the brief in \
-                 the Detail pane",
+                "The next brief in table order and its size: S about 30 minutes of active work, \
+                 M about 45 (an L, about two hours, only in older rows); its one-line summary on \
+                 the id's hover, the brief in the Detail pane",
             ),
             Column::Progress => ("Done", "Rows done of all rows"),
             Column::Items => (
@@ -457,6 +457,7 @@ impl Board {
             now,
             today: Local::now().date_naive(),
             loaded: self.analytics.loaded.as_ref(),
+            manuals: self.manuals.state(),
         };
         let plan = (!self.view.cards).then(|| {
             let widths = Widths::measure(ui, &self.portfolio, now);
@@ -757,6 +758,8 @@ struct Drawing<'a> {
     now: DateTime<Utc>,
     today: NaiveDate,
     loaded: Option<&'a Loaded>,
+    /// What the menu's Manual entries weigh (EP-57a).
+    manuals: crate::manuals::State,
 }
 
 /// The header row (EP-7a): each shown column's name over it, small and weak, with what the
@@ -1007,19 +1010,21 @@ fn project_row(
         } else if response.clicked() {
             actions.push(Action::Select(selection.clone()));
         }
-        row_menu(response, row, now, &mut actions);
+        row_menu(response, row, now, drawing.manuals, &mut actions);
     }
     actions
 }
 
 /// The row's menu on a right click, shared by the row and the card (EP-26a): pin, priority and
-/// state (D-6's "by hand"), Refresh this project (EP-25a), the proposals' dismissals (D-6),
-/// Send a message… (D-13), Formalise… and Migrate the roadmap… (D-11), the actions its hosting
-/// allows (D-24; EP-34), Revert the latest session… (EP-15c).
+/// state (D-6's "by hand"), Refresh this project (EP-25a), Manual and Changes since the last
+/// phase (EP-57a), the proposals' dismissals (D-6), Send a message… (D-13), Formalise… and
+/// Migrate the roadmap… (D-11), the actions its hosting allows (D-24; EP-34), Revert the latest
+/// session… (EP-15c).
 fn row_menu(
     response: &egui::Response,
     row: &ProjectRow,
     now: DateTime<Utc>,
+    manuals: crate::manuals::State,
     actions: &mut Vec<Action>,
 ) {
     let name = row.name();
@@ -1069,6 +1074,24 @@ fn row_menu(
         {
             actions.push(Action::RefreshProject(name.to_owned()));
             ui.close();
+        }
+        // The manual's PDFs, built when stale and opened in the system's viewer (EP-57a).
+        for which in crate::manuals::ENTRIES {
+            let available = crate::manuals::availability(row, which, manuals);
+            let item = ui
+                .add_enabled(
+                    available.is_ok(),
+                    egui::Button::new(crate::manuals::label(which)),
+                )
+                .on_hover_text(crate::manuals::hint(which))
+                .on_disabled_hover_text(available.err().unwrap_or_default());
+            if item.clicked() {
+                actions.push(Action::OpenManual {
+                    project: name.to_owned(),
+                    which,
+                });
+                ui.close();
+            }
         }
         // The bulb's proposals, each dismissed until the fact it rests on changes (D-6).
         for proposal in row.proposals(now).into_iter().filter(|p| !p.dismissed) {
@@ -1430,11 +1453,14 @@ pub(crate) fn session_words(row: &ProjectRow, live: Option<&str>) -> Vec<String>
         .collect()
 }
 
+/// The size cell's hover, by the sizes measured at EP-53 (D-4 addendum): no L is cut any more.
 fn size_hint(size: crw_core::roadmap::Size) -> &'static str {
     match size {
-        crw_core::roadmap::Size::S => "S: about 30 minutes of one session",
-        crw_core::roadmap::Size::M => "M: about an hour",
-        crw_core::roadmap::Size::L => "L: about two hours",
+        crw_core::roadmap::Size::S => "S: about 30 minutes of active work in one session",
+        crw_core::roadmap::Size::M => "M: about 45 minutes of active work in one session",
+        crw_core::roadmap::Size::L => {
+            "L: about two hours, a size older rows keep; a brief is now M or smaller"
+        }
     }
 }
 
@@ -1583,7 +1609,7 @@ fn card(
         actions.push(Action::Select(selection));
     }
     if let Some(row) = row {
-        row_menu(&response, row, drawing.now, &mut actions);
+        row_menu(&response, row, drawing.now, drawing.manuals, &mut actions);
     }
     (actions, own)
 }
@@ -1858,6 +1884,10 @@ mod tests {
             now: Utc::now(),
             today: Local::now().date_naive(),
             loaded,
+            manuals: crate::manuals::State {
+                typst: true,
+                busy: false,
+            },
         }
     }
 
@@ -2273,6 +2303,62 @@ mod tests {
             [Action::OpenAct {
                 project: Some("harbor".to_owned()),
                 verb: Verb::MakePrivate,
+            }]
+        );
+    }
+
+    /// The row's menu offers the manual's PDFs (EP-57a): Manual acts for a project that keeps
+    /// docs/manual.md; Changes since the last phase, without its file, is greyed and asks
+    /// nothing.
+    #[test]
+    fn the_rows_menu_offers_the_manual() {
+        let scratch = Scratch::new("list-row-manual");
+        let mut portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        let harbor = portfolio
+            .projects
+            .iter_mut()
+            .find(|row| row.name() == "harbor")
+            .unwrap();
+        harbor.snapshot.manual = crw_core::manual::Present {
+            manual: Some(1),
+            changes: false,
+        };
+        let mut screen = Screen::new();
+        let (_, _, name, _) = harbor_pass(&mut screen, &portfolio, Vec::new());
+        let at = name.left_center() + vec2(8.0, 0.0);
+        let press = |pressed| testing::button(at, egui::PointerButton::Secondary, pressed);
+        let open = |screen: &mut Screen| {
+            harbor_pass(screen, &portfolio, testing::moved(at));
+            harbor_pass(screen, &portfolio, press(true));
+            harbor_pass(screen, &portfolio, press(false));
+            harbor_pass(screen, &portfolio, Vec::new()).3
+        };
+        let output = open(&mut screen);
+        let click = |screen: &mut Screen, item| {
+            harbor_pass(screen, &portfolio, testing::moved(item));
+            harbor_pass(
+                screen,
+                &portfolio,
+                testing::button(item, egui::PointerButton::Primary, true),
+            );
+            harbor_pass(
+                screen,
+                &portfolio,
+                testing::button(item, egui::PointerButton::Primary, false),
+            )
+            .0
+        };
+        let changes =
+            testing::text_at(&output, "Changes since the last phase").expect("the greyed item");
+        assert_eq!(click(&mut screen, changes), []);
+        // A click closes the menu, the greyed item's too: open it again.
+        let output = open(&mut screen);
+        let manual = testing::text_at(&output, "Manual").expect("the menu item");
+        assert_eq!(
+            click(&mut screen, manual),
+            [Action::OpenManual {
+                project: "harbor".to_owned(),
+                which: crw_core::manual::Which::Manual,
             }]
         );
     }

@@ -54,6 +54,7 @@ impl Board {
                         Figures {
                             week: &self.meter.week,
                             analytics: &mut self.analytics,
+                            manuals: self.manuals.state(),
                         },
                         &mut self.view.folds,
                         &mut actions,
@@ -114,11 +115,38 @@ fn section(ui: &mut egui::Ui, title: &str) {
     ui.add_space(2.0);
 }
 
-/// What the ledger gives the pane beyond the files (EP-18b, EP-26): the week's usage shares and
-/// the graphs' latest read.
+/// What the pane shows beyond the files (EP-18b, EP-26, EP-57a): the week's usage shares, the
+/// graphs' latest read, and what the manual's links weigh.
 struct Figures<'a> {
     week: &'a Week,
     analytics: &'a mut Analytics,
+    manuals: crate::manuals::State,
+}
+
+/// The manual's two links beside the project's path (EP-57a), each greyed with its reason on
+/// hover; a click builds the PDF when stale and opens it.
+fn manual_links(
+    ui: &mut egui::Ui,
+    row: &ProjectRow,
+    manuals: crate::manuals::State,
+    actions: &mut Vec<Action>,
+) {
+    for which in crate::manuals::ENTRIES {
+        let available = crate::manuals::availability(row, which, manuals);
+        let link = ui
+            .add_enabled(
+                available.is_ok(),
+                egui::Link::new(crate::manuals::label(which)),
+            )
+            .on_hover_text(crate::manuals::hint(which))
+            .on_disabled_hover_text(available.err().unwrap_or_default());
+        if link.clicked() {
+            actions.push(Action::OpenManual {
+                project: row.name().to_owned(),
+                which,
+            });
+        }
+    }
 }
 
 fn project(
@@ -130,7 +158,11 @@ fn project(
     folds: &mut BTreeMap<String, bool>,
     actions: &mut Vec<Action>,
 ) {
-    let Figures { week, analytics } = figures;
+    let Figures {
+        week,
+        analytics,
+        manuals,
+    } = figures;
     let name = row.name();
     let snapshot = &row.snapshot;
     ui.horizontal(|ui| {
@@ -143,7 +175,10 @@ fn project(
         }
         ui.label(RichText::new(format!("priority {}", row.project.priority)).weak());
     });
-    ui.label(RichText::new(row.path.display().to_string()).weak());
+    ui.horizontal_wrapped(|ui| {
+        ui.label(RichText::new(row.path.display().to_string()).weak());
+        manual_links(ui, row, manuals, actions);
+    });
     if row.folder.is_none() {
         ui.label(
             RichText::new("The folder is missing: archive the project, or bring the folder back.")
@@ -750,7 +785,9 @@ fn eps_list(
 }
 
 /// The Status section's subsections, in order.
-const SUBSECTIONS: [&str; 6] = ["Stack", "Activity", "Hosting", "Health", "Backup", "Usage"];
+const SUBSECTIONS: [&str; 7] = [
+    "Stack", "Activity", "Hosting", "Health", "Backup", "Usage", "Manual",
+];
 /// The mark column's least width, so the sentences start at the same place for most projects.
 const MARK_AT_LEAST: f32 = 40.0;
 /// Between a subsection's name and its lines.
@@ -798,6 +835,16 @@ impl Columns {
         ui.horizontal_top(|ui| {
             style::padded(ui, self.mark, |_| {});
             ui.add(egui::Label::new(RichText::new(text.into()).weak()).wrap());
+        });
+    }
+
+    /// The same in amber, for something owed: a manual older than the last phase's close
+    /// (EP-57a).
+    fn amber_line(&self, ui: &mut egui::Ui, text: impl Into<String>) {
+        ui.horizontal_top(|ui| {
+            style::padded(ui, self.mark, |_| {});
+            let amber = style::amber(ui);
+            ui.add(egui::Label::new(RichText::new(text.into()).color(amber)).wrap());
         });
     }
 }
@@ -1030,6 +1077,19 @@ fn status(
             "From the ledger: each poll's rise split among the sessions that worked since the \
              poll before, manual ones too (D-23)",
         );
+    });
+    divider(ui);
+
+    // The manual's date beside the last phase's close, amber when that phase closed after it
+    // (EP-57a); the PDFs are built and opened from the links at the pane's head.
+    columns.subsection(ui, SUBSECTIONS[6], |ui| match crate::manuals::dated(row) {
+        Some(dated) if dated.stale => columns.amber_line(ui, dated.text),
+        Some(dated) => columns.weak_line(ui, dated.text),
+        None => columns.weak_line(
+            ui,
+            "No docs/manual.md: the project owes no manual (D-12); the session that settles its \
+             manual with you creates it",
+        ),
     });
 }
 
@@ -1301,6 +1361,71 @@ mod tests {
             )
             .is_some()
         );
+    }
+
+    /// The manual's links beside the path build and open its PDFs (EP-57a), greyed for a project
+    /// that owes none; the Status section dates the manual beside the last phase's close.
+    #[test]
+    fn the_manual_links_act_and_the_status_section_dates_the_manual() {
+        use crate::meter::Week;
+        use crate::portfolio::tests::{Scratch, fake_store};
+        use crate::testing::{self, Screen};
+        use crw_core::manual::Which;
+        use eframe::egui::PointerButton;
+
+        let scratch = Scratch::new("detail-manual");
+        let portfolio = crate::portfolio::read_files(&fake_store(&scratch));
+        // The fake harbor keeps both files; quarry keeps none.
+        let harbor = portfolio.project("harbor").unwrap();
+        let quarry = portfolio.project("quarry").unwrap();
+        assert!(harbor.snapshot.manual.has(Which::Changes));
+        assert_eq!(quarry.snapshot.manual.manual, None);
+        let ready = crate::manuals::State {
+            typst: true,
+            busy: false,
+        };
+        let mut screen = Screen::new();
+        let press = |screen: &mut Screen, row: &ProjectRow, label: &str| {
+            let mut actions = Vec::new();
+            let output = screen.pass(Vec::new(), |ui| {
+                manual_links(ui, row, ready, &mut actions);
+            });
+            let at = testing::text_at(&output, label).expect(label);
+            for events in [
+                testing::moved(at),
+                testing::button(at, PointerButton::Primary, true),
+                testing::button(at, PointerButton::Primary, false),
+            ] {
+                screen.pass(events, |ui| manual_links(ui, row, ready, &mut actions));
+            }
+            actions
+        };
+        for which in crate::manuals::ENTRIES {
+            assert_eq!(
+                press(&mut screen, harbor, crate::manuals::label(which)),
+                [Action::OpenManual {
+                    project: "harbor".to_owned(),
+                    which,
+                }]
+            );
+            assert_eq!(press(&mut screen, quarry, crate::manuals::label(which)), []);
+        }
+
+        // Not a repository: dated by the file's own time, beside P0's close from its heading.
+        let week = Week::default();
+        let output = screen.pass(Vec::new(), |ui| {
+            status(ui, harbor, &portfolio, &week, &mut Vec::new())
+        });
+        let own = harbor.snapshot.manual.manual.unwrap();
+        let line = format!(
+            "docs/manual.md dated {} (the file's own time); P0 closed on 2026-09-14",
+            crw_core::manual::date_of(own)
+        );
+        assert!(testing::text_at(&output, &line).is_some(), "{line}");
+        let output = screen.pass(Vec::new(), |ui| {
+            status(ui, quarry, &portfolio, &week, &mut Vec::new())
+        });
+        assert!(testing::text_containing(&output, "No docs/manual.md").is_some());
     }
 
     /// The Status section offers what the hosting allows under Hosting and Back up now under

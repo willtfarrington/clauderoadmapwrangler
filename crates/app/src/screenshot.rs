@@ -310,6 +310,8 @@ impl Run {
             PathBuf::from(r"C:\Tools\VS Code\Code.exe"),
             crw_core::version::Version::new(2, 1, 314),
         ));
+        // Typst taken as found, and no manual built or opened (EP-57a).
+        board.manuals.canned = true;
         board.catalog_folder = Some(
             Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("fixtures")

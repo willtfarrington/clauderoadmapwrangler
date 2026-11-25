@@ -894,8 +894,9 @@ fn run_words(draft: &prompt::Draft, autopilot: bool, plan: Option<&Plan>) -> Vec
     if autopilot {
         let cap = Cap::new(draft.size, Instant::now());
         words.push(format!(
-            "It commits itself in the house pattern and never pushes (the autopilot's standing \
-             yes), and is stopped at {} of work.",
+            "It commits itself in the house pattern, or the project's own when its CLAUDE.md \
+             states one, and never pushes (the autopilot's standing yes), and is stopped at {} \
+             of work.",
             cap.words()
         ));
         if let Some(plan) = plan {

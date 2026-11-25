@@ -55,6 +55,57 @@ pub fn dir() -> Option<PathBuf> {
     Some(crate::paths::local_dir()?.join(MANUALS))
 }
 
+/// Which of a project's two files are there, read with its other files (two looks, no child;
+/// EP-57a): the window greys its Manual entries by it and dates the manual in the Status section.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Present {
+    /// `docs/manual.md`'s own time in seconds since 1970, when it is there: a project without it
+    /// owes no manual (D-12 addendum).
+    pub manual: Option<i64>,
+    /// `docs/manual-changes.md` is there.
+    pub changes: bool,
+}
+
+impl Present {
+    pub fn read(folder: &Path) -> Self {
+        let docs = folder.join(DOCS);
+        let manual = docs.join(Which::Manual.file());
+        Self {
+            manual: manual
+                .is_file()
+                .then(|| modified(&manual).map_or(0, seconds)),
+            changes: docs.join(Which::Changes.file()).is_file(),
+        }
+    }
+
+    /// Whether `which`'s PDF can be built from the files that are there.
+    pub fn has(self, which: Which) -> bool {
+        match which {
+            Which::Manual => self.manual.is_some(),
+            Which::Changes => self.manual.is_some() && self.changes,
+        }
+    }
+}
+
+/// Opens `pdf` with the system's viewer for its kind (EP-57a), in the children's turn: Explorer
+/// hands a file to the program its type opens with and exits, so nothing is waited for. The path
+/// goes with `\` alone (a `CRW_HOME` may be written with `/`, which Explorer reads as a switch)
+/// and whole in quotes (it splits at commas).
+pub fn open(pdf: &Path) -> Result<(), String> {
+    let windows = std::env::var_os("SystemRoot")
+        .filter(|v| !v.is_empty())
+        .map_or_else(|| PathBuf::from(r"C:\Windows"), PathBuf::from);
+    let explorer = windows.join("explorer.exe");
+    let pdf = normalised(pdf);
+    let _turn = process::turn();
+    process::start_quoted(&explorer, pdf.as_os_str()).map(drop)
+}
+
+/// `path` rebuilt from its parts, so that its separators are the system's own.
+pub fn normalised(path: &Path) -> PathBuf {
+    path.components().collect()
+}
+
 /// Which of a project's two files a PDF is built from.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Which {
@@ -1508,6 +1559,43 @@ mod tests {
         _scratch: Scratch,
         folder: PathBuf,
         out: PathBuf,
+    }
+
+    /// Which of the two files are there, with the manual's own time (EP-57a): the changes file
+    /// alone builds nothing, since a project without the manual owes none.
+    #[test]
+    fn reads_which_of_the_two_files_are_there() {
+        let alpha = project("present", None);
+        assert_eq!(Present::read(&alpha.folder), Present::default());
+        assert!(!Present::default().has(Which::Manual));
+        let docs = alpha.folder.join(DOCS);
+        fs::write(docs.join("manual-changes.md"), "# Alpha\n").unwrap();
+        let changes_only = Present::read(&alpha.folder);
+        assert!(changes_only.manual.is_none() && changes_only.changes);
+        assert!(!changes_only.has(Which::Changes), "{changes_only:?}");
+        fs::write(docs.join("manual.md"), "# Alpha\n").unwrap();
+        let both = Present::read(&alpha.folder);
+        let own = seconds(modified(&docs.join("manual.md")).unwrap());
+        assert_eq!(both.manual, Some(own));
+        assert!(both.has(Which::Manual) && both.has(Which::Changes));
+        // A folder named like the file is not the file.
+        let beta = project("present-folder", None);
+        fs::create_dir_all(beta.folder.join(DOCS).join("manual.md")).unwrap();
+        assert_eq!(Present::read(&beta.folder), Present::default());
+    }
+
+    /// The viewer's path goes with the system's separators alone (EP-57a): a `CRW_HOME` written
+    /// with `/` would read as a switch to Explorer; the commas stay, inside the quotes.
+    #[test]
+    fn the_viewers_path_has_the_systems_separators() {
+        assert_eq!(
+            normalised(Path::new(r"C:/scratch/crw\manuals\a,b-manual.pdf")),
+            PathBuf::from(r"C:\scratch\crw\manuals\a,b-manual.pdf")
+        );
+        assert_eq!(
+            normalised(Path::new(r"C:\Local\manuals\alpha-manual.pdf")),
+            PathBuf::from(r"C:\Local\manuals\alpha-manual.pdf")
+        );
     }
 
     fn project(name: &str, manual: Option<&str>) -> Project {

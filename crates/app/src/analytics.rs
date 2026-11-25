@@ -37,11 +37,12 @@ const FRESH_FOR: Duration = Duration::from_secs(60);
 /// The ledger's name for the chat's turns, which are no project's sessions.
 const CHAT: &str = crw_core::chat::PROJECT;
 
-/// The plan's minutes per size (D-4), the medians' last fallback.
+/// The plan's minutes per size, the medians' last fallback: S about 30 and M about 45 minutes
+/// of active work as EP-53 measured them (D-4 addendum), L about two hours in older rows.
 pub fn planned(size: Size) -> f64 {
     match size {
         Size::S => 30.0,
-        Size::M => 60.0,
+        Size::M => 45.0,
         Size::L => 120.0,
     }
 }

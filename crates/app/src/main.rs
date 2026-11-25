@@ -30,6 +30,7 @@ mod layout;
 mod list;
 mod mail;
 mod mailbox;
+mod manuals;
 mod markup;
 mod meter;
 mod owner_tasks;

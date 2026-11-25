@@ -6,7 +6,8 @@
     pwsh -File scripts\copy-roadmap.ps1 -Project <project folder> -Into <copy root>
     Writes <copy root>\<the project's folder name> with what a row reads, and nothing else:
     roadmap\ (its own files: the README, the briefs, the owner tasks, the inbox, the older forms),
-    roadmap\adr and docs\adr, docs\handoffs, CLAUDE.md and .claude\CLAUDE.md, the license,
+    roadmap\adr and docs\adr, docs\handoffs, docs\manual.md and docs\manual-changes.md (EP-57a),
+    CLAUDE.md and .claude\CLAUDE.md, the license,
     DECISIONS.md at the root or one folder down, and the stack's manifests at the root and one
     folder down, as the stack chips look for them. A lock file is written empty, since only its
     presence counts, and .git is never copied, so the copy is no repository. Run it once per
@@ -64,6 +65,9 @@ Copy-Files 'roadmap'
 Copy-Files 'roadmap\adr' '*.md'
 Copy-Files 'docs\adr' '*.md'
 Copy-Files 'docs\handoffs' '*.md'
+# The manual's two files, which grey or offer a row's Manual entries (EP-57a).
+Copy-One 'docs\manual.md'
+Copy-One 'docs\manual-changes.md'
 Copy-One 'CLAUDE.md'
 Copy-One '.claude\CLAUDE.md'
 Copy-One 'DECISIONS.md'

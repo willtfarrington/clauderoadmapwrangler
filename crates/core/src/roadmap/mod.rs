@@ -73,7 +73,8 @@ impl<'de> serde::Deserialize<'de> for EpId {
     }
 }
 
-/// A brief's size (D-4): S ≈ 30 min, M ≈ 1 h, L ≈ 2 h of one session.
+/// A brief's size (D-4 and its addendum of EP-53): S ≈ 30 min and M ≈ 45 min of active work in
+/// one session; L ≈ 2 h, read in older rows, since a brief is now M or smaller.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]

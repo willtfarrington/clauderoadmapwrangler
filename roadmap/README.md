@@ -2919,6 +2919,18 @@ inbox through the tool, on the owner's word).
   footnotes and task-list boxes are not rendered (HTML is left out with a warning naming its
   line); a relative link keeps only its text in the PDF. `crw manual clauderoadmapwrangler
   --changes` builds the changes file the same way, its sections flowing on without page breaks.
+  **From EP-57a:** the window's entries to describe are **Manual** and **Changes since the last
+  phase** on a row's right-click menu (after Refresh this project) and as two links beside the
+  path at the Detail pane's head, each building the PDF when stale on a worker thread and handing
+  it to the PDF viewer through Explorer, greyed with the reason on hover (no `docs/manual.md`, no
+  changes file, Typst not found until F5 looks again, a build on its way); the status bar says
+  what was built or why not, the converter's warnings in the rolling log; and the Status
+  section's **Manual** line, the manual's date (its last commit while the file is as committed,
+  else its own time) beside the last phase's close, amber when that phase closed later. The fake
+  portfolio's harbor holds a synthetic `docs/manual.md` and `docs/manual-changes.md`, so a
+  screenshot run shows the links live (a scratch copy with an older file time shows the amber
+  line); `scripts\copy-roadmap.ps1` copies the two files too. Once this manual exists, the first
+  real open from the window is OT-44's.
 - **EP-59.** The P6 re-plan, by the `replan` skill: the walk of P6's residual-risk paragraphs
   (the new panes and the theme under the owner's hands, the re-read after a real visual
   session, the chat's queued send, the first manual opened from the window); the retro under

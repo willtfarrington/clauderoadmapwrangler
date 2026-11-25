@@ -257,6 +257,29 @@ where
     command.spawn().map_err(|e| did_not_start(program, &e))
 }
 
+/// [`start_alone`] for a program that reads its own command line, given one argument whole in
+/// quotes (EP-57a): Explorer splits an unquoted argument at its commas. A Windows path holds no
+/// `"`, so the quotes need no escape; the caller holds [`turn`] while it starts.
+pub fn start_quoted(program: &Path, arg: &OsStr) -> Result<std::process::Child, String> {
+    let mut command = Command::new(program);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let mut quoted = OsString::from("\"");
+        quoted.push(arg);
+        quoted.push("\"");
+        command.raw_arg(quoted).creation_flags(0x0800_0000);
+    }
+    #[cfg(not(windows))]
+    command.arg(arg);
+    command
+        .env_remove("ANTHROPIC_API_KEY")
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null());
+    command.spawn().map_err(|e| did_not_start(program, &e))
+}
+
 /// Waits up to `timeout` for a child started on its own: its exit code (`None` when it has
 /// none), or why it is not known; a child still running then is left to run, never killed.
 pub fn wait_alone(

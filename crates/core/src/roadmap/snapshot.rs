@@ -16,6 +16,7 @@ use super::table::{self, Done, Roadmap, Row};
 use super::{EpId, first_date, readme};
 use crate::git::{self, ChangeKind};
 use crate::inbox::{self, Inbox};
+use crate::manual::{self, Which};
 use crate::proposal::Facts;
 use crate::tasks::{self, OwnerItem, Tasks, legacy};
 use crate::{decisions, process};
@@ -48,6 +49,8 @@ pub struct Snapshot {
     /// The briefs among them, by path: the mailman's first reading of the project waits for
     /// them (EP-20c).
     pub unread_briefs: Vec<PathBuf>,
+    /// Which of the manual's two files are there (D-12 addendum; EP-57a).
+    pub manual: manual::Present,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +151,35 @@ impl Snapshot {
 
     pub fn entry(&self, id: EpId) -> Option<&Entry> {
         self.briefs.iter().find(|entry| entry.file.id == id)
+    }
+
+    /// The last phase whose rows are all checked, as the Status section names it (its id, else
+    /// its name), and the date its last row's brief completed, else the date of a heading that
+    /// says it is done (`(done 2026-10-31)`), when either carries one (EP-57a): the manual's date
+    /// is weighed against it.
+    pub fn last_close(&self) -> Option<(String, Option<String>)> {
+        let phase = self.current()?.phases.iter().rev().find(|phase| {
+            !phase.rows.is_empty() && phase.rows.iter().all(|row| row.done.is_checked())
+        })?;
+        let last = phase.rows.last()?;
+        let name = phase
+            .heading
+            .id
+            .clone()
+            .unwrap_or_else(|| phase.heading.name.clone());
+        let closed = self
+            .entry(last.id)
+            .and_then(Entry::completed_on)
+            .or_else(|| {
+                phase
+                    .heading
+                    .status
+                    .as_deref()
+                    .filter(|status| status.starts_with("done"))
+                    .and_then(first_date)
+                    .map(str::to_owned)
+            });
+        Some((name, closed))
     }
 
     /// Whether `HEAD` and the working tree read differently in what matters: the next EP or
@@ -345,11 +377,12 @@ pub fn read_tree(folder: &Path) -> Snapshot {
         legacy::read(folder, readme_text.as_deref(), snapshot.latest_complete());
     snapshot.legacy = items;
     snapshot.problems.extend(problems);
+    snapshot.manual = manual::Present::read(folder);
     snapshot
 }
 
 /// Reads `folder` whole: the working tree, then `HEAD`'s README and git's status when the folder
-/// is a repository (two git children, spaced).
+/// is a repository (two git children, spaced, and a third for a project that keeps a manual).
 pub fn take(folder: &Path) -> Snapshot {
     let mut snapshot = read_tree(folder);
     if let Some(reading) = read_git(folder) {
@@ -366,6 +399,20 @@ pub struct GitReading {
     pub head: Option<Roadmap>,
     pub status: Option<GitStatus>,
     pub worktree: Option<git::Status>,
+    /// The last commit of `docs/manual.md` while the file is as committed (EP-57a): asked only
+    /// of a project that keeps one; `None` otherwise, when an edit is not yet committed, or when
+    /// git does not track the file or could not say (its own time dates it then).
+    pub manual: Option<ManualCommit>,
+}
+
+/// The manual's last commit as the git pass read it (EP-57a).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ManualCommit {
+    /// The commit's time, in seconds since 1970.
+    pub at: i64,
+    /// The file's own time when git was asked: a newer one since means an edit the next git pass
+    /// has not seen, which the file's own time dates meanwhile.
+    pub file: i64,
 }
 
 impl GitReading {
@@ -376,7 +423,8 @@ impl GitReading {
     }
 }
 
-/// Asks git about `folder` (two children, spaced); `None` when it is not a repository.
+/// Asks git about `folder` (two children, spaced, and a third for the manual's date, EP-57a);
+/// `None` when it is not a repository.
 pub fn read_git(folder: &Path) -> Option<GitReading> {
     if !folder.join(".git").exists() {
         return None;
@@ -386,11 +434,35 @@ pub fn read_git(folder: &Path) -> Option<GitReading> {
         .map(|text| table::parse(&text));
     thread::sleep(process::SPACING);
     let worktree = git::status(folder).ok();
+    let manual = manual_commit(folder, worktree.as_ref());
     Some(GitReading {
         head,
         status: worktree.as_ref().map(roadmap_changes),
         worktree,
+        manual,
     })
+}
+
+/// The manual's last commit while the file is as committed (EP-57a): a third child, spaced, for a
+/// project that keeps `docs/manual.md` alone. An edit not yet committed, staged or not, or a file
+/// git does not track (a folder of untracked files is named by itself, with its `/`), asks
+/// nothing; nor does a status git could not give.
+fn manual_commit(folder: &Path, worktree: Option<&git::Status>) -> Option<ManualCommit> {
+    let path = Which::Manual.source();
+    let file = manual::Present::read(folder).manual?;
+    let changed = worktree?.changes.iter().any(|change| {
+        change.path == path || (change.path.ends_with('/') && path.starts_with(&change.path))
+    });
+    if changed {
+        return None;
+    }
+    thread::sleep(process::SPACING);
+    let at = git::run(folder, &["log", "-1", "--format=%ct", "--", &path])
+        .ok()?
+        .trim()
+        .parse()
+        .ok()?;
+    Some(ManualCommit { at, file })
 }
 
 /// The changes under `roadmap/` that matter (D-9): the README, and the brief files git does not
@@ -472,5 +544,89 @@ mod tests {
         snapshot.fill(&mut facts);
         assert_eq!(facts, Facts::default());
         assert!(!snapshot.pickup_gate());
+    }
+
+    const TABLE: &str =
+        "| # | Brief | Size | Depends on | Core | Done |\n|---|---|---|---|---|---|\n";
+
+    /// The last phase whose rows are all checked, dated by its last brief's completion, else by
+    /// a heading that says done, never by one that says planned (EP-57a).
+    #[test]
+    fn names_the_last_phase_closed_and_its_date() {
+        let scratch = crate::files::tests::Scratch::new("snapshot-last-close");
+        let folder = scratch.0.join("alpha");
+        fs::create_dir_all(folder.join("roadmap")).unwrap();
+        let readme = |p1_done: bool| {
+            format!(
+                "# Roadmap\n\n## Phase P0 — Planning (done 2026-09-14)\n\n{TABLE}| EP-0 | Plan | \
+                 L | — | core | ☑ `aaaaaaa` |\n\n## Phase P1 — Build (planned 2026-09-14)\n\n\
+                 {TABLE}| EP-1 | One | S | EP-0 | core | ☑ `bbbbbbb` |\n| EP-2 | Re-plan P1 | S \
+                 | EP-1 | core | {} |\n\n## Phase P2 — More (planned 2026-09-30)\n\n{TABLE}| EP-3 \
+                 | Three | M | EP-2 | core | ☐ |\n",
+                if p1_done { "☑ `ccccccc`" } else { "☐" }
+            )
+        };
+        let write = |text: String| fs::write(folder.join("roadmap").join("README.md"), text);
+        // P1 open: P0 closed last, dated by its heading.
+        write(readme(false)).unwrap();
+        assert_eq!(
+            read_tree(&folder).last_close(),
+            Some(("P0".to_owned(), Some("2026-09-14".to_owned())))
+        );
+        // P1 closed, its re-plan without a brief file: a heading that says planned dates nothing.
+        write(readme(true)).unwrap();
+        assert_eq!(
+            read_tree(&folder).last_close(),
+            Some(("P1".to_owned(), None))
+        );
+        // With the re-plan's brief and its completion note, that note's date.
+        fs::write(
+            folder.join("roadmap").join("EP-2-replan-p1.md"),
+            "# EP-2 — Re-plan P1\n\n> **Completion note (2026-09-30; opus/max; 40 min).** Done.\n",
+        )
+        .unwrap();
+        assert_eq!(
+            read_tree(&folder).last_close(),
+            Some(("P1".to_owned(), Some("2026-09-30".to_owned())))
+        );
+        // No roadmap, no close.
+        assert_eq!(Snapshot::default().last_close(), None);
+    }
+
+    /// The git pass asks the manual's last commit only of a project that keeps one, and only
+    /// while the file is as committed: untracked (its folder named by itself) or edited, the
+    /// file's own time dates it (EP-57a).
+    #[test]
+    fn the_git_pass_dates_the_manual_while_it_is_as_committed() {
+        let repo = crate::revert::testing::Repo::new("snapshot-manual-commit");
+        let folder = repo.0.clone();
+        let date = |folder: &Path| read_git(folder).unwrap().manual.map(|commit| commit.at);
+        repo.write("README.md", "alpha\n");
+        repo.commit("first");
+        assert_eq!(date(&folder), None, "no manual");
+        // Untracked, its folder named by itself; then inside a folder git tracks, by its path.
+        repo.write("docs/manual.md", "# Alpha\n");
+        assert_eq!(date(&folder), None, "an untracked folder");
+        repo.write("docs/notes.md", "notes\n");
+        repo.commit_paths("notes", &["docs/notes.md"]);
+        assert_eq!(date(&folder), None, "an untracked file");
+        repo.commit("the manual");
+        let committed: i64 = repo
+            .git(&["log", "-1", "--format=%ct"])
+            .trim()
+            .parse()
+            .unwrap();
+        let reading = read_git(&folder).unwrap().manual.expect("the commit");
+        assert_eq!(reading.at, committed);
+        assert_eq!(Some(reading.file), manual::Present::read(&folder).manual);
+        // An edit, staged or not, asks nothing.
+        repo.write("docs/manual.md", "# Alpha\n\nMore.\n");
+        assert_eq!(date(&folder), None, "edited");
+        repo.git(&["add", "docs/manual.md"]);
+        assert_eq!(date(&folder), None, "staged");
+        // Without git's status nothing is asked.
+        repo.commit("more");
+        assert!(date(&folder).is_some());
+        assert_eq!(manual_commit(&folder, None), None);
     }
 }
