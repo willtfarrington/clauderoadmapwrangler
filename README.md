@@ -266,8 +266,9 @@ project's row menu, and reads the plan again before it reverts (EP-15c).
 
 The autopilot chains a project's briefs within caps. A project's box in the list (or A) turns it
 on, the owner's standing yes to that project's commits: its sessions then commit in the house
-pattern, record the hash in the roadmap and never push. With it off, a headless session stops
-before committing and its ended tab offers Commit, which resumes it with that yes. When a headless
+pattern (or the project's own, when its `CLAUDE.md` states one), record the hash in the roadmap and
+never push. With it off, a headless session stops before committing and its ended tab offers
+Commit, which resumes it with that yes. When a headless
 run of a project with the autopilot on completes, a gate reads the project afresh and names every
 condition that fails: the brief's completion note and its checked row, the next brief not a
 re-plan and no larger than M, no owner task due before it, a clean tree, the day's caps (2 chained
@@ -591,10 +592,12 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
 
 - **Phase tables.** `## Phase P1 — <name> (<status>)` headings, each followed by a table with the header
   `| # | Brief | Size | Depends on | Core | Done |`. One row per brief: an `EP-n` id; a one-line summary,
-  optionally a link to the brief file, with the decisions it rests on as `D-n`; the size `S`, `M` or `L`
-  (about 30 minutes, 1 hour and 2 hours of one session; a re-scope is written in the cell, such as
-  `S → L (…)`); the ids it depends on; `core` or `stretch`; and the Done cell, `☐` or `☑` with one
-  backticked commit hash.
+  optionally a link to the brief file, with the decisions it rests on as `D-n`; the size `S` or `M`
+  (about 30 and 45 minutes of active work in one session: an S where its shape is known at planning,
+  an M for an investigation, a state machine or the choice of a tool; a row that proves larger at
+  pickup is split there; `L`, which older rows hold, is still read; a re-scope is written in the
+  cell, such as `S → M (…)`); the ids it depends on; `core` or `stretch`; and the Done cell, `☐` or
+  `☑` with one backticked commit hash.
 - **The next brief** is the first unchecked row in table order, not the lowest number.
 - **Brief notes.** Under each table, `**Brief notes.**` and one `- **EP-n.** …` bullet per brief: the
   detail a session starts from.
@@ -643,7 +646,8 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   house-style files again after the reset, as it redoes the tool's ticks.
 - **Re-plans and parked work.** A re-plan brief closes each phase; work named and not built is parked in
   `roadmap/v2-notes.md`.
-- **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.
+- **Commits.** `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`,
+  unless the project's `CLAUDE.md` states its own pattern.
 
 ## The roadmap-wrangler plugin
 

@@ -35,8 +35,9 @@ pub const EVENT_KIND: &str = "formalise";
 const RULES: &str = "\
 ## Roadmap house style
 
-Written by Roadmap Wrangler (`crw formalise`; clauderoadmapwrangler D-10 … D-13) between these
-markers, which it may rewrite: edit outside them. This file's own rules win where they differ.
+Written by Roadmap Wrangler (`crw formalise`; clauderoadmapwrangler D-4, D-10 … D-13) between
+these markers, which it may rewrite: edit outside them. This file's own rules win where they
+differ.
 
 - **Read first:** `roadmap/README.md` (the next unchecked EP in table order and its brief notes
   under the phase table), `DECISIONS.md`, the last executed brief's completion note,
@@ -55,9 +56,13 @@ markers, which it may rewrite: edit outside them. This file's own rules win wher
   which the tool delivers into that project's `roadmap/inbox.md` once the brief is committed.
 - **Owner tasks:** what only the owner can do is appended to `roadmap/owner-tasks.md` as
   `- [ ] OT-n (EP-k, date) text`, ending `[before EP-m]` only when EP-m builds on it.
-- **The roadmap:** phase tables `| # | Brief | Size | Depends on | Core | Done |`, sizes S, M or L,
-  a done row's cell `☑` and one backticked commit hash; each upcoming EP's detail is a
-  `- **EP-n.** …` bullet under `**Brief notes.**`.
+- **The roadmap:** phase tables `| # | Brief | Size | Depends on | Core | Done |`, a done row's
+  cell `☑` and one backticked commit hash; each upcoming EP's detail is a `- **EP-n.** …` bullet
+  under `**Brief notes.**`.
+- **Sizes:** a brief is S (about 30 minutes of active work) or M (about 45): an S where its shape
+  is known at planning and it touches a handful of files, an M for an investigation, a state
+  machine or the choice of a tool. A row is not cut only to make it smaller, and a row that
+  proves larger at pickup is split there, never run long.
 ";
 
 /// The header of an `owner-tasks.md` the formalise step creates (D-10); the example line stays in
@@ -804,7 +809,11 @@ mod tests {
     fn the_block_holds_the_read_first_rule_the_opener_quotes() {
         let block = block("\n");
         assert!(block.starts_with(&format!("{BEGIN}\n## Roadmap house style\n")));
-        assert!(block.ends_with(&format!("`**Brief notes.**`.\n{END}")));
+        // The size rule last (the D-4 addendum of 2026-11-24; EP-54): S or M, no L.
+        assert!(block.contains("`- **EP-n.** …` bullet\n  under `**Brief notes.**`.\n"));
+        assert!(block.contains("a brief is S (about 30 minutes of active work) or M (about 45)"));
+        assert!(!block.contains("S, M or L"));
+        assert!(block.ends_with(&format!("split there, never run long.\n{END}")));
         let quoted = prompt::read_first(&format!("# alpha — session rules\n\n{block}\n")).unwrap();
         assert!(
             quoted.starts_with("**Read first:** `roadmap/README.md`"),

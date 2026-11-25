@@ -2,8 +2,9 @@
 
 The schema a house-style project's roadmap files follow: the forms Roadmap Wrangler's parser
 reads (`crw roadmap <folder>` prints its reading of one project) and the forms its sessions write.
-The decisions behind it are clauderoadmapwrangler's D-9 (the convention), D-10 (owner tasks),
-D-11 (what the tool writes), D-12 (front matter and the completion note) and D-13 (the inbox).
+The decisions behind it are clauderoadmapwrangler's D-4 (sizes), D-9 (the convention), D-10
+(owner tasks), D-11 (what the tool writes), D-12 (front matter and the completion note) and D-13
+(the inbox).
 The texts quoted under [The engine's texts](#the-engines-texts) are the ones `crw formalise`
 writes, byte for byte.
 
@@ -44,9 +45,13 @@ closes with a re-plan brief.
 - **#**: `EP-n`, or a lettered id for a brief added or split later (`EP-7a`).
 - **Brief**: a one-line summary, linked to the brief file once it exists, with the decisions it
   rests on as `(D-n, …)`.
-- **Size**: `S` (about 30 minutes), `M` (about 1 hour) or `L` (about 2 hours) of one session with
-  the owner supervising; anything larger is split at pickup. A re-scope stays in the cell with the
-  final size last: `S → M (re-scoped at pickup)`.
+- **Size**: `S` (about 30 minutes of active work in one session) or `M` (about 45). A brief is S
+  or M: an S where its shape is known at planning and it touches a handful of files; an M for an
+  investigation, a state machine or the choice of a tool, or cut into a row that finds and a row
+  that fixes. A row is not cut only to make it smaller (each brief carries about 15 minutes of
+  read-first, brief, checks and close), and a row that proves larger at pickup is split there,
+  never run long. `L` (about 2 hours), which older rows hold, is still read. A re-scope stays in
+  the cell with the final size last: `S → M (re-scoped at pickup)`.
 - **Depends on**: the immediate prerequisites only, ids or ranges (`EP-1 … EP-7`); the table's
   order supplies the rest.
 - **Core**: `core` or `stretch`.
@@ -62,7 +67,8 @@ launch prompt carries the bullet verbatim). A later session adds to a bullet in 
 with a bold label: `**From EP-12:** …` for what an executed brief learned, `**From IN-4
 (2026-11-01):** …` for a triaged message. A brief note for an EP two or more briefs ahead may also
 take a parked block, `> **Addendum (date, from …).** …`, which the session that picks the brief up
-folds in.
+folds in. Only the project's own sessions write either (at triage or from an executed brief),
+never a sender: another project's word arrives through the inbox.
 
 **Ordering rationale and standing decisions.** Under each table, a paragraph says why the rows
 come in that order, and a dated sentence is added for each change (`*(2026-11-10, EP-20 split at
@@ -71,11 +77,12 @@ phase obeys.
 
 ## Briefs
 
-A session for EP-n first writes `roadmap/EP-n-<slug>.md` from its row and its brief note, before
-touching any other file:
+One brief per session, unless the owner asks for more. A session for EP-n first writes
+`roadmap/EP-n-<slug>.md` from its row and its brief note, before touching any other file:
 
 - **Front matter** (D-12): `ep`, `title`, `size`, `model`, `effort`, `status` (`in progress`, then
-  `done`). A lettered id is written with or without its prefix (`ep: 7a` or `ep: EP-7a`).
+  `done`), kept true to the session. A lettered id is written with or without its prefix (`ep: 7a`
+  or `ep: EP-7a`).
 - A title line `# EP-n — <title>` and `**Size:** M · **Depends on:** EP-k · **Blocks:** EP-m`.
 - **Context**: what the row and its note ask for and what exists; a **Session start** paragraph
   (how the session was launched, what it read first, the state of the tree); a **Decided at
@@ -91,7 +98,8 @@ touching any other file:
   note (date).**`, `## Completion note`, `> **☑ COMPLETE**`) are read as well.
 - A message for another project follows the note as its own block,
   `> **Handed on (to <project>).** …`; the tool delivers it into that project's inbox once the
-  brief is committed (D-13). A block `(to the owner)` is an owner item, not mail.
+  brief is committed (D-13). Only for a receiver outside the tool's registry does the session
+  write the inbox line itself. A block `(to the owner)` is an owner item, not mail.
 
 ## Decisions
 
@@ -144,9 +152,9 @@ interrupted by a delivery; an `urgent` message notifies the owner, not the sessi
 ## Commits
 
 `<Title>: <summary> (EP-n, D-x)` for the work, then `docs(roadmap): record EP-n commit hash` for
-the row's Done cell. Commits are the owner's call (with the autopilot on for a project, its standing
-yes); messages go through a file, without AI attribution trailers. A session never pushes unless
-the owner says so.
+the row's Done cell; a project whose `CLAUDE.md` states its own pattern keeps it. Commits are the
+owner's call (with the autopilot on for a project, its standing yes); messages go through a file,
+without AI attribution trailers. A session never pushes unless the owner says so.
 
 ## Re-plans and parked work
 
@@ -181,8 +189,9 @@ The tool may rewrite what lies between the markers; the project's own rules outs
 <!-- roadmap-wrangler:begin -->
 ## Roadmap house style
 
-Written by Roadmap Wrangler (`crw formalise`; clauderoadmapwrangler D-10 … D-13) between these
-markers, which it may rewrite: edit outside them. This file's own rules win where they differ.
+Written by Roadmap Wrangler (`crw formalise`; clauderoadmapwrangler D-4, D-10 … D-13) between
+these markers, which it may rewrite: edit outside them. This file's own rules win where they
+differ.
 
 - **Read first:** `roadmap/README.md` (the next unchecked EP in table order and its brief notes
   under the phase table), `DECISIONS.md`, the last executed brief's completion note,
@@ -201,9 +210,13 @@ markers, which it may rewrite: edit outside them. This file's own rules win wher
   which the tool delivers into that project's `roadmap/inbox.md` once the brief is committed.
 - **Owner tasks:** what only the owner can do is appended to `roadmap/owner-tasks.md` as
   `- [ ] OT-n (EP-k, date) text`, ending `[before EP-m]` only when EP-m builds on it.
-- **The roadmap:** phase tables `| # | Brief | Size | Depends on | Core | Done |`, sizes S, M or L,
-  a done row's cell `☑` and one backticked commit hash; each upcoming EP's detail is a
-  `- **EP-n.** …` bullet under `**Brief notes.**`.
+- **The roadmap:** phase tables `| # | Brief | Size | Depends on | Core | Done |`, a done row's
+  cell `☑` and one backticked commit hash; each upcoming EP's detail is a `- **EP-n.** …` bullet
+  under `**Brief notes.**`.
+- **Sizes:** a brief is S (about 30 minutes of active work) or M (about 45): an S where its shape
+  is known at planning and it touches a handful of files, an M for an investigation, a state
+  machine or the choice of a tool. A row is not cut only to make it smaller, and a row that
+  proves larger at pickup is split there, never run long.
 <!-- roadmap-wrangler:end -->
 ```
 

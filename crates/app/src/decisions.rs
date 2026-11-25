@@ -211,15 +211,17 @@ pub fn answer_words(request: &Request, response: &Response) -> String {
 }
 
 /// The message that resumes a run deferred at its time limit with the owner's `response`: the
-/// session reads in it what it asked and what the owner said (D-19).
+/// session reads in it what it asked and what the owner said (D-19), the decision cited as this
+/// tool's, since a bare number names the project's own (EP-54).
 pub fn resume_message(request: &Request, response: &Response) -> String {
     let what = if request.questions.is_empty() {
         "your permission request"
     } else {
         "your question"
     };
-    let opening =
-        format!("The run was deferred while {what} waited for the owner (D-19), who answers now.");
+    let opening = format!(
+        "The run was deferred while {what} waited for the owner (crw's D-19), who answers now."
+    );
     match response {
         Response::Answers(answers) => {
             let mut text = format!("{opening} The answers:\n");

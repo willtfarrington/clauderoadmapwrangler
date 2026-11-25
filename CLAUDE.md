@@ -1,7 +1,7 @@
 # clauderoadmapwrangler — session rules
 
 1. **Read first:** `roadmap/README.md` (pick the next unchecked EP **in table order** and its **brief
-   notes** under the phase table), `DECISIONS.md` (D-1 … D-30), the last executed brief's completion note,
+   notes** under the phase table), `DECISIONS.md`, the last executed brief's completion note,
    then `roadmap/owner-tasks.md` and `roadmap/inbox.md` (triage rule, D-13: roll a message in if it fits
    the brief and is at most S-sized; otherwise add it to a named later EP's brief notes or propose a new
    row, confirming with the owner through `AskUserQuestion`; or decline with a reason; write the
@@ -56,7 +56,7 @@
    remote view's URL never enter a tracked file (D-29 and D-28 addenda of 2026-11-15, D-3; EP-29).
 6. **Build and verify:** `cargo test`, `cargo test --features screenshot`, `cargo clippy
    --all-targets --features screenshot -- -D warnings` and `cargo clippy --all-targets -- -D warnings`
-   (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M or L brief a
+   (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M brief a
    review of the diff before the build (the `/code-review` skill at medium, or a review subagent given
    the diff and not the session's conclusions; findings fixed or logged in the completion note; D-29
    addendum, 2026-11-08); then `cargo build --release`, until EP-37 with the app closed (a running exe

@@ -343,7 +343,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   EP-52. (3) When its last brief hands the outcome back, a message from it shows in this
   project's inbox (the Inbox pane from EP-51): tick this task then. EP-54 changes the plugin's
   skills, its house-style reference and the formalise templates from that message [before EP-54]
-- [ ] OT-31 (EP-49, 2026-11-24) Retake the README's phone picture in the new dark style (nothing
+- [x] OT-31 (EP-49, 2026-11-24) Retake the README's phone picture in the new dark style (nothing
   waits on it). EP-49 moved the phone pages' dark style sheet to the window's near-black palette,
   so `docs\phone-list.png` shows the old shades. (1) Open `target\ep49-phone\phone-list.html` in
   this repository in a browser set to dark mode, at a phone's width (about 390 px, as the
@@ -353,3 +353,21 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   over `docs\phone-list.png`. (3) Commit that one file yourself, for example `git commit -m
   "Phone picture: the list page in the new dark style (EP-49, D-25)" -- docs/phone-list.png`,
   since a change left in the tree stops a chain at its gate. The push stays yours
+- [ ] OT-32 (EP-54, 2026-11-24) Update the roadmap-wrangler plugin in your own sessions once you
+  have pushed (nothing waits on it, but EP-55's sweep reads best after it). EP-54 changed the
+  plugin's `plan` and `replan` skills and its house-style reference (a brief S or M, a few rounds
+  per planning session, a resumed session's wall time from your return, a project's own commit
+  pattern kept). The plugin names no version, so the push is the release. (1) Push this
+  repository. (2) In a terminal, `claude plugin update roadmap-wrangler@clauderoadmapwrangler`
+  (or `/plugin` in a session, the roadmap-wrangler entry, Update). (3) Check in a new VS Code
+  session: the `plan` skill's step 5 should end "Keep a planning session to a few rounds, …". The
+  window's headless runs need nothing: they load the installed build's copy
+- [ ] OT-33 (EP-54, 2026-11-24) Delete the old scratch folder `target\tmp` of this repository by
+  hand (nothing waits on it). It holds about 2,700 git-ignored files (about 100 MB) that the
+  briefs EP-24 to EP-42 left: logs, diffs, pictures, scratch homes and about 1,800 roadmap files,
+  many of them copies of your real projects' roadmaps from screenshot runs, which your daily
+  backup archives with the repository. EP-54 removed only the 36 copies of other projects'
+  `CLAUDE.md` files your conventions review named; nothing reads the folder, and later sessions
+  put their scratch in a scratchpad folder outside the repository. (1) In File Explorer, open
+  this repository's `target` folder. (2) Select `tmp` and press Shift+Delete, then Yes. Expected: the folder is gone and `target\release` is untouched; a
+  delete of this size from a shell is what the machine's security software flags, hence by hand

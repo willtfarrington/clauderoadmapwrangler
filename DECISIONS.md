@@ -738,6 +738,28 @@ matter as well. *Alternatives.* Any subset; a model/effort column in the phase t
 > without the prefix (`ep: 7a` or `ep: EP-7a`); the parser reads both (EP-7a's fix). *Alternatives.*
 > The prefix required.
 
+> **Addendum (2026-11-24, EP-54).** The house-style texts this repository publishes for every
+> project, after the conventions review the owner ran in their environment repository (its
+> outcome IN-16) and EP-53's sizes (D-4 addendum of this date). The rule block `crw formalise`
+> writes gains a Sizes bullet in place of "sizes S, M or L": a brief is S (about 30 minutes of
+> active work) or M (about 45), an S where its shape is known at planning, an M for an
+> investigation, a state machine or the choice of a tool, no row cut only to make it smaller, a
+> row that proves larger at pickup split there; it cites D-4 beside D-10 … D-13. A project
+> already formalised takes it at its next formalise (replaced between the markers; until then its
+> row's menu offers Formalise…), which EP-55's sweep names. The plugin's reference states the
+> rule in its Size cell (an `L` in older rows still read), one brief per session unless the owner
+> asks for more, the front matter kept true to the session, a brief note's segments and parked
+> blocks written by the project's own sessions and never by a sender, and the inbox line written
+> by a session only for a receiver outside the tool's registry. A project whose `CLAUDE.md`
+> states its own commit pattern keeps it: the reference, the top-level README and the opener say
+> so ("commit as the project's `CLAUDE.md` says: the house pattern, … unless it states its own"),
+> and the opener cites this tool's decisions as "crw's D-22" and "crw's D-13", since a bare
+> number names the project's own. *Alternatives.* The sizes in the reference alone, the rule
+> block left as it was (a project formalised without the owner's user-level rules would not have
+> them); the parser reading a new L as a problem (every project's done rows hold L's); the house
+> pattern required everywhere (two projects write their own conventional commits, which the
+> review keeps).
+
 **D-13 Cross-project inbox.** Messages between projects live in the receiver's **`roadmap/inbox.md`**, one
 line each, `- [ ] IN-n (from <project> EP-k, date) text`, tracked in git and mirrored in the registry for
 the UI and the phone. **The tool is the mailman**: a sending session writes `> **Handed on (to
@@ -2209,6 +2231,12 @@ committing and recording hashes; one model and effort per project; usage thresho
 > window's pass's, shown or hidden. *Alternatives.* The section left in the All tab with its log
 > folded there; the moment's Show opening the log's fold too.
 
+> **Addendum (2026-11-24, EP-54).** The headless prompt's commit words, and the Commit button's
+> message, now read "commit as the project's `CLAUDE.md` says: the house pattern, … unless it
+> states its own", and its autopilot rule cites this decision as "crw's D-22", since a bare
+> number names the project's own (the owner's conventions review; D-12 addendum of this date).
+> *Alternatives.* The house pattern required in every project.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -3216,6 +3244,21 @@ nothing injected or a full registry dump; a portfolio report (parked).
 > button pressing itself again (the owner would still read the refusal); a queue that asks again
 > after an ask that ended without answers (a thread that died at each ask would start children
 > at every pass).
+
+> **Addendum (2026-11-24, EP-54).** The plugin's skills after the owner's conventions review
+> (IN-16) and EP-53's sizes. `plan` keeps a planning session to a few rounds, the detail pushed
+> into brief notes that later sessions grow, a long planning request becoming several sessions,
+> and sizes its rows S or M by the reference's Size cell. `replan` reports the wall time of a
+> session resumed after a night or another long absence from the owner's return, re-cuts the
+> next phase to S or M, recounts the totals from the tables, never from the last total, and
+> commits as the project's `CLAUDE.md` says. `formalise` and `status` are unchanged. The plugin
+> still names no `version` (EP-22's choice): Claude Code versions it by the commit, so the push
+> is the release, which the owner's own sessions take with `claude plugin update
+> roadmap-wrangler@clauderoadmapwrangler` (OT-32); the tool's headless runs take the copy of the
+> build that starts them, from the install on. *Alternatives.* A `version` in `plugin.json`
+> raised at this change (an installed copy would then update only when the number moves, so
+> every later change would need its bump); the `plan` skill's exhaustive rounds kept, its owner
+> asking for "a few" per session elsewhere.
 
 **D-28 Remote access and security.** axum binds **127.0.0.1 only**; a one-time "Enable remote view"
 action runs `tailscale serve --bg --https=9443` to that port after the owner's click (the node's 443 and

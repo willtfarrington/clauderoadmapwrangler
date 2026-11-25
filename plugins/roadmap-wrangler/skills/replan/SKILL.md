@@ -48,7 +48,8 @@ session's transcript, not from commits or a session ledger:
   project's own folder (test fixtures may hold briefs of the same names), never by the request's
   words, which other text quotes;
 - run from the session's first entry to the EP's record commit (`git log`); when one session did
-  two briefs, start the second at the first's record commit;
+  two briefs, start the second at the first's record commit; a session resumed after a night or
+  another long absence shows it as one gap: report that EP's wall time from the owner's return;
 - every entry's `timestamp` is UTC; a gap over five minutes is a wait on the owner only when the
   entry that ends it is a `user` entry whose `tool_result` carries an `AskUserQuestion` call's
   `tool_use_id`, or a new prompt from the owner; any other long gap is the session's own time
@@ -66,12 +67,12 @@ rewritten.
 
 ## 6. The re-cut
 
-The next phase's rows confirmed, split, merged, re-ordered or added, each with its size and
-depends-on; the totals recounted (briefs, S, M and L, session-hours). A dated sentence under the
-phase's ordering rationale for each change. **Pickup notes** appended to the next phase's brief
-notes as `**From EP-n:** …` segments: the code, files, commands and facts a later session needs,
-named precisely. A far phase's charter briefs are upgraded to full brief notes when the plan said
-so.
+The next phase's rows confirmed, split, merged, re-ordered or added, each with its size (S or M,
+by the reference's Size cell) and depends-on; the totals recounted from the tables, never from
+the last total (briefs by size, session-hours). A dated sentence under the phase's ordering
+rationale for each change. **Pickup notes** appended to the next phase's brief notes as
+`**From EP-n:** …` segments: the code, files, commands and facts a later session needs, named
+precisely. A far phase's charter briefs are upgraded to full brief notes when the plan said so.
 
 ## 7. The parked notes
 
@@ -88,5 +89,6 @@ concrete), then findings for other projects, then the close-out (the commit, the
 
 The brief's completion note records the timings, each owner decision and its outcome and the
 routine choices. A finding for another project is a `> **Handed on (to <project>).**` block after
-the note; a task only the owner can do is a line in `roadmap/owner-tasks.md`. Commit in the house
-pattern on the owner's word, then record the hash in the row.
+the note; a task only the owner can do is a line in `roadmap/owner-tasks.md`. Commit on the owner's
+word as the project's `CLAUDE.md` says (the house pattern, unless it states its own), then record
+the hash in the row.

@@ -1,7 +1,7 @@
 ---
 name: plan
 description: "Plan a project's roadmap in the house style through a multi-round interview with its owner: a verified survey and a research pass, a domain map written to the repository first, rounds of four questions with the recommended option first, then the decision log, the roadmap, the session rules and the parked notes written from the record."
-when_to_use: "The owner asks to plan a new project or its roadmap through an interview, to run a planning interview, or for as many questions as possible before a roadmap is written. A first roadmap written straight from a brief, without an interview, is the formalise skill's."
+when_to_use: "The owner asks to plan a new project or its roadmap through an interview, or to run a planning interview before a roadmap is written. A first roadmap written straight from a brief, without an interview, is the formalise skill's."
 argument-hint: "[the brief, or the path of a file that holds it]"
 ---
 
@@ -59,7 +59,8 @@ says so at its top.
 
 - **Rounds of up to four questions** through `AskUserQuestion`, one domain per round. Round 1
   confirms the scope (which domains are in) and the identity (names, visibility, licence); then a
-  round per domain; a domain the owner adds (often as a free-text note) gets a round of its own.
+  round per domain, as many as the session holds; a domain the owner adds (often as a free-text
+  note) gets a round of its own.
 - **Every question stands alone**: the owner sees only the dialog, so it carries the fact it rests
   on, each option's consequence, and the paths or commands involved.
 - **The recommended option first**, labelled "(Recommended)", with two to four options;
@@ -72,13 +73,18 @@ says so at its top.
 - **Prefer theory and synthetic acceptance** until the product is semi-final: a task that asks the
   owner for real use before a chain of briefs is a last resort, and real-use measurement belongs to
   a closing phase.
-- Ask as many rounds as the domains need; owners of this method usually want them exhaustive.
+- Keep a planning session to a few rounds, the detail pushed into brief notes that later
+  sessions grow; a long planning request becomes several sessions, each with a brief of its own,
+  the planning file and its interview record carried from one to the next.
 
 ## 6. The shape of v1
 
 A round on the phases and their briefs: P0 is this plan; each phase closes with a re-plan brief;
-each brief is sized S (about 30 minutes), M (about 1 hour) or L (about 2 hours) of one session, L
-kept for the few engines; the totals in briefs and session-hours, with no calendar estimate unless
+each brief is S (about 30 minutes of active work in one session) or M (about 45): an S where its
+shape is known at planning and it touches a handful of files, an M for an investigation, a state
+machine or the choice of a tool, or cut into a row that finds and a row that fixes; a row is not
+cut only to make it smaller, and a row that proves larger at pickup is split there (the
+reference's Size cell); the totals in briefs and session-hours, with no calendar estimate unless
 the owner asks; what "v1" includes; which phases get full brief notes now and which get charters
 upgraded at a later re-plan.
 

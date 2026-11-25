@@ -2761,30 +2761,6 @@ inbox through the tool, on the owner's word).
   EP-55's steps name. The plugin's version raised, and the owner task to update it in their
   sessions. If the review has not come in when this row is next, EP-56 … EP-58 may run before
   it: the order is the table's, but those rows do not depend on this one.
-
-  > **Addendum (2026-11-23, from IN-16).** The review's outcome came in as IN-16 (the owner's
-  > environment repository's EP-8), parked here at EP-48 on the owner's choice; OT-30 is ticked,
-  > so this row is no longer gated. The inbox line holds the full wording; by its numbers: (1)
-  > this project's `CLAUDE.md` rule 1 names `DECISIONS.md` without its range of ids; (2) the
-  > `replan` skill's step 4 gains the clause on a session resumed after a long absence, its wall
-  > time reported from the owner's return; (3) the size rule, "a brief is M or smaller, S
-  > preferred, an L only for one indivisible subtask with its reason in the row, and a row that
-  > proves larger at pickup is split there", in the `plan` skill, the reference's Size cell and
-  > the rule block, the minutes per size kept until EP-53's measurement; (4) the `plan` skill
-  > keeps a planning session to a few rounds; (5) the opener's autopilot rule says "(crw's
-  > D-22)"; (6) the opener's commit words defer to a project's own pattern when its `CLAUDE.md`
-  > states one; (8) the leftover copies of other projects' `CLAUDE.md` files under the
-  > git-ignored `target\tmp` removed (copies go to a scratchpad folder now). Item (7) was done at
-  > EP-48, and item (9) is EP-59's. Then this block goes.
-
-  > **Addendum (2026-11-24, from EP-53).** The sizes this row carries into the plugin's files (the
-  > `plan` skill, the reference's Size cell, the rule block and the formalise templates, the
-  > top-level README's house-style section, the opener where it says a size): an S about 30
-  > minutes of active work, an M about 45, **no L**, in the words of the D-4 addendum of
-  > 2026-11-24 (an S where the shape is known, an M for an investigation, a state machine or the
-  > choice of a tool; no row cut only to make it smaller). This settles item (3)'s "the minutes
-  > per size kept until EP-53's measurement". The parser keeps reading an L, which done rows in
-  > every project hold, and the autopilot's caps stay. Then this block goes.
 - **EP-55.** Added at EP-45, the owner's request 9, the sweep, and their choice: owner tasks,
   one per project. A short interview first (which projects, in what order: the unformalised
   and the paused first, then maintenance and done; for each, what the owner already knows
@@ -2802,7 +2778,15 @@ inbox through the tool, on the owner's word).
   manual (EP-56's convention). The registry's states stay the owner's to set (D-6; the
   window's state chip, or `crw set`). EP-59's walk reads how far the sweep came. Depends on
   EP-50, whose pane shows the checklist's tasks, and EP-54, so that a project is formalised
-  once, under the settled conventions.
+  once, under the settled conventions. **From EP-54:** the rule block changed (a Sizes bullet;
+  D-12 addendum of 2026-11-24), so once the new build runs every formalised project's row menu
+  offers Formalise…, its preview saying "the rule block replaced between the markers, the text
+  around it kept" (`House::wants`; no Detail section, since `House::matters` counts only the
+  owner-tasks and inbox files, a refusal or an older roadmap); the sweep's steps say that this
+  is the conventions' update, taken by Formalise… on the owner's word, and that a project with
+  no block takes the new one whole. A sweep session in VS Code uses the plugin the owner
+  installed, so the sweep follows OT-32 (the push, then `claude plugin update`); a headless one
+  takes the build's copy.
 - **EP-56.** *(2026-11-22, after EP-43's capped run: an M, not an S, by the D-4 addendum's
   rule: the brief chooses a tool.)* Added at EP-45, the owner's request 10 and their choice: Markdown in the
   repository, the PDF built. A planning brief, with a short interview. **To settle:** (1) the
@@ -2874,6 +2858,18 @@ inbox through the tool, on the owner's word).
   > **Addendum (2026-11-24, from EP-53).** No L remains (D-4 addendum): EP-44 is cut into M
   > sessions, and the retro times P6's briefs against an S of about 30 minutes of active work and
   > an M of about 45. Then this block goes.
+
+  > **Addendum (2026-11-24, from EP-54).** The window's own words still state the old sizes or
+  > the commit pattern without its exception, found by EP-54's review and left there because a
+  > change to a list's or a pane's words owes rule 5's screenshot runs: the Projects pane's Next
+  > column hover ("M about an hour, L about two hours") and the size cell's hover (`size_hint`)
+  > in `crates/app/src/list.rs`, a doc comment in `crates/core/src/roadmap/mod.rs`, the Commit
+  > button's hover in `crates/app/src/sessions.rs` and the phone's words in
+  > `crates/app/src/phone.rs` ("the house pattern"). A fix of an S at most: an S about 30 minutes
+  > of active work and an M about 45, an L still read in older rows, and "the project's own
+  > pattern when its `CLAUDE.md` states one". The re-plan places it as a row in P7 or rolls it
+  > into a P6 brief that touches those files (EP-57 changes `list.rs` and runs the pictures).
+  > Then this block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 

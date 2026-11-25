@@ -31,12 +31,13 @@ pub const HOUSE_READ_FIRST: &str = "**Read first:** the project's `CLAUDE.md`; `
 the last executed brief's completion note; `roadmap/owner-tasks.md` and `roadmap/inbox.md` where \
 they exist.";
 
-/// The triage rule (D-13), said when a message is open.
-const TRIAGE: &str = "Triage each open message right after reading the roadmap (D-13): roll it \
-into this session if it fits the brief and is at most S-sized; otherwise add it to the brief notes \
-of a named later EP or propose a new row in the right phase, confirming with the owner through \
-AskUserQuestion; or decline it with a reason. Write the disposition on the message's line and tick \
-its box.";
+/// The triage rule (D-13), said when a message is open. It cites the decision as this tool's,
+/// since a bare number names the receiving project's own decision (EP-54, the owner's review).
+const TRIAGE: &str = "Triage each open message right after reading the roadmap (crw's D-13): \
+roll it into this session if it fits the brief and is at most S-sized; otherwise add it to the \
+brief notes of a named later EP or propose a new row in the right phase, confirming with the owner \
+through AskUserQuestion; or decline it with a reason. Write the disposition on the message's line \
+and tick its box.";
 
 /// What the session runs with, as the launch asks for it.
 #[derive(Debug, Clone, Copy)]
@@ -646,13 +647,13 @@ pub fn effort_words(effort: Option<&str>, ultracode: bool) -> String {
     }
 }
 
-/// The house's commit, said for `ep`: the pattern of its two commits and the hash recorded,
-/// never a push.
+/// The house's commit, said for `ep`: the pattern of its two commits unless the project's
+/// `CLAUDE.md` states its own (EP-54, the owner's review), the hash recorded, never a push.
 fn commit_words(ep: &str) -> String {
     format!(
-        "commit in the house pattern, `<Title>: <summary> ({ep}, D-x)` then `docs(roadmap): \
-         record {ep} commit hash`, and record the hash in the roadmap's row, as the project's \
-         `CLAUDE.md` says. Never push: the push stays the owner's."
+        "commit as the project's `CLAUDE.md` says: the house pattern, `<Title>: <summary> ({ep}, \
+         D-x)` then `docs(roadmap): record {ep} commit hash`, unless it states its own; record \
+         the hash in the roadmap's row. Never push: the push stays the owner's."
     )
 }
 
@@ -690,7 +691,7 @@ fn session_rules(ep: &str, written: Option<&str>, commits: bool) -> String {
         if commits {
             format!(
                 "5. The autopilot is on for this project, the owner's standing yes to its \
-                 commits (D-22): {}",
+                 commits (crw's D-22): {}",
                 commit_words(ep)
             )
         } else {
@@ -1272,8 +1273,14 @@ Intro.
             "{last}"
         );
         for words in [
+            // The tool's decision named as the tool's, since a bare number names the project's
+            // own (EP-54, the owner's review).
+            "commits (crw's D-22): ",
+            "commit as the project's `CLAUDE.md` says: the house pattern",
             "(EP-7, D-x)",
             "`docs(roadmap): record EP-7 commit hash`",
+            // A project whose `CLAUDE.md` states its own pattern keeps it (EP-54).
+            "unless it states its own",
             "record the hash in the roadmap's row",
             "Never push",
         ] {
@@ -1281,8 +1288,17 @@ Intro.
         }
         assert!(!commits.contains("Stop before committing"));
         let message = commit_message("EP-7");
-        assert!(message.starts_with("The owner says yes to the commit: commit in the house"));
+        assert!(message.starts_with(
+            "The owner says yes to the commit: commit as the project's `CLAUDE.md` says"
+        ));
         assert!(message.contains("record EP-7 commit hash") && message.contains("Never push"));
+        assert!(message.contains("unless it states its own"));
+    }
+
+    #[test]
+    fn the_triage_rule_names_the_tools_decision() {
+        // A bare D-13 would name the receiving project's own decision (EP-54).
+        assert!(TRIAGE.contains("right after reading the roadmap (crw's D-13): roll it"));
     }
 
     #[test]

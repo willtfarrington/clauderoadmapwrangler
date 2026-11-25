@@ -421,16 +421,17 @@ struct Tally {
     latencies: Vec<f64>,
 }
 
-/// What the session reads of a request refused at its time limit (D-19; EP-14).
+/// What the session reads of a request refused at its time limit (D-19; EP-14). It cites the
+/// decision as this tool's, since a bare number names the project's own (EP-54).
 fn deferred_message(limit: Duration) -> String {
     let limit = match limit.as_secs() {
         s if s < 60 => format!("{s} s"),
         s => format!("{} min", s / 60),
     };
     format!(
-        "No answer came within {limit}, so the owner's tool deferred this run (D-19). Stop here and \
-         take no step that depends on the answer; when the session is resumed, its message carries \
-         the owner's answer."
+        "No answer came within {limit}, so the owner's tool deferred this run (crw's D-19). Stop \
+         here and take no step that depends on the answer; when the session is resumed, its \
+         message carries the owner's answer."
     )
 }
 
