@@ -2498,7 +2498,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-56 | [The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live](EP-56-manual-convention.md) (D-12) | M | EP-45 | core | ☑ `883547c` |
 | EP-57 | [`crw manual`: the Markdown turned into Typst by the tool itself, one template, the pinned Typst CLI building the PDFs into the local folder, the doctor's Typst line](EP-57-crw-manual.md) (D-12) | M | EP-56 | core | ☑ `c0bc235` |
 | EP-57a | [The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words](EP-57a-manual-in-the-window.md) (D-25) | M | EP-57 | core | ☑ `683d848` |
-| EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57a, EP-52 | core | ☐ |
+| EP-58 | [This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF](EP-58-this-projects-manual.md) (D-1) | M | EP-57a, EP-52 | core | ☐ |
 | EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
 
 *(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
@@ -2966,6 +2966,18 @@ inbox through the tool, on the owner's word).
   > **Addendum (2026-11-24, from EP-53).** No L remains (D-4 addendum): EP-44 is cut into M
   > sessions, and the retro times P6's briefs against an S of about 30 minutes of active work and
   > an M of about 45. Then this block goes.
+
+  > **Addendum (2026-11-25, from EP-58).** The manual's chapter 19, the walkthrough, scripts all
+  > seventeen routes EP-44's note carries (the phone's four as four sections), each with its
+  > steps, what to look at and what to note down; the manual closed none, so the walk reads them
+  > from there, and the fold takes out those it meets and adds P6's own unexercised routes from
+  > its briefs' residual-risk paragraphs. `docs/manual-changes.md` is empty since EP-58, so the
+  > first fold is only of what P6's later briefs add. The README's "State of the app" now points
+  > to the manual but still reads as at v1's close (v2 opening with one fix and an interview): the
+  > re-plan brings it to P6's close. EP-58's review found the formalise skill's "it is not on
+  > PATH" (`plugins/roadmap-wrangler/skills/formalise/SKILL.md`) stale since EP-28a's `crw path`,
+  > its full-path advice still sound: a wording for route 10's note, or a fix the re-plan places.
+  > Then this block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 

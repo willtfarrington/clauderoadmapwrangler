@@ -20,7 +20,12 @@ runs. v2 opens with one fix and a planning interview of its own; its direction l
 Code's background sessions, a worktree per session, usage over time and free chat from the phone.
 The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions [`DECISIONS.md`](DECISIONS.md),
 the session rules [`CLAUDE.md`](CLAUDE.md), and the work parked for v2
-[`roadmap/v2-notes.md`](roadmap/v2-notes.md).
+[`roadmap/v2-notes.md`](roadmap/v2-notes.md). The user's manual is
+[`docs/manual.md`](docs/manual.md): the window pane by pane, the launches, the autopilot, the
+mail, the phone view, every `crw` command and the files the tool keeps, what to do when
+something goes wrong, and a walkthrough of the routes no real use has met yet; what changed for
+a user since it was last brought up to date is in
+[`docs/manual-changes.md`](docs/manual-changes.md).
 
 What it does, by area (the sections below give the detail):
 
