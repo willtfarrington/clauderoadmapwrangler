@@ -115,6 +115,12 @@ addendum), and EP-57 is split in two at planning, the owner's choice: EP-57 buil
 and a row after it, EP-57a (M), holds the window's part. By its table P6 now holds nineteen
 rows, 6 S and 13 M.
 
+**After the inbox triage of 2026-11-25 (by hand).** Four messages from the day's sweep and site
+sessions, placed on the owner's choices as two S rows before EP-59: EP-58a (IN-17 and IN-18:
+`crw` reading a bare project name as a folder of the working directory before the registry) and
+EP-58b (IN-19 and IN-20: a data repository's site card from a file it writes itself). By its
+table P6 now holds twenty-one rows, 8 S and 13 M.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -2499,7 +2505,9 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-57 | [`crw manual`: the Markdown turned into Typst by the tool itself, one template, the pinned Typst CLI building the PDFs into the local folder, the doctor's Typst line](EP-57-crw-manual.md) (D-12) | M | EP-56 | core | ☑ `c0bc235` |
 | EP-57a | [The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words](EP-57a-manual-in-the-window.md) (D-25) | M | EP-57 | core | ☑ `683d848` |
 | EP-58 | [This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF](EP-58-this-projects-manual.md) (D-1) | M | EP-57a, EP-52 | core | ☑ `36c193a` |
-| EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
+| EP-58a | A bare project name read as the registered project's before a folder of the working directory, in every `crw` command that takes a project or a folder; `.` read as its folder's registered project; the formalise skill's wording (D-11, D-9) | S | EP-58 | core | ☐ |
+| EP-58b | A data repository's site card from a file it writes itself outside its folder: the file defined, `crw export site` carrying the card with nothing inside the repository read, the definition handed back (D-24, D-3) | S | EP-58 | core | ☐ |
+| EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58b | core | ☐ |
 
 *(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
 either ran, at the owner's request after five days' use of the window across the portfolio: it
@@ -2524,6 +2532,10 @@ project's own manual (EP-58, after the panes it describes). EP-56 … EP-58 do n
 sweep. EP-59 closes the phase and cuts P7. *(EP-56, 2026-11-25, the owner's choice.)* EP-57 is
 split at planning: the tool's build first (EP-57, `crw manual`), then the window's part (EP-57a),
 which also takes EP-54's parked words, since it runs the pictures; EP-58 follows both.
+*(2026-11-25, the inbox triage, the owner's choices.)* EP-58a and EP-58b come before the
+re-plan: the first because the sweep's last four sessions still run `crw formalise` and `crw
+send` from inside projects, the second because two other projects wait on its definition. EP-59
+then closes the phase with both in its retro.
 
 Standing decisions for phase P6: D-3 (the repository is public; the owner's projects, login,
 machine and tailnet stay out of tracked files and pictures), D-10 addendum (a residual-risk
@@ -2931,6 +2943,74 @@ inbox through the tool, on the owner's word).
   screenshot run shows the links live (a scratch copy with an older file time shows the amber
   line); `scripts\copy-roadmap.ps1` copies the two files too. Once this manual exists, the first
   real open from the window is OT-44's.
+- **EP-58a.** Added at the inbox triage of 2026-11-25 (a session by hand), the owner's choice,
+  from IN-17 and IN-18, one bug that two of the sweep's sessions met. **What happens.**
+  `roadmap_target` (`crates/cli/src/main.rs`), which `project_folder` wraps, takes an existing
+  file, then an existing folder, both relative to the working directory, and only then a
+  registered project's name. So from a project's root that holds a subfolder of the project's
+  own name (an app or a Python package laid out as `<name>/<name>`), a bare name reads the
+  subfolder: `crw formalise <name>` previews the four house files there as for an unformalised
+  project, and `--yes` would write them there; `crw roadmap` and `crw tasks` find no roadmap;
+  `crw status` prints the registry's name and state beside the subfolder's readings (the name
+  from `registry.project(target)`, the folder from `project_folder`); and `crw send <name>`
+  would create `roadmap/inbox.md` in the subfolder (`registered_name` finds no project there, so
+  the folder's own name is used). A `.` reads the root, but `status` shows an empty name and no
+  state (`folder_name`). The absolute path reads the registered project, and `crw history`
+  already asks the registry first (its own lookup in `history`). **In scope:** (1) one resolver
+  for every command whose usage line says `<project|folder>`, giving the folder and the
+  registered name together: an argument not written as a path (no separator, not `.` or `..`,
+  not absolute) is a registered project's name first, and a folder of that name in the working
+  directory only when the registry holds no such project; when both exist, the output says that
+  the registered project was read and how to name the folder (`.\<name>`); a path is made
+  absolute and matched to the registry by its folder (`paths::same`, as `registered_name`
+  does), so `.` from a project's root reads that project with its name and state; a file stays
+  a brief or a README, as today. The working directory is passed in, so a test never changes
+  the process's own. (2) `status`, `send`, `formalise` and the rest take the resolver's name
+  instead of looking it up again. (3) The formalise skill
+  (`plugins/roadmap-wrangler/skills/formalise/SKILL.md`, section 1) says that a session in the
+  project may name it by its registered name or by its folder (`.` or the path), both now
+  reading the same project; and its "it is not on PATH, so call it by its full path" goes,
+  stale since EP-28a's `crw path` (moved here from EP-59's addendum, the owner's choice at the
+  triage, since this row rewrites that paragraph); the plan and status skills' `crw …
+  <folder>` lines are checked against the change. (4) The help's `<project|folder>` lines say
+  the order, and `docs/manual-changes.md` gains the section (rule 14). **Out of scope:** the
+  window, which takes no argument; the registry's names. Tests: the resolver over a temp
+  working directory holding a folder named like a project of a scratch registry (`CRW_HOME`),
+  with `.`, a path, an unregistered bare name and a file. The plugin keeps no version (EP-54),
+  so the skill's change reaches the owner's sessions by an owner task after the push, as
+  OT-32's did. Until this row lands, a session in a project names it by its absolute path.
+- **EP-58b.** Added at the inbox triage of 2026-11-25 (by hand), the owner's choice, from IN-19
+  and IN-20, one request in two messages. **What it asks.** The site (the registry's `site`,
+  whose page reads `assets/data/projects.json` into cards of its own since its IN-1; the
+  snippet `projects-cards.html` is unused and git-ignored there) should show a data
+  repository's card too, which the export leaves out unread (D-24 addendum of EP-27:
+  `export_site` in `crates/cli/src/main.rs` skips a `data = true` project before any git
+  child). The data repository's side is settled (its D-48): a local post-commit hook runs its
+  own roadmap parser over its committed `roadmap/README.md` and rewrites a published-card file
+  whenever the figures change, so nothing of this tool reads inside it. **In scope:** (1) **the
+  definition**, settled with the owner at the brief's start and recorded in a D-24 addendum:
+  the place, outside every project folder (IN-20 suggests the tool's own
+  `%LOCALAPPDATA%\clauderoadmapwrangler\`, say `cards\<registered name>.json`, under `CRW_HOME`
+  in a trial; never this repository, its `private/` included); the form, JSON with the fields
+  of `export::SiteProject` (name, the stack badge's text, done, total, percent, the next rows'
+  id, title and size, at most `NEXT_ROWS`) and an `as_of` day; where the card's public standing
+  comes from (a registry key the owner sets, a field of the file, or the account's cached list
+  by the project's name, never a git child; a new registry key follows IN-14's lesson, set by
+  the owner once the window runs the build that knows it); and what a stale or malformed file
+  does (left out with its reason in the preview, never a blank card). (2) **The reader:** `crw
+  export site` carries a data repository's card from its file, the preview saying that it is
+  the repository's own card and of which day, or why it is left out (no file, unreadable, not
+  public); the file read and checked in `crw_core::export` (the name matching the registry's,
+  counts that add up, a size of S, M, L or none), the cards sorted as today; nothing inside the
+  repository read and no child started there. (3) Whether the snippet is still written, now
+  that the site reads the JSON alone (the owner's call; D-24 named it). (4) The README's site
+  paragraph and `docs/manual-changes.md` (rule 14). (5) **The hand-back:** the definition in a
+  Handed on block to the data repository after the completion note, which the mailman delivers
+  once the brief is committed (its name is public: D-1 names it); that project then adds its
+  EP-174 (S) and builds the writer, and the site's IN-3 wires the card once the export carries
+  it. The first export that carries the card is the owner's (`crw export site --yes`, an owner
+  task once the file exists). Tests on temp folders with synthetic names and a synthetic card
+  file, the preview and the write as EP-27's tests run them.
 - **EP-59.** The P6 re-plan, by the `replan` skill: the walk of P6's residual-risk paragraphs
   (the new panes and the theme under the owner's hands, the re-read after a real visual
   session, the chat's queued send, the first manual opened from the window); the retro under
@@ -2977,7 +3057,8 @@ inbox through the tool, on the owner's word).
   > re-plan brings it to P6's close. EP-58's review found the formalise skill's "it is not on
   > PATH" (`plugins/roadmap-wrangler/skills/formalise/SKILL.md`) stale since EP-28a's `crw path`,
   > its full-path advice still sound: a wording for route 10's note, or a fix the re-plan places.
-  > Then this block goes.
+  > *(2026-11-25, the inbox triage: the skill's sentence moved to EP-58a's note, the owner's
+  > choice, since EP-58a rewrites that paragraph.)* Then this block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 

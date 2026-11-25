@@ -353,7 +353,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   over `docs\phone-list.png`. (3) Commit that one file yourself, for example `git commit -m
   "Phone picture: the list page in the new dark style (EP-49, D-25)" -- docs/phone-list.png`,
   since a change left in the tree stops a chain at its gate. The push stays yours
-- [ ] OT-32 (EP-54, 2026-11-24) Update the roadmap-wrangler plugin in your own sessions once you
+- [x] OT-32 (EP-54, 2026-11-24) Update the roadmap-wrangler plugin in your own sessions once you
   have pushed (nothing waits on it, but EP-55's sweep reads best after it). EP-54 changed the
   plugin's `plan` and `replan` skills and its house-style reference (a brief S or M, a few rounds
   per planning session, a resumed session's wall time from your return, a project's own commit
@@ -362,7 +362,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   (or `/plugin` in a session, the roadmap-wrangler entry, Update). (3) Check in a new VS Code
   session: the `plan` skill's step 5 should end "Keep a planning session to a few rounds, …". The
   window's headless runs need nothing: they load the installed build's copy
-- [ ] OT-33 (EP-54, 2026-11-24) Delete the old scratch folder `target\tmp` of this repository by
+- [x] OT-33 (EP-54, 2026-11-24) Delete the old scratch folder `target\tmp` of this repository by
   hand (nothing waits on it). It holds about 2,700 git-ignored files (about 100 MB) that the
   briefs EP-24 to EP-42 left: logs, diffs, pictures, scratch homes and about 1,800 roadmap files,
   many of them copies of your real projects' roadmaps from screenshot runs, which your daily
@@ -371,28 +371,28 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   put their scratch in a scratchpad folder outside the repository. (1) In File Explorer, open
   this repository's `target` folder. (2) Select `tmp` and press Shift+Delete, then Yes. Expected: the folder is gone and `target\release` is untouched; a
   delete of this size from a shell is what the machine's security software flags, hence by hand
-- [ ] OT-34 (EP-55, 2026-11-25) Sweep 1 of 10, an unformalised project with no roadmap (item 1
+- [x] OT-34 (EP-55, 2026-11-25) Sweep 1 of 10, an unformalised project with no roadmap (item 1
   of `private\sweep-checklist.md` names it and holds the steps). After OT-32, open a Claude Code
   session in it by hand and have it take your message IN-1 in its inbox: a first roadmap by
   `/roadmap-wrangler:plan`, then `/roadmap-wrangler:formalise`, or unformalised by your choice;
   its state (right-click its row, State), the sizes and its manual. Tick when they are settled
-- [ ] OT-35 (EP-55, 2026-11-25) Sweep 2 of 10, the unformalised project the site export writes
+- [x] OT-35 (EP-55, 2026-11-25) Sweep 2 of 10, the unformalised project the site export writes
   to (item 2 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your
   message IN-2: whether it stays the export target, unformalised by your choice (D-6), or takes a
   roadmap and the house-style files; its state, the sizes and its manual. Tick when settled
-- [ ] OT-36 (EP-55, 2026-11-25) Sweep 3 of 10, a paused project that holds the old rule block
+- [x] OT-36 (EP-55, 2026-11-25) Sweep 3 of 10, a paused project that holds the old rule block
   (item 3 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your
   message IN-1: Formalise… replaces the block (the conventions' update); its state (paused with a
   reason and a pickup note, or another), the sizes and its manual. Tick when settled
-- [ ] OT-37 (EP-55, 2026-11-25) Sweep 4 of 10, a paused project without the rule block (item 4
+- [x] OT-37 (EP-55, 2026-11-25) Sweep 4 of 10, a paused project without the rule block (item 4
   of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-2:
   Formalise… adds the block, `owner-tasks.md` and the brief template; its state, the sizes and
   its manual. Tick when settled
-- [ ] OT-38 (EP-55, 2026-11-25) Sweep 5 of 10, a paused project without `CLAUDE.md` (item 5 of
+- [x] OT-38 (EP-55, 2026-11-25) Sweep 5 of 10, a paused project without `CLAUDE.md` (item 5 of
   `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-1:
   Formalise… creates `CLAUDE.md` with the block and `owner-tasks.md`; its state, the sizes and
   its manual. Tick when settled
-- [ ] OT-39 (EP-55, 2026-11-25) Sweep 6 of 10, a paused project without the rule block (item 6
+- [x] OT-39 (EP-55, 2026-11-25) Sweep 6 of 10, a paused project without the rule block (item 6
   of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-1:
   Formalise… adds the block and `owner-tasks.md`; its state, the sizes and its manual. Tick when
   settled
@@ -413,7 +413,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   10 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message
   IN-1: Migrate the roadmap… and Formalise… (the old block replaced), or it stays as it is, done;
   the sizes and its manual. Tick when settled
-- [ ] OT-44 (EP-57a, 2026-11-25) The first real open of a manual from the window, once EP-58 has
+- [x] OT-44 (EP-57a, 2026-11-25) The first real open of a manual from the window, once EP-58 has
   written this project's `docs/manual.md` (nothing waits on it; no session opens your PDF viewer,
   and until EP-58 no project owes a manual, so every Manual entry is greyed). (1) Make sure the
   window runs EP-57a's build or newer (File > Install and restart, if the status bar offers a

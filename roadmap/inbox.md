@@ -266,3 +266,53 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   session's memory update. OT-30, which waited for this message, is ticked on the owner's word.
   The line named its sender, on the private word list of this public repository: reworded before
   the commit, as IN-15's was.
+- [x] IN-17 (from the owner, 2026-11-25) A bare project name is resolved as a folder of the working
+  directory first: from medrecsim's root, whose app workspace is the subfolder medrecsim\, `crw
+  formalise medrecsim` previewed DATA\medrecsim\medrecsim as an unformalised project (CLAUDE.md,
+  roadmap/owner-tasks.md, roadmap/inbox.md and roadmap/_TEMPLATE.md to be created) and offered --yes
+  to write them there; `crw roadmap medrecsim` and `crw tasks medrecsim` read the same subfolder (no
+  roadmap). The absolute path read the registered project correctly. `send` takes the same
+  <project|folder> form (not tried). Found at medrecsim's sweep, 2026-11-25. **Triaged by hand
+  (2026-11-25):** one bug with IN-18, about an S; on the owner's choice a new S row, EP-58a, in P6
+  before EP-59, its brief note taking both messages' cases; `send` would indeed create the inbox
+  in the subfolder (`registered_name` finds no project there). Until it lands, a session names a
+  project by its absolute path.
+- [x] IN-18 (from the owner, 2026-11-25) crw resolves a bare project argument as a folder under the
+  working directory before the registry name. From a project root that holds a subfolder of the same
+  name (a Python package laid out as `<name>/<name>`), `crw formalise <name>` previews all four
+  house files inside the subfolder (and --yes would write them there), and `crw status <name>` reads
+  the subfolder as not a git repository; from any other folder the same name reads the registered
+  project. A `.` argument reads the root but with an empty project name and no registry state. The
+  formalise skill names a registered project by its bare name and runs from the project folder, so
+  it meets this. Seen 2026-11-25 in a sweep session; worked around with the absolute path. Suggest:
+  resolve the registry name first and take a folder only when the argument is written as a path, and
+  have the skill pass the folder path. **Triaged by hand (2026-11-25):** one bug with IN-17,
+  placed as EP-58a (S) before EP-59 on the owner's choice; its note takes the suggestion (the
+  registry's name first, a folder when written as a path, a folder of that name only when the
+  registry holds none) and the skill's wording, with `.` read as its folder's registered project.
+- [x] IN-19 (from the owner, 2026-11-25) From prime's session of 2026-11-25: IN-1 is wired (the page
+  fetches assets/data/projects.json into its own cards; the snippet is unused and git-ignored
+  there). The owner wants mimicwarehouse's card drawn by the export as well, without breaking the
+  rule that a data repository is left out unread (the D-24 addendum of EP-27): define a
+  published-card file that a data repository writes itself, outside its folder, at each record
+  commit (its form, the fields of a site card, and its place), and have `crw export site` carry a
+  data repository's card from it while reading nothing inside the repository, its public standing
+  taken from the registry or the file rather than a git child. mimicwarehouse is asked the same day
+  to write it; prime's IN-3 wires the card once the export carries it. **Triaged by hand
+  (2026-11-25):** with IN-20 one request, about an S; on the owner's choice a new S row, EP-58b,
+  in P6 after EP-58a and before EP-59: its session settles the file's definition with the owner,
+  builds the export's reader and hands the definition back to the data repository in a Handed on
+  block.
+- [x] IN-20 (from the owner, 2026-11-25) For IN-19, from mimicwarehouse's IN-3 (settled with the
+  owner 2026-11-25, its D-48): mimicwarehouse's side is settled. A local post-commit hook runs its
+  own roadmap parser over its committed roadmap/README.md and rewrites the published-card file
+  whenever the figures change, so nothing of Roadmap Wrangler's reads inside it. For the definition:
+  (1) put the place outside every project folder, for example under the tool's own
+  %LOCALAPPDATA%\clauderoadmapwrangler\ folder, not inside this repository (its git-ignored private/
+  included), so the hook edits no project's files; (2) the file can carry every card field: name,
+  the stack badge's text (the export cannot compute it without reading inside), done, total,
+  percent, the next two undone rows (id, title, size), an as-of day, and the public standing if
+  wanted; (3) hand the definition back to mimicwarehouse's inbox: the session that triages it adds
+  EP-174 (S) and builds the writer. **Triaged by hand (2026-11-25):** the data repository's side
+  of IN-19, the starting point of EP-58b's note (the place outside every project folder, every
+  card field with an as-of day, the public standing, the definition handed back for its EP-174).
