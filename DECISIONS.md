@@ -601,6 +601,23 @@ forms only with ticks in the registry; tasks only in the registry.
 > older forms' count left in `crw tasks`' "counted as waiting" line for a project without the
 > file.
 
+> **Addendum (2026-11-25, EP-55).** The sweep as written. Ten registered projects were not
+> active that day (two unformalised, five paused, two maintenance, one done; two of them data
+> repositories), and the owner chose all ten, ordered by state (unformalised, paused,
+> maintenance, done) and within a state by the most recent commit. Each has an owner task in
+> this project's file (OT-34 … OT-43, "sweep n of 10"), worded by its registry state and its
+> route, never its name, ungated, pointing to its item in a checklist in the git-ignored
+> `private/` (the name, the read-only formalise preview, the route, the steps); and a message
+> from the owner in its own inbox, written by `crw send` on the owner's word, four of the inbox
+> files created with the house header. The message asks the project's session, opened by hand
+> (six of the ten have no next brief for Start), to settle its state, its house-style files by
+> its route, the sizes under the D-4 addendum and whether it owes a manual; each message stays
+> under the 1,000 characters a revert keeps and names no other project. The owner settled no
+> state beforehand: each session asks, and the states stay the owner's to set (D-6). EP-59's
+> walk reads the ticks. *Alternatives.* Fewer projects (the site and the environment
+> repository, or the done and maintenance ones, left out); the least work first; the messages
+> kept in the checklist for the owner to send from each row.
+
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
 the `.code-workspace` file. It **never edits `roadmap/README.md`, briefs or `DECISIONS.md`**; sessions do,

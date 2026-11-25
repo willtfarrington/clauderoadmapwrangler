@@ -371,3 +371,45 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   put their scratch in a scratchpad folder outside the repository. (1) In File Explorer, open
   this repository's `target` folder. (2) Select `tmp` and press Shift+Delete, then Yes. Expected: the folder is gone and `target\release` is untouched; a
   delete of this size from a shell is what the machine's security software flags, hence by hand
+- [ ] OT-34 (EP-55, 2026-11-25) Sweep 1 of 10, an unformalised project with no roadmap (item 1
+  of `private\sweep-checklist.md` names it and holds the steps). After OT-32, open a Claude Code
+  session in it by hand and have it take your message IN-1 in its inbox: a first roadmap by
+  `/roadmap-wrangler:plan`, then `/roadmap-wrangler:formalise`, or unformalised by your choice;
+  its state (right-click its row, State), the sizes and its manual. Tick when they are settled
+- [ ] OT-35 (EP-55, 2026-11-25) Sweep 2 of 10, the unformalised project the site export writes
+  to (item 2 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your
+  message IN-2: whether it stays the export target, unformalised by your choice (D-6), or takes a
+  roadmap and the house-style files; its state, the sizes and its manual. Tick when settled
+- [ ] OT-36 (EP-55, 2026-11-25) Sweep 3 of 10, a paused project that holds the old rule block
+  (item 3 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your
+  message IN-1: Formalise… replaces the block (the conventions' update); its state (paused with a
+  reason and a pickup note, or another), the sizes and its manual. Tick when settled
+- [ ] OT-37 (EP-55, 2026-11-25) Sweep 4 of 10, a paused project without the rule block (item 4
+  of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-2:
+  Formalise… adds the block, `owner-tasks.md` and the brief template; its state, the sizes and
+  its manual. Tick when settled
+- [ ] OT-38 (EP-55, 2026-11-25) Sweep 5 of 10, a paused project without `CLAUDE.md` (item 5 of
+  `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-1:
+  Formalise… creates `CLAUDE.md` with the block and `owner-tasks.md`; its state, the sizes and
+  its manual. Tick when settled
+- [ ] OT-39 (EP-55, 2026-11-25) Sweep 6 of 10, a paused project without the rule block (item 6
+  of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-1:
+  Formalise… adds the block and `owner-tasks.md`; its state, the sizes and its manual. Tick when
+  settled
+- [ ] OT-40 (EP-55, 2026-11-25) Sweep 7 of 10, a paused project whose roadmap has no phase table
+  the parser reads (item 7 of `private\sweep-checklist.md`). After OT-32, a session there by
+  hand takes your message IN-1: `/roadmap-wrangler:formalise` for the house-style files and a
+  first roadmap from a brief, or `/roadmap-wrangler:plan`; its state, the sizes and its manual.
+  Tick when settled
+- [ ] OT-41 (EP-55, 2026-11-25) Sweep 8 of 10, a maintenance project (item 8 of
+  `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-6:
+  `/roadmap-wrangler:status`, Formalise… (the block, `owner-tasks.md`, the template), what
+  maintenance means there, the sizes and its manual. Tick when settled
+- [ ] OT-42 (EP-55, 2026-11-25) Sweep 9 of 10, the environment repository (item 9 of
+  `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-8:
+  whether it takes the rule block and the template or stays as it is, what maintenance means
+  there, the sizes and its manual. Tick when settled
+- [ ] OT-43 (EP-55, 2026-11-25) Sweep 10 of 10, the done project with five-column tables (item
+  10 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message
+  IN-1: Migrate the roadmap… and Formalise… (the old block replaced), or it stays as it is, done;
+  the sizes and its manual. Tick when settled

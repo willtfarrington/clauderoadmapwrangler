@@ -2489,7 +2489,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-52 | [The Autopilot pane: the section out of the Sessions pane into a pane of its own, its chain log folding](EP-52-autopilot-pane.md) (D-22, D-25) | S | EP-51 | core | ☑ `a36c735` |
 | EP-53 | [The sizes measured again: every house-style project's briefs timed from its transcripts, S, M and L against the measurement, the rule that a brief is M or smaller](EP-53-sizes-measured.md) (D-4) | M | EP-45 | core | ☑ `6959056` |
 | EP-54 | [The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes](EP-54-conventions-review.md) (D-12, D-27) | M | EP-53 | core | ☑ `be84464` |
-| EP-55 | The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☐ |
+| EP-55 | [The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual](EP-55-sweep-checklist.md) (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☐ |
 | EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | M | EP-45 | core | ☐ |
 | EP-57 | The manual in the window: built by `crw manual`, opened from a row's menu and the Detail pane, its age beside the last phase's close (D-25) | M | EP-56 | core | ☐ |
 | EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57, EP-52 | core | ☐ |
@@ -2834,7 +2834,8 @@ inbox through the tool, on the owner's word).
   (the new panes and the theme under the owner's hands, the re-read after a real visual
   session, the chat's queued send, the first manual opened from the window); the retro under
   EP-53's sizes, the first phase cut to the rule that a brief is M or smaller; how far the
-  sweep and the environment repository's review came, by the owner tasks' ticks; the pins
+  sweep and the environment repository's review came, by the owner tasks' ticks (the sweep's
+  OT-34 … OT-43, EP-55, its checklist in `private/`); the pins
   (D-15); `docs/manual-changes.md` folded into the manual for the first time; addenda; and P7
   confirmed: EP-44 cut to the size rule, the interview as several sessions if one would be an
   L, and the routes carried into v2's first walk less those EP-58's walkthrough closed.
