@@ -92,6 +92,58 @@ fn the_preview_shows_each_file_and_writes_nothing() {
     assert_eq!(names, ["README.md"]);
 }
 
+/// `crw` with `args` in `home`, run from the folder `cwd`.
+fn crw_in(home: &Path, cwd: &Path, args: &[&str]) -> (i32, String) {
+    let output = Command::new(CRW)
+        .args(args)
+        .env("CRW_HOME", home)
+        .current_dir(cwd)
+        .output()
+        .unwrap();
+    let mut printed = String::from_utf8_lossy(&output.stdout).into_owned();
+    printed.push_str(&String::from_utf8_lossy(&output.stderr));
+    (output.status.code().unwrap_or(-1), printed)
+}
+
+/// IN-17 and IN-18 (EP-58a): from a registered project's root that holds a subfolder of the
+/// project's own name, the bare name reads the project, with a note naming the subfolder, and
+/// `.` reads the project too; `.\<name>` reads the subfolder.
+#[test]
+fn a_bare_name_from_the_projects_root_reads_the_project_not_its_subfolder() {
+    let scratch = Scratch::new("formalise-bare-name");
+    let beta = scratch.project("beta", "# beta\n", HOUSE);
+    fs::create_dir_all(beta.join("beta")).unwrap();
+    let registry = format!(
+        "format = 1\n\n[settings]\ndata_root = '{}'\n\n\
+         [[project]]\nname = \"beta\"\npath = \"beta\"\nstate = \"active\"\n",
+        scratch.0.join("data").display(),
+    );
+    fs::write(scratch.home().join("registry.toml"), registry).unwrap();
+    let home = scratch.home();
+
+    let (code, printed) = crw_in(&home, &beta, &["formalise", "beta"]);
+    assert_eq!(code, 0, "{printed}");
+    assert!(
+        printed.contains("note: beta reads the registered project beta at ")
+            && printed.contains(r"write .\beta"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("Nothing changed. `crw formalise beta --yes` writes."),
+        "the registered name in the commands printed: {printed}"
+    );
+    assert!(!beta.join("beta").join("roadmap").exists());
+
+    let (code, printed) = crw_in(&home, &beta, &["roadmap", "."]);
+    assert_eq!(code, 0, "{printed}");
+    assert!(printed.contains("EP-1"), "{printed}");
+    assert!(!printed.contains("note:"), "{printed}");
+
+    let (code, printed) = crw_in(&home, &beta, &["roadmap", r".\beta"]);
+    assert_eq!(code, 0, "{printed}");
+    assert!(printed.contains("no roadmap/README.md"), "{printed}");
+}
+
 #[test]
 fn the_migration_prompt_is_for_an_older_roadmap_only() {
     let scratch = Scratch::new("formalise-migration");

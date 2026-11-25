@@ -427,3 +427,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   phase, or "P5 closed on 2026-11-17" before. If a viewer does not open, or Explorer opens a
   folder instead, write what the status bar said into this project's inbox (a row's Send a
   message…). Tick when the PDF has opened
+- [ ] OT-45 (EP-58a, 2026-11-25) Update the roadmap-wrangler plugin in your own sessions once you
+  have pushed (nothing waits on it, but the sweep's last sessions, OT-40 … OT-43, read best after
+  it). EP-58a changed the `formalise` skill's first section: a session in a project may name it
+  by its registered name, by `.` or by its path, all three reading the same project, and `crw path
+  on` puts `crw` on PATH. The plugin names no version, so the push is the release. (1) Push this
+  repository. (2) In a terminal, `claude plugin update roadmap-wrangler@clauderoadmapwrangler` (or
+  `/plugin` in a session, the roadmap-wrangler entry, Update). (3) Check in a new VS Code session:
+  the `formalise` skill's section 1 should say "a session in the project may write `.` or the
+  path". `crw` itself needs nothing: the install at this brief's end put it in place, and the copy
+  on PATH is refreshed by every install. Tick when the skill reads so

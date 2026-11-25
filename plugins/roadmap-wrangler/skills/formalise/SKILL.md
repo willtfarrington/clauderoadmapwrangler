@@ -17,8 +17,12 @@ last section quotes the engine's texts byte for byte.
 
 Roadmap Wrangler's console is `crw`. On Windows it is
 `%LOCALAPPDATA%\clauderoadmapwrangler\bin\crw.exe` once installed, or `target\release\crw.exe` in a
-build of the tool's repository; it is not on PATH, so call it by its full path. A registered
-project is named by its registry name; any other folder by its path.
+build of the tool's repository; `crw path on` puts a copy on PATH, and where `crw` alone is not
+found, call it by its full path. A registered project is named by its registry name, from any
+folder, or by its folder: a session in the project may write `.` or the path, and either reads the
+same project with its registered name. A name is the registry's before a folder of the working
+directory, so a project that holds a subfolder of its own name still reads as the project (`crw`
+says so in a note); any other folder is named by its path.
 
 Without the tool, say so. The reference's texts may be written by hand only on the owner's word,
 under the same rules as the engine: a file that is there is never replaced, and `CLAUDE.md` changes

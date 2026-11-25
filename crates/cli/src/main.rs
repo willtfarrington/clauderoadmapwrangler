@@ -50,7 +50,7 @@ use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
 use crw_core::manual::{self, Built, Job, Which};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
-use crw_core::registry::{LaunchMode, Limit, MAX_DAILY, Project, Settings, State, Store};
+use crw_core::registry::{LaunchMode, Limit, MAX_DAILY, Project, Registry, Settings, State, Store};
 use crw_core::revert;
 use crw_core::roadmap::{Size, brief, snapshot, table};
 use crw_core::session::{self, Preflight};
@@ -325,6 +325,12 @@ commands:
   help                           print this text
   --version                      print crw's version
 
+A <project|folder> is read in this order: a word alone (no / or \\, not . or .., no drive) is a
+registered project's name first, and a file or a folder of that name in the working directory only
+when no project is registered under it; when both exist, a note names the one passed over, which
+.\\<name> reads. A path (., .., a separator or a drive) reads that place, and a folder a project is
+registered in reads as that project, with its name and state.
+
 A tick changes one box in the project's file and nothing else there; the file as it was is copied
 to the backups folder first. status writes nothing: it never fetches and keeps no cache.
 
@@ -578,27 +584,17 @@ fn manual_build(args: &[&str]) -> ExitCode {
     let [target] = targets[..] else {
         return usage_error(TAKES);
     };
-    let folder = match project_folder(target).and_then(|folder| {
-        std::path::absolute(&folder).map_err(|e| format!("{}: {e}", folder.display()))
+    let (folder, registered) = match project_folder(target).and_then(|(folder, registered)| {
+        std::path::absolute(&folder)
+            .map(|folder| (folder, registered))
+            .map_err(|e| format!("{}: {e}", folder.display()))
     }) {
-        Ok(folder) => folder,
+        Ok(found) => found,
         Err(e) => return failed(e),
     };
     // The registered name when the folder is a registered project's (its path may differ from
     // its name), else the folder's: the PDF's name, which the window's entries use too.
-    let registered = store()
-        .ok()
-        .and_then(|store| store.load().ok())
-        .and_then(|loaded| {
-            let root = loaded.registry.data_root();
-            loaded
-                .registry
-                .projects
-                .iter()
-                .find(|project| paths::same(&project.folder(&root), &folder))
-                .map(|project| project.name.clone())
-        });
-    let Some(project) = registered.or_else(|| {
+    let Some(project) = registered.map(|project| project.name).or_else(|| {
         folder
             .file_name()
             .map(|name| name.to_string_lossy().into_owned())
@@ -1171,6 +1167,7 @@ fn undismiss(project: &str, which: Option<&str>) -> ExitCode {
 }
 
 /// What `crw roadmap` was pointed at.
+#[derive(Debug)]
 enum Target {
     /// A project folder (given, or a registered project's): the whole snapshot.
     Folder(PathBuf),
@@ -1185,7 +1182,7 @@ enum Target {
 /// writes.
 fn roadmap(target: &str) -> ExitCode {
     println!("crw {} roadmap", env!("CARGO_PKG_VERSION"));
-    match roadmap_target(target) {
+    match resolve(target).map(|resolved| resolved.target) {
         Ok(Target::Folder(folder)) => print_snapshot(&folder),
         Ok(Target::Readme(path)) => match fs::read_to_string(&path) {
             Ok(text) => {
@@ -1208,26 +1205,125 @@ fn roadmap(target: &str) -> ExitCode {
     }
 }
 
-/// A file as given (a brief by its name, else a README), a folder, or a registered project's
-/// folder.
-fn roadmap_target(target: &str) -> Result<Target, String> {
-    let path = Path::new(target);
-    if path.is_file() {
-        let name = path.file_name().unwrap_or_default().to_string_lossy();
-        return Ok(if brief::file_id(&name).is_some() {
-            Target::Brief(path.to_owned())
-        } else {
-            Target::Readme(path.to_owned())
+/// What a `<project|folder>` argument names (EP-58a): the target, the registered project whose
+/// folder it is, and what of the working directory a registered name was read over.
+#[derive(Debug)]
+struct Resolved {
+    target: Target,
+    project: Option<Project>,
+    /// The working directory's own file or folder of a bare name the registry also holds, when it
+    /// is not that project's folder: named in a note, never read.
+    passed_over: Option<PathBuf>,
+}
+
+/// Whether an argument is written as a path (a separator, `.` or `..`, a drive or a root), which
+/// is read as a place, never as a registered project's name (EP-58a).
+fn written_as_path(target: &str) -> bool {
+    target.contains(['/', '\\'])
+        || !matches!(
+            Path::new(target).components().collect::<Vec<_>>()[..],
+            [std::path::Component::Normal(_)]
+        )
+}
+
+/// Resolves a `<project|folder>` argument against the working directory `cwd` and the registry
+/// (EP-58a, from IN-17 and IN-18): a bare name is a registered project's first, and a file or a
+/// folder of `cwd` only when the registry holds no such project; a path is made absolute against
+/// `cwd` and a folder matched to the registry by its place, so `.` from a project's root reads
+/// that project; a file is a brief by its name, else a README.
+fn resolve_target(
+    target: &str,
+    cwd: &Path,
+    registry: Option<&Registry>,
+) -> Result<Resolved, String> {
+    if target.trim().is_empty() {
+        return Err("an empty argument names no project or folder".to_owned());
+    }
+    let local = paths::normalize(&cwd.join(target));
+    if !written_as_path(target)
+        && let Some(registry) = registry
+        && let Some(project) = registry.project(target)
+    {
+        let folder = project.folder(&registry.data_root());
+        let passed_over = (local.exists() && !paths::same(&local, &folder)).then_some(local);
+        return Ok(Resolved {
+            target: Target::Folder(folder),
+            project: Some(project.clone()),
+            passed_over,
         });
     }
-    if path.is_dir() {
-        return Ok(Target::Folder(path.to_owned()));
+    if local.is_file() {
+        let is_brief = local
+            .file_name()
+            .is_some_and(|name| brief::file_id(&name.to_string_lossy()).is_some());
+        return Ok(Resolved {
+            target: if is_brief {
+                Target::Brief(local)
+            } else {
+                Target::Readme(local)
+            },
+            project: None,
+            passed_over: None,
+        });
     }
-    let registry = store()?.load().map_err(|e| e.to_string())?.registry;
-    let project = registry
-        .project(target)
-        .ok_or_else(|| format!("{target} is not a file, a folder or a registered project"))?;
-    Ok(Target::Folder(project.folder(&registry.data_root())))
+    if local.is_dir() {
+        let project = registry.and_then(|registry| {
+            let root = registry.data_root();
+            registry
+                .projects
+                .iter()
+                .find(|project| paths::same(&project.folder(&root), &local))
+                .cloned()
+        });
+        return Ok(Resolved {
+            target: Target::Folder(local),
+            project,
+            passed_over: None,
+        });
+    }
+    Err(if written_as_path(target) {
+        format!("{target} is not a file or a folder ({})", local.display())
+    } else {
+        format!(
+            "{target} is not a registered project, nor a file or a folder in {}",
+            cwd.display()
+        )
+    })
+}
+
+/// The note when a registered name was read over a file or folder of the working directory.
+fn passed_over_note(target: &str, resolved: &Resolved, other: &Path) -> String {
+    let name = resolved
+        .project
+        .as_ref()
+        .map_or(target, |p| p.name.as_str());
+    let place = match &resolved.target {
+        Target::Folder(folder) => format!(" at {}", folder.display()),
+        Target::Readme(_) | Target::Brief(_) => String::new(),
+    };
+    format!(
+        "note: {target} reads the registered project {name}{place}; for the {} {} of this \
+         working directory, write .{}{target}",
+        if other.is_dir() { "folder" } else { "file" },
+        other.display(),
+        std::path::MAIN_SEPARATOR
+    )
+}
+
+/// [`resolve_target`] from the process's working directory and the registry (`CRW_HOME`'s in a
+/// trial), its note printed.
+fn resolve(target: &str) -> Result<Resolved, String> {
+    let cwd = std::env::current_dir().map_err(|e| format!("the working directory: {e}"))?;
+    let loaded = store().and_then(|store| store.load().map_err(|e| e.to_string()));
+    let registry = loaded.as_ref().ok().map(|loaded| &loaded.registry);
+    let resolved = resolve_target(target, &cwd, registry).map_err(|e| match &loaded {
+        Err(why) if !written_as_path(target) => format!("{e} (the registry did not read: {why})"),
+        _ => e,
+    })?;
+    if let Some(other) = &resolved.passed_over {
+        println!("{}", passed_over_note(target, &resolved, other));
+    }
+    Ok(resolved)
 }
 
 fn print_snapshot(folder: &Path) -> ExitCode {
@@ -1533,15 +1629,22 @@ fn print_problems(problems: &[table::Problem], extra: &[String]) {
     }
 }
 
-/// A project folder as given, or a registered project's.
-fn project_folder(target: &str) -> Result<PathBuf, String> {
-    match roadmap_target(target)? {
-        Target::Folder(folder) => Ok(folder),
+/// A `<project|folder>` argument that names a folder ([`resolve`]): the folder and its registered
+/// project, when the registry holds one there.
+fn project_folder(target: &str) -> Result<(PathBuf, Option<Project>), String> {
+    let resolved = resolve(target)?;
+    match resolved.target {
+        Target::Folder(folder) => Ok((folder, resolved.project)),
         Target::Readme(path) | Target::Brief(path) => Err(format!(
             "{} is a file: give a project folder or a registered project",
             path.display()
         )),
     }
+}
+
+/// A project's name: the registry's when it is registered, else its folder's.
+fn project_name(folder: &Path, registered: Option<&Project>) -> String {
+    registered.map_or_else(|| folder_name(folder), |project| project.name.clone())
 }
 
 /// The account's repositories as the window's GitHub pass last cached them in the ledger, with
@@ -1589,7 +1692,7 @@ fn words_line(
 fn waiting(target: &str) -> ExitCode {
     println!("crw {} tasks", env!("CARGO_PKG_VERSION"));
     let folder = match project_folder(target) {
-        Ok(folder) => folder,
+        Ok((folder, _)) => folder,
         Err(e) => return failed(e),
     };
     let snapshot = snapshot::read_tree(&folder);
@@ -1834,9 +1937,8 @@ fn status(args: &[&str]) -> ExitCode {
         .map(|loaded| loaded.registry);
     let projects: Vec<(String, Option<State>, PathBuf)> = match targets.first() {
         Some(target) => match project_folder(target) {
-            Ok(folder) => {
-                let registered = registry.as_ref().and_then(|r| r.project(target));
-                let name = registered.map_or_else(|| folder_name(&folder), |p| p.name.clone());
+            Ok((folder, registered)) => {
+                let name = project_name(&folder, registered.as_ref());
                 vec![(name, registered.map(|p| p.state), folder)]
             }
             Err(e) => return failed(e),
@@ -2984,21 +3086,14 @@ const SESSIONS_SHOWN: usize = 20;
 /// project, read only; with `--reimport`, the import written into the ledger first.
 fn history(target: &str, reimport: bool) -> ExitCode {
     use crw_core::history::{self, Flag};
-    let registered = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
-        Ok(loaded) => loaded.registry.project(target).map(|project| {
-            (
-                project.name.clone(),
-                project.folder(&loaded.registry.data_root()),
-            )
-        }),
-        Err(_) => None,
-    };
-    let folder = match &registered {
-        Some((_, folder)) => folder.clone(),
-        None if Path::new(target).is_dir() => PathBuf::from(target),
-        None => return failed(format!("{target} is not a folder or a registered project")),
-    };
     println!("crw {} history", env!("CARGO_PKG_VERSION"));
+    let (folder, registered) = match project_folder(target) {
+        Ok((folder, registered)) => {
+            let registered = registered.map(|project| (project.name, folder.clone()));
+            (folder, registered)
+        }
+        Err(e) => return failed(e),
+    };
     println!("  folder    {}", folder.display());
     let is_repository = folder.join(".git").exists();
     let import = {
@@ -3420,21 +3515,9 @@ fn revert_session(args: &[&str]) -> ExitCode {
         Err(e) => return failed(e),
     };
     let root = registry.data_root();
-    let project = match registry.project(target) {
-        Some(project) => project.clone(),
-        None => {
-            let found = project_folder(target).ok().and_then(|folder| {
-                registry
-                    .projects
-                    .iter()
-                    .find(|project| paths::same(&project.folder(&root), &folder))
-                    .cloned()
-            });
-            match found {
-                Some(project) => project,
-                None => return failed(format!("{target} is not a registered project")),
-            }
-        }
+    let project = match project_folder(target) {
+        Ok((_, Some(project))) => project,
+        Ok((_, None)) | Err(_) => return failed(format!("{target} is not a registered project")),
     };
     let folder = project.folder(&root);
     let Some(path) = paths::ledger_file() else {
@@ -4102,8 +4185,8 @@ fn print_report(report: &signal_entries::Report, unchanged: &str) {
 /// (D-10, D-13): the box changes in the project's file and nothing else there; the file as it was
 /// is copied to the backups folder first (D-11).
 fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
-    let folder = match project_folder(target) {
-        Ok(folder) => folder,
+    let (folder, registered) = match project_folder(target) {
+        Ok(found) => found,
         Err(e) => return failed(e),
     };
     let store = match store() {
@@ -4147,7 +4230,7 @@ fn tick(target: &str, id: &str, words: &[&str], checked: bool) -> ExitCode {
             );
             // Logged for a revert to redo (EP-15b); the tick stands whatever the ledger says.
             let disposition = (prefix == "IN").then(|| words.join(" "));
-            let name = registered_name(&store, &folder).unwrap_or_else(|| folder_name(&folder));
+            let name = project_name(&folder, registered.as_ref());
             if let Some(ledger) = paths::ledger_file()
                 && let Err(why) = revert::log_tick(
                     &ledger,
@@ -4175,8 +4258,8 @@ fn send_message(args: &[&str]) -> ExitCode {
             "send takes a project or folder and the message's words, and --urgent to flag it",
         );
     };
-    let folder = match project_folder(target) {
-        Ok(folder) => folder,
+    let (folder, registered) = match project_folder(target) {
+        Ok(found) => found,
         Err(e) => return failed(e),
     };
     let store = match store() {
@@ -4184,7 +4267,7 @@ fn send_message(args: &[&str]) -> ExitCode {
         Err(e) => return failed(e),
     };
     let registry = store.load().ok().map(|loaded| loaded.registry);
-    let name = registered_name(&store, &folder).unwrap_or_else(|| folder_name(&folder));
+    let name = project_name(&folder, registered.as_ref());
     let today = files::today();
     let ledger = paths::ledger_file();
     let sent = mailman::send_from_owner(
@@ -4243,17 +4326,6 @@ fn send_args<'a>(args: &[&'a str]) -> Option<(&'a str, String, bool)> {
     (!text.trim().is_empty()).then_some((target, text, urgent))
 }
 
-/// The registry's name for the project in `folder`, when one is registered there.
-fn registered_name(store: &Store, folder: &Path) -> Option<String> {
-    let registry = store.load().ok()?.registry;
-    let root = registry.data_root();
-    registry
-        .projects
-        .iter()
-        .find(|project| paths::same(&project.folder(&root), folder))
-        .map(|project| project.name.clone())
-}
-
 /// `crw formalise` (D-10 … D-13; EP-21): previews the house-style files a project is given, or
 /// writes them with `--yes` once no session works or waits there (as `crw revert` asks), logging
 /// the write in the ledger; with `--migration`, prints the prompt of the session that migrates an
@@ -4281,8 +4353,8 @@ fn formalise_project(args: &[&str]) -> ExitCode {
         return usage_error("formalise takes one project or folder");
     };
     println!("crw {} formalise", env!("CARGO_PKG_VERSION"));
-    let folder = match project_folder(target) {
-        Ok(folder) => std::path::absolute(&folder).unwrap_or(folder),
+    let (folder, registered) = match project_folder(target) {
+        Ok((folder, registered)) => (std::path::absolute(&folder).unwrap_or(folder), registered),
         Err(e) => return failed(e),
     };
     let store = match store() {
@@ -4293,12 +4365,8 @@ fn formalise_project(args: &[&str]) -> ExitCode {
         Ok(loaded) => loaded.registry,
         Err(e) => return failed(e),
     };
-    let root = registry.data_root();
-    let registered = registry
-        .projects
-        .iter()
-        .find(|project| paths::same(&project.folder(&root), &folder));
-    let name = registered.map_or_else(|| folder_name(&folder), |project| project.name.clone());
+    let registered = registered.as_ref();
+    let name = project_name(&folder, registered);
     // How the commands printed below name the project: a folder that is not registered by its
     // path, which works from any folder (EP-21's review).
     let target = match registered {
@@ -4435,8 +4503,8 @@ fn cached_usage(now: DateTime<Utc>) -> rules::Usage {
 /// levels here.
 fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
     println!("crw {} prompt", env!("CARGO_PKG_VERSION"));
-    let folder = match project_folder(target) {
-        Ok(folder) => std::path::absolute(&folder).unwrap_or(folder),
+    let (folder, registered) = match project_folder(target) {
+        Ok((folder, registered)) => (std::path::absolute(&folder).unwrap_or(folder), registered),
         Err(e) => return failed(e),
     };
     let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
@@ -4444,13 +4512,9 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
         Err(e) => return failed(e),
     };
     let root = registry.data_root();
-    let registered = registry
-        .projects
-        .iter()
-        .find(|project| paths::same(&project.folder(&root), &folder));
-    let project = registered
-        .cloned()
-        .unwrap_or_else(|| Project::new(&folder_name(&folder), &folder, State::Active));
+    let is_registered = registered.is_some();
+    let project =
+        registered.unwrap_or_else(|| Project::new(&folder_name(&folder), &folder, State::Active));
     let snapshot = snapshot::take(&folder);
     let claude_md = prompt::claude_md(&folder);
     let today = files::today();
@@ -4487,7 +4551,7 @@ fn prompt(target: &str, mode: Option<LaunchMode>) -> ExitCode {
         || Catalog::built_in("no profile folder".to_owned()),
         |folder| Catalog::read(&folder),
     );
-    let note = if registered.is_some() {
+    let note = if is_registered {
         ""
     } else {
         " (not registered: the global rules and the tool's defaults apply)"
@@ -4750,5 +4814,158 @@ mod tests {
         }
         assert_eq!(limit_of("permission_mode", "auto"), None);
         assert_eq!(limit_of("state", "active"), None);
+    }
+
+    /// A scratch folder under the system's temp folder, removed when dropped.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir = std::env::temp_dir().join(format!("crw-cli-{}-{name}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).unwrap();
+            Self(dir)
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn folder_of(resolved: &Resolved) -> &Path {
+        match &resolved.target {
+            Target::Folder(folder) => folder,
+            Target::Readme(_) | Target::Brief(_) => panic!("a file, not a folder: {resolved:?}"),
+        }
+    }
+
+    fn name_of(resolved: &Resolved) -> Option<&str> {
+        resolved
+            .project
+            .as_ref()
+            .map(|project| project.name.as_str())
+    }
+
+    /// What an argument is written as (EP-58a): a word alone is a name; a separator, `.`, `..`,
+    /// a drive or a root make a path.
+    #[test]
+    fn an_argument_with_a_separator_a_dot_or_a_drive_is_a_path() {
+        for name in ["harbor", "harbor.md", "EP-3-first.md", "lantern-app"] {
+            assert!(!written_as_path(name), "{name}");
+        }
+        for path in [
+            ".",
+            "..",
+            "./harbor",
+            r".\harbor",
+            "harbor/",
+            r"a\b",
+            "C:",
+            r"C:\Data",
+            r"\Data",
+        ] {
+            assert!(written_as_path(path), "{path}");
+        }
+    }
+
+    /// The resolver (EP-58a, from IN-17 and IN-18) over a temp data root with synthetic names: a
+    /// bare name reads the registered project before a folder of the working directory, the note
+    /// naming `.\<name>`, and from the data root itself no note; `.` reads its folder's registered
+    /// project; a path, an unregistered name, a README and a brief read as before; a name that is
+    /// nothing is refused; without a registry the working directory alone answers.
+    #[test]
+    fn a_bare_name_reads_the_registered_project_before_a_folder_here() {
+        let scratch = Scratch::new("resolve");
+        let root = scratch.0.join("data");
+        let harbor = root.join("harbor");
+        for folder in [
+            harbor.join("harbor"),
+            root.join("lantern-app"),
+            root.join("meadow"),
+        ] {
+            fs::create_dir_all(folder).unwrap();
+        }
+        fs::write(harbor.join("README.md"), "# harbor\n").unwrap();
+        fs::write(harbor.join("EP-3-first.md"), "# EP-3\n").unwrap();
+        let registry = Registry {
+            format: 1,
+            ignore: Vec::new(),
+            settings: Settings {
+                data_root: Some(root.clone()),
+                ..Settings::default()
+            },
+            rules: Vec::new(),
+            projects: vec![
+                Project::new("harbor", Path::new("harbor"), State::Active),
+                Project::new("lantern", Path::new("lantern-app"), State::Paused),
+            ],
+        };
+        let resolve = |target: &str, cwd: &Path| resolve_target(target, cwd, Some(&registry));
+
+        // From the project's root, which holds a subfolder of its own name.
+        let read = resolve("harbor", &harbor).unwrap();
+        assert!(paths::same(folder_of(&read), &harbor), "{read:?}");
+        assert_eq!(name_of(&read), Some("harbor"));
+        let other = read.passed_over.as_deref().expect("the subfolder is named");
+        assert!(paths::same(other, &harbor.join("harbor")), "{other:?}");
+        let note = passed_over_note("harbor", &read, other);
+        assert!(
+            note.starts_with("note: harbor reads the registered project harbor at ")
+                && note.contains("for the folder ")
+                && note.ends_with(&format!("write .{}harbor", std::path::MAIN_SEPARATOR)),
+            "{note}"
+        );
+        // From the data root, the registered folder is the one of that name: no note.
+        let read = resolve("harbor", &root).unwrap();
+        assert!(paths::same(folder_of(&read), &harbor) && read.passed_over.is_none());
+        // `.` from the project's root: the project with its name and state.
+        let read = resolve(".", &harbor).unwrap();
+        assert!(paths::same(folder_of(&read), &harbor), "{read:?}");
+        assert_eq!(name_of(&read), Some("harbor"));
+        assert_eq!(read.project.as_ref().map(|p| p.state), Some(State::Active));
+        // The subfolder by its path: a folder of no registered project.
+        let read = resolve(r".\harbor", &harbor).unwrap();
+        assert!(paths::same(folder_of(&read), &harbor.join("harbor")));
+        assert_eq!(name_of(&read), None);
+        // The project's folder by its full path, and another's by `..`.
+        let read = resolve(&harbor.display().to_string(), &root.join("meadow")).unwrap();
+        assert_eq!(name_of(&read), Some("harbor"));
+        let read = resolve(r"..\lantern-app", &harbor).unwrap();
+        assert!(paths::same(folder_of(&read), &root.join("lantern-app")));
+        assert_eq!(name_of(&read), Some("lantern"));
+        // A registered name whose folder is named otherwise, from anywhere.
+        let read = resolve("lantern", &harbor).unwrap();
+        assert!(paths::same(folder_of(&read), &root.join("lantern-app")));
+        assert!(read.passed_over.is_none());
+        // A folder of the working directory that a project lives in under another name.
+        let read = resolve("lantern-app", &root).unwrap();
+        assert_eq!(name_of(&read), Some("lantern"));
+        // An unregistered name: the working directory's folder or file, as before.
+        let read = resolve("meadow", &root).unwrap();
+        assert!(paths::same(folder_of(&read), &root.join("meadow")));
+        assert_eq!(name_of(&read), None);
+        assert!(matches!(
+            resolve("README.md", &harbor).unwrap().target,
+            Target::Readme(_)
+        ));
+        assert!(matches!(
+            resolve("EP-3-first.md", &harbor).unwrap().target,
+            Target::Brief(_)
+        ));
+        // Nothing of that name: refused, a name and a path in their own words.
+        let error = resolve("nowhere", &harbor).unwrap_err();
+        assert!(
+            error.starts_with("nowhere is not a registered project, nor a file or a folder in "),
+            "{error}"
+        );
+        let error = resolve(r".\nowhere", &harbor).unwrap_err();
+        assert!(error.contains("is not a file or a folder"), "{error}");
+        assert!(resolve(" ", &harbor).is_err());
+        // Without a registry, the working directory alone, as before EP-58a.
+        let read = resolve_target("harbor", &harbor, None).unwrap();
+        assert!(paths::same(folder_of(&read), &harbor.join("harbor")));
+        assert_eq!(name_of(&read), None);
     }
 }
