@@ -2497,7 +2497,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-55 | [The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual](EP-55-sweep-checklist.md) (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☑ `b9577a0` |
 | EP-56 | [The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live](EP-56-manual-convention.md) (D-12) | M | EP-45 | core | ☑ `883547c` |
 | EP-57 | [`crw manual`: the Markdown turned into Typst by the tool itself, one template, the pinned Typst CLI building the PDFs into the local folder, the doctor's Typst line](EP-57-crw-manual.md) (D-12) | M | EP-56 | core | ☑ `c0bc235` |
-| EP-57a | The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words (D-25) | M | EP-57 | core | ☐ |
+| EP-57a | [The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words](EP-57a-manual-in-the-window.md) (D-25) | M | EP-57 | core | ☑ `683d848` |
 | EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57a, EP-52 | core | ☐ |
 | EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
 
