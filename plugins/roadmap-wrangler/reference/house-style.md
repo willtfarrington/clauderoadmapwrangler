@@ -3,8 +3,8 @@
 The schema a house-style project's roadmap files follow: the forms Roadmap Wrangler's parser
 reads (`crw roadmap <folder>` prints its reading of one project) and the forms its sessions write.
 The decisions behind it are clauderoadmapwrangler's D-4 (sizes), D-9 (the convention), D-10
-(owner tasks), D-11 (what the tool writes), D-12 (front matter and the completion note) and D-13
-(the inbox).
+(owner tasks), D-11 (what the tool writes), D-12 (front matter, the completion note and the
+manual) and D-13 (the inbox).
 The texts quoted under [The engine's texts](#the-engines-texts) are the ones `crw formalise`
 writes, byte for byte.
 
@@ -21,6 +21,8 @@ writes, byte for byte.
 | `roadmap/v2-notes.md` | Work named and not built, grown by every re-plan | Sessions |
 | `roadmap/_TEMPLATE.md` | The brief template; never read as a brief | `crw formalise` |
 | `roadmap/planning-<date>.md` | The record of a planning interview | The plan session |
+| `docs/manual.md` | The manual of a project that owes one: reference chapters, then the walkthrough | Sessions: a stub by the session that settles it with the owner, the first manual by a brief of its own, then each re-plan |
+| `docs/manual-changes.md` | What changed for a user since the last phase's close, a section per brief | Sessions: each brief that changes what a user sees or does; the re-plan empties it |
 
 The tool writes only the files it owns (D-11): ticks in `owner-tasks.md` and `inbox.md`,
 deliveries into `inbox.md`, the formalise step's files, the `.code-workspace` entry. It never edits
@@ -159,9 +161,68 @@ without AI attribution trailers. A session never pushes unless the owner says so
 ## Re-plans and parked work
 
 A re-plan brief closes each phase: the walk of the phase's residual-risk paragraphs, a retro of
-planned against measured times, dated addenda, the next phase re-cut with pickup notes, and
-`roadmap/v2-notes.md` grown with what was named and not built. The plugin's `replan` skill has the
-steps.
+planned against measured times, dated addenda, the next phase re-cut with pickup notes,
+`roadmap/v2-notes.md` grown with what was named and not built, and a manual's changes folded
+into it. The plugin's `replan` skill has the steps.
+
+## The manual
+
+A project the owner calls working well enough to owe a manual keeps `docs/manual.md`, and the
+file's presence is the mark (D-12): the session that settles it with the owner creates it, a
+stub holding the outline below, with an empty `docs/manual-changes.md`, and a brief of its own
+writes the first manual; a project without it owes none and writes no changes. The manual is
+plain Markdown, its pictures beside it in `docs/` (a public repository's showing synthetic data
+only):
+
+```markdown
+# <Project> — manual
+
+What the project is and for whom, in a paragraph, and the phase it describes.
+
+## What it does
+## Install and start
+## <A chapter per surface: its commands, panes or pages, files and settings>
+## When something goes wrong
+## Walkthrough
+
+### <A route no real use has met>
+
+1. The steps, in order.
+2. What to look at.
+3. What to note down.
+```
+
+The walkthrough stays while the project's full use is still wanting: each re-plan takes out the
+routes real use has met (its walk says which) and adds the new ones no use has met, and the
+chapter goes once every route has been used. `docs/manual-changes.md` holds what changed for a
+user since the last phase's close; each brief that changes what a user sees or does adds its
+section before its close, as it writes its completion note:
+
+```markdown
+# <Project> — changes since the last phase's close
+
+Since EP-n (YYYY-MM-DD), the last re-plan or the file's creation. Each brief that changes what a
+user sees or does adds its section; the next re-plan folds them into `docs/manual.md` and
+empties this file.
+
+## EP-k — <title> (YYYY-MM-DD)
+
+- What changed, and where to see it.
+```
+
+The phase's re-plan folds the sections into the manual's chapters, empties the file to its
+header with a new `Since` line and builds the manual's PDF to read it through (the `replan`
+skill's step 8).
+
+**The PDFs** are built, never tracked: `crw manual <project>` (with `--changes`, the changes
+file) turns the Markdown into [Typst](https://typst.app/) markup inside one template (a title
+page, a contents page, numbered chapters, page numbers, Typst's built-in fonts alone) and runs
+the Typst CLI, pinned at 0.15.1, so the same source gives the same bytes, offline, into
+`%LOCALAPPDATA%\clauderoadmapwrangler\manuals\<project>-manual.pdf` and
+`<project>-manual-changes.pdf`; the tool writes nothing into the project for it. Typst is
+installed with `winget install --id Typst.Typst --version 0.15.1`, a portable package that
+needs no administrator, and held there with `winget pin add --id Typst.Typst --version 0.15.1`;
+`crw manual` refuses another version.
 
 ## A session in progress
 
@@ -217,6 +278,11 @@ differ.
   is known at planning and it touches a handful of files, an M for an investigation, a state
   machine or the choice of a tool. A row is not cut only to make it smaller, and a row that
   proves larger at pickup is split there, never run long.
+- **Manual:** a project the owner calls working well enough to owe one keeps `docs/manual.md`
+  (reference chapters, then a walkthrough of the routes no real use has met) and
+  `docs/manual-changes.md`, where each brief that changes what a user sees or does adds a
+  `## EP-n — <title> (date)` section before its close; the phase's re-plan folds that file into
+  the manual and empties it. `crw manual` builds the PDFs, which are never tracked.
 <!-- roadmap-wrangler:end -->
 ```
 

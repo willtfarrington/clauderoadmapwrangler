@@ -114,3 +114,8 @@
     temp folders. To try `crw` or the app, set `CRW_HOME=<scratch folder>`: the registry, the ledger and
     the backups then live there, and a hand-written scratch registry points `data_root` at a scratch data
     root with synthetic names.
+14. **The manual (D-12 addendum, 2026-11-25).** Once `docs/manual.md` exists, a brief that changes what
+    a user sees or does adds its `## EP-n — <title> (date)` section to `docs/manual-changes.md` before
+    its close, and the phase's re-plan folds that file into the manual and empties it. The PDFs are built
+    with the pinned Typst CLI into `%LOCALAPPDATA%\clauderoadmapwrangler\manuals`, never tracked; the
+    manual's pictures come from screenshot runs over the fake portfolio only (rule 3).

@@ -63,6 +63,11 @@ differ.
   is known at planning and it touches a handful of files, an M for an investigation, a state
   machine or the choice of a tool. A row is not cut only to make it smaller, and a row that
   proves larger at pickup is split there, never run long.
+- **Manual:** a project the owner calls working well enough to owe one keeps `docs/manual.md`
+  (reference chapters, then a walkthrough of the routes no real use has met) and
+  `docs/manual-changes.md`, where each brief that changes what a user sees or does adds a
+  `## EP-n — <title> (date)` section before its close; the phase's re-plan folds that file into
+  the manual and empties it. `crw manual` builds the PDFs, which are never tracked.
 ";
 
 /// The header of an `owner-tasks.md` the formalise step creates (D-10); the example line stays in
@@ -809,11 +814,16 @@ mod tests {
     fn the_block_holds_the_read_first_rule_the_opener_quotes() {
         let block = block("\n");
         assert!(block.starts_with(&format!("{BEGIN}\n## Roadmap house style\n")));
-        // The size rule last (the D-4 addendum of 2026-11-24; EP-54): S or M, no L.
+        // The size rule (the D-4 addendum of 2026-11-24; EP-54): S or M, no L.
         assert!(block.contains("`- **EP-n.** …` bullet\n  under `**Brief notes.**`.\n"));
         assert!(block.contains("a brief is S (about 30 minutes of active work) or M (about 45)"));
         assert!(!block.contains("S, M or L"));
-        assert!(block.ends_with(&format!("split there, never run long.\n{END}")));
+        // Then the manual last (the D-12 addendum of 2026-11-25; EP-56).
+        assert!(block.contains("split there, never run long.\n- **Manual:** a project"));
+        assert!(block.contains("keeps `docs/manual.md`"));
+        assert!(block.ends_with(&format!(
+            "`crw manual` builds the PDFs, which are never tracked.\n{END}"
+        )));
         let quoted = prompt::read_first(&format!("# alpha — session rules\n\n{block}\n")).unwrap();
         assert!(
             quoted.starts_with("**Read first:** `roadmap/README.md`"),

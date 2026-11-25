@@ -777,6 +777,55 @@ matter as well. *Alternatives.* Any subset; a model/effort column in the phase t
 > pattern required everywhere (two projects write their own conventional commits, which the
 > review keeps).
 
+> **Addendum (2026-11-25, EP-56).** The manual, the owner's request 10 at EP-45 and their
+> choices at EP-56. A project the owner calls working well enough to owe one keeps
+> **`docs/manual.md`, whose presence is the mark**: the session that settles it with the owner
+> (EP-55's sweep, a re-plan or a brief) creates it, a stub holding the outline, with an empty
+> **`docs/manual-changes.md`**, and a brief of its own writes the first manual; a project
+> without it owes none and its briefs write no changes. The manual is plain Markdown:
+> a title, a paragraph on what the project is and the phase it describes, the reference chapters
+> (what it does; install and start; a chapter per surface, its commands, panes or pages, files
+> and settings; when something goes wrong), then a **walkthrough** while the project's full use
+> is still wanting, one section per route no real use has met (the steps, what to look at, what
+> to note down), which each re-plan shortens by the routes real use has met and lengthens by the
+> new ones, gone once every route has been used; pictures beside it in `docs/`, a public
+> repository's of synthetic data only (D-3). Each brief that changes what a user sees or does
+> adds a `## EP-n — <title> (date)` section to the changes file before its close, as it writes
+> its completion note; the phase's re-plan folds the sections into the chapters, empties the
+> file to its header with a new `Since` line and builds the manual's PDF to read it through
+> (the `replan` skill's step 8). **The PDFs are built
+> on demand and never tracked**, into
+> `%LOCALAPPDATA%\clauderoadmapwrangler\manuals\<project>-manual.pdf` and
+> `<project>-manual-changes.pdf`, so the tool writes nothing new into a project (D-11
+> unchanged). **The renderer is the Typst CLI, pinned at 0.15.1** through winget's portable
+> package (`Typst.Typst`, user scope, no administrator; installed on this machine by EP-56 on
+> the owner's word and held by `winget pin add`), `crw` refusing another version, since a newer
+> Typst may read the template otherwise and changes the bytes; the pin moves only in a brief
+> that needs a newer Typst: `crw manual <project> [--changes]` (EP-57) turns the Markdown into Typst
+> itself with `pulldown-cmark` (already in the lock file through egui_commonmark), every run of
+> text a Typst string literal so that no Markdown character needs Typst's markup escapes, inside
+> one template (US Letter, Typst's built-in fonts alone, a title page, a contents page, numbered
+> chapters, page numbers), and runs the CLI with `--root` at the project's `docs` folder,
+> `--ignore-system-fonts` and a creation timestamp from the source's last commit, importing no
+> package, so a build is offline and the same source gives the same bytes. EP-56's trial (a
+> synthetic six-page document with a contents page, a table, lists, a code block, a picture of
+> the fake portfolio and every character Typst's markup reads as syntax) built in about 0.1 s,
+> byte-identical across three builds, one of them into another folder. The rule block
+> `crw formalise` writes gains a Manual bullet, so a formalised project's row offers
+> Formalise… again until it takes the block (EP-55's sweep takes it with the Sizes bullet); the
+> plugin's reference states the files and the build, its `replan` skill folds the changes in,
+> and the owner's environment repository, whose user-level house style states the conventions
+> for every project, had the wording by message. *Alternatives.* Typst compiled into `crw`
+> (`typst`, `typst-pdf` and `typst-kit` 0.15.1 resolve to 299 packages, 195 of them new to the
+> lock file's 501); a Python renderer through `uv run --with` (a printed contents page and page
+> numbers unchecked, a Rust tool building through Python); a layout engine of the tool's own
+> (far more than an M); Edge's headless print (no pin, no page numbers in a contents page, a
+> browser driven, which D-29 keeps out); pandoc with Typst (two binaries for what
+> `pulldown-cmark` parses); the manual's PDF tracked in `docs/` so a public README could link
+> it, or both PDFs tracked (a binary in each behaviour change's commit, and the window writing
+> into projects, a D-11 change); a registry key or a `CLAUDE.md` line as the mark (a second
+> record of what the file's presence says); the walkthrough kept whole as a guided tour.
+
 **D-13 Cross-project inbox.** Messages between projects live in the receiver's **`roadmap/inbox.md`**, one
 line each, `- [ ] IN-n (from <project> EP-k, date) text`, tracked in git and mirrored in the registry for
 the UI and the phone. **The tool is the mailman**: a sending session writes `> **Handed on (to

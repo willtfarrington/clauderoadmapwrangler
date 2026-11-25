@@ -1,6 +1,6 @@
 ---
 name: replan
-description: "Run a house-style re-plan that closes a roadmap phase: the walk of the phase's residual risks with the owner, a retro of planned against measured times from the session transcripts, dated addenda to the decisions the phase changed, the next phase re-cut with pickup notes, and the parked notes grown."
+description: "Run a house-style re-plan that closes a roadmap phase: the walk of the phase's residual risks with the owner, a retro of planned against measured times from the session transcripts, dated addenda to the decisions the phase changed, the next phase re-cut with pickup notes, the parked notes grown, and a manual's changes folded into it."
 when_to_use: "The next brief of a house-style roadmap is a re-plan row (Re-plan P2, …), or the owner asks to close a phase, re-plan, or review a phase's timings and decisions."
 argument-hint: "[the project's folder, when it is not the working folder]"
 ---
@@ -15,7 +15,8 @@ the next phase ready to pick up. The forms of every file it edits are in
 
 The roadmap README (the phase being closed and the next one), every brief of the phase with its
 completion note, `DECISIONS.md`, `roadmap/v2-notes.md`, `roadmap/owner-tasks.md` and
-`roadmap/inbox.md` (triage first, as at any session's start). Then the re-plan row's own brief note:
+`roadmap/inbox.md` (triage first, as at any session's start), and `docs/manual-changes.md` when
+the project keeps a manual. Then the re-plan row's own brief note:
 earlier briefs park their findings there as `**From EP-n:** …` segments and dated addenda, and each
 one needs an answer in this session. Write the re-plan's brief before touching any other file.
 
@@ -79,13 +80,24 @@ precisely. A far phase's charter briefs are upgraded to full brief notes when th
 `roadmap/v2-notes.md` grows with everything named in the phase and not built, each with where it
 came from.
 
-## 8. The interview
+## 8. The manual
+
+When the project keeps `docs/manual.md` (the reference's section on the manual), fold
+`docs/manual-changes.md` into it: each section's changes into the chapters they touch, the
+walkthrough losing the routes this phase's real use has met (the walk says which) and gaining
+the new ones no use has met; then empty the changes file to its header, its `Since` line naming
+this re-plan, and build the manual's PDF with `crw manual <project>` to read it through. A
+project without a manual whose owner now calls it working well enough gets its stub and an
+empty changes file here (the reference's outline) and a row for its first manual in the next
+phase.
+
+## 9. The interview
 
 Rounds of up to four questions, the recommended option first: facts and addenda first, then the
 next phase's shape, then sign-offs of the edits drafted between rounds (so that each question is
 concrete), then findings for other projects, then the close-out (the commit, the next EP).
 
-## 9. The close
+## 10. The close
 
 The brief's completion note records the timings, each owner decision and its outcome and the
 routine choices. A finding for another project is a `> **Handed on (to <project>).**` block after

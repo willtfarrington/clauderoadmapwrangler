@@ -625,6 +625,12 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   session triages each open message after reading the roadmap and writes the disposition on the line.
   The owner may tick a message in the tool's Inbox pane, which writes `**Disposition (date):** …` on
   its line, and may write one, `- [ ] IN-n (from the owner, date) text`, from the tool or by hand.
+- **The manual.** A project that works well enough to owe one keeps `docs/manual.md` (reference
+  chapters, then a walkthrough of the routes no real use has met yet) and `docs/manual-changes.md`,
+  where each brief that changes what a user sees or does adds a section before its close; the
+  phase's re-plan folds the changes into the manual and empties the file. The PDFs are built from
+  them with the [Typst](https://typst.app/) CLI on demand, into the tool's local folder, and never
+  tracked.
 - **Formalising a project.** `crw formalise <project|folder>` previews the house-style files a
   project is given and `--yes` writes them: a rule block in its `CLAUDE.md` between
   `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->` (the house's rules in short;
@@ -660,7 +666,7 @@ The method these files follow ships as a Claude Code plugin in this repository,
   from the record.
 - `/roadmap-wrangler:replan` closes a phase: the walk of its residual risks, the retro timed from
   the session transcripts, dated addenda, the next phase re-cut with pickup notes, the parked notes
-  grown.
+  grown, a manual's changes folded into it.
 - `/roadmap-wrangler:formalise` gives a project the house-style files through `crw formalise` (the
   preview, then `--yes` on the owner's word), hands an older roadmap's migration prompt to a session
   in that project, or writes a first roadmap from a brief.

@@ -110,6 +110,11 @@ transcripts (D-4 addendum): an S about 30 minutes of active work, an M about 45,
 owner's choices; the Sizes paragraph below holds the rule. EP-44, P7's one L, is cut into M
 sessions by EP-59, as planned; no row changes here.
 
+**After EP-56's convention (2026-11-25).** The manual's renderer is the Typst CLI, pinned (D-12
+addendum), and EP-57 is split in two at planning, the owner's choice: EP-57 builds `crw manual`,
+and a row after it, EP-57a (M), holds the window's part. By its table P6 now holds nineteen
+rows, 6 S and 13 M.
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -2491,8 +2496,9 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-54 | [The conventions in this project's own files: the plugin's four skills, its house-style reference and the formalise templates brought in line with the owner's review and the measured sizes](EP-54-conventions-review.md) (D-12, D-27) | M | EP-53 | core | ☑ `be84464` |
 | EP-55 | [The sweep's checklist: an owner task and a message for each project that is not active, with the steps that settle its state, its roadmap form and its manual](EP-55-sweep-checklist.md) (D-6, D-10, D-13) | S | EP-50, EP-54 | core | ☑ `b9577a0` |
 | EP-56 | The manual's convention: the renderer chosen from what the machine has, `docs/manual.md` and `docs/manual-changes.md`, the chapters, the build step, where the PDFs live (D-12) | M | EP-45 | core | ☐ |
-| EP-57 | The manual in the window: built by `crw manual`, opened from a row's menu and the Detail pane, its age beside the last phase's close (D-25) | M | EP-56 | core | ☐ |
-| EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57, EP-52 | core | ☐ |
+| EP-57 | `crw manual`: the Markdown turned into Typst by the tool itself, one template, the pinned Typst CLI building the PDFs into the local folder, the doctor's Typst line (D-12) | M | EP-56 | core | ☐ |
+| EP-57a | The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words (D-25) | M | EP-57 | core | ☐ |
+| EP-58 | This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF (D-1) | M | EP-57a, EP-52 | core | ☐ |
 | EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58 | core | ☐ |
 
 *(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
@@ -2515,7 +2521,9 @@ session inside each project, guided by owner tasks that EP-55 writes once the Ow
 (EP-50) can show them and the conventions are settled (EP-54). The manuals follow: the
 convention (EP-56, which may run any time after this re-cut), the window's part (EP-57), this
 project's own manual (EP-58, after the panes it describes). EP-56 … EP-58 do not wait for the
-sweep. EP-59 closes the phase and cuts P7.
+sweep. EP-59 closes the phase and cuts P7. *(EP-56, 2026-11-25, the owner's choice.)* EP-57 is
+split at planning: the tool's build first (EP-57, `crw manual`), then the window's part (EP-57a),
+which also takes EP-54's parked words, since it runs the pictures; EP-58 follows both.
 
 Standing decisions for phase P6: D-3 (the repository is public; the owner's projects, login,
 machine and tailnet stay out of tracked files and pictures), D-10 addendum (a residual-risk
@@ -2819,6 +2827,65 @@ inbox through the tool, on the owner's word).
   phase's close in the Status section, amber when a phase closed since. The phone's project
   page may link the PDF only if cheap, else a v2 note. Tests on temp folders with synthetic
   manuals; a screenshot run shows the entries on the fake portfolio.
+  *(2026-11-25, EP-56: split at planning, the owner's choice. The window's part, from "the
+  window offers" on, went to EP-57a; this row builds `crw manual`.)* **From EP-56:** the
+  convention is D-12's addendum of 2026-11-25 and the reference's section "The manual". **The
+  renderer** is the Typst CLI 0.15.1, which EP-56 installed through winget
+  (`typst.exe` in `%LOCALAPPDATA%\Microsoft\WinGet\Links`, on PATH; `typst --version` prints
+  `typst 0.15.1 (9dfd3a08)`) and held with `winget pin add --id Typst.Typst --version 0.15.1`;
+  the version is pinned in `core`, exactly, and moves only in a brief that needs a newer Typst
+  and checks the template under it; a missing `typst` or another version is a refusal that names
+  `winget install --id Typst.Typst --version 0.15.1`. **The converter:** `pulldown-cmark`
+  0.13.6, already in the lock file through egui_commonmark (a direct dependency of `core` at
+  that version with `default-features = false`, as egui_commonmark takes it, adds no package;
+  its defaults would add `getopts` and `pulldown-cmark-escape`), its events turned into Typst
+  calls: every run of text a string literal `#"…"` with
+  only `\` and `"` escaped, never a line break inside a paragraph (in markup a line break is a
+  space) and a literal followed only by `#`, `]` or a line's end (`#"a".` reads as a field
+  access); the manual's `#` title to the title page, `##` to a numbered level 1;
+  `#par[…]`, `#emph[…]`, `#strong[…]`, `#raw("…")` and `#raw(block: true, lang: "…", "…")`,
+  `#link("…")[…]`, `#list(…)` and `#enum(…)` nested, `#table(columns: n, table.header(…), …)`
+  from a pipe table, `#figure(image("…", width: 100%), caption: […])` from a picture with its
+  alt text, `#quote(block: true)[…]`, a rule as `#line(length: 100%)`; raw HTML left out with a
+  warning. Straight quotes stay straight inside string literals (Typst's smart quotes act on
+  markup alone): the brief's call. **The template**, as EP-56's trial wrote it: US Letter,
+  margins 2.2 × 2.4 cm, Libertinus Serif 11 pt justified, DejaVu Sans Mono 9 pt for code with
+  a light fill under a block, numbered headings and a weak page break before each chapter, a
+  title page with no header or footer (the project, "Manual", the phase it describes, the
+  date), `#outline(depth: 2)`, the project and the date in the header, `n / N` in the footer
+  (`counter(page).display("1 / 1", both: true)`), `set document(title: …, author: …)`. **The
+  build:** the generated Typst piped to `typst compile --root <project>\docs
+  --ignore-system-fonts --creation-timestamp <the source's last commit time> - <out.pdf>`
+  (checked at EP-56: a main file outside `--root` is refused, "source file must be contained
+  in project root", while stdin builds the same bytes), so nothing is written into the project
+  and nothing outside its `docs` is read; the timestamp from `git log -1 --format=%ct --
+  docs/manual.md`, the file's own time when it is uncommitted; the PDF written through a temp
+  file and a rename into `%LOCALAPPDATA%\clauderoadmapwrangler\manuals\<project>-manual.pdf`
+  (or `-manual-changes.pdf`; under `CRW_HOME` in a trial), built only when the source or one of
+  its pictures is newer, `--force` to build anyway; `crw doctor` gains a Typst line. Tests: the
+  converter as text over synthetic Markdown (each construct, the characters Typst's markup
+  reads as syntax), the build through a fake runner as `gh` and `tailscale` go, never the real
+  CLI. If the converter and the build outgrow the M, `--changes` and the doctor's line split
+  off at pickup.
+- **EP-57a.** Added at EP-56 (2026-11-25), the window's part of EP-57's old note, the owner's
+  choice. The window offers **Manual** and **Changes since the last phase** on a row's menu
+  (`row_menu`, `crates/app/src/list.rs`, beside "Refresh this project") and as two links at
+  the head of the Detail pane beside the project's path (`crates/app/src/detail.rs`), each
+  building through EP-57's engine on a worker thread when the source is newer than the PDF and
+  then opening it with the system's viewer (a child started through `process`, the first
+  open-a-file action the window has; never a link from the chat); greyed with a reason when
+  the project has no `docs/manual.md` (it owes none, D-12 addendum) or Typst is missing (the
+  winget line); the manual's date (its last commit) beside the last phase's close in the
+  Status section, amber when a phase closed since. The phone's project page may link the PDF
+  only if cheap, else a v2 note. **Then EP-54's parked words** (moved here from EP-59's note,
+  the owner's choice at EP-56): the window's own words still state the old sizes or the commit
+  pattern without its exception: the Projects pane's Next column hover ("M about an hour, L
+  about two hours") and the size cell's hover (`size_hint`) in `list.rs`, a doc comment in
+  `crates/core/src/roadmap/mod.rs`, the Commit button's hover in `crates/app/src/sessions.rs`
+  and the phone's words in `crates/app/src/phone.rs` ("the house pattern"): an S about 30
+  minutes of active work and an M about 45, an L still read in older rows, and "the project's
+  own pattern when its `CLAUDE.md` states one". Tests on temp folders with synthetic manuals;
+  screenshot runs at the three sizes and one over a copy of the real portfolio (rule 5).
 - **EP-58.** Added at EP-45, the owner's request 10, this project's own manual, the first
   written under the convention and its proof. `docs/manual.md`: the window pane by pane as P6
   leaves it, the launch modes, the decisions, the autopilot and its gate, the mail, formalise
@@ -2829,7 +2896,14 @@ inbox through the tool, on the owner's word).
   name, as steps the owner can follow with what to expect and what to note, so that the manual
   is also the walk's script. Pictures from screenshot runs over the fake portfolio only (rule
   3). The README's "State of the app" points to it. After EP-52, so that it describes the
-  panes as they are.
+  panes as they are. **From EP-56:** the manual follows the reference's section "The manual"
+  (D-12 addendum): `docs/manual.md` from the outline there, and `docs/manual-changes.md`
+  created with it, empty, its `Since` line naming EP-58, from which CLAUDE.md rule 14 holds for
+  every brief (this project's word was given at EP-45, the owner's request 10, so no stub came
+  first: EP-58 creates both files as it writes the first manual); the pictures from screenshot runs over the fake portfolio into `docs/`; built
+  with `crw manual clauderoadmapwrangler` and read through as a PDF. The README points to
+  `docs/manual.md`, which GitHub renders, never to the PDF, which is not tracked. After EP-57a,
+  so that it describes the window's Manual entries too.
 - **EP-59.** The P6 re-plan, by the `replan` skill: the walk of P6's residual-risk paragraphs
   (the new panes and the theme under the owner's hands, the re-read after a real visual
   session, the chat's queued send, the first manual opened from the window); the retro under
@@ -2839,6 +2913,12 @@ inbox through the tool, on the owner's word).
   (D-15); `docs/manual-changes.md` folded into the manual for the first time; addenda; and P7
   confirmed: EP-44 cut to the size rule, the interview as several sessions if one would be an
   L, and the routes carried into v2's first walk less those EP-58's walkthrough closed.
+  **From EP-56:** the manual's fold is the `replan` skill's new step 8 (D-12 addendum): the
+  changes since EP-58 folded into `docs/manual.md`, the walkthrough shortened by the routes the
+  walk meets, the changes file emptied with a `Since` line naming EP-59, the manual's PDF built
+  and read through. EP-54's parked block on the window's old size words moved to EP-57a's note
+  on the owner's choice. The Typst install owes no owner task: EP-56 ran it, and its pin, on the
+  owner's word.
 
   > **Addendum (2026-11-23, from IN-16).** Item (9) of the conventions review's outcome, parked
   > here at EP-48 on the owner's choice: the history clauses in this project's `CLAUDE.md`
@@ -2859,18 +2939,6 @@ inbox through the tool, on the owner's word).
   > **Addendum (2026-11-24, from EP-53).** No L remains (D-4 addendum): EP-44 is cut into M
   > sessions, and the retro times P6's briefs against an S of about 30 minutes of active work and
   > an M of about 45. Then this block goes.
-
-  > **Addendum (2026-11-24, from EP-54).** The window's own words still state the old sizes or
-  > the commit pattern without its exception, found by EP-54's review and left there because a
-  > change to a list's or a pane's words owes rule 5's screenshot runs: the Projects pane's Next
-  > column hover ("M about an hour, L about two hours") and the size cell's hover (`size_hint`)
-  > in `crates/app/src/list.rs`, a doc comment in `crates/core/src/roadmap/mod.rs`, the Commit
-  > button's hover in `crates/app/src/sessions.rs` and the phone's words in
-  > `crates/app/src/phone.rs` ("the house pattern"). A fix of an S at most: an S about 30 minutes
-  > of active work and an M about 45, an L still read in older rows, and "the project's own
-  > pattern when its `CLAUDE.md` states one". The re-plan places it as a row in P7 or rolls it
-  > into a P6 brief that touches those files (EP-57 changes `list.rs` and runs the pictures).
-  > Then this block goes.
 
 ## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
 
