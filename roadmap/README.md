@@ -2886,6 +2886,15 @@ inbox through the tool, on the owner's word).
   minutes of active work and an M about 45, an L still read in older rows, and "the project's
   own pattern when its `CLAUDE.md` states one". Tests on temp folders with synthetic manuals;
   screenshot runs at the three sizes and one over a copy of the real portfolio (rule 5).
+  **From EP-57:** the engine is `crw_core::manual::build(&Job, &dyn Runner)` with
+  `manual::Real::locate()` (Typst on PATH or in winget's `Links` folder, git for the date) and
+  `manual::dir()` for the folder; `Job.template` is the exe's own time, so a new build of the
+  window builds a PDF again once; `Built::Fresh` asks no child at all, so the menu's check of
+  staleness can run the same build and open what it returns; the refusals are words ready for a
+  greyed entry's hover (no `docs/manual.md`: "owes no manual"; Typst missing or at another
+  version: the winget line). `crw manual` prints the path, so a session can check what the window
+  opens. The window's build belongs on a worker thread: it takes the children's turn
+  (`process::turn`) for `typst --version`, `git log` and the compile.
 - **EP-58.** Added at EP-45, the owner's request 10, this project's own manual, the first
   written under the convention and its proof. `docs/manual.md`: the window pane by pane as P6
   leaves it, the launch modes, the decisions, the autopilot and its gate, the mail, formalise
@@ -2903,7 +2912,13 @@ inbox through the tool, on the owner's word).
   first: EP-58 creates both files as it writes the first manual); the pictures from screenshot runs over the fake portfolio into `docs/`; built
   with `crw manual clauderoadmapwrangler` and read through as a PDF. The README points to
   `docs/manual.md`, which GitHub renders, never to the PDF, which is not tracked. After EP-57a,
-  so that it describes the window's Manual entries too.
+  so that it describes the window's Manual entries too. **From EP-57:** the converter puts the
+  first `#` heading and the paragraphs before the first `##` on the title page (so that paragraph
+  names the phase), turns `##` into numbered chapters each on a new page and `###` into their
+  sections; pictures must sit in `docs` (a subfolder is fine), named by a relative path; raw HTML,
+  footnotes and task-list boxes are not rendered (HTML is left out with a warning naming its
+  line); a relative link keeps only its text in the PDF. `crw manual clauderoadmapwrangler
+  --changes` builds the changes file the same way, its sections flowing on without page breaks.
 - **EP-59.** The P6 re-plan, by the `replan` skill: the walk of P6's residual-risk paragraphs
   (the new panes and the theme under the owner's hands, the re-read after a real visual
   session, the chat's queued send, the first manual opened from the window); the retro under

@@ -25,7 +25,8 @@
 //! `site` setting, from EP-27; `act`, a hosting or backup action previewed as the window's dialog
 //! shows it, from EP-34; `doctor`'s report by group, the Diagnostics pane's checks, from EP-28;
 //! `autostart`, the start-at-login entry, and `path`, `crw`'s copy on PATH, with `install`
-//! writing the app's icon and refreshing that copy, from EP-28a.
+//! writing the app's icon and refreshing that copy, from EP-28a; `manual`, a project's manual
+//! built to PDF by the pinned Typst CLI, and the doctor's Typst line, from EP-57.
 
 use std::collections::HashMap;
 use std::fs;
@@ -46,6 +47,7 @@ use crw_core::doctor::{self, Level};
 use crw_core::inbox::{self, Recipient, mailman};
 use crw_core::install;
 use crw_core::ledger::{self, Ledger, ProjectShare, RowState, SessionRow};
+use crw_core::manual::{self, Built, Job, Which};
 use crw_core::prompt::Chosen;
 use crw_core::proposal::{Kind, Proposal};
 use crw_core::registry::{LaunchMode, Limit, MAX_DAILY, Project, Settings, State, Store};
@@ -68,7 +70,8 @@ usage: crw <command>
 commands:
   doctor                         print the Diagnostics pane's checks, each ok, a note, a warning or
                                  a failure: the versions of claude (against the minimum), gh,
-                                 tailscale, code and the extension; this exe, the installed copy,
+                                 tailscale, code, typst (against its pin) and the extension; this
+                                 exe, the installed copy,
                                  the plugin's copy, each hook and the status line and whether the
                                  exe they run is there; gh's login; Tailscale's state; the backup
                                  drive and its label; the registry, the ledger, the crash log and
@@ -158,6 +161,18 @@ commands:
                                  tree, the next EP with its brief notes and its brief, the briefs
                                  and the decision log found, whether a session is in progress
   roadmap <README.md|EP-n-*.md>  print one roadmap README's tables, or one brief's parse
+  manual <project|folder> [--changes] [--force]
+                                 build the project's docs/manual.md into a PDF with the Typst
+                                 CLI, pinned at 0.15.1 (winget install --id Typst.Typst --version
+                                 0.15.1), as <project>-manual.pdf in the manuals folder,
+                                 %LOCALAPPDATA%\\clauderoadmapwrangler\\manuals (CRW_HOME\\manuals
+                                 in a trial); --changes builds docs/manual-changes.md into
+                                 <project>-manual-changes.pdf.
+                                 Left alone while the PDF is newer than its source, its pictures
+                                 and this crw, unless --force; a project without docs/manual.md
+                                 owes none. Says what it wrote and what the Markdown held that a
+                                 PDF leaves out (raw HTML, a picture outside docs); writes nothing
+                                 into the project
   tasks <project|folder>         print what waits on the owner: the owner tasks, the inbox, the
                                  handed-on blocks and the open items of the older forms; a
                                  message whose words hold one of private_words is marked when
@@ -421,6 +436,7 @@ fn main() -> ExitCode {
         ["act", verb] => act_preview(None, verb),
         ["act", project, verb] => act_preview(Some(project), verb),
         ["act", ..] => usage_error("act takes <project> <action>, or backup"),
+        ["manual", rest @ ..] => manual_build(rest),
         ["--version" | "-V"] => {
             println!("crw {}", env!("CARGO_PKG_VERSION"));
             ExitCode::SUCCESS
@@ -543,6 +559,104 @@ fn doctor() -> ExitCode {
         ExitCode::SUCCESS
     } else {
         ExitCode::FAILURE
+    }
+}
+
+/// Builds a project's manual, or with `--changes` the changes since the last phase's close, into
+/// the manuals folder of the local folder (EP-57, the D-12 addendum of 2026-11-25): left alone
+/// when the PDF is newer than its source, its pictures and this exe, unless `--force`; says what
+/// it wrote, the converter's warnings, or why it did not. Writes nothing into the project.
+fn manual_build(args: &[&str]) -> ExitCode {
+    const TAKES: &str = "manual takes one project or folder, and --changes or --force";
+    let (flags, targets): (Vec<&str>, Vec<&str>) = args.iter().partition(|a| a.starts_with("--"));
+    if flags
+        .iter()
+        .any(|flag| !matches!(*flag, "--changes" | "--force"))
+    {
+        return usage_error(TAKES);
+    }
+    let [target] = targets[..] else {
+        return usage_error(TAKES);
+    };
+    let folder = match project_folder(target).and_then(|folder| {
+        std::path::absolute(&folder).map_err(|e| format!("{}: {e}", folder.display()))
+    }) {
+        Ok(folder) => folder,
+        Err(e) => return failed(e),
+    };
+    // The registered name when the folder is a registered project's (its path may differ from
+    // its name), else the folder's: the PDF's name, which the window's entries use too.
+    let registered = store()
+        .ok()
+        .and_then(|store| store.load().ok())
+        .and_then(|loaded| {
+            let root = loaded.registry.data_root();
+            loaded
+                .registry
+                .projects
+                .iter()
+                .find(|project| paths::same(&project.folder(&root), &folder))
+                .map(|project| project.name.clone())
+        });
+    let Some(project) = registered.or_else(|| {
+        folder
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+    }) else {
+        return failed(format!("{} names no project folder", folder.display()));
+    };
+    let Some(out) = manual::dir() else {
+        return failed(format!(
+            "no profile folder: neither LOCALAPPDATA nor {} is set",
+            paths::HOME_VAR
+        ));
+    };
+    let which = if flags.contains(&"--changes") {
+        Which::Changes
+    } else {
+        Which::Manual
+    };
+    // A new build of the tool may write the template otherwise: its PDFs are built again once.
+    let template = std::env::current_exe()
+        .and_then(fs::metadata)
+        .and_then(|meta| meta.modified())
+        .ok();
+    let job = Job {
+        project: &project,
+        folder: &folder,
+        which,
+        out: &out,
+        force: flags.contains(&"--force"),
+        template,
+    };
+    match manual::build(&job, &manual::Real::locate()) {
+        Ok(Built::Wrote {
+            pdf,
+            bytes,
+            date,
+            warnings,
+        }) => {
+            println!(
+                "built {} ({} KB) from {}, dated {date}",
+                pdf.display(),
+                bytes.div_ceil(1024),
+                folder.join(manual::DOCS).join(which.file()).display()
+            );
+            for warning in warnings {
+                println!("  warning: {warning}");
+            }
+            ExitCode::SUCCESS
+        }
+        Ok(Built::Fresh { pdf }) => {
+            println!(
+                "{} is up to date: {}, its pictures and this crw are older (--force builds it \
+                 anyway)",
+                pdf.display(),
+                which.source()
+            );
+            ExitCode::SUCCESS
+        }
+        Err(why) => failed(why),
     }
 }
 

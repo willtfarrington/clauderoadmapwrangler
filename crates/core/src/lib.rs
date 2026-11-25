@@ -11,7 +11,7 @@
 //! formalise step's house-style files, EP-22a the build's copy of the roadmap-wrangler plugin,
 //! EP-24 the chat's hosted session and its digest, EP-28 the doctor's report and the window's
 //! rolling log, EP-30 the phone's pages' guard and the words of their log, EP-31a Tailscale Serve
-//! for the phone's path.
+//! for the phone's path, EP-57 a project's manual turned into Typst and built to PDF.
 
 pub mod actions;
 pub mod autopilot;
@@ -34,6 +34,7 @@ pub mod inbox;
 pub mod install;
 pub mod ledger;
 pub mod log;
+pub mod manual;
 pub mod notify;
 pub mod paths;
 pub mod plugin;

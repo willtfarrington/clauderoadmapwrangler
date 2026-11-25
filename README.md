@@ -468,7 +468,8 @@ tick before it goes on when any did; without a list it says so. `crw act <projec
 `crw act backup` preview the same plans and run nothing.
 
 The Diagnostics pane and `crw doctor` (EP-28) give the same checks: the tools' versions against
-Claude Code's minimum, the extension's beside the standalone CLI's and the protocol crate's pin;
+Claude Code's minimum, Typst's against its pin (EP-57), the extension's beside the standalone
+CLI's and the protocol crate's pin;
 this exe, the installed copy and the plugin's; each hook and the status line, which exe it runs and
 whether that exe is there; `gh`'s login; Tailscale's state and the remote view's line; the backup
 drive mounted and labelled as the job expects; the registry and the ledger (its schema and SQLite's
@@ -630,7 +631,18 @@ plugin's [reference](plugins/roadmap-wrangler/reference/house-style.md) gives th
   where each brief that changes what a user sees or does adds a section before its close; the
   phase's re-plan folds the changes into the manual and empties the file. The PDFs are built from
   them with the [Typst](https://typst.app/) CLI on demand, into the tool's local folder, and never
-  tracked.
+  tracked: `crw manual <project>` (EP-57) turns `docs/manual.md` into Typst itself, every run of
+  text a Typst string literal, inside one template (US Letter, a title page with the manual's
+  title and opening paragraph, a contents page, numbered chapters, page numbers, Typst's own fonts
+  alone), and pipes it to `typst compile` with `--root` at the project's `docs`, so nothing is
+  written into the project and nothing outside `docs` is read; the PDF lands in
+  `%LOCALAPPDATA%\clauderoadmapwrangler\manuals\<project>-manual.pdf` (`--changes` builds
+  `docs/manual-changes.md` into `<project>-manual-changes.pdf`), dated by the source's last commit,
+  so the same source gives the same bytes. It is left alone while it is newer than its source, its
+  pictures and `crw` itself, unless `--force`; raw HTML and a picture outside `docs` are left out
+  with a warning naming the line. Typst is pinned at 0.15.1 (`winget install --id Typst.Typst
+  --version 0.15.1`, then `winget pin add --id Typst.Typst --version 0.15.1`), and `crw manual`
+  refuses another version, since a newer Typst may read the template otherwise.
 - **Formalising a project.** `crw formalise <project|folder>` previews the house-style files a
   project is given and `--yes` writes them: a rule block in its `CLAUDE.md` between
   `<!-- roadmap-wrangler:begin -->` and `<!-- roadmap-wrangler:end -->` (the house's rules in short;

@@ -7,7 +7,8 @@
 //! the crash log, the rolling log, the last readings, VS Code's lock files) and words each line.
 //! EP-28a adds the start-at-login entry and what PATH finds for `crw` to the exes' group. EP-31a
 //! adds Serve's configuration (`tailscale serve status --json`) to the probe and the remote view
-//! line ([`serve::line`]) to the Network group.
+//! line ([`serve::line`]) to the Network group. EP-57 adds Typst, the manual's renderer, to the
+//! tools, held to its pin ([`manual::TYPST`]).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -27,7 +28,7 @@ use crate::session::cli::Flags;
 use crate::session::launch::{CommandLine, command_line};
 use crate::signals::install::{self as entries, Hooked, Line as StatusLine};
 use crate::version::{MIN_CLAUDE_CODE, Version};
-use crate::{actions, autostart, install, log, notify, plugin, serve, usage, visual};
+use crate::{actions, autostart, install, log, manual, notify, plugin, serve, usage, visual};
 use crate::{autopilot, rules, signals};
 
 /// The protocol crate's pin (D-15): `claude-codes` moves only in a re-plan; a test holds this
@@ -73,7 +74,7 @@ pub fn claude_meets_minimum(checks: &[Check]) -> bool {
         .is_some_and(|version| version >= MIN_CLAUDE_CODE)
 }
 
-/// Runs every check in order: `claude`, `gh`, `tailscale`, `code`, then the extension.
+/// Runs every check in order: `claude`, `gh`, `tailscale`, `code`, `typst`, then the extension.
 pub fn run() -> Vec<Check> {
     let dir = |var: &str| env::var_os(var).map(PathBuf::from);
     let home = dir("USERPROFILE");
@@ -113,6 +114,8 @@ pub fn run() -> Vec<Check> {
             ],
             &["--version"][..],
         ),
+        // The manual's renderer (EP-57): where `crw manual` finds it.
+        ("typst", vec![manual::program()], &["--version"][..]),
     ];
     let mut checks = Vec::new();
     for (name, candidates, args) in probes {
@@ -709,6 +712,23 @@ fn tools(report: &mut Report, checks: &[Check]) {
                     source.display()
                 ),
             ),
+            (Outcome::Found { version, source }, "typst") if *version != manual::TYPST => (
+                Level::Warn,
+                format!(
+                    "{version} at {}, not the pinned {}: crw manual refuses it; {}, then {}",
+                    source.display(),
+                    manual::TYPST,
+                    manual::INSTALL,
+                    manual::PIN
+                ),
+            ),
+            (Outcome::Found { version, source }, "typst") => (
+                Level::Ok,
+                format!(
+                    "{version} at {}, the version crw manual's template is pinned to (D-12)",
+                    source.display()
+                ),
+            ),
             (Outcome::Found { version, source }, "extension") => (
                 Level::Ok,
                 match cli {
@@ -754,6 +774,15 @@ fn missing(name: &str) -> (Level, String) {
             "not found: the hosting badges and actions cannot ask GitHub",
         ),
         "tailscale" => (Level::Note, "not found"),
+        "typst" => {
+            return (
+                Level::Note,
+                format!(
+                    "not found: crw manual cannot build a manual's PDFs until {}",
+                    manual::INSTALL
+                ),
+            );
+        }
         "code" => (
             Level::Note,
             "not found: Visual launches look for Code.exe by its install (VS Code, below)",
@@ -1584,6 +1613,46 @@ mod tests {
         fn drop(&mut self) {
             let _ = fs::remove_dir_all(&self.0);
         }
+    }
+
+    /// The Typst line (EP-57): ok at the pinned version, a warning at another (crw manual refuses
+    /// it) and a note when missing, each naming the winget line where it helps.
+    #[test]
+    fn the_typst_line_holds_it_to_the_pin() {
+        let words = |outcome: Outcome| {
+            let mut report = Report::default();
+            tools(
+                &mut report,
+                &[Check {
+                    name: "typst",
+                    outcome,
+                }],
+            );
+            let line = report.line("typst").unwrap().clone();
+            assert_eq!(line.group, Group::Tools);
+            (line.level, line.text)
+        };
+        let found = |version| Outcome::Found {
+            version,
+            source: PathBuf::from(r"C:\Tools\typst.exe"),
+        };
+        let (level, text) = words(found(manual::TYPST));
+        assert_eq!(level, Level::Ok);
+        assert_eq!(
+            text,
+            r"0.15.1 at C:\Tools\typst.exe, the version crw manual's template is pinned to (D-12)"
+        );
+        let (level, text) = words(found(Version::new(0, 16, 0)));
+        assert_eq!(level, Level::Warn);
+        assert!(text.starts_with("0.16.0 at "), "{text}");
+        assert!(text.contains("crw manual refuses it"), "{text}");
+        assert!(
+            text.contains(manual::INSTALL) && text.ends_with(manual::PIN),
+            "{text}"
+        );
+        let (level, text) = words(Outcome::Missing);
+        assert_eq!(level, Level::Note);
+        assert!(text.ends_with(manual::INSTALL), "{text}");
     }
 
     /// The push guard's line (EP-42): built through the autopilot's own launch, ok with a help

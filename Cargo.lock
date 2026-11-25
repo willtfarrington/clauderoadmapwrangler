@@ -875,6 +875,7 @@ dependencies = [
  "chrono",
  "claude-codes",
  "process-wrap",
+ "pulldown-cmark",
  "rusqlite",
  "serde",
  "serde_json",

@@ -1,10 +1,11 @@
 //! Short-lived child processes (D-29): a tool asked one question, one at a time with a short
 //! spacing and a timeout, with no console window and without `ANTHROPIC_API_KEY` in its
 //! environment (D-15). `doctor` asks for versions, the registry view for the last commit, the
-//! badges git and `gh` (EP-7), the session runner's preflight the CLI (EP-9).
+//! badges git and `gh` (EP-7), the session runner's preflight the CLI (EP-9), `crw manual` the
+//! Typst CLI with the document on its standard input (EP-57).
 
 use std::ffi::{OsStr, OsString};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::{Mutex, MutexGuard};
@@ -181,15 +182,42 @@ where
 {
     let mut command = Command::new(program);
     command.envs(env.iter().copied());
+    exit(finish(command, args, timeout, true, None)?, false)
+}
+
+/// [`exit_of`] with `input` written to the child's standard input and the variables named in
+/// `remove` taken out of its environment: the Typst CLI of `crw manual` (EP-57), which reads the
+/// generated document from its standard input. Its standard error is kept after a success too,
+/// for the warnings a successful build prints; such a child starts no grandchild that could hold
+/// the pipe.
+pub fn exit_with_input<I, S>(
+    program: &Path,
+    args: I,
+    input: &str,
+    remove: &[&str],
+    timeout: Duration,
+) -> Result<Exit, String>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new(program);
+    for name in remove {
+        command.env_remove(name);
+    }
+    exit(finish(command, args, timeout, true, Some(input))?, true)
+}
+
+/// How a finished child ended. Its errors' words are read for a failure, as `output` reads them,
+/// and after a success only when `always`: a grandchild may hold the pipe after a success.
+fn exit(finished: Finished, always: bool) -> Result<Exit, String> {
     let Finished {
         status,
         stdout,
         stderr,
-    } = finish(command, args, timeout, true)?;
-    // Its errors' words are read only for a failure, as `output` reads them: a grandchild may
-    // hold the pipe after a success.
+    } = finished;
     let stderr = match stderr {
-        Some(reader) if !status.success() => reader.join().unwrap_or_default(),
+        Some(reader) if always || !status.success() => reader.join().unwrap_or_default(),
         _ => String::new(),
     };
     Ok(Exit {
@@ -274,7 +302,7 @@ where
         status,
         stdout: text,
         stderr,
-    } = finish(command, args, timeout, keep_stderr)?;
+    } = finish(command, args, timeout, keep_stderr, None)?;
     if status.success() {
         return Ok(text);
     }
@@ -296,12 +324,14 @@ struct Finished {
     stderr: Option<thread::JoinHandle<String>>,
 }
 
-/// Runs a child to its end within `timeout` (killed then).
+/// Runs a child to its end within `timeout` (killed then), `input`, when given, written to its
+/// standard input on a thread of its own and the pipe closed after it.
 fn finish<I, S>(
     mut command: Command,
     args: I,
     timeout: Duration,
     keep_stderr: bool,
+    input: Option<&str>,
 ) -> Result<Finished, String>
 where
     I: IntoIterator<Item = S>,
@@ -310,7 +340,11 @@ where
     command
         .args(args)
         .env_remove("ANTHROPIC_API_KEY")
-        .stdin(Stdio::null())
+        .stdin(if input.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
         .stdout(Stdio::piped())
         .stderr(if keep_stderr {
             Stdio::piped()
@@ -328,6 +362,18 @@ where
         .map_err(|e| did_not_start(Path::new(command.get_program()), &e))?;
     let stdout = reader(child.stdout.take().expect("stdout is piped"));
     let stderr = child.stderr.take().map(reader);
+    // Written on a thread, so a child that prints before it has read everything cannot stall;
+    // the pipe closes when the thread ends, which tells the child its input is complete. A child
+    // that stops reading breaks the pipe and ends the thread.
+    let writer = match (input, child.stdin.take()) {
+        (Some(input), Some(mut pipe)) => {
+            let bytes = input.as_bytes().to_vec();
+            Some(thread::spawn(move || {
+                let _ = pipe.write_all(&bytes);
+            }))
+        }
+        _ => None,
+    };
     let started = Instant::now();
     let status = loop {
         match child.try_wait() {
@@ -342,6 +388,9 @@ where
             Err(e) => return Err(format!("could not wait for it: {e}")),
         }
     };
+    if let Some(writer) = writer {
+        let _ = writer.join();
+    }
     Ok(Finished {
         status,
         stdout: stdout.join().unwrap_or_default(),
@@ -371,6 +420,43 @@ mod tests {
         let words = did_not_start(path, &Error::from_raw_os_error(225));
         assert!(words.starts_with("did not start: "), "{words}");
         assert!(words.ends_with(FLAGGED), "{words}");
+    }
+
+    /// A child given its input on its standard input (EP-57): Windows' own `sort`, never `typst`
+    /// or `claude` (rule 5), reads all of it, the pipe closed after it, and prints it sorted.
+    #[cfg(windows)]
+    #[test]
+    fn a_childs_input_goes_through_its_standard_input() {
+        let root = std::env::var_os("SystemRoot").expect("SystemRoot is set");
+        let sort = Path::new(&root).join("System32").join("sort.exe");
+        let lines: String = (0..5000)
+            .rev()
+            .map(|n| format!("line {n:05}\r\n"))
+            .collect();
+        let exit = exit_with_input(&sort, Vec::<&str>::new(), &lines, &["CRW_NONE"], TIMEOUT)
+            .expect("sort runs");
+        assert_eq!(exit.code, Some(0));
+        let head: String = exit.stdout.chars().take(40).collect();
+        assert!(
+            exit.stdout.starts_with("line 00000\r\nline 00001\r\n"),
+            "{head}"
+        );
+        assert_eq!(exit.stdout.lines().count(), 5000);
+    }
+
+    /// A child that ends without reading its input: the pipe breaks, the writer stops, and the
+    /// child's exit code comes back without a hang.
+    #[cfg(windows)]
+    #[test]
+    fn a_child_that_reads_none_of_its_input_ends_cleanly() {
+        let root = std::env::var_os("SystemRoot").expect("SystemRoot is set");
+        let cmd = Path::new(&root).join("System32").join("cmd.exe");
+        let input = "x".repeat(4 << 20);
+        let started = Instant::now();
+        let exit =
+            exit_with_input(&cmd, ["/d", "/c", "exit 3"], &input, &[], TIMEOUT).expect("cmd runs");
+        assert_eq!(exit.code, Some(3));
+        assert!(started.elapsed() < TIMEOUT, "it ended by itself");
     }
 
     /// A program named by a path that is not there: the real start's error carries the hint.
