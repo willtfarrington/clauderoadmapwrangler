@@ -105,8 +105,8 @@ this run and the owner's idle manual session of last night. Nothing to triage.
   creates the file with the house header, which the formalise previews then keep; a data
   repository's session runs in its own folder, which this session never lists.
 
-> **Completion note (2026-11-25; claude-opus-5-5/max; about 25 minutes of working time from the
-> start at 07:35, the owner's one round of answers not counted).**
+> **Completion note (2026-11-25; claude-opus-5-5/max; about 15 minutes of working time from the
+> start at 07:35 to the install at 07:51, the owner's one round of answers not counted).**
 > A chained headless run (ledger row `b6e43327`), judged at the brief to fit S's cap, so not
 > split. Written: the survey of the ten registered projects that are not active (read-only:
 > `crw scan`, `crw status --offline`, a `crw formalise` preview each); the checklist
