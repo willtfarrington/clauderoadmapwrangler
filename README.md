@@ -443,11 +443,15 @@ as wall time; a reverted session is left out), and the finish as a range from th
 The History section folds a list of the dated EPs with each completion note's model, effort and
 duration and the ledger's time.
 
-The exports (EP-27): `crw export site` previews `projects.json` and `projects-cards.html` for the
-projects whose remote is public in the account's list the window cached (name, stack badge, done
-of total, the next two undone rows, the day), and `--yes` writes them into the `assets/data`
-folder of the project the `site` setting names, for a session of the site to wire into its page
-(the tool never edits the page and never pushes); the window writes the daily export once a day,
+The exports (EP-27): `crw export site` previews `projects.json` for the projects whose remote is
+public in the account's list the window cached (name, stack badge, done of total, the next two
+undone rows, the day), and `--yes` writes it into the `assets/data` folder of the project the
+`site` setting names, whose page reads it (the tool never edits the page and never pushes). A data
+repository, which the tool never reads inside, has its card only from a file it writes itself in
+the tool's local folder, `cards\<registered name>.json`, carried when the account's list names its
+repository public, and left out with the reason in the preview when the file is missing or
+malformed (EP-58b; the file's form is in D-24's addendum of 2026-11-25). The window writes the
+daily export once a day,
 the registry and every table of the ledger as JSON into the git-ignored `private/export/<date>/`,
 at its first read of the files in a day and when the day turns while it is up (`crw export daily`
 writes it at once), and after each write keeps the last 14 days and each month's first folder,

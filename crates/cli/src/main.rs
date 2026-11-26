@@ -217,11 +217,13 @@ commands:
                                  owner_login (the Tailscale login the phone's pages answer
                                  through Serve; none, the default, refuses every request through
                                  Serve, while one from this machine needs no login)
-  export site [--yes]            preview the site export: projects.json and projects-cards.html
-                                 for the projects whose remote is public in the account's list
-                                 the window cached (name, stack badge, done of total, the next
-                                 two undone rows, the day); with --yes, write them into the
-                                 site's assets/data and nothing else there; never pushes
+  export site [--yes]            preview the site export: projects.json for the projects whose
+                                 remote is public in the account's list the window cached (name,
+                                 stack badge, done of total, the next two undone rows, the day),
+                                 a data repository's card from the file it writes itself in the
+                                 local folder's cards\\<name>.json, when the list names it public,
+                                 nothing inside it read; with --yes, write it into the site's
+                                 assets/data and nothing else there; never pushes
   export daily                   write today's export now: the registry and every table of the
                                  ledger into private/export/<date>/ of the repository crw was
                                  built in (CRW_HOME\\export in a trial), as the window does once
@@ -2614,7 +2616,9 @@ fn act_preview(project: Option<&str>, verb: &str) -> ExitCode {
 
 /// The site export (D-24; EP-27): the public projects' cards, previewed, and written into the
 /// site's `assets/data` with `--yes`. Public is read from the account's list the window cached
-/// (EP-7); nothing is asked of GitHub here, and a data repository is left out unread.
+/// (EP-7); nothing is asked of GitHub here. A data repository's card comes from the file it
+/// writes itself in the local folder's `cards`, when the list names it public, its folder never
+/// looked at (EP-58b).
 fn export_site(write: bool) -> ExitCode {
     println!("crw {} export site", env!("CARGO_PKG_VERSION"));
     let registry = match store().and_then(|store| store.load().map_err(|e| e.to_string())) {
@@ -2641,16 +2645,42 @@ fn export_site(write: bool) -> ExitCode {
         ),
         None => println!("  github    no list cached: the window's GitHub pass keeps one (F5)"),
     }
+    let cards = export::cards_dir();
+    if let Some(cards) = &cards {
+        println!(
+            "  cards     {} (a data repository's own, <name>.json)",
+            cards.display()
+        );
+    }
     let list = account.as_ref().map(|(list, _)| list.as_slice());
+    let today = Local::now().date_naive();
     let mut site = export::Site {
-        as_of: Local::now().format("%Y-%m-%d").to_string(),
+        as_of: today.format("%Y-%m-%d").to_string(),
         projects: Vec::new(),
     };
     println!();
     for project in &registry.projects {
         let folder = project.folder(&root);
         let left_out = if project.data {
-            Some("a data repository".to_owned())
+            // Its own card, its folder never looked at (EP-58b).
+            match export::data_card(
+                &project.name,
+                &folder_name(&folder),
+                list,
+                cards.as_deref(),
+                today,
+            ) {
+                Ok(own) => {
+                    println!(
+                        "  {} · its own card of {}",
+                        card_line(&own.project),
+                        own.as_of
+                    );
+                    site.projects.push(own.project);
+                    None
+                }
+                Err(why) => Some(format!("a data repository, {why}")),
+            }
         } else if !folder.is_dir() {
             Some("missing".to_owned())
         } else {
@@ -2670,25 +2700,7 @@ fn export_site(write: bool) -> ExitCode {
                     .and_then(|roadmap| export::site_project(&project.name, &chips, roadmap))
                 {
                     Some(card) => {
-                        let next = card
-                            .next
-                            .iter()
-                            .map(|row| row.id.as_str())
-                            .collect::<Vec<_>>()
-                            .join(", ");
-                        println!(
-                            "  {:<22} {} of {} ({} %), next {}{}",
-                            card.name,
-                            card.done,
-                            card.total,
-                            card.percent,
-                            if next.is_empty() { "none" } else { &next },
-                            if card.badge.is_empty() {
-                                String::new()
-                            } else {
-                                format!(" · {}", card.badge)
-                            }
-                        );
+                        println!("  {}", card_line(&card));
                         site.projects.push(card);
                         None
                     }
@@ -2705,9 +2717,8 @@ fn export_site(write: bool) -> ExitCode {
     println!();
     if !write {
         println!(
-            "a preview: crw export site --yes writes {} and {} there",
-            export::SITE_JSON,
-            export::SITE_HTML
+            "a preview: crw export site --yes writes {} there",
+            export::SITE_JSON
         );
         return ExitCode::SUCCESS;
     }
@@ -2722,18 +2733,42 @@ fn export_site(write: bool) -> ExitCode {
         );
     }
     if site.projects.is_empty() {
-        return failed("no public project with a phase table: nothing written");
+        return failed(
+            "no public project with a phase table or a card of its own: nothing written",
+        );
     }
     match export::write_site(&folder, &site) {
-        Ok(paths) => {
-            for path in paths {
-                println!("wrote {}", path.display());
-            }
-            println!("note: the site's own session wires them into its page; nothing is pushed");
+        Ok(path) => {
+            println!("wrote {}", path.display());
+            println!("note: the site's page reads it; nothing is pushed");
             ExitCode::SUCCESS
         }
         Err(e) => failed(e),
     }
+}
+
+/// A card's line in the site export's preview: its name, done of total, its next rows and its
+/// stack badge.
+fn card_line(card: &export::SiteProject) -> String {
+    let next = card
+        .next
+        .iter()
+        .map(|row| row.id.as_str())
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!(
+        "{:<22} {} of {} ({} %), next {}{}",
+        card.name,
+        card.done,
+        card.total,
+        card.percent,
+        if next.is_empty() { "none" } else { &next },
+        if card.badge.is_empty() {
+            String::new()
+        } else {
+            format!(" · {}", card.badge)
+        }
+    )
 }
 
 /// The ledger opened to read for an export, a missing file said plainly (never created here).

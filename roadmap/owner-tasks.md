@@ -437,3 +437,18 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   the `formalise` skill's section 1 should say "a session in the project may write `.` or the
   path". `crw` itself needs nothing: the install at this brief's end put it in place, and the copy
   on PATH is refreshed by every install. Tick when the skill reads so
+- [ ] OT-46 (EP-58b, 2026-11-25) The first site export that carries mimicwarehouse's own card,
+  once that repository's EP-174 has written its card file (the letter EP-58b handed on asks for
+  it). (1) Check that `%LOCALAPPDATA%\clauderoadmapwrangler\cards\mimicwarehouse.json` exists,
+  after a commit in mimicwarehouse that changed its roadmap's figures. (2) In a terminal, `crw
+  export site` (a preview, it writes nothing): the `cards` line names that folder, and
+  mimicwarehouse's line should read "N of M (P %), next EP-… · <its stack> · its own card of
+  <day>". If it says
+  "left out: a data repository, …", the rest says why: "not public (…)" means the window's cached
+  GitHub list does not name a public repository called mimicwarehouse (press F5 in the window, then
+  try again; if it still says so, send this project a message with the words); "its card file is
+  malformed: …" is the writer's to fix (send mimicwarehouse the words with a row's Send a
+  message…). (3) `crw export site --yes` writes `assets\data\projects.json` into the site's folder
+  and nothing else there (the snippet `projects-cards.html` is no longer written; the copy there
+  stays, git-ignored). (4) The site's own IN-3 then wires the card in a session there; its commit
+  and any push are yours. Tick when the export has carried the card

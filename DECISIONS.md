@@ -2599,6 +2599,38 @@ archive mechanism; editing `index.html`.
 > would pass); renames followed (a renamed file's new path would pass unread); the stash and the
 > notes read too (never pushed); a scan before Create a private remote.
 
+> **Addendum (2026-11-25, EP-58b).** A data repository's site card, the owner's choices (IN-19,
+> IN-20). The export still reads nothing inside a data repository and starts no child there; its
+> card comes from a file the repository writes itself (its own post-commit hook) outside every
+> project folder.
+>
+> - **The place.** `%LOCALAPPDATA%\clauderoadmapwrangler\cards\<registered name>.json`
+>   (`CRW_HOME\cards\` in a trial), beside the ledger; never a project's folder, this repository
+>   or its `private/`. The tool only reads it.
+> - **The form.** JSON in UTF-8 (a byte-order mark allowed, at most 64 KiB) holding `as_of`, the
+>   day it was written as `YYYY-MM-DD`, and the fields of a site card: `name` (the registry's
+>   name itself), `badge` (the stack's text, which the tool cannot compute without reading
+>   inside), `done`, `total`, `percent` (done of total, rounded down) and `next`, the first
+>   undone rows in table order, as many as the undone rows allow up to two, each `{id, title,
+>   size}` with `size` `S`, `M`, `L` or null. Other fields are ignored; a missing one makes the
+>   file malformed.
+> - **Public.** The account's list the window caches, matched by the registered name or the
+>   folder's name as the registry writes it: carried when it lists a public repository so named;
+>   left out as not public when it lists it private or internal, does not list it, or no list is
+>   cached, the file then not opened. No new key, nothing in the file.
+> - **Stale or malformed.** No card is left out for its age, since the file is rewritten
+>   whenever the figures change; the preview names its day. A file missing, unreadable, too
+>   heavy or malformed (another name, a day badly written or after today, a total of nought,
+>   done over the total, a wrong percent, a wrong number of next rows, a row without an id or a
+>   title, another size) leaves the card out, the reason in the preview, never a blank card.
+> - **The snippet** `projects-cards.html` is no longer written, since the site's page reads
+>   `projects.json` alone (its IN-1); a copy left in the site's folder stays untouched.
+>
+> *Alternatives.* The roaming folder beside the registry; a registry key naming each file's path;
+> the file's own `public` field (nothing would check it against GitHub); a registry key the owner
+> sets per project (one more thing to set, refused by an older build); a card left out after 60
+> or 14 days; the snippet still written.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with

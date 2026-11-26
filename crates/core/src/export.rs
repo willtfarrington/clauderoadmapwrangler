@@ -1,20 +1,22 @@
-//! The exports (D-8, D-24; EP-27). The site's `projects.json` and cards' snippet for the public
-//! projects, written into the site repository's `assets/data` on the owner's yes, which a session
-//! of the site wires into its page (the tool never edits the page); the daily JSON export of the
-//! registry and the ledger into this repository's git-ignored `private/export/<date>/`, which the
-//! owner's Documents backup archives; a project's sessions and daily counts as CSV on demand.
-//! After each daily write, [`prune`] keeps the last [`KEEP_DAYS`] days' folders and each month's
-//! first, removing the rest one folder at a time (EP-41).
+//! The exports (D-8, D-24; EP-27). The site's `projects.json` for the public projects, written
+//! into the site repository's `assets/data` on the owner's yes, which the site's page reads (the
+//! tool never edits the page); a data repository's card taken from the file it writes itself in
+//! the tool's own `cards` folder, nothing inside the repository read (EP-58b); the daily JSON
+//! export of the registry and the ledger into this repository's git-ignored
+//! `private/export/<date>/`, which the owner's Documents backup archives; a project's sessions and
+//! daily counts as CSV on demand. After each daily write, [`prune`] keeps the last [`KEEP_DAYS`]
+//! days' folders and each month's first, removing the rest one folder at a time (EP-41).
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use chrono::{DateTime, Datelike, NaiveDate, SecondsFormat, TimeDelta, Utc};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
-use crate::badges::hosting::{Class, Hosting};
+use crate::badges::hosting::{Class, Hosting, Listed, Visibility};
 use crate::badges::stack::Chip;
 use crate::files;
 use crate::ledger::{Ledger, SessionRow, SnapshotRow};
@@ -24,9 +26,13 @@ use crate::roadmap::table::Roadmap;
 /// Where the site export goes in the site's repository.
 pub const SITE_DATA: &str = "assets/data";
 pub const SITE_JSON: &str = "projects.json";
-pub const SITE_HTML: &str = "projects-cards.html";
 /// The undone rows a card names.
 pub const NEXT_ROWS: usize = 2;
+/// The folder under the tool's local folder where a data repository writes its own card, as
+/// `<registered name>.json` (D-24 addendum of 2026-11-25; EP-58b).
+pub const CARDS: &str = "cards";
+/// The most a card file may weigh; a heavier one is left out unread.
+pub const CARD_BYTES: u64 = 64 * 1024;
 /// The daily export's two files.
 pub const LEDGER_JSON: &str = "ledger.json";
 pub const REGISTRY_COPY: &str = "registry.toml";
@@ -60,7 +66,7 @@ pub struct SiteProject {
     pub next: Vec<NextRow>,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NextRow {
     pub id: String,
     /// The Brief cell without its link markup and its decisions.
@@ -107,59 +113,181 @@ pub fn site_json(site: &Site) -> String {
     json
 }
 
-/// `projects-cards.html`: one card per project, every text escaped, for the site's page to
-/// include and style.
-pub fn site_html(site: &Site) -> String {
-    let as_of = escape(&site.as_of);
-    let mut html = format!(
-        "<!-- Written by clauderoadmapwrangler's site export as of {as_of}; replaced at each \
-         export. -->\n<div class=\"project-cards\" data-as-of=\"{as_of}\">\n"
-    );
-    for project in &site.projects {
-        html.push_str("  <article class=\"project-card\">\n");
-        html.push_str(&format!(
-            "    <h3 class=\"project-name\">{}</h3>\n",
-            escape(&project.name)
-        ));
-        if !project.badge.is_empty() {
-            html.push_str(&format!(
-                "    <p class=\"project-badge\">{}</p>\n",
-                escape(&project.badge)
-            ));
-        }
-        html.push_str(&format!(
-            "    <progress class=\"project-progress\" value=\"{done}\" max=\"{total}\">{percent} \
-             %</progress>\n    <p class=\"project-count\">{done} of {total} briefs done \
-             ({percent} %)</p>\n",
-            done = project.done,
-            total = project.total,
-            percent = project.percent,
-        ));
-        if !project.next.is_empty() {
-            html.push_str("    <ul class=\"project-next\">\n");
-            for row in &project.next {
-                let size = row
-                    .size
-                    .as_deref()
-                    .map(|size| format!(" <span class=\"project-size\">{}</span>", escape(size)))
-                    .unwrap_or_default();
-                html.push_str(&format!(
-                    "      <li><span class=\"project-ep\">{}</span> {}{size}</li>\n",
-                    escape(&row.id),
-                    escape(&row.title)
-                ));
-            }
-            html.push_str("    </ul>\n");
-        }
-        html.push_str("  </article>\n");
-    }
-    html.push_str(&format!(
-        "  <p class=\"project-cards-as-of\">As of {as_of}</p>\n</div>\n"
-    ));
-    html
+/// A data repository's own card, read from its file and checked: the card and the day its
+/// repository wrote it (EP-58b).
+#[derive(Debug, Clone, PartialEq)]
+pub struct OwnCard {
+    pub as_of: NaiveDate,
+    pub project: SiteProject,
 }
 
-/// Text for HTML, in an element or an attribute.
+/// A card file as a data repository writes it (D-24 addendum of 2026-11-25): the day and the
+/// card's fields; a field it adds besides is ignored, a missing one makes the file malformed.
+#[derive(Debug, Deserialize)]
+struct CardFile {
+    as_of: String,
+    name: String,
+    badge: String,
+    done: usize,
+    total: usize,
+    percent: u32,
+    next: Vec<NextRow>,
+}
+
+/// The tool's `cards` folder: `%LOCALAPPDATA%\clauderoadmapwrangler\cards`, or `CRW_HOME\cards`
+/// in a trial.
+pub fn cards_dir() -> Option<PathBuf> {
+    Some(paths::local_dir()?.join(CARDS))
+}
+
+/// A data repository's card file in `cards`: `<registered name>.json`.
+pub fn card_file(cards: &Path, name: &str) -> PathBuf {
+    cards.join(format!("{name}.json"))
+}
+
+/// Whether the account's list holds a public repository by one of `names` (a data repository's
+/// registered name and its folder's, as the registry writes them), with no git child and no
+/// remote read; why it is not public otherwise. An archived public repository is public, as
+/// [`public`] counts it.
+pub fn listed_public(names: &[&str], account: Option<&[Listed]>) -> Result<(), String> {
+    let Some(list) = account else {
+        return Err("not public (no account list cached)".to_owned());
+    };
+    let listed = list.iter().find(|listed| {
+        names
+            .iter()
+            .any(|name| name.eq_ignore_ascii_case(&listed.repo.name))
+    });
+    match listed.map(|listed| listed.visibility) {
+        Some(Visibility::Public) => Ok(()),
+        Some(Visibility::Private) => Err("not public (private on the account's list)".to_owned()),
+        Some(Visibility::Internal) => Err("not public (internal on the account's list)".to_owned()),
+        None => Err("not public (not on the account's list)".to_owned()),
+    }
+}
+
+/// A data repository's card for the site (EP-58b): its public standing from the account's list
+/// by its registered `name` or its `folder`'s name as the registry writes it, then its own file
+/// from `cards`, read only when it is public. Nothing inside the repository is read, its folder
+/// is not even looked at. Why it is left out otherwise.
+pub fn data_card(
+    name: &str,
+    folder: &str,
+    account: Option<&[Listed]>,
+    cards: Option<&Path>,
+    today: NaiveDate,
+) -> Result<OwnCard, String> {
+    listed_public(&[name, folder], account)?;
+    let cards = cards.ok_or("no profile folder for the cards")?;
+    read_card(cards, name, today)
+}
+
+/// Reads and checks `<cards>/<name>.json` ([`check_card`]); why it is left out otherwise: no
+/// file, a file that does not read or weighs over [`CARD_BYTES`], or one that is malformed.
+pub fn read_card(cards: &Path, name: &str, today: NaiveDate) -> Result<OwnCard, String> {
+    let path = card_file(cards, name);
+    let meta = match fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            return Err(format!("no card file ({})", path.display()));
+        }
+        Err(e) => {
+            return Err(format!(
+                "its card file did not read ({}: {e})",
+                path.display()
+            ));
+        }
+    };
+    if !meta.is_file() {
+        return Err(format!("its card file is not a file ({})", path.display()));
+    }
+    if meta.len() > CARD_BYTES {
+        return Err(format!(
+            "its card file is over {} KiB ({})",
+            CARD_BYTES / 1024,
+            path.display()
+        ));
+    }
+    let text = fs::read_to_string(&path)
+        .map_err(|e| format!("its card file did not read ({}: {e})", path.display()))?;
+    check_card(&text, name, today).map_err(|why| format!("its card file is malformed: {why}"))
+}
+
+/// A card file's text checked (UTF-8, a byte-order mark allowed): JSON with every field, the
+/// registered `name` itself, a day written `YYYY-MM-DD` and not after `today`, a total above
+/// nought, done at most the total, the percent done of total rounded down, as many next rows as
+/// the undone rows allow up to [`NEXT_ROWS`], each with an id, a title and a size of `S`, `M`,
+/// `L` or none; why it is malformed otherwise.
+pub fn check_card(text: &str, name: &str, today: NaiveDate) -> Result<OwnCard, String> {
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
+    let card: CardFile = serde_json::from_str(text).map_err(|e| e.to_string())?;
+    if card.name != name {
+        return Err(format!("it names {:?}, not {name:?}", card.name));
+    }
+    let as_of = NaiveDate::parse_from_str(&card.as_of, "%Y-%m-%d")
+        .ok()
+        .filter(|day| day.format("%Y-%m-%d").to_string() == card.as_of)
+        .ok_or_else(|| format!("its as_of {:?} is no day written YYYY-MM-DD", card.as_of))?;
+    if as_of > today {
+        return Err(format!("its as_of {as_of} is after today"));
+    }
+    if card.total == 0 {
+        return Err("its total is nought".to_owned());
+    }
+    if card.done > card.total {
+        return Err(format!(
+            "done {} is over the total {}",
+            card.done, card.total
+        ));
+    }
+    // Checked: a file's counts are not the tool's own and may be any size.
+    let percent = card
+        .done
+        .checked_mul(100)
+        .and_then(|hundreds| u32::try_from(hundreds / card.total).ok())
+        .ok_or_else(|| format!("its done {} is too large", card.done))?;
+    if card.percent != percent {
+        return Err(format!(
+            "its percent {} is not {} of {} rounded down ({percent})",
+            card.percent, card.done, card.total
+        ));
+    }
+    let next = NEXT_ROWS.min(card.total - card.done);
+    if card.next.len() != next {
+        return Err(format!(
+            "it names {} next rows where {} undone call for {next}",
+            card.next.len(),
+            card.total - card.done
+        ));
+    }
+    for row in &card.next {
+        if row.id.trim().is_empty() {
+            return Err("a next row has no id".to_owned());
+        }
+        if row.title.trim().is_empty() {
+            return Err(format!("next row {} has no title", row.id));
+        }
+        if let Some(size) = row.size.as_deref().filter(|s| !["S", "M", "L"].contains(s)) {
+            return Err(format!(
+                "next row {}'s size {size:?} is not S, M, L or null",
+                row.id
+            ));
+        }
+    }
+    Ok(OwnCard {
+        as_of,
+        project: SiteProject {
+            name: card.name,
+            badge: card.badge,
+            done: card.done,
+            total: card.total,
+            percent,
+            next: card.next,
+        },
+    })
+}
+
+/// Text for HTML, in an element or an attribute (the phone's pages).
 pub fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     for c in text.chars() {
@@ -182,19 +310,16 @@ pub fn site_data(site_folder: &Path) -> PathBuf {
         .fold(site_folder.to_path_buf(), |path, part| path.join(part))
 }
 
-/// Writes the two files into `<site>/assets/data`, each replaced whole, and nothing else in the
-/// site's repository; the paths written.
-pub fn write_site(site_folder: &Path, site: &Site) -> Result<Vec<PathBuf>, String> {
+/// Writes `projects.json` into `<site>/assets/data`, replaced whole, and nothing else in the
+/// site's repository (the cards' snippet is no longer written, EP-58b; a copy left there stays
+/// untouched); the path written.
+pub fn write_site(site_folder: &Path, site: &Site) -> Result<PathBuf, String> {
     let data = site_data(site_folder);
     fs::create_dir_all(&data).map_err(|e| format!("{}: {e}", data.display()))?;
-    let mut written = Vec::new();
-    for (name, text) in [(SITE_JSON, site_json(site)), (SITE_HTML, site_html(site))] {
-        let path = data.join(name);
-        files::write_atomic(&path, text.as_bytes())
-            .map_err(|e| format!("{}: {e}", path.display()))?;
-        written.push(path);
-    }
-    Ok(written)
+    let path = data.join(SITE_JSON);
+    files::write_atomic(&path, site_json(site).as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))?;
+    Ok(path)
 }
 
 /// Where the daily export and the CSV go: this repository's git-ignored `private/export`, or
@@ -507,13 +632,160 @@ mod tests {
     }
 
     #[test]
-    fn the_snippet_escapes_every_text() {
-        let html = site_html(&site());
-        assert!(html.contains("Registry &amp; &lt;discovery&gt;"), "{html}");
-        assert!(html.contains("Parser &quot;A&quot;"), "{html}");
-        assert!(html.contains("<progress class=\"project-progress\" value=\"1\" max=\"4\">"));
-        assert!(html.contains("As of 2026-11-13"));
-        assert!(!html.contains("<discovery>"));
+    fn escape_covers_the_five_characters() {
+        assert_eq!(
+            escape("Registry & <discovery> \"A\" 'b'"),
+            "Registry &amp; &lt;discovery&gt; &quot;A&quot; &#39;b&#39;"
+        );
+    }
+
+    /// A synthetic card file's text, as a data repository's hook writes it.
+    const CARD: &str = r#"{
+  "as_of": "2026-11-20",
+  "name": "quarry",
+  "badge": "Python, DuckDB",
+  "done": 7,
+  "total": 10,
+  "percent": 70,
+  "next": [
+    {"id": "EP-8", "title": "Loader", "size": "S"},
+    {"id": "EP-9", "title": "Views & checks", "size": null}
+  ],
+  "written_by": "a field the reader ignores"
+}
+"#;
+
+    fn today() -> NaiveDate {
+        NaiveDate::from_ymd_opt(2026, 11, 25).unwrap()
+    }
+
+    #[test]
+    fn a_card_file_reads_into_a_site_card_and_its_day() {
+        let card = check_card(CARD, "quarry", today()).unwrap();
+        assert_eq!(card.as_of, NaiveDate::from_ymd_opt(2026, 11, 20).unwrap());
+        assert_eq!(card.project.name, "quarry");
+        assert_eq!(card.project.badge, "Python, DuckDB");
+        assert_eq!(
+            (card.project.done, card.project.total, card.project.percent),
+            (7, 10, 70)
+        );
+        assert_eq!(card.project.next[1].size, None);
+        // A byte-order mark is allowed; a card of today is not after today.
+        let marked = format!("\u{feff}{}", CARD.replace("2026-11-20", "2026-11-25"));
+        assert!(check_card(&marked, "quarry", today()).is_ok());
+        // A done roadmap names no next row.
+        let done = CARD
+            .replace("\"done\": 7", "\"done\": 10")
+            .replace("\"percent\": 70", "\"percent\": 100")
+            .replace(
+                r#"{"id": "EP-8", "title": "Loader", "size": "S"},
+    {"id": "EP-9", "title": "Views & checks", "size": null}"#,
+                "",
+            );
+        assert!(check_card(&done, "quarry", today()).is_ok(), "{done}");
+        // One undone row, one next row; a size left out is none.
+        let one = CARD
+            .replace("\"done\": 7", "\"done\": 9")
+            .replace("\"percent\": 70", "\"percent\": 90")
+            .replace(
+                r#"{"id": "EP-8", "title": "Loader", "size": "S"},
+    {"id": "EP-9", "title": "Views & checks", "size": null}"#,
+                r#"{"id": "EP-10", "title": "Last"}"#,
+            );
+        let card = check_card(&one, "quarry", today()).unwrap();
+        assert_eq!(card.project.next[0].size, None);
+    }
+
+    #[test]
+    fn a_malformed_card_file_says_why() {
+        let why = |text: &str| check_card(text, "quarry", today()).unwrap_err();
+        assert!(why("not json").contains("expected"), "{}", why("not json"));
+        assert!(why(&CARD.replace("\"badge\": \"Python, DuckDB\",", "")).contains("badge"));
+        assert!(why(&CARD.replace("\"quarry\"", "\"Quarry\"")).contains("not \"quarry\""));
+        assert!(why(&CARD.replace("2026-11-20", "2026-11-5")).contains("YYYY-MM-DD"));
+        assert!(why(&CARD.replace("2026-11-20", "20 Nov")).contains("YYYY-MM-DD"));
+        assert!(why(&CARD.replace("2026-11-20", "2026-11-26")).contains("after today"));
+        assert!(why(&CARD.replace("\"total\": 10", "\"total\": 0")).contains("nought"));
+        assert!(why(&CARD.replace("\"done\": 7", "\"done\": 11")).contains("over the total"));
+        assert!(why(&CARD.replace("\"percent\": 70", "\"percent\": 71")).contains("rounded down"));
+        let huge = CARD
+            .replace("\"done\": 7", "\"done\": 18446744073709551615")
+            .replace("\"total\": 10", "\"total\": 18446744073709551615");
+        assert!(why(&huge).contains("too large"), "{}", why(&huge));
+        let three = CARD.replace(
+            r#"{"id": "EP-8", "title": "Loader", "size": "S"},"#,
+            r#"{"id": "EP-7", "title": "Extra", "size": "S"}, {"id": "EP-8", "title": "Loader", "size": "S"},"#,
+        );
+        assert!(why(&three).contains("3 next rows"), "{}", why(&three));
+        let one = CARD.replace(r#"{"id": "EP-8", "title": "Loader", "size": "S"},"#, "");
+        assert!(why(&one).contains("1 next rows"), "{}", why(&one));
+        assert!(why(&CARD.replace("\"size\": \"S\"", "\"size\": \"XL\"")).contains("not S, M, L"));
+        assert!(why(&CARD.replace("\"id\": \"EP-8\"", "\"id\": \" \"")).contains("no id"));
+        assert!(why(&CARD.replace("\"Loader\"", "\"\"")).contains("no title"));
+    }
+
+    fn account(visibility: &str) -> Vec<Listed> {
+        hosting::parse_account(&format!(
+            r#"[{{"name": "quarry-data", "owner": {{"login": "someone"}},
+                 "visibility": "{visibility}", "isArchived": false,
+                 "pushedAt": "2026-11-01T10:00:00Z"}}]"#
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn a_data_repositorys_standing_comes_from_the_list_by_its_names() {
+        let open = account("PUBLIC");
+        assert!(listed_public(&["quarry", "quarry-data"], Some(&open)).is_ok());
+        assert!(
+            listed_public(&["Quarry-Data"], Some(&open)).is_ok(),
+            "case-blind"
+        );
+        let why = |names: &[&str], list: Option<&[Listed]>| listed_public(names, list).unwrap_err();
+        assert!(why(&["quarry"], Some(&open)).contains("not on the account's list"));
+        assert!(why(&["quarry-data"], Some(&account("PRIVATE"))).contains("private"));
+        assert!(why(&["quarry-data"], Some(&account("INTERNAL"))).contains("internal"));
+        assert!(why(&["quarry-data"], None).contains("no account list"));
+    }
+
+    #[test]
+    fn a_data_card_is_read_from_its_file_only_when_public() {
+        let dir = temp("cards");
+        let cards = dir.join(CARDS);
+        let open = account("PUBLIC");
+        // No file yet: left out, the path named.
+        let why =
+            data_card("quarry", "quarry-data", Some(&open), Some(&cards), today()).unwrap_err();
+        assert!(why.starts_with("no card file"), "{why}");
+        assert!(why.contains("quarry.json"), "{why}");
+        fs::create_dir_all(&cards).unwrap();
+        fs::write(card_file(&cards, "quarry"), CARD).unwrap();
+        let card = data_card("quarry", "quarry-data", Some(&open), Some(&cards), today()).unwrap();
+        assert_eq!(card.project.total, 10);
+        // Private: the file is never opened, so even a broken one is left out as not public.
+        fs::write(card_file(&cards, "quarry"), "{").unwrap();
+        let why = data_card(
+            "quarry",
+            "quarry-data",
+            Some(&account("PRIVATE")),
+            Some(&cards),
+            today(),
+        )
+        .unwrap_err();
+        assert!(why.starts_with("not public"), "{why}");
+        let why =
+            data_card("quarry", "quarry-data", Some(&open), Some(&cards), today()).unwrap_err();
+        assert!(why.starts_with("its card file is malformed"), "{why}");
+        // Too heavy: left out unread.
+        fs::write(
+            card_file(&cards, "quarry"),
+            vec![b' '; usize::try_from(CARD_BYTES).unwrap() + 1],
+        )
+        .unwrap();
+        let why =
+            data_card("quarry", "quarry-data", Some(&open), Some(&cards), today()).unwrap_err();
+        assert!(why.contains("over 64 KiB"), "{why}");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -706,22 +978,31 @@ mod tests {
     }
 
     #[test]
-    fn the_site_files_go_into_assets_data_alone() {
+    fn the_site_file_goes_into_assets_data_alone() {
         let dir = temp("site");
-        let paths = write_site(&dir, &site()).unwrap();
-        assert_eq!(
-            paths,
-            [
-                dir.join("assets").join("data").join(SITE_JSON),
-                dir.join("assets").join("data").join(SITE_HTML)
-            ]
-        );
+        let data = dir.join("assets").join("data");
+        // A snippet an older export wrote stays as it is.
+        fs::create_dir_all(&data).unwrap();
+        fs::write(data.join("projects-cards.html"), "old").unwrap();
+        let path = write_site(&dir, &site()).unwrap();
+        assert_eq!(path, data.join(SITE_JSON));
         let names: Vec<_> = fs::read_dir(&dir)
             .unwrap()
             .flatten()
             .map(|e| e.file_name())
             .collect();
         assert_eq!(names, ["assets"]);
+        let mut written: Vec<_> = fs::read_dir(&data)
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name())
+            .collect();
+        written.sort();
+        assert_eq!(written, ["projects-cards.html", SITE_JSON]);
+        assert_eq!(
+            fs::read_to_string(data.join("projects-cards.html")).unwrap(),
+            "old"
+        );
         let _ = fs::remove_dir_all(&dir);
     }
 }

@@ -2506,7 +2506,7 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-57a | [The manual in the window: built when stale and opened from a row's menu and the Detail pane, its age beside the last phase's close; the window's old size words](EP-57a-manual-in-the-window.md) (D-25) | M | EP-57 | core | ☑ `683d848` |
 | EP-58 | [This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF](EP-58-this-projects-manual.md) (D-1) | M | EP-57a, EP-52 | core | ☑ `36c193a` |
 | EP-58a | [A bare project name read as the registered project's before a folder of the working directory, in every `crw` command that takes a project or a folder; `.` read as its folder's registered project; the formalise skill's wording](EP-58a-bare-name-reads-the-registry.md) (D-11, D-9) | S | EP-58 | core | ☑ `b4813d6` |
-| EP-58b | A data repository's site card from a file it writes itself outside its folder: the file defined, `crw export site` carrying the card with nothing inside the repository read, the definition handed back (D-24, D-3) | S | EP-58 | core | ☐ |
+| EP-58b | [A data repository's site card from a file it writes itself outside its folder: the file defined, `crw export site` carrying the card with nothing inside the repository read, the definition handed back](EP-58b-data-repository-site-card.md) (D-24, D-3) | S | EP-58 | core | ☐ |
 | EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58b | core | ☐ |
 
 *(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
