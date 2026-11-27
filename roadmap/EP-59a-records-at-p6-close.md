@@ -147,9 +147,9 @@ here (no list or pane changed, so no rule-5 run). (4) **The trimmed `CLAUDE.md` 
 when its rules began**; the decision log's addenda and the briefs keep that for a session that
 needs it.
 
-> **Completion note (2026-11-27; claude-opus-5-5/max; about 30 minutes of active work and of
-> wall time, 11:00 to the commits at about 11:30; one round of four questions, answered within
-> two minutes).** A visual session started from the window (ledger row `181eba6e`), records
+> **Completion note (2026-11-27; claude-opus-5-5/max; about 25 minutes of active work and of
+> wall time, 11:00 to the work commit `3fde624` at 11:23 and the record commit after it; one
+> round of four questions, answered within two minutes).** A visual session started from the window (ledger row `181eba6e`), records
 > only, every owner decision signed off as recommended.
 >
 > **Item 1, the manual's first fold.** EP-58a's section went into "The crw commands" (a
