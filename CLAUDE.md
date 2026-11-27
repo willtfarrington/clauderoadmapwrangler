@@ -15,8 +15,8 @@
    `roadmap/EP-N-<slug>.md` from its roadmap row: YAML front matter (`ep`, `title`, `size`, `model`,
    `effort`, `status`), context, in scope, out of scope, verification / acceptance. It ends with a
    `> **Completion note (date; model/effort; duration).**` that records each owner decision and its
-   outcome, followed by `> **Handed on (to <project>).**` blocks for messages to other projects (the
-   tool delivers them from EP-20; before that the owner carries them) and lines appended to
+   outcome, followed by `> **Handed on (to <project>).**` blocks for messages to other projects,
+   which the tool delivers once the brief is committed, and lines appended to
    `roadmap/owner-tasks.md` for what needs the owner's hands only (D-10 addendum, 2026-11-08): a write
    into the owner's user settings or into another project, a migration an older build refuses, the first
    real run of a new route; gated `[before EP-m]` only when EP-m builds on it, since the autopilot's gate
@@ -30,8 +30,8 @@
    of projects that are already public; fixtures and recorded streams use synthetic names; screenshots show
    fake projects; never commit the registry, the ledger, exports, tokens or transcripts. The OAuth token is
    read from `~/.claude/.credentials.json` only by the usage poller at poll time, never stored or logged,
-   and sent nowhere but `api.anthropic.com` (D-23). The remote is public since EP-8, so a push publishes
-   at once: before each commit, check the staged diff's added lines against the word list in `private/`
+   and sent nowhere but `api.anthropic.com` (D-23). The remote is public, so a push publishes at
+   once: before each commit, check the staged diff's added lines against the word list in `private/`
    (the private names and the machine details: drive labels and backup paths, the plan's tier, devices
    and VPN, tailnet ports, security software, user names in paths), `git diff --cached -U0 | grep '^+' |
    grep -iFf private/public-check.txt` printing nothing; screenshots name a neutral data root (D-3
@@ -59,10 +59,9 @@
    (code only the feature uses is dead without it, EP-6), `cargo fmt --check`; for an M brief a
    review of the diff before the build (the `/code-review` skill at medium, or a review subagent given
    the diff and not the session's conclusions; findings fixed or logged in the completion note; D-29
-   addendum, 2026-11-08); then `cargo build --release`, until EP-37 with the app closed (a running exe
-   cannot be replaced), from EP-37 with the window up, since the exe runs from
-   `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` and the install step asks the window to restart.
-   `pwsh -File scripts\install-shortcut.ps1` rebuilds, installs the exes there (`crw install`, which
+   addendum, 2026-11-08); then `cargo build --release` with the window up, since the window runs
+   from its installed copy in `%LOCALAPPDATA%\clauderoadmapwrangler\bin\` and the install step asks
+   it to restart. `pwsh -File scripts\install-shortcut.ps1` rebuilds, installs the exes there (`crw install`, which
    asks the window to restart into them: refused while something would be lost, such as a headless
    run of its own that works or waits, and then taken later from File > Install and restart or the
    tray's, or the launch dialog's own Install and restart, which says when a newer build is installed
@@ -73,49 +72,47 @@
    anything written into the owner's user settings (hooks, status line) or into another project, anything
    outward-facing (the remote, visibility, the site export), unresolved risks. Routine, reversible
    technical choices are the session's call and are logged in the completion note.
-8. **Commits** are the owner's call (from EP-19 on, autopilot on for this project is their standing yes).
+8. **Commits** are the owner's call (autopilot on for this project is their standing yes).
    Messages go through a scratch file (`git commit -F`), with no AI attribution trailers. Pattern:
    `<Title>: <summary> (EP-n, D-x)`, then `docs(roadmap): record EP-n commit hash`.
 9. **Windows shell constraints** (see the global `~/.claude/CLAUDE.md`): create and edit files with the
    Write/Edit tools, keep Bash to single lines, no heredocs, no `python -` stdin scripts. Spawn child
    processes one at a time; no burst copy or delete loops (two AV products watch this machine).
 10. **Pins (D-15).** `Cargo.lock` pins everything; the egui family (eframe, egui, egui_tiles, egui_extras,
-    egui_plot, and egui_commonmark from EP-24a, D-15 addendum of 2026-11-11) and the `claude-codes` protocol crate move only in a re-plan brief. The minimum Claude Code
-    version lives in `core` and is raised only by a brief that needs a newer flag; features are detected
-    from `claude --version` and the `system/init` capabilities, never assumed. The tool never passes
-    `--bare` and removes `ANTHROPIC_API_KEY` from every child environment.
+    egui_plot and egui_commonmark; D-15 addendum of 2026-11-11) and the `claude-codes` protocol
+    crate move only in a re-plan brief. The minimum Claude Code version lives in `core` and is
+    raised only by a brief that needs a newer flag; features are detected from `claude --version`
+    and the `system/init` capabilities, never assumed. The tool never passes `--bare` and removes
+    `ANTHROPIC_API_KEY` from every child environment.
 11. **Sessions for this project run with cwd = this folder**, started from
-    `DATA\clauderoadmapwrangler.code-workspace` (the owner's single-folder workspace file since 2026-10-31,
-    IN-1), so transcripts and memory file under this project (D-16); the other projects' roadmaps are
+    `DATA\clauderoadmapwrangler.code-workspace` (the owner's single-folder workspace file, IN-1), so
+    transcripts and memory file under this project (D-16); the other projects' roadmaps are
     reachable read-only through the user-level `permissions.additionalDirectories` grant (rule 4), which
     leaves out the data repositories: this project declares no data relationship and keeps no local
-    settings grant (IN-6). **Every EP is launched from the tool** (D-5, from EP-17): the owner presses
+    settings grant (IN-6). **Every EP is launched from the tool** (D-5): the owner presses
     Start on this project's row in Roadmap Wrangler, then Open in VS Code (Visual, the default, D-16),
     which puts the generated opener ("Run the next brief of clauderoadmapwrangler: …", launched from
-    clauderoadmapwrangler) in a new Claude Code tab of this window. Until EP-37, Start headless suits
-    only a brief that builds no release: quitting the window for rule 6's release build ends a headless
-    run. From EP-37 a headless run builds and installs with the window up; the window refuses the
-    install's restart while the run works, and since EP-37a takes it at the autopilot gate's moment
-    after the run (the held chains and chain plans carried in a handover file, a chain going on in the
-    new build), or File > Install and restart (or the tray's, or the launch dialog's, which opens the
-    dialog again in the new window, EP-39) takes it. Since EP-37a this project
-    chains like any other (D-22 addendum, 2026-11-08) once the owner sets its
-    `permission_mode = "auto"` through EP-19b's control; each brief's last step is the install, which
-    the opener of this project's runs says. At its
-    start a session checks that its prompt is that opener and finds its row in `target\release\crw.exe
-    sessions clauderoadmapwrangler` (mode, EP, session id); a session started by hand says why in its
-    brief's session-start paragraph.
+    clauderoadmapwrangler) in a new Claude Code tab of this window. A headless run builds and installs
+    with the window up; the window refuses the install's restart while the run works and takes it at
+    the autopilot gate's moment after the run (the held chains and chain plans carried in a handover
+    file, a chain going on in the new build), or File > Install and restart (or the tray's, or the
+    launch dialog's, which opens the dialog again in the new window, EP-39) takes it. This project
+    chains like any other (D-22 addendum, 2026-11-08) while its `permission_mode` is `auto`, the
+    owner's setting; each brief's last step is the install, which the opener of this project's runs
+    says. At its start a session checks that its prompt is that opener and finds its row in
+    `target\release\crw.exe sessions clauderoadmapwrangler` (mode, EP, session id); a session
+    started by hand says why in its brief's session-start paragraph.
 12. **Generic names.** Modules, types, settings keys and file names describe function (registry, parser,
     runner, mailman, meter), never a managed project.
 13. **The registry and the ledger are the owner's records (D-8).** `%APPDATA%\clauderoadmapwrangler\registry.toml`
-    (the owner's since 2026-10-31, EP-2) and `%LOCALAPPDATA%\clauderoadmapwrangler` (the ledger and the
-    copies of the registry and of the workspace file) change only through the tool and only when the owner
-    asks; never reset, regenerate or "clean" them. `crw scan` only reads and may run on them. Tests use
-    temp folders. To try `crw` or the app, set `CRW_HOME=<scratch folder>`: the registry, the ledger and
-    the backups then live there, and a hand-written scratch registry points `data_root` at a scratch data
-    root with synthetic names.
-14. **The manual (D-12 addendum, 2026-11-25).** Once `docs/manual.md` exists, a brief that changes what
-    a user sees or does adds its `## EP-n — <title> (date)` section to `docs/manual-changes.md` before
-    its close, and the phase's re-plan folds that file into the manual and empties it. The PDFs are built
-    with the pinned Typst CLI into `%LOCALAPPDATA%\clauderoadmapwrangler\manuals`, never tracked; the
+    and `%LOCALAPPDATA%\clauderoadmapwrangler` (the ledger and the copies of the registry and of the
+    workspace file) change only through the tool and only when the owner asks; never reset,
+    regenerate or "clean" them. `crw scan` only reads and may run on them. Tests use temp folders.
+    To try `crw` or the app, set `CRW_HOME=<scratch folder>`: the registry, the ledger and the
+    backups then live there, and a hand-written scratch registry points `data_root` at a scratch
+    data root with synthetic names.
+14. **The manual (D-12 addendum, 2026-11-25).** A brief that changes what a user sees or does adds
+    its `## EP-n — <title> (date)` section to `docs/manual-changes.md` before its close, and the
+    phase's re-plan folds that file into the manual and empties it. The PDFs are built with the
+    pinned Typst CLI into `%LOCALAPPDATA%\clauderoadmapwrangler\manuals`, never tracked; the
     manual's pictures come from screenshot runs over the fake portfolio only (rule 3).

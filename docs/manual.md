@@ -6,7 +6,7 @@ planned as a roadmap of session-sized briefs in the house style. One window show
 project's next brief, starts sessions in VS Code or headless, answers what a headless session
 asks, keeps the owner's tasks and the mail between projects, chains briefs on autopilot within
 caps, meters the account's usage and serves a few pages to the owner's phone. This manual
-describes the tool as phase P6 leaves it (2026-11-25): the reference chapters first, then a
+describes the tool at phase P6's close (2026-11-27): the reference chapters first, then a
 walkthrough of the routes no real use has met yet, which is also the script of the next walk.
 
 The pictures show the fake portfolio the repository tracks for its screenshot runs, never real
@@ -482,7 +482,9 @@ hash and file, puts its plan to you and stops before committing. The run is labe
 prints the prompt.
 
 The plugin's `/roadmap-wrangler:formalise` skill does the same from a session inside a project:
-it runs `crw formalise` for the preview and `--yes` on your word.
+it runs `crw formalise` for the preview and `--yes` on your word, naming the project by its
+registered name, by `.` or by its path, which all read the same project (see "The crw
+commands"); `crw path on` puts `crw` on PATH for it.
 
 ## The chat
 
@@ -552,10 +554,29 @@ carry it too.
   (`ledger.json`) into this repository's git-ignored `private/export/<date>/`, keeping the last 14
   days and each month's first folder (`crw export daily` writes it at once).
 - `crw export csv <project>` writes a project's sessions and daily counts as CSV there.
-- `crw export site` previews `projects.json` and `projects-cards.html` for the projects whose
-  remote is public, and `--yes` writes them into the `assets/data` folder of the project the `site`
-  setting names, for that site's own session to wire in; the tool never edits the page and never
-  pushes.
+- `crw export site` previews `projects.json`, the cards of the projects whose remote is public,
+  and `--yes` writes it into the `assets/data` folder of the project the `site` setting names,
+  whose page reads it; the tool never edits the page and never pushes. The snippet
+  `projects-cards.html` is no longer written, and a copy an older export wrote stays where it is.
+
+**A data repository's site card** comes from a file the repository writes itself, outside its
+folder: `cards\<registered name>.json` in the tool's local folder,
+`%LOCALAPPDATA%\clauderoadmapwrangler` (under `CRW_HOME` in a trial). The tool still reads nothing
+inside a data repository and starts nothing there.
+
+- **The file** is JSON in UTF-8 with `as_of` (the day it was written, `YYYY-MM-DD`) and the card's
+  fields: `name` (the registered name), `badge` (the stack's text), `done`, `total`, `percent`
+  (done of total, rounded down) and `next`, the first undone rows in table order, at most two,
+  each with `id`, `title` and `size` (`S`, `M`, `L` or null). Other fields are ignored.
+- **Public** is the account's list the window caches: the card is carried only when the list holds
+  a public repository by the project's registered name or its folder's name; otherwise the file is
+  not even opened.
+- **The preview** prints the cards' folder and, for a data repository, either its card, marked
+  "its own card of" with its day, or why it is left out: not public, no card file, a file that
+  does not read, or
+  one that is malformed (another name, a day badly written or after today, counts that do not add
+  up, a wrong number of next rows, a size other than S, M, L or null). A card is never left out for
+  its age: the repository rewrites it whenever its figures change.
 
 ## Hosting and backup
 
@@ -665,6 +686,23 @@ Tailscale may lose the tailnet while that VPN is up.
 Run from any shell once `crw path on` has put it on PATH, else as `target\release\crw.exe`. The
 commands that only read can run at any time, the window up or not.
 
+**A project or a folder.** A command written below with `<project|folder>` reads its argument in
+one order, from any folder:
+
+- **A word alone** (no `/` or `\`, not `.` or `..`, no drive) is a registered project's name
+  first. A file or a folder of that name in the working directory is read only when no project is
+  registered under it. When both exist, as in a project laid out as `<name>\<name>`, the project
+  is read and a `note:` line names the folder passed over. To read that folder instead, write
+  `.\<name>`.
+- **A path** (`.`, `..`, a separator or a drive) reads that place. A folder that a project is
+  registered in reads as that project, with its name and state, so `crw status .` from a
+  project's root shows its registered name and state, and `crw send .` and `crw tick .` log the
+  registered name.
+- **A file** is still read as a brief (by its name) or a README by `crw roadmap`.
+
+`crw revert` reads its argument the same way and needs a registered project; `crw help` says the
+order under the commands.
+
 **Install and environment**
 
 - `crw install [--no-restart]`: copy the release build into the install folder and ask the window
@@ -689,15 +727,16 @@ commands that only read can run at any time, the window up or not.
 
 **Roadmaps and what waits**
 
-- `crw roadmap <project|file>`: what the parser reads.
-- `crw tasks <project>`: owner tasks, inbox, handed-on blocks and older forms.
-- `crw tick <project> OT-n`, `crw untick <project> OT-n`, `crw tick <project> IN-n <disposition>`.
-- `crw send <project> <words…> [--urgent]`.
-- `crw formalise <project> [--yes|--migration]`.
-- `crw manual <project> [--changes] [--force]`.
-- `crw history <project> [--reimport]`.
-- `crw status [--offline] [<project>]`: the badges.
-- `crw prompt <project> [--visual|--headless]`: what a launch would start from.
+- `crw roadmap <project|folder>`: what the parser reads (a brief or a README file too).
+- `crw tasks <project|folder>`: owner tasks, inbox, handed-on blocks and older forms.
+- `crw tick <project|folder> OT-n`, `crw untick <project|folder> OT-n`,
+  `crw tick <project|folder> IN-n <disposition>`.
+- `crw send <project|folder> <words…> [--urgent]`.
+- `crw formalise <project|folder> [--yes|--migration]`.
+- `crw manual <project|folder> [--changes] [--force]`.
+- `crw history <project|folder> [--reimport]`.
+- `crw status [--offline] [<project|folder>]`: the badges.
+- `crw prompt <project|folder> [--visual|--headless]`: what a launch would start from.
 
 **Sessions, autopilot and logs** (all read only, except where a verb says otherwise)
 
@@ -723,6 +762,7 @@ commands that only read can run at any time, the window up or not.
 | `…\log\` | The rolling log, a file a day, fourteen days kept |
 | `…\crash.log` | Each panic's report, appended (past 1 MB the file moves to `crash.old.log`); the next start names the last |
 | `…\manuals\` | The built PDFs |
+| `…\cards\` | A data repository's site card, `<registered name>.json`, written by that repository itself; the tool only reads it, for `crw export site` |
 | `%USERPROFILE%\.local\bin\crw.exe` | `crw`'s copy on PATH, after `crw path on` |
 | Claude Code's user settings | The hooks and the status line, after `crw signals install` (a dated copy of the file first) |
 | The Run key's value "Roadmap Wrangler" | The start at login, after File > Start at login, hidden in the tray (or `crw autostart on`) |
@@ -731,8 +771,8 @@ commands that only read can run at any time, the window up or not.
 In a project the tool writes only the files it owns: the ticks in `roadmap/owner-tasks.md`, the
 lines and dispositions in `roadmap/inbox.md`, the files Formalise… writes, and the project's
 `<folder>.code-workspace` and its entry in the aggregate workspace file. Beyond those, a project
-changes only on your word, behind a preview: a revert, a hosting action, and the site export's two
-files in the site project's `assets/data`. It never stores the login's token, and it writes or
+changes only on your word, behind a preview: a revert, a hosting action, and the site export's
+`projects.json` in the site project's `assets/data`. It never stores the login's token, and it writes or
 reads no session transcript's text.
 
 ## When something goes wrong
@@ -820,6 +860,18 @@ when you mean the action anyway, never as a test.
 4. Note down: whether the answer reached the session and the reply went on, and how a deferred
    one resumed (a new turn, or the same).
 
+### A message queued in the Chat pane
+
+1. Right after the window starts (a restart into a new build, say), open the Chat pane, type a
+   message and press Enter before `claude` has answered the checks the window asks before each
+   session (its version, login and flags, asked again every hour while the window is shown).
+2. Look at: the box turning read-only, the line "Waits for claude's answers, then goes by itself."
+   under it and **Cancel** in Send's place; then the message going by itself once the answers
+   come, its turn starting with no second press. A message sent while a reply still runs shows
+   "Waits for the reply to end, then goes by itself." the same way.
+3. Note down: how long the message waited, whether it went once and whole, and, if you tried
+   Cancel another time, whether it kept the message in the box unsent.
+
 ### The first hosting action, and a real Make public
 
 1. When a project really needs one (a private remote for a repository that should have one, a
@@ -849,14 +901,16 @@ when you mean the action anyway, never as a test.
 5. Note down: whether the plan showed the kept value before the start, and take the pin back to
    the rules if it was a trial.
 
-### Mail: a delivery while a session idles in the receiver
+### The commit words in a project with its own commit pattern
 
-1. With a session open and idle (its turn ended) in project B, let a brief in project A commit a
-   `Handed on (to B)` block.
-2. Look at: the message arriving in B's `roadmap/inbox.md` without waiting for B's tab to close;
-   the status bar's line, B's row and Inbox pane, `crw mail`.
-3. Note down: how long after A's commit it came, and what the idle session did when it next
-   touched the inbox (it reads the file again).
+1. Start a brief, Visual or Headless, in a project whose `CLAUDE.md` states its own commit pattern
+   (conventional commits, say). Its opener asks the session to commit "as the project's
+   `CLAUDE.md` says: the house pattern, … unless it states its own".
+2. Look at: the project's git log once the session has committed: the work commit and the one
+   that records its hash in the roadmap's row, each in the project's own pattern rather than the
+   house pattern `<Title>: <summary> (EP-n, D-x)`.
+3. Note down: the two messages' form, and any of the opener's words the session read the other
+   way.
 
 ### Mail: a chain meeting an inbox changed with no mail
 
@@ -895,17 +949,6 @@ when you mean the action anyway, never as a test.
 4. Note down: whether `CLAUDE.md`'s rule block, `owner-tasks.md` and `inbox.md` came back as they
    were, and what the status bar said.
 
-### The formalise skill from a session, and the four skills' words
-
-1. In a session inside a project that lacks house-style files (the sweep's owner tasks lead
-   there), run `/roadmap-wrangler:formalise`.
-2. Look at: the skill running `crw formalise` for the preview, asking you, then writing with
-   `--yes` on your word; the row losing its Formalise… item once the window reads the project
-   again (at the session's turn's end, or F5), unless the project's state is unformalised, which
-   keeps the item until `crw set <project> state active`.
-3. As the plan, replan and status skills are used, note down any wording that misled you or the
-   session.
-
 ### A second start at login
 
 1. With File > Start at login, hidden in the tray ticked, sign out and in (or restart the PC).
@@ -934,14 +977,13 @@ when you mean the action anyway, never as a test.
    at a time, each month's first folder kept; the rolling log's line.
 3. Note down: which folders went and which stayed.
 
-### The phone: a start and an answer
+### The phone: a start
 
 1. With remote view on, open a project's page on the phone and follow its Start link.
 2. Look at: the page showing what the run would be (the brief, the model and effort the rules
    resolve) and what refuses it now; start it.
-3. When the run asks a question, answer it on the decisions page.
-4. Note down: whether the run started as shown, whether the answer reached it, and what the window
-   and its status bar said.
+3. Note down: whether the run started as shown (its tab in the window's Sessions pane, its model
+   and effort in `crw sessions`), and what the page, the window and its status bar said.
 
 ### The phone: a run's page as it streams
 

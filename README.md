@@ -10,21 +10,29 @@ ends with a phone view over a Tailscale tailnet.
 
 ## State of the app
 
-**v1 is complete** (2026-11-17). Planned in a 72-question interview on 2026-10-31 as 32 session
-briefs and grown to 69 as it ran, it is done in five phases: P1 the read-only dashboard, P2
-sessions, P3 automation, usage, the cross-project inbox and the method plugin, P4 the chat,
-analytics, exports and diagnostics, P5 the phone view. The tool has run its owner's portfolio
-since P1, and it has started its own briefs since P2's close: as visual launches into VS Code at
-first, then as headless runs it chains by itself, restarting into each brief's build between two
-runs. v2 opens with one fix and a planning interview of its own; its direction leads with Claude
-Code's background sessions, a worktree per session, usage over time and free chat from the phone.
+**v1 is complete** (2026-11-17), and **v2's first phase closed** on 2026-11-27. v1 was planned in
+a 72-question interview on 2026-10-31 as 32 session briefs and grew to 69 as it ran, in five
+phases: P1 the read-only dashboard, P2 sessions, P3 automation, usage, the cross-project inbox
+and the method plugin, P4 the chat, analytics, exports and diagnostics, P5 the phone view. The
+tool has run its owner's portfolio since P1, and it has started its own briefs since P2's close:
+as visual launches into VS Code at first, then as headless runs it chains by itself, restarting
+into each brief's build between two runs. v2's first phase, P6, ran from 2026-11-22 to 11-27 in
+twenty-two briefs: the window's daily surfaces (the owner tasks, the inbox and the autopilot in
+panes of their own; a darker Dark; a project read again by itself when its session's work is
+complete; a chat message that waits for the CLI's checks and goes by itself), the briefs' sizes
+measured over every house-style project (an S about 30 minutes of active work, an M about 45, no
+L), the house-style conventions brought in line with the owner's review and swept through the
+portfolio, and the manuals: a project that owes one keeps it in Markdown, built to PDF from the
+window, starting with this tool's own. P7 comes next: the fixes P6's close found, then the v2
+planning interview in three sessions; v2's direction leads with Claude Code's background
+sessions, a worktree per session, usage over time and free chat from the phone.
 The roadmap is [`roadmap/README.md`](roadmap/README.md), the decisions [`DECISIONS.md`](DECISIONS.md),
 the session rules [`CLAUDE.md`](CLAUDE.md), and the work parked for v2
 [`roadmap/v2-notes.md`](roadmap/v2-notes.md). The user's manual is
-[`docs/manual.md`](docs/manual.md): the window pane by pane, the launches, the autopilot, the
-mail, the phone view, every `crw` command and the files the tool keeps, what to do when
-something goes wrong, and a walkthrough of the routes no real use has met yet; what changed for
-a user since it was last brought up to date is in
+[`docs/manual.md`](docs/manual.md), built to PDF by `crw manual`: the window pane by pane, the
+launches, the autopilot, the mail, the phone view, every `crw` command and the files the tool
+keeps, what to do when something goes wrong, and a walkthrough of the routes no real use has met
+yet; what changed for a user since it was last brought up to date is in
 [`docs/manual-changes.md`](docs/manual-changes.md).
 
 What it does, by area (the sections below give the detail):
@@ -32,12 +40,14 @@ What it does, by area (the sections below give the detail):
 - **Projects and roadmaps.** A registry of the projects under one data root, with new folders
   found and adopted from the window (each given its own VS Code workspace file), and a parser of
   the house-style roadmap (phase tables, briefs, decision logs, owner tasks and the inbox; two
-  older shapes read only) that reads each project at git `HEAD` and in the working tree and tells
-  a session in progress. The list shows every project's next brief with its size, its progress,
-  what waits on the owner and its badges (stack, hosting, sync, activity, CI and license, backup,
-  the week's usage share); the Detail pane shows the brief notes set for reading, the status, the
-  history and the graphs. Formalise… (and `crw formalise`) gives a project the house-style files,
-  and Migrate… hands an older roadmap to a session that converts it.
+  older shapes read only) that reads each project at git `HEAD` and in the working tree, tells a
+  session in progress, and reads a project again by itself when a session there ends a turn or
+  its roadmap or `HEAD` changes. The list shows every project's next brief with its size, its
+  progress, what waits on the owner and its badges (stack, hosting, sync, activity, CI and
+  license, backup, the week's usage share); the Detail pane shows the brief notes set for
+  reading, the status, the history and the graphs. Formalise… (and `crw formalise`) gives a
+  project the house-style files, and Migrate… hands an older roadmap to a session that converts
+  it.
 - **Launching sessions.** The launch dialog writes the house-style opener for the next brief and
   resolves its model, effort and permission mode through a rule table, with a Fable downshift
   while that limit runs high. Visual fills the prompt into a new Claude Code tab of the project's
@@ -55,23 +65,31 @@ What it does, by area (the sections below give the detail):
   weekly, Fable and five-hour figures under their marks, no other session at work. Each run is
   capped by its size in working time and follows the owner's chain plan of models and efforts,
   with a deny rule against `git push`; the window restarts into a newer installed build between
-  two runs, carrying the chain.
+  two runs, carrying the chain. The Autopilot pane shows its state, each project's limits, the
+  held chains, the plans and the chain log.
 - **Usage.** The account's weekly, Fable and five-hour figures, read from Claude Code's usage
   endpoint with the local login, in the status bar and a pane, with a notification when the
   weekly or the Fable limit passes 80 % and 95 %; each poll's rise is split among the sessions
   that worked.
 - **Notifications.** The window's own popup (Windows' toasts may be off), a tray icon that counts
   what waits, quiet hours, and each notification pushed to an ntfy server for the phone.
-- **Mail between projects.** A brief's `Handed on (to <project>)` block is delivered into the
-  receiving project's inbox once it is committed, and the owner writes messages from the window.
+- **Owner tasks and mail.** Every project's open owner tasks and inbox messages in panes of their
+  own, ticked there. A brief's `Handed on (to <project>)` block is delivered into the receiving
+  project's inbox once it is committed, and the owner writes messages from the window; a message
+  holding one of the owner's private words is flagged while its project's remote is public or of
+  unknown visibility.
 - **The chat.** A read-only Claude Code session over the portfolio in the Chat pane, whose replies
-  offer the window's own dialogs as buttons.
+  offer the window's own dialogs as buttons; a message sent before the CLI's checks have answered,
+  or while a reply runs, waits and goes by itself.
 - **History and analytics.** Each project's history imported from git and its briefs' notes; a
   heatmap, a burn-up, a velocity and a projection; sparklines in the list, and a cards view.
 - **Hosting, backup and exports.** Create a private remote, Make public (after a word check of the
   whole history), Make private, Remove the remote, an orphan's Archive and Delete, and Back up now,
-  each behind a confirmation that names the command; the site's cards, a daily JSON export and a
-  CSV.
+  each behind a confirmation that names the command; the site's cards (a data repository's from a
+  file it writes itself), a daily JSON export and a CSV.
+- **The manuals.** A project that owes a manual keeps `docs/manual.md` and a changes file; `crw
+  manual` builds them to PDF with the pinned Typst CLI, and the window opens them from a row's
+  menu and the Detail pane, built when stale.
 - **Diagnostics and operations.** `crw doctor` and a Diagnostics pane with the same checks; a
   rolling log and a crash log; an installed copy that a release build never meets, a start at
   login hidden in the tray, one window per machine, and `crw` on PATH.
@@ -82,9 +100,9 @@ What it does, by area (the sections below give the detail):
 - **The plugin.** The roadmap method as a Claude Code plugin with four skills: plan, replan,
   formalise and status.
 
-![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief's id and size, progress, owner items and badge columns under a header row, the Detail pane of the selected project with its brief notes, phases and graphs, and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
+![The dashboard in the light theme on a wide window: the projects grouped by state with their next brief's id and size, progress, what waits on the owner and badge columns under a header row; the Detail pane of the selected project, among the tabs of the Owner tasks, Inbox and Autopilot panes, with its Manual links beside the path, its brief notes, phases and graphs; and the Chat pane with a conversation over the fake portfolio](docs/dashboard-light.png)
 
-![The dashboard in the dark theme, black panels with bright text and grey frames: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
+![The dashboard in the dark theme, black panels with bright text and grey frames: a row expanded to its phases and burn-up sparkline, the legend of every mark under the list, the Detail pane with the project's history, heatmap, burn-up and velocity beside the tabs of the Owner tasks, Inbox and Autopilot panes, and the Decisions pane with a session's questions and a permission request](docs/dashboard-dark.png)
 
 *Both pictures show the fake portfolio tracked in `crates/app/fixtures/portfolio`, taken by the app of
 its own window (`--features screenshot`, below) from a copy at a neutral path.*
