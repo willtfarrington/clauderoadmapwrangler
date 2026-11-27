@@ -255,6 +255,23 @@ every L into two M (≈ 38 briefs); fewer, larger briefs; v1 without the phone v
 > kept as the exception for one indivisible subtask; "S preferred" kept as it was, or no
 > preference between S and M.
 
+> **Addendum (2026-11-26, EP-59).** P6, the first phase under the rule, timed from its
+> transcripts by the `replan` skill's step 4 (EP-53's script; timestamps, entry types and paths
+> only): its nineteen briefs took 10 h 27 min of active work against 12 h 15 min at the measured
+> sizes (8 S at 30 minutes, 11 M at 45; 85 %), 13 h 45 min with the subagents' own transcripts,
+> and 25 h 09 min of wall time, 7 h 37 of it one overnight wait. An S took 22 minutes (the median
+> of eight, 16 to 58; the one over 30 is EP-43, an investigation the rule's later wording makes
+> an M), an M 40 (the median of eleven, 14 to 57; four over 45, none near M's cap). No run met
+> its cap once S's became 75 minutes; one row was split at pickup (EP-51), one at planning
+> (EP-57), and three re-sized from S to M after EP-43's capped run (EP-47, EP-48, EP-56). The
+> re-plan itself proved larger than an M at pickup and was split, the owner's choice: EP-59
+> walks, times, records the addenda and cuts P7; EP-59a, after it in P6, folds the manual's
+> changes, brings the README's "State of the app" to the phase's close and trims `CLAUDE.md`'s
+> history, so P6 closes with its records written. The sizes stay the planning unit (S about 30
+> minutes, M about 45), the owner's choice; EP-44 is cut into three M sessions (D-30 addendum),
+> so no L remains open. *Alternatives.* The re-plan run whole, over M; EP-59a as P7's first row,
+> P6 closing with the re-plan; the sizes moved to P6's medians (S 22, M 40).
+
 **D-5 Dogfooding.** This project's own roadmap is the first registered project: the read-only dashboard
 shows its next EP from P1, and **from the P2 re-plan (EP-16) every further EP of this project is started
 from the tool**. `CLAUDE.md` records the rule. *Why.* The tool is only trustworthy if it runs the process it
@@ -617,6 +634,29 @@ forms only with ticks in the registry; tasks only in the registry.
 > walk reads the ticks. *Alternatives.* Fewer projects (the site and the environment
 > repository, or the done and maintenance ones, left out); the least work first; the messages
 > kept in the checklist for the owner to send from each row.
+
+> **Addendum (2026-11-26, EP-59).** The fourth walk, P6's: 58 points from the residual-risk
+> paragraphs of P6's twenty briefs, the seventeen routes the manual's chapter 19 scripts and the
+> field check. The records (the ledger's rows through a read-only connection, the rolling log,
+> `crw tasks`, the owner tasks' ticks) answered 39 of them, the owner 10 (the new panes, the
+> darker theme, the re-read after a session and the manual against the window closed as
+> described; two of the phone's routes not recalled), and one route was tried live (the launch
+> dialog's Install and restart, refused while a VS Code tab awaited its first prompt). Two of
+> v1's routes were met in full and leave the walkthrough: a delivery while a session idled in
+> the receiver, the formalise skill run from a project's session; the phone's answer was met
+> too, so its route keeps only the start. The rest, with two of P6's own (a message queued in
+> the Chat pane, the commit words in a project with its own pattern), are carried by name to
+> P7's re-plan (EP-61), the owner's choice as at EP-32: seventeen routes. **The sweep** came
+> through: its ten owner tasks are ticked, and eleven formalise writes on 2026-11-25 and 11-26
+> replaced or added the rule block, seven in the sweep's projects and four in the active ones
+> outside it; the owner also turned the autopilot on in eight more projects (fourteen). One fix
+> came from the field check rather than a look after a brief: every backup badge "stale" in a
+> window left up for days (EP-60, with EP-52's status-bar notice and the gate's rule for a
+> planning interview). A message delivered during the session (IN-22) then showed the panes'
+> "This project only" switch, kept across restarts, hiding other projects' tasks, which the
+> owner's look had passed: EP-60a. *Alternatives.* The five routes that need contrived timing
+> (three mail edge cases, a revert that redoes a formalise, a registry key added during a run)
+> closed as unexercised, their tests standing.
 
 **D-11 Write-back.** Inside a managed project the tool writes **only files it owns**: `owner-tasks.md`
 ticks, `inbox.md`, the adoption files (a `CLAUDE.md` rule block, the two new files, the brief template) and
@@ -1285,6 +1325,16 @@ everything.
 > open, and the upstream fix of 2026-11-11 (EP-29's addendum) is in no release yet, egui's
 > newest being 0.37.0, so the rule against immediate viewports stands. *Alternatives.* The
 > protocol crate moved in a v2 brief of its own, the adapter's tests run against it.
+
+> **Addendum (2026-11-26, EP-59).** The pins looked at for P6's close: eframe, egui and
+> egui_extras 0.37.0, egui_tiles 0.18.0, egui_plot 0.38.0, egui_commonmark 0.26.0, axum 0.8.9
+> and askama 0.16.1 are each still the newest on crates.io. The protocol crate stays at 2.1.316
+> with the standalone CLI the runner meets (the owner's choice), still 2.1.316, while the
+> crate's newest is 2.1.333 and the VS Code extension bundles 2.1.332; P6's eighteen headless
+> runs met the pin's own CLI. egui's newest being still 0.37.0, egui#8470's upstream fix is in no
+> release, and the rule against immediate viewports stands. Typst stays at 0.15.1 under winget's
+> pin (D-12 addendum of 2026-11-25). *Alternatives.* The protocol crate moved now, ahead of the
+> CLI it reads.
 
 ## Sessions
 
@@ -2303,6 +2353,21 @@ committing and recording hashes; one model and effort per project; usage thresho
 > number names the project's own (the owner's conventions review; D-12 addendum of this date).
 > *Alternatives.* The house pattern required in every project.
 
+> **Addendum (2026-11-26, EP-59).** P6's chains (2026-11-22 … 11-25), all this project's:
+> thirteen chained starts; ten restarts into a new build at the gate's moment, each carrying the
+> held chain, and one restart that waited (a VS Code tab awaiting its first prompt), the chain
+> going on in the old window; four five-hour holds at the chain's own mark, the longest about
+> two and a half hours; one run capped at S's old 45 minutes (EP-43), after which S's cap became
+> 75 (EP-43a's addendum) and no run met its cap; five chain ends (that cap, two rows left out of
+> the plan, a run ended by the five-hour limit, the re-plan). No run pushed (risk 17, open). The
+> owner moved a chain's own mark eleven times, between 70 and 90 % of the session window.
+> **A planning interview is the owner's to run**, the owner's choice: EP-44, cut into three M
+> sessions (D-30 addendum), is not caught by `is_replan` today, so a chain reaching it in a
+> window not yet on EP-60's build could start the interview headless; EP-60 extends the rule to
+> a title naming a planning interview, failing safe as the re-plan's does, its refusal saying
+> so. *Alternatives.* The interview's rows
+> unticked in a chain plan by hand; a registry key per row naming it the owner's.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -2631,6 +2696,20 @@ archive mechanism; editing `index.html`.
 > sets per project (one more thing to set, refused by an older build); a card left out after 60
 > or 14 days; the snippet still written.
 
+> **Addendum (2026-11-26, EP-59).** Two findings at P6's close. (1) **The card writer exists**
+> (IN-21, from the data repository's EP-174): its post-commit hook rewrites its card file in the
+> tool's `cards` folder whenever its figures change, and the owner's first export carried the
+> card (OT-46). Its tests mirror `check_card` as EP-58b wrote it, so **a later change to the
+> reader's rules** (the fields, their checks, the size limit, where the public standing comes
+> from) is handed on to that repository in the changing brief's `Handed on` block (the owner's
+> choice). (2) **The backup badge's reading ages in a window left up**: the window reads the job
+> at its start, on F5, after a revert and after Back up now only, and weighs that reading
+> against the clock, so a window up past two of the job's daily runs showed every badge "stale"
+> at the job's usual time (2026-11-20, 11-22 and 11-26) while the job ran each day; EP-60 reads
+> the job again when its run log changes (the owner's choice). *Alternatives.* (1) The ask left
+> unrecorded; a doc comment on `check_card` naming the writer. (2) Parked in `v2-notes.md`, F5
+> clearing the badges meanwhile; a longer `STALE_AFTER`.
+
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a
 decisions tile, a sessions tile with live transcripts, the chat tile and the usage tile; layout saved with
@@ -2955,6 +3034,15 @@ state; graphs only in the detail tile or a separate window.
 > *Alternatives.* The pane in the right-hand group beside Sessions, where a saved layout would not
 > put it; a count or the state in its tab; the newest line wrapped under the header rather than
 > cut beside it (a folding header's text never wraps, EP-13).
+
+> **Addendum (2026-11-26, EP-59).** **The panes' "This project only" switch is not kept**, the
+> owner's choice after IN-22: another project's session found the owner missing its owner tasks
+> because the Owner tasks pane's switch had been turned on by Open in Owner tasks and kept by the
+> saved view across restarts, with only a faint line to say one project was shown. From EP-60a
+> each start shows every project; Open in Owner tasks (and the Inbox pane's lead) selects the
+> project and scrolls to its group without turning the switch on; while the switch is on, the
+> pane's head says plainly how many items of other projects it hides, with Show all; both panes
+> alike. *Alternatives.* The switch kept as saved but said plainly; the row's session settling it.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give
@@ -4077,3 +4165,15 @@ interview; writing the roadmap from the brief alone.
 > this repository changes only what it publishes for every project (EP-54). *Alternatives.*
 > The interview kept in P6 after the fixes; the review run from this repository into its
 > git-ignored folder.
+
+> **Addendum (2026-11-26, EP-59).** The interview is cut to the size rule (D-4 addendum), the
+> owner's choice: three M sessions, each the owner's to start in VS Code. EP-44: the verified
+> survey of the tree and of Claude Code's documented surface, the research pass and the domain
+> map written first, then a first round on the direction's order. EP-44a: the rounds over v2's
+> phases and decisions, a few a session (the `plan` skill's step 5), a further session proposed
+> as a row if they need one. EP-44b: the record: v2's decisions from D-31, its phases with the
+> first phase's brief notes, the session rules and the parked notes. They follow the fixes
+> (EP-60, whose gate rule holds a planning interview for the owner, D-22 addendum; and EP-60a),
+> their inputs gain P6's outcome (EP-44's note), and P7 closes with a re-plan of its own (EP-61)
+> that walks the routes carried from P6 and confirms v2's first phase. *Alternatives.* Two M
+> sessions; one M row, each session proposing the next; the record session closing P7 itself.

@@ -121,6 +121,31 @@ sessions, placed on the owner's choices as two S rows before EP-59: EP-58a (IN-1
 EP-58b (IN-19 and IN-20: a data repository's site card from a file it writes itself). By its
 table P6 now holds twenty-one rows, 8 S and 13 M.
 
+**Re-planned 2026-11-26 (EP-59, the P6 re-plan).** P6's nineteen briefs took 10 h 27 min of
+active work against 12 h 15 min planned at EP-53's sizes (85 %), 13 h 45 min with the subagents'
+own transcripts, and 25 h 09 min of wall time, 7 h 37 of it one overnight wait for the owner's
+answer; an S about 22 minutes of active work (the median of eight), an M about 40 (of eleven),
+and the sizes stay the planning unit (D-4 addendum). Eighteen of the nineteen ran headless,
+thirteen of them chained, the window restarting into a brief's build ten times; two were closed
+by hand (EP-43, stopped by S's old cap; EP-58, at the five-hour limit). The re-plan opened with
+the fourth walk (D-10 addendum): the records settled most of P6's points and the owner the rest,
+the new panes, the darker theme and the re-read closing in use; two of the routes carried from
+v1 were met in full (the formalise skill from a project's session, a delivery while a session
+idles in the receiver) and the phone's answer too, whose route keeps only the start, and the
+rest are carried to P7's re-plan; the field check found every backup badge turning "stale"
+falsely in a window up for days, and two messages delivered during the session (IN-22, the
+panes' "This project only" switch kept across restarts; IN-23, a template's placeholder
+completion note read as complete) became a second fix row. EP-59 was split at pickup: EP-59a (S)
+folds the manual's changes, brings the README's "State of the app" to P6's close and trims
+`CLAUDE.md`'s history. **Phase P7** opens with the fixes (EP-60 and EP-60a, S), cuts the v2
+planning interview into three M sessions (EP-44, EP-44a, EP-44b), so no L remains open (D-30
+addendum), and closes with its own re-plan (EP-61, M). The roadmap holds **97 briefs, 27 S · 66
+M · 4 L** (≈ 87.5 session-hours at S 30 min, M 1 h and L 2 h, the basis of the totals above),
+counted afresh from the tables, **7 of them open** once EP-59 is checked: EP-59a and P7's six,
+3 S · 4 M ≈ 4 h 30 min at EP-53's sizes. EP-45's paragraph above gave P6 at its re-cut as 6 S
+and 10 M, 6 S · 9 M of them open; its table held 7 S and 9 M, 7 S · 8 M open (≈ 11.5
+session-hours).
+
 ## How to use this roadmap
 
 Hand one EP to one session. The session writes its `EP-N-*.md` brief first, from its row and the **brief
@@ -158,6 +183,11 @@ touches a handful of files; an M for an investigation, a state machine or the ch
 or cut into a row that finds and a row that fixes. A row is not cut only to make it smaller (each
 brief carries about 15 minutes of read-first, brief, checks and close), and a row that proves
 larger at pickup is split there, never run long.** The autopilot's caps stay: S 75 minutes, M 90.
+*(EP-59, 2026-11-26.)* P6, the first phase under the rule, measured an S at about 22 minutes of
+active work (median of eight; one over 30, EP-43's investigation, which the rule since makes an
+M) and an M at about 40 (median of eleven; four over 45, none near M's cap); the sizes stay. The
+re-plan itself proved larger than an M at pickup and was split (EP-59a), and EP-44 is cut into
+three M sessions, so no L remains open.
 
 **Standing rules for every session:** the published repository never describes the managed projects —
 names, paths and states stay in the git-ignored `private/` or in the runtime registry under the user
@@ -2507,7 +2537,8 @@ followed by what EP-29 settled; where the two differ, the later segment holds.
 | EP-58 | [This project's own manual: the reference chapters and the walkthrough of the routes no real use has met, built to PDF](EP-58-this-projects-manual.md) (D-1) | M | EP-57a, EP-52 | core | ☑ `36c193a` |
 | EP-58a | [A bare project name read as the registered project's before a folder of the working directory, in every `crw` command that takes a project or a folder; `.` read as its folder's registered project; the formalise skill's wording](EP-58a-bare-name-reads-the-registry.md) (D-11, D-9) | S | EP-58 | core | ☑ `b4813d6` |
 | EP-58b | [A data repository's site card from a file it writes itself outside its folder: the file defined, `crw export site` carrying the card with nothing inside the repository read, the definition handed back](EP-58b-data-repository-site-card.md) (D-24, D-3) | S | EP-58 | core | ☑ `40c071a` |
-| EP-59 | Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule | M | EP-43, EP-46 … EP-58b | core | ☐ |
+| EP-59 | [Re-plan P6: the walk, the retro under the measured sizes, the sweep's state, addenda, P7 confirmed and cut to the size rule](EP-59-replan-p6.md) (D-4, D-10, D-15, D-22, D-24, D-30) | M | EP-43, EP-43a, EP-46 … EP-58b | core | ☐ |
+| EP-59a | The records at P6's close: the manual's first fold (the changes file into its chapters, the walkthrough less the routes the walk met, the PDF built and read through), the README's "State of the app" brought to P6's close, `CLAUDE.md`'s history clauses trimmed (D-12) | S | EP-59 | core | ☐ |
 
 *(EP-45, 2026-11-22.)* Planned at EP-32 as two rows (EP-43 and EP-44), P6 was cut again before
 either ran, at the owner's request after five days' use of the window across the portfolio: it
@@ -2535,7 +2566,11 @@ which also takes EP-54's parked words, since it runs the pictures; EP-58 follows
 *(2026-11-25, the inbox triage, the owner's choices.)* EP-58a and EP-58b come before the
 re-plan: the first because the sweep's last four sessions still run `crw formalise` and `crw
 send` from inside projects, the second because two other projects wait on its definition. EP-59
-then closes the phase with both in its retro.
+then closes the phase with both in its retro. *(EP-59, 2026-11-26, the owner's choice.)* The
+re-plan was split at pickup to keep to M: EP-59 walks, times, records the addenda and cuts P7,
+and EP-59a, after it in P6, writes the records the phase leaves (the manual's first fold, the
+README's "State of the app", `CLAUDE.md`'s history trimmed), so that P6 closes once they are
+written.
 
 Standing decisions for phase P6: D-3 (the repository is public; the owner's projects, login,
 machine and tailnet stay out of tracked files and pictures), D-10 addendum (a residual-risk
@@ -3025,58 +3060,140 @@ inbox through the tool, on the owner's word).
   walk meets, the changes file emptied with a `Since` line naming EP-59, the manual's PDF built
   and read through. EP-54's parked block on the window's old size words moved to EP-57a's note
   on the owner's choice. The Typst install owes no owner task: EP-56 ran it, and its pin, on the
-  owner's word.
+  owner's word. *(2026-11-26, EP-59: split at pickup, the owner's choice; its four parked
+  addenda answered there and gone: IN-16's item (9) and EP-58's fold and "State of the app" to
+  EP-59a's note, EP-52's status-bar notice to EP-60's, EP-53's cut of EP-44 and the retro under
+  the measured sizes done in EP-59's brief.)*
+- **EP-59a.** Added at EP-59 (2026-11-26), the records its split at pickup left, the owner's
+  choice; records only, no code, so no rule-5 run over a copy of the real portfolio, and the
+  release build and the install are put to the owner as at EP-32. (1) **The manual's first fold**, the `replan` skill's step 8
+  (D-12 addendum of 2026-11-25): `docs/manual-changes.md`'s two sections folded into
+  `docs/manual.md`, EP-58a's (a bare name read as the registered project's, `.` as its folder's
+  project) into "The crw commands" and EP-58b's (a data repository's card from its own file, the
+  snippet no longer written) into "History, analytics and exports" where the site export is
+  described, and any chapter that names the old behaviour; the title page's paragraph naming the
+  phase it describes (P6's close). **The walkthrough** (chapter 19) by EP-59's walk: two routes
+  leave it, met in full in P6 ("Mail: a delivery while a session idles in the receiver", met by
+  IN-21 on 2026-11-26; "The formalise skill from a session, and the four skills' words", met by
+  the sweep's sessions), the answer half of "The phone: a start and an answer" leaves it too, the
+  section keeping the start, and two of P6's own unexercised points join it, each scripted as the others are (steps, what to look
+  at, what to note down): a message sent in the Chat pane while claude's answers are still being
+  asked, which waits as queued and goes by itself (EP-47), and a session in a project whose
+  `CLAUDE.md` states its own commit pattern reading the opener's commit words (EP-54). The
+  changes file emptied to its header, its `Since` line naming EP-59a and the fold; the PDF built
+  with `crw manual clauderoadmapwrangler` and read through (the changed chapters at least), and
+  `crw manual … --changes` building the empty file without a warning. (2) **The README's "State
+  of the app"** brought to P6's close: v2 opened with the window's daily surfaces (the Owner
+  tasks, Inbox and Autopilot panes; the darker Dark; a project read again on its own; the chat's
+  queued send), the sizes measured, the conventions and the sweep, the manuals, and P7 next (the
+  walk's fixes, then the v2 planning interview in three sessions); by area as EP-32 wrote it,
+  the detail left to the sections below and to the manual; the two desktop pictures stay unless
+  a pane they show changed (the Projects list lost its Brief column at EP-46: the session judges
+  whether the light picture misleads and retakes it from a neutral copy of the fixtures if so,
+  EP-36's recipe). (3) **`CLAUDE.md`'s history clauses** (IN-16's item 9, parked here from
+  EP-48 through EP-59): rule 2's "(the tool delivers them from EP-20; before that the owner
+  carries them)", rule 3's "public since EP-8", rule 6's "until EP-37 with the app closed (a
+  running exe cannot be replaced), from EP-37 with the window up", rule 8's "(from EP-19 on, …)",
+  rule 10's "from EP-24a", rule 11's "since 2026-10-31", "from EP-17", "Until EP-37 … From EP-37 …
+  since EP-37a … Since EP-37a" and rule 13's "(the owner's since 2026-10-31, EP-2)", each read as
+  the rule it now is (house style's preamble: rule files carry rules, not context or history),
+  the file still standing alone for a reader who cannot see the user rules; a decision cited with
+  its addendum's date stays a citation. Any other clause of the same kind the session finds is
+  put to the owner with these, and the trimmed rules go to the owner as one sign-off. Rule 3's
+  word check before the commit.
 
-  > **Addendum (2026-11-23, from IN-16).** Item (9) of the conventions review's outcome, parked
-  > here at EP-48 on the owner's choice: the history clauses in this project's `CLAUDE.md`
-  > trimmed under the house style's preamble line (rule files carry rules, not context or
-  > history), each read as the rule it now is and the file still standing alone for a reader who
-  > cannot see the user rules; IN-16 lists them by rule (2, 3, 6, 8, 10, 11 and 13). Then this
-  > block goes.
-
-  > **Addendum (2026-11-24, from EP-52).** Seen in passing in EP-52's pictures at 1100 × 900: the
-  > status bar's notice is cut by characters (`NOTICE_CHARS`, `Board::status_bar`), not by the
-  > width the right-hand items leave, so in a narrow window a long notice runs under the chips
-  > and "Up to date" (the screenshot chip in the picture; the usage strip, the newer-build chip
-  > and the reading words in the real window). A fix of an S at most: the notice laid out in the
-  > width left after the right-hand items, cut with an ellipsis, whole on hover. The re-plan
-  > places it as a row in P7 or in v2's first phase, or rolls it into a P6 brief that touches
-  > the status bar. Then this block goes.
-
-  > **Addendum (2026-11-24, from EP-53).** No L remains (D-4 addendum): EP-44 is cut into M
-  > sessions, and the retro times P6's briefs against an S of about 30 minutes of active work and
-  > an M of about 45. Then this block goes.
-
-  > **Addendum (2026-11-25, from EP-58).** The manual's chapter 19, the walkthrough, scripts all
-  > seventeen routes EP-44's note carries (the phone's four as four sections), each with its
-  > steps, what to look at and what to note down; the manual closed none, so the walk reads them
-  > from there, and the fold takes out those it meets and adds P6's own unexercised routes from
-  > its briefs' residual-risk paragraphs. `docs/manual-changes.md` is empty since EP-58, so the
-  > first fold is only of what P6's later briefs add. The README's "State of the app" now points
-  > to the manual but still reads as at v1's close (v2 opening with one fix and an interview): the
-  > re-plan brings it to P6's close. EP-58's review found the formalise skill's "it is not on
-  > PATH" (`plugins/roadmap-wrangler/skills/formalise/SKILL.md`) stale since EP-28a's `crw path`,
-  > its full-path advice still sound: a wording for route 10's note, or a fix the re-plan places.
-  > *(2026-11-25, the inbox triage: the skill's sentence moved to EP-58a's note, the owner's
-  > choice, since EP-58a rewrites that paragraph.)* Then this block goes.
-
-## Phase P7 — v2: the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22)
+## Phase P7 — v2: the walk's fixes and the planning interview (planned 2026-11-17 as P6's second row, moved 2026-11-22, cut 2026-11-26)
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-44 | The v2 planning interview through the `plan` skill: v2's decisions from D-31, its phases and the first phase's brief notes, from the direction in `v2-notes.md`, the risks and the routes carried from v1 (D-1, D-30) | L | EP-59 | core | ☐ |
+| EP-60 | The P6 walk's fixes: the backup job read again on its own when its run log changes, so a window up for days shows no false "stale" badge; the status bar's notice laid out in the width the right-hand items leave; the gate holding the v2 interview's sessions for the owner, as it holds a re-plan (D-24, D-25, D-22) | S | EP-59 | core | ☐ |
+| EP-60a | Two fixes from the inbox: the Owner tasks and Inbox panes' "This project only" switch no longer kept across restarts and said plainly while on (IN-22); a brief still carrying the template's placeholder completion note no longer read as complete, the template's placeholder worded as an instruction (IN-23) (D-25, D-9) | S | EP-59 | core | ☐ |
+| EP-44 | The v2 planning interview, session 1 of 3, through the `plan` skill: the verified survey of the tree and of Claude Code's documented surface, the research pass, the domain map written first, a first round on the direction's order (D-1, D-30) | M | EP-60 | core | ☐ |
+| EP-44a | The v2 planning interview, session 2 of 3: the rounds over v2's phases and decisions, a few per session, a further session proposed as a row if they need one (D-30) | M | EP-44 | core | ☐ |
+| EP-44b | The v2 planning interview, session 3 of 3: the record written: v2's decisions from D-31, its phases with the first phase's brief notes, the session rules where they change, the parked notes (D-30) | M | EP-44a | core | ☐ |
+| EP-61 | Re-plan P7: the walk of P7's residual risks and the routes carried from P6's walk, the retro, addenda, v2's first phase confirmed as the interview wrote it (D-4, D-10) | M | EP-44b | core | ☐ |
 
 Ordering rationale *(EP-45, 2026-11-22, the owner's choice)*: the v2 planning interview waits
 until the window's daily surfaces, the conventions, the sizes and the portfolio's states are
 settled, since v2 is planned under them. The row keeps EP-32's size until EP-59 cuts it to the
 rule that a brief is M or smaller (D-4 addendum): an interview of v1's kind may become two or
-three sessions, a survey and a domain map first.
+three sessions, a survey and a domain map first. *(EP-59, 2026-11-26, the owner's choices.)* The
+walk's fixes come first, as the walks' fixes opened P4, P5 and P6: a window left up for days
+shows every backup badge "stale" at the job's usual time, and the gate must hold the
+interview's sessions for the owner before they, now each an M, could be met by a chain. Then
+the interview in three M sessions, each the owner's to start in VS Code: the survey and the
+domain map, the rounds, the record; a session whose rounds will not fit proposes a further one
+as a row rather than running long (the `plan` skill's step 5; D-4 addendum). EP-60a follows
+EP-60 with the two fixes the inbox brought during the re-plan (IN-22, IN-23), and P7 closes with
+its own re-plan (EP-61), whose walk takes the routes carried from P6's.
 
-Standing decisions for phase P7: those of P6, and whatever EP-59 records.
+Standing decisions for phase P7: those of P6, and the D-4, D-10, D-22, D-25 and D-30 addenda of
+EP-59 (the sizes kept; the routes carried by name to P7's re-plan; the gate holding a planning
+interview for the owner, once EP-60 builds it; the panes' switch not kept and said plainly; the
+interview in three sessions).
 
 **Brief notes.**
 
-- **EP-44.** *(EP-45, 2026-11-22: moved to P7, after EP-59, which cuts it to the size rule; its
+- **EP-60.** Added at EP-59 (2026-11-26), the walk's fixes, the owner's choices. (1) **The backup
+  badges' false "stale"** (EP-59's field check). The window reads the backup job
+  (`read_backup_job`, `crates/app/src/portfolio.rs`) only at the git pass's start (`read_git`:
+  at its own start, `board.rs`; on F5, `Action::Refresh`; after a revert, `revert.rs`) and by
+  itself after Back up now (`Loader::read_backups`, `act.rs`). The row's badge and the tray's
+  marks (`toasts::marks`) weigh that cached reading against the clock (`Backup::state`,
+  `STALE_AFTER` of 48 hours, `crates/core/src/badges/backup.rs`), so a window up past two of the
+  job's daily runs without a full read sees every unit's last check pass 48 hours at the job's
+  usual time: on 2026-11-20, 11-22 and 11-26 every project's badge turned "stale" between 12:30
+  and 12:32 while the job ran each day, cleared only by F5. Fix: read the job again on its own
+  when its run log (the registry's `backup_log`) changes, its path added to the projects' watcher
+  (`watch_projects`, notify's PollWatcher every `PROJECTS_POLL`, holding no handle between scans)
+  or its file time checked on the pass, then `read_backups()`; file reads only, no child; and at
+  the day's turn. Tests on a scratch log whose time moves: the reading and the marks before and
+  after. (2) **The status bar's notice** (EP-52's addendum of 2026-11-24, seen in its pictures at
+  1100 × 900): cut by characters (`NOTICE_CHARS`, 160, through `one_line`, `board.rs`), not by the
+  width the right-hand items leave, so in a narrow window a long notice runs under the chips and
+  "Up to date" (the usage strip, the newer-build chip and the reading words in the real window);
+  laid out in the width left after the right-hand items, cut with an ellipsis, whole on hover; a
+  screenshot run at 1100 × 900 with a long notice, and one over a copy of the real portfolio
+  (rule 5). (3) **The gate and a planning interview.** `autopilot::is_replan`
+  (`crates/core/src/autopilot.rs`) names a re-plan as the owner's to run, and the gate
+  (`Refusal::Replan`) and the chain plan (no row after one is offered) use it; a title naming a
+  planning interview (P7's EP-44, EP-44a and EP-44b) is not caught by it today, so a chain
+  reaching EP-44 in a window not yet on this row's build could start it headless. The rule
+  extended to a planning interview,
+  failing safe as `is_replan` does (a wrong yes only ends a chain), the refusal's words naming
+  "a planning interview, the owner's to run"; tests over the title forms the portfolio writes (a
+  planning session, an interview named in passing). A D-22 addendum for (3), a D-24 addendum for
+  (1), and `docs/manual-changes.md`'s section. **Out of scope:** the window's own restart
+  refusals (File, the tray, the launch dialog) written to the rolling log as the install's are
+  (v2 §8). If the three outgrow the S at pickup, (2) is split off there. Until the window runs
+  this row's build, its gate does not hold the interview's rows, so a chain plan started from
+  EP-59a or from this row leaves EP-44, EP-44a and EP-44b unticked (a chain held for the
+  restart after this row is weighed again in the new window, EP-37a, and refused there).
+- **EP-60a.** Added at EP-59 (2026-11-26) from two messages delivered during that session, the
+  owner's choices. (1) **The panes' "This project only" switch** (IN-22): another project's
+  session found the owner missing its owner tasks because the Owner tasks pane's switch was on:
+  `Open in Owner tasks` (the Detail pane's line) turns it on (`Action::OpenTasks`, `board.rs`),
+  the saved view keeps it across restarts, and only a faint "Shown: <project> alone." says so
+  (`owner_tasks.rs`; the Inbox pane's switch alike, `mailbox.rs`). The owner's choice (D-25
+  addendum): the switch is not kept across restarts, each start showing every project; Open in
+  Owner tasks selects the project and scrolls to its group without turning the switch on (the
+  Inbox pane's leads alike); while the switch is on, the pane's head says plainly how many items
+  of other projects it hides, with Show all. A saved view that holds the switch on reads as off.
+  Tests on a bare context (the switch after a restored view, the lead's scroll, the head's
+  words); a screenshot run with the switch on, and one over a copy of the real portfolio (rule
+  5). (2) **A placeholder completion note** (IN-23, read in the code by another project's
+  session): `kind_of` (`crates/core/src/roadmap/brief.rs`) takes any "Completion note" label,
+  dated or not, and `completion()` returns the first, so a brief that still carries the
+  template's closing placeholder, `> **Completion note (YYYY-MM-DD; model/effort; duration).**`,
+  reads as complete, and the gate would chain past it. The parser skips a note whose label still
+  reads `YYYY-MM-DD`, and the template `crw formalise` writes (`crates/core/src/formalise.rs`)
+  gives the placeholder as an instruction, not as a blockquote the parser reads; whether a
+  changed template makes a formalised project's row offer Formalise… again (`House::wants`) is
+  checked and said. Tests over synthetic briefs (a placeholder note, a real one after it, a real
+  one alone). A D-9 addendum for (2), `docs/manual-changes.md`'s section for both.
+- **EP-44.** *(EP-59, 2026-11-26: cut into three M sessions, the owner's choice: this row is the
+  first, EP-44a and EP-44b the rest; its inputs below stand, with P6's outcome added at their
+  end.)* *(EP-45, 2026-11-22: moved to P7, after EP-59, which cuts it to the size rule; its
   inputs below stand, with P6's outcome added by EP-59.)* Added at EP-32 (2026-11-17), the owner's choice: v2 is planned in an interview of its
   own (D-30 addendum), through the plugin's `plan` skill
   (`plugins/roadmap-wrangler/skills/plan/SKILL.md`): a verified survey of the tree and of Claude
@@ -3108,10 +3225,57 @@ Standing decisions for phase P7: those of P6, and whatever EP-59 records.
   keep, due on 2026-11-29 (EP-41); and the phone's routes OT-29 could not reach: a start and an
   answer from the phone, a run's page as it streams, a page left open across a restart, a form
   or the tray's Pause while the window is hidden in the tray (EP-30, EP-30a, EP-30b, EP-31).
-  v2's first re-plan opens its walk with them. (4) **The pins** (D-15 addendum of 2026-11-17):
+  v2's first re-plan (EP-59) opened its walk with them. (4) **The pins** (D-15 addendum of 2026-11-17):
   the protocol crate at 2.1.316 with the standalone CLI, its newest release 2.1.327. (5) **The
-  pace** (D-4 addendum, EP-32's note): an M about 50 minutes of active work, an S 20 to 35. The row is
-  an L because an interview of v1's kind ran 18 rounds (EP-0: 2 h 14 min of session).
+  pace** (D-4 addendum, EP-32's note): an M about 50 minutes of active work, an S 20 to 35. The row was
+  an L, since an interview of v1's kind ran 18 rounds (EP-0: 2 h 14 min of session), until EP-59
+  cut it into three M sessions.
+  **From EP-59:** (3) The routes met in P6 leave the list: a delivery while a
+  session idles in the receiver (IN-21, delivered here on 2026-11-26 while a manual tab of 11-24
+  stood idle), `/roadmap-wrangler:formalise` writing from a session in a project (the sweep's
+  sessions), and the phone's answer (five, on 11-24 and 11-25, each taken); the start from the
+  phone stays. Two of P6's own join it: a message sent in the Chat pane while claude's answers
+  are still being asked, waiting as queued and going by itself (EP-47, no chat having run since
+  its build), and a session in a project whose `CLAUDE.md` states its own commit pattern reading
+  the opener's commit words (EP-54). The launch dialog's Install and restart was tried live in
+  EP-59's walk and refused (a VS Code tab awaited its first prompt), so it stays. The manual's
+  chapter 19 scripts each route (EP-59a's fold), and P7's re-plan (EP-61) walks them. (4) The pins (D-15 addendum of 2026-11-26): the
+  protocol crate at 2.1.316 with the standalone CLI, still 2.1.316; its newest release 2.1.333,
+  the extension's CLI 2.1.332; every egui pin, axum and askama at its newest; Typst held at
+  0.15.1. (5) The pace (D-4 addendum of 2026-11-26): P6's S about 22 minutes of active work and
+  its M about 40, against the sizes of 30 and 45; an interview of v1's kind ran 18 rounds, which
+  the `plan` skill now keeps to a few a session. (6) The portfolio P6 leaves: every project the
+  sweep listed settled by the owner (OT-34 … OT-43 ticked; eleven formalise writes from 11-25 to
+  11-26, the rule block replaced or added), fourteen projects with the autopilot on, the
+  conventions review applied (EP-54) and the sizes in the house style (S about 30 minutes, M
+  about 45, no L). **This session**, the first of three: the survey (the tree as P6 left it,
+  Claude Code's documented surface as it stands, and the four leads' facts: `claude --bg` with
+  Attach and `claude logs`, worktrees and `worktree.bgIsolation`, the usage samples kept since
+  EP-17, the phone's free chat against D-28's guards), the research pass, the domain map written
+  to `roadmap/planning-<date>.md` first, then a first round on the direction's order; it closes
+  by writing the round's answers into the record and EP-44a's pickup note. The three sessions
+  are the owner's to start in VS Code; once EP-60 lands, the gate holds them for the owner.
+- **EP-44a.** Added at EP-59 (2026-11-26), the interview's second session, the owner's choice:
+  the rounds over v2's phases and their decisions, four questions a round with the recommended
+  option first and a few rounds a session (the `plan` skill's step 5), the answers written into
+  `roadmap/planning-<date>.md` as they come. If the rounds the domain map asks for will not fit,
+  the session proposes a further session as a row before EP-44b rather than running long. Its
+  pickup notes come from EP-44's close.
+- **EP-44b.** Added at EP-59 (2026-11-26), the interview's third session, the owner's choice: the
+  record written from `roadmap/planning-<date>.md`: v2's decisions from D-31 in `DECISIONS.md`
+  (unless the interview settled another form), v2's phases as tables in this roadmap with the
+  first phase's full brief notes, the session rules where they change (`CLAUDE.md`, on the
+  owner's sign-off), `v2-notes.md` grown or trimmed by what the plan takes, the risks list's
+  lines, and the next EP named. The first phase it writes is confirmed by EP-61, P7's re-plan.
+- **EP-61.** Added at EP-59 (2026-11-26), the owner's choice: P7 closes with a re-plan of its
+  own, by the `replan` skill. **The walk:** the residual-risk paragraphs of EP-60, EP-60a and the
+  interview's sessions, and the seventeen routes carried from P6's walk, which the manual's
+  chapter 19 scripts (EP-59a's fold; EP-44's note lists them): fifteen of v1's (the phone's start
+  among them) and two of P6's (a message queued in the Chat pane, the commit words in a project
+  with its own pattern). **The retro** under EP-53's sizes; **addenda**; `docs/manual-changes.md`
+  folded into the manual (step 8); **v2's first phase confirmed** as EP-44b wrote it, cut to the
+  size rule, with pickup notes. If the walk and the fold will not fit an M, the row is split at
+  pickup as EP-59 was.
 
 ## Risks / open items
 
@@ -3148,7 +3312,9 @@ Standing decisions for phase P7: those of P6, and whatever EP-59 records.
    2.1.325, the standalone binary is still 2.1.316, and the pin stays with it (D-15 addendum).
    *(EP-32, 2026-11-17.)* The extension carries 2.1.326 and the protocol crate's newest release
    is 2.1.327; the standalone binary is still 2.1.316, and the pin stays with it into v2 (D-15
-   addendum).
+   addendum). *(EP-59, 2026-11-26.)* The extension carries 2.1.332 and the protocol crate's
+   newest release is 2.1.333; the standalone binary is still 2.1.316, so P6's eighteen headless
+   runs met the pin's own CLI, and the pin stays with it (D-15 addendum).
 4. **Hooks and status line in the owner's user settings** (D-20, D-23). Installed only after the owner's
    yes, with a dated backup; the relay must never slow a session (500 ms timeout, silent exit). An
    existing status line would be chained, not replaced. *(EP-12, 2026-11-02.)* Installed on the
@@ -3227,6 +3393,13 @@ Standing decisions for phase P7: those of P6, and whatever EP-59 records.
     live inside the walk (OT-29) rather than a look after a brief. The routes no real use met in
     v1 are carried into v2's first walk by name (the owner's choice), so the rarest may stay
     unexercised well into v2; the field check reads the ledger's rows that would show one.
+    *(EP-59, 2026-11-26.)* The fourth walk found no blocker: the records settled most of P6's
+    points, the owner closed the new panes, the theme and the re-read as described, and two of
+    v1's routes were met in full in use, with the phone's answer; its fix came from the field
+    check (the backup badges, EP-60), not from a look after a brief, and the inbox brought two
+    more during the session (EP-60a), one of them a pane's switch the owner's look had passed.
+    The unmet routes are carried to P7's re-plan (EP-61, the owner's choice), and the manual's
+    walkthrough scripts each.
 17. **The push guard is unexercised** (D-22; EP-19b, EP-23). An autopilot run under permission
     mode `auto` carries a deny rule for `git push`, since `auto` would allow a plain push and a
     push of this repository publishes at once (risk 11). The opener's "never push" is the first
@@ -3238,7 +3411,10 @@ Standing decisions for phase P7: those of P6, and whatever EP-59 records.
     to have tried. EP-42 gives the doctor a line that says the rule is passed to such a run;
     that Claude Code refuses under it stays unseen. *(EP-32, 2026-11-17.)* Seven more autopilot
     runs completed in P5 and none pushed; the doctor says "push guard ok". The risk stays open
-    into v2 (the owner's choice).
+    into v2 (the owner's choice). *(EP-59, 2026-11-26.)* Sixteen more autopilot runs of this
+    project completed in P6 (twelve of them chained; two more were ended by a cap and by the
+    five-hour limit) and none pushed, nor is one known to have tried; the autopilot is now on in
+    fourteen projects, so more runs carry the rule. Open.
 18. **The phone view acts on real projects from outside the desk** (D-28 and its addendum of
     2026-11-15; EP-29). Once EP-31a's Enable has run, a request that comes through Tailscale
     Serve can answer a waiting question, start a run, stop one, pause the autopilot, tick, and
@@ -3261,7 +3437,10 @@ Standing decisions for phase P7: those of P6, and whatever EP-59 records.
     both readings (D-28 addendum); the pages, the forms, the live updates and the pushes' links
     worked on the owner's phone; Disable's `off` took the mount off, and Serve's other entries
     stood. One phone form was dropped as designed when the window took it eleven seconds after
-    its post, past the page's ten-second wait: EP-43 finds why.
+    its post, past the page's ten-second wait: EP-43 finds why. *(EP-59, 2026-11-26.)* In P6 the
+    phone answered five waiting questions through Serve (2026-11-24 and 11-25), each taken, with
+    no slow pass in the rolling log; every request passed the guard with the owner's login, and
+    none was refused. No start, stop or compose came from the phone.
 
 ## Decision record
 

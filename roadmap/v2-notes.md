@@ -16,6 +16,11 @@ P5 named are marked *(EP-32)* with the brief they come from; nothing was taken o
 the owner chose for v2 comes first. The routes no real use met in v1, carried into v2's first
 walk, are listed in EP-44's brief note in the roadmap, where v2's plan reads them.
 
+**Grown in P6 (2026-11-22 … 11-26).** By the items marked *(EP-43)*, *(EP-43a)*, *(EP-45)* and
+*(EP-57a)*, which those briefs parked, and at EP-59, the P6 re-plan, by those marked *(EP-59)*,
+each with the brief it comes from; nothing was taken out. The routes P6's walk did not meet are
+carried to P7's re-plan (EP-61) and listed in EP-44's brief note.
+
 ## The v2 direction (EP-32, 2026-11-17)
 
 The owner's choice at the close-out: all four candidates named at the v1 planning lead v2. The v2
@@ -232,6 +237,11 @@ visual session).
   at its brief the first guard (its opener says the cap and its start) and parked this, as its
   brief note said. With it: a resumed run told the cap of its new run, since each resume has a
   cap of its own and its message is the owner's word or an answer, never an opener.
+- *(EP-59, from EP-48)* A repository whose `.git` is a file (a worktree) is not watched, since
+  EP-48's watcher follows `.git/logs/HEAD`, and neither is a `roadmap` folder or a first commit
+  made after the last full read, until the next one (F5, a folder change, the day's turn): a
+  worktree per session, the direction's second lead, needs the watcher to follow each worktree's
+  own `HEAD`.
 
 ## 2 Analytics
 
@@ -290,6 +300,9 @@ chat session stays rejected (D-27).
   redirect, and a tool call the host answers (a server of the tool's own) as the proposal's
   channel, should the line form prove fragile. A ledger mode of its own for chat runs; a `data`
   box in the window's own Adopt, as the chat's confirmation has.
+- *(EP-59, from EP-47)* An input method's composition that ends with Enter (a dead key, an East
+  Asian IME) could send a message where it should only confirm the composition: EP-47's key tests
+  drive synthetic presses, and no chat has run since its build.
 
 ## 4 Phone view
 
@@ -418,6 +431,9 @@ kind). The routes no real use met in v1 are carried into v2's first walk (EP-44'
   parked block counted, a risk not); the Detail pane's `markup::reflow` shared with core's
   `prompt::joined`, which carries a form it does not know (a fence nested in a list item) as
   written.
+- *(EP-59, from EP-57)* The manual's freshness read from file times: a picture replaced by a
+  copy that keeps an older time is caught only by `crw manual --force`; a hash of the sources
+  kept beside the PDF would catch it.
 
 ## 7 Stack alternatives considered
 
@@ -483,6 +499,10 @@ check, a CLI smoke in CI), the doctor putting right what it finds, and a log vie
   thread (the watch's records, the shares, the samples, the notifications' lines, the chain
   log), which keep their five seconds; moving those writes to a worker of their own is the
   other way.
+- *(EP-59, from the P6 walk)* The window's own restart refusals (File > Install and restart, the
+  tray's, the launch dialog's) written to the rolling log as the install's are ("Crw install
+  asked for a restart: not restarted: …"), so that a walk reads their words from the records:
+  the launch dialog's refusal met live in EP-59's walk reached only the status bar.
 
 ## 9 Views
 
@@ -533,3 +553,7 @@ what they name, and the popup's further forms.
   on the phone's project page, each built only if cheap (EP-49, EP-57); the cards view's title
   line (EP-46 keeps it); an owner-tasks pane that ticks the older forms (§6 keeps them
   read-only).
+- *(EP-59, from EP-46 and EP-51a)* One state worded one way: the list's short words for a
+  project with no next brief ("all checked", "no roadmap", "no table") against the long ones the
+  phone's list and the cards keep. An item's "more…" fold kept across a restart (EP-51a keeps it
+  for the window's life).

@@ -316,7 +316,7 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   EP-174 (S) and builds the writer. **Triaged by hand (2026-11-25):** the data repository's side
   of IN-19, the starting point of EP-58b's note (the place outside every project folder, every
   card field with an as-of day, the public standing, the definition handed back for its EP-174).
-- [ ] IN-21 (from mimicwarehouse EP-174, 2026-11-26) For your IN-4 (EP-58b) and OT-46:
+- [x] IN-21 (from mimicwarehouse EP-174, 2026-11-26) For your IN-4 (EP-58b) and OT-46:
   mimicwarehouse's EP-174 (its D-48) built the card writer to IN-4's definition. `mwh card --write`,
   run by a pre-commit post-commit hook after every commit, writes
   `%LOCALAPPDATA%\clauderoadmapwrangler\cards\mimicwarehouse.json` (`CRW_HOME\cards\` in a trial)
@@ -326,4 +326,39 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   and `crw export site` (the preview) printed mimicwarehouse's line with "its own card of
   2026-11-25". OT-46 can run once the owner has committed EP-174; its record commit rewrites the
   file to 66 of 175, next EP-55 and EP-56. The tests mirror `check_card` as of your EP-58b, so a
-  later change to the reader's rules needs a message back here.
+  later change to the reader's rules needs a message back here. **Triaged at EP-59
+  (2026-11-26):** nothing to build here, the owner's choice: the writer exists and the owner's
+  first export carried the card (OT-46, ticked at 21:44 that day). The standing ask is recorded
+  in D-24's addendum of that date: a brief that changes the reader's rules (the fields, their
+  checks, the size limit, where the public standing comes from) hands the change on to
+  mimicwarehouse in its `Handed on` block.
+- [x] IN-22 (from a private project EP-6, 2026-11-26) On 2026-11-26 the owner did not see the
+  project's owner tasks in the window and asked for co-reconciliation. Found, read-only: the file
+  and its reading are fine (`crw tasks <project>`: "5, 5 open (3 gated)", no problems; the phone
+  page `/m/p/<project>`: "Waiting on the owner 5 open"; rereads logged at 23:00, 23:01 and 23:03,
+  after the file's last write at 22:53). The window's saved view (`data\app.ron`, 23:17) has the
+  Owner tasks pane's "This project only" on with another project selected, and the Inbox pane's on
+  too. `Open in Owner tasks` turns the switch on (`Action::OpenTasks`, board.rs) and the view keeps
+  it across restarts, so the pane kept showing one project, with only the weak "Shown: <the other
+  project> alone." to say so; unticking it, or selecting the project, shows the five. Worth
+  settling with the owner whether the switch should stay sticky, or the pane say plainly that other
+  projects' tasks are hidden (EP-50's pane, EP-51's inbox switch alike). **Triaged at EP-59
+  (2026-11-26):** about an S of window work, placed on the owner's choice in a new S row, EP-60a,
+  after EP-60 in P7, with IN-23. The owner settled the switch: not kept across restarts; Open in
+  Owner tasks selects the project and scrolls to its group without turning it on; while the
+  switch is on, the pane's head says plainly how many items of other projects it hides, with Show
+  all; the Inbox pane alike (D-25 addendum). The line named its sender and another project, both
+  on the private word list of this public repository: reworded on the owner's choice before the
+  commit, as IN-15's and IN-16's were.
+- [x] IN-23 (from phillysim EP-16a, 2026-11-26) From phillysim EP-16a (2026-11-26), read in the
+  parser's code rather than seen in a run: a brief that carries the house template's closing
+  placeholder, `> **Completion note (YYYY-MM-DD; model/effort; duration).**`, counts as complete
+  (`brief.rs`: `kind_of` takes any "Completion note" label, dated or not, and `completion()` returns
+  the first). A session that copies the template whole at its start, or a gate that authors planned
+  briefs from it, would see them read as complete. phillysim's `_TEMPLATE.md` now says to write the
+  note only at the close. The parser could skip a note whose label still reads `YYYY-MM-DD`, or the
+  house template could give the placeholder as an instruction rather than as a blockquote.
+  **Triaged at EP-59 (2026-11-26):** about an S with IN-22, placed on the owner's choice in EP-60a:
+  the parser skips a completion note whose label still reads `YYYY-MM-DD` (a placeholder, not a
+  note), and the template `crw formalise` writes (`crates/core/src/formalise.rs`) gives the
+  placeholder as an instruction rather than as a blockquote the parser reads.
