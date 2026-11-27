@@ -396,20 +396,20 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-1:
   Formalise… adds the block and `owner-tasks.md`; its state, the sizes and its manual. Tick when
   settled
-- [ ] OT-40 (EP-55, 2026-11-25) Sweep 7 of 10, a paused project whose roadmap has no phase table
+- [x] OT-40 (EP-55, 2026-11-25) Sweep 7 of 10, a paused project whose roadmap has no phase table
   the parser reads (item 7 of `private\sweep-checklist.md`). After OT-32, a session there by
   hand takes your message IN-1: `/roadmap-wrangler:formalise` for the house-style files and a
   first roadmap from a brief, or `/roadmap-wrangler:plan`; its state, the sizes and its manual.
   Tick when settled
-- [ ] OT-41 (EP-55, 2026-11-25) Sweep 8 of 10, a maintenance project (item 8 of
+- [x] OT-41 (EP-55, 2026-11-25) Sweep 8 of 10, a maintenance project (item 8 of
   `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-6:
   `/roadmap-wrangler:status`, Formalise… (the block, `owner-tasks.md`, the template), what
   maintenance means there, the sizes and its manual. Tick when settled
-- [ ] OT-42 (EP-55, 2026-11-25) Sweep 9 of 10, the environment repository (item 9 of
+- [x] OT-42 (EP-55, 2026-11-25) Sweep 9 of 10, the environment repository (item 9 of
   `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message IN-8:
   whether it takes the rule block and the template or stays as it is, what maintenance means
   there, the sizes and its manual. Tick when settled
-- [ ] OT-43 (EP-55, 2026-11-25) Sweep 10 of 10, the done project with five-column tables (item
+- [x] OT-43 (EP-55, 2026-11-25) Sweep 10 of 10, the done project with five-column tables (item
   10 of `private\sweep-checklist.md`). After OT-32, a session there by hand takes your message
   IN-1: Migrate the roadmap… and Formalise… (the old block replaced), or it stays as it is, done;
   the sizes and its manual. Tick when settled
@@ -437,7 +437,7 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   the `formalise` skill's section 1 should say "a session in the project may write `.` or the
   path". `crw` itself needs nothing: the install at this brief's end put it in place, and the copy
   on PATH is refreshed by every install. Tick when the skill reads so
-- [ ] OT-46 (EP-58b, 2026-11-25) The first site export that carries mimicwarehouse's own card,
+- [x] OT-46 (EP-58b, 2026-11-25) The first site export that carries mimicwarehouse's own card,
   once that repository's EP-174 has written its card file (the letter EP-58b handed on asks for
   it). (1) Check that `%LOCALAPPDATA%\clauderoadmapwrangler\cards\mimicwarehouse.json` exists,
   after a commit in mimicwarehouse that changed its roadmap's figures. (2) In a terminal, `crw

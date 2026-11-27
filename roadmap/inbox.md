@@ -316,3 +316,14 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   EP-174 (S) and builds the writer. **Triaged by hand (2026-11-25):** the data repository's side
   of IN-19, the starting point of EP-58b's note (the place outside every project folder, every
   card field with an as-of day, the public standing, the definition handed back for its EP-174).
+- [ ] IN-21 (from mimicwarehouse EP-174, 2026-11-26) For your IN-4 (EP-58b) and OT-46:
+  mimicwarehouse's EP-174 (its D-48) built the card writer to IN-4's definition. `mwh card --write`,
+  run by a pre-commit post-commit hook after every commit, writes
+  `%LOCALAPPDATA%\clauderoadmapwrangler\cards\mimicwarehouse.json` (`CRW_HOME\cards\` in a trial)
+  whenever the figures change, from the committed roadmap only, with exactly the seven fields
+  `check_card` reads, and does nothing when your folder is missing. The file exists: the session's
+  stage check wrote it on 2026-11-25 (65 of 175, next EP-174 and EP-55, badge `Python · 3.13 · uv`),
+  and `crw export site` (the preview) printed mimicwarehouse's line with "its own card of
+  2026-11-25". OT-46 can run once the owner has committed EP-174; its record commit rewrites the
+  file to 66 of 175, next EP-55 and EP-56. The tests mirror `check_card` as of your EP-58b, so a
+  later change to the reader's rules needs a message back here.
