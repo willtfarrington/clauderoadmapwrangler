@@ -152,7 +152,8 @@ pub struct Quote {
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub enum Kind {
-    /// `**Completion note (date).**`, with model, effort and duration in the new form.
+    /// `**Completion note (date).**`, with model, effort and duration in the new form. A label
+    /// that still reads the template's `YYYY-MM-DD` is no note but [`Kind::Other`] (EP-60a).
     Completion(Completion),
     /// `**☑ COMPLETE (date).**`
     Complete,
@@ -369,7 +370,8 @@ impl Brief {
 
     /// The evidence that this brief is complete, when there is some: a completion note, `☑
     /// COMPLETE`, a completion-note heading, a done status, a filled handoff payload, or front
-    /// matter `status: done`.
+    /// matter `status: done`. A note or a heading that still reads the template's `YYYY-MM-DD` is
+    /// no evidence (EP-60a, IN-23).
     pub fn completion(&self) -> Option<Evidence> {
         if let Some(note) = self.completion_notes().next() {
             return Some(Evidence::CompletionNote {
@@ -383,11 +385,11 @@ impl Brief {
                 line: quote.line,
             });
         }
-        if let Some(heading) = self
-            .headings
-            .iter()
-            .find(|h| h.level >= 2 && starts_with_ignoring_case(&h.text, "completion note"))
-        {
+        if let Some(heading) = self.headings.iter().find(|h| {
+            h.level >= 2
+                && starts_with_ignoring_case(&h.text, "completion note")
+                && !is_placeholder(&h.text)
+        }) {
             return Some(Evidence::CompletionHeading {
                 date: first_date(&heading.text).map(str::to_owned),
                 line: heading.line,
@@ -628,6 +630,11 @@ fn kind_of(label: &str) -> Kind {
     let name = lower.split('(').next().unwrap_or_default().trim();
     let group = group_of(label);
     if name.starts_with("completion note") {
+        // The template's placeholder, copied and not yet filled in, is no note: the brief stays
+        // open until its real note is written (EP-60a, IN-23).
+        if is_placeholder(label) {
+            return Kind::Other;
+        }
         return Kind::Completion(completion_of(group));
     }
     if name.starts_with("☑ complete") || name == "complete" || name.starts_with("complete (") {
@@ -661,6 +668,13 @@ fn kind_of(label: &str) -> Kind {
         return Kind::OwnerDecisions;
     }
     Kind::Other
+}
+
+/// Whether a completion note's label or heading still reads the template's placeholder date,
+/// `YYYY-MM-DD` in any case: the house template's `> **Completion note (YYYY-MM-DD;
+/// model/effort; duration).**`, copied with the rest and not yet filled in (EP-60a, IN-23).
+fn is_placeholder(text: &str) -> bool {
+    text.to_ascii_lowercase().contains("yyyy-mm-dd")
 }
 
 /// The inside of the first parenthesised group of `text` (up to its last `)`), or nothing.
@@ -1085,6 +1099,86 @@ status: done
             Kind::Completion(ref c) if c.duration.as_deref() == Some("≈ 50 min to the commit")
         ));
         assert_eq!(note.text.lines().count(), 2);
+    }
+
+    /// The template's placeholder is no note (EP-60a, IN-23): a brief that still carries it is
+    /// open; a real note after it completes the brief and is the only note, so its figures are
+    /// the ones read; a real note alone reads as before.
+    #[test]
+    fn the_templates_placeholder_note_is_no_note() {
+        let head = "---\nep: 4\nstatus: in progress\n---\n\n# EP-4 — Four\n\n## Context\n\nx\n\n";
+        let placeholder = "> **Completion note (YYYY-MM-DD; model/effort; duration).** What was \
+                           built; each owner decision\n> and its outcome; the routine choices.\n";
+        let real = "> **Completion note (2026-11-27; claude-opus-5-5/max; 30 min).** Built.\n";
+        let figures = |brief: &Brief| -> Vec<(Option<String>, Option<String>, Option<String>)> {
+            brief
+                .completion_notes()
+                .filter_map(|quote| match &quote.kind {
+                    Kind::Completion(c) => {
+                        Some((quote.date.clone(), c.model.clone(), c.duration.clone()))
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        let the_real_one = vec![(
+            Some("2026-11-27".to_owned()),
+            Some("claude-opus-5-5".to_owned()),
+            Some("30 min".to_owned()),
+        )];
+
+        // The placeholder alone: a block of no kind, and the brief open.
+        let alone = parse(&format!("{head}{placeholder}"));
+        assert_eq!(alone.quotes.len(), 1);
+        assert_eq!(alone.quotes[0].kind, Kind::Other);
+        assert_eq!(
+            alone.quotes[0].label,
+            "Completion note (YYYY-MM-DD; model/effort; duration)"
+        );
+        assert_eq!(alone.completion(), None);
+        assert!(!alone.is_complete());
+        // In lower case, and in the heading form, alike.
+        assert!(!parse(&format!("{head}> **Completion note (yyyy-mm-dd).** x\n")).is_complete());
+        assert_eq!(
+            parse(&format!("{head}## Completion note (YYYY-MM-DD)\n\nx\n")).completion(),
+            None
+        );
+
+        // A real note after it, in a quote of its own: complete by the real one.
+        let after = parse(&format!("{head}{placeholder}\n{real}"));
+        assert_eq!(figures(&after), the_real_one);
+        assert_eq!(
+            after.completion(),
+            Some(Evidence::CompletionNote {
+                date: Some("2026-11-27".to_owned()),
+                line: 15
+            })
+        );
+        // In the same quote, after it or before it: still the one note.
+        let below = parse(&format!("{head}{placeholder}{real}"));
+        assert_eq!(figures(&below), the_real_one);
+        assert!(below.is_complete());
+        let above = parse(&format!("{head}{real}{placeholder}"));
+        assert_eq!(
+            figures(&above),
+            the_real_one,
+            "the placeholder's model/effort and duration are not a later note's"
+        );
+
+        // A real note alone, as before.
+        let real_alone = parse(&format!("{head}{real}"));
+        assert_eq!(figures(&real_alone), the_real_one);
+        assert_eq!(
+            real_alone.completion(),
+            Some(Evidence::CompletionNote {
+                date: Some("2026-11-27".to_owned()),
+                line: 12
+            })
+        );
+        assert!(
+            parse(&format!("{head}## Completion note (2026-11-27)\n\nx\n")).is_complete(),
+            "a dated heading still counts"
+        );
     }
 
     #[test]

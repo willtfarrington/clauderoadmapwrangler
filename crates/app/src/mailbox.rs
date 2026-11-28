@@ -3,10 +3,11 @@
 //! tasks pane does, so a filter never hides a message), each ticked there with a disposition as
 //! the Detail pane ticked it, and Compose… on each receiver. Under them the mail the projects'
 //! briefs hand on, with what the mailman made of each block (those not delivered shown, the
-//! delivered folded), and the mailman's last lines from the ledger. Two toggles, saved with the
-//! view: the selected project alone, and the messages ticked in the last week, dated by their
-//! dispositions, which date a session's triage as well as the tool's tick. The Detail pane keeps
-//! one line that leads here.
+//! delivered folded), and the mailman's last lines from the ledger. Two toggles: the selected
+//! project alone, never saved and said plainly while on, with what it hides and Show all (EP-60a);
+//! and the messages ticked in the last week, dated by their dispositions, which date a session's
+//! triage as well as the tool's tick, saved with the view. The Detail pane keeps one line that
+//! leads here, scrolling the pane to the project's group.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -81,11 +82,15 @@ impl Board {
     pub fn inbox_pane(&mut self, ui: &mut egui::Ui) {
         let ledger = self.ledger().map(Path::to_path_buf);
         self.mail_log.refresh(ledger.as_deref(), Instant::now());
+        // Open in Inbox's project, or an urgent message's, taken at this drawing: its group
+        // scrolled to the top (EP-60a).
+        let lead = self.inbox_lead.take();
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut self.view.inbox_one, "This project only")
                 .on_hover_text(
                     "Show the project selected in the list alone, whatever it holds, so that \
-                     Compose… reaches it",
+                     Compose… reaches it, with every message it ticked; not kept, so each start \
+                     shows every project",
                 );
             ui.checkbox(&mut self.view.inbox_ticked, "Ticked in the last week")
                 .on_hover_text(
@@ -111,13 +116,30 @@ impl Board {
             .iter()
             .filter(|row| row.open_messages().0 > 0)
             .count();
-        let mut words = summary(open, urgent, receivers);
-        if let (true, Some(name)) = (one, selected.as_deref()) {
-            words.push_str(&format!(" Shown: {name} alone."));
-        }
-        ui.label(RichText::new(words).weak());
-        ui.separator();
+        ui.label(RichText::new(summary(open, urgent, receivers)).weak());
         let rows = rows(&self.portfolio, &self.view, selected.as_deref());
+        let receiving: Vec<&ProjectRow> = rows
+            .iter()
+            .copied()
+            .filter(|row| one || holds_any(row, since))
+            .collect();
+        // The switch said plainly while it is on, with what it hides (the owner's choice after
+        // IN-22; EP-60a); off, a selected project the pane does not list is named.
+        let mut show_all = false;
+        if one {
+            let hidden = hidden_messages(&self.portfolio.projects, selected.as_deref());
+            let words = one_words(selected.as_deref(), hidden);
+            show_all = crate::owner_tasks::switch_line(ui, &words, hidden.0 > 0);
+        } else if let Some(name) = crate::owner_tasks::unlisted(selected.as_deref(), &receiving) {
+            ui.label(
+                RichText::new(format!(
+                    "{name}, selected in the list, has no open message: This project only shows \
+                     it alone, with Compose… and every message it ticked."
+                ))
+                .weak(),
+            );
+        }
+        ui.separator();
         let drafts = &mut self.drafts;
         let log = &self.mail_log;
         let mut actions = Vec::new();
@@ -134,11 +156,6 @@ impl Board {
                     );
                     return;
                 }
-                let receiving: Vec<&ProjectRow> = rows
-                    .iter()
-                    .copied()
-                    .filter(|row| one || holds_any(row, since))
-                    .collect();
                 // The line above says when nothing is open; the body says only what it adds.
                 match (receiving.is_empty(), one, since.is_some()) {
                     (true, true, _) => {
@@ -155,6 +172,9 @@ impl Board {
                     _ => {}
                 }
                 for row in &receiving {
+                    if crate::owner_tasks::is_lead(lead.as_deref(), row) {
+                        ui.scroll_to_cursor(Some(egui::Align::TOP));
+                    }
                     receiver(ui, row, since, one, drafts, &mut actions);
                 }
                 ui.add_space(12.0);
@@ -163,6 +183,9 @@ impl Board {
                 mail_lines(ui, log);
             });
         self.actions.extend(actions);
+        if show_all {
+            self.view.inbox_one = false;
+        }
     }
 
     /// The open messages of every project, and how many of them are urgent: the pane's tab.
@@ -237,6 +260,49 @@ fn summary(open: usize, urgent: usize, receivers: usize) -> String {
         (1, _) => format!("1 open message{urgent}."),
         (n, 1) => format!("{n} open messages in 1 project{urgent}."),
         (n, p) => format!("{n} open messages in {p} projects{urgent}."),
+    }
+}
+
+/// The open messages of the receivers other than `selected` (of every receiver when none is):
+/// how many, how many of them urgent, and how many receivers hold them, what This project only
+/// hides, counted as the tab counts.
+fn hidden_messages(projects: &[ProjectRow], selected: Option<&str>) -> (usize, usize, usize) {
+    projects
+        .iter()
+        .filter(|row| selected.is_none_or(|name| !row.name().eq_ignore_ascii_case(name)))
+        .map(ProjectRow::open_messages)
+        .filter(|&(open, _)| open > 0)
+        .fold((0, 0, 0), |(open, urgent, holding), (o, u)| {
+            (open + o, urgent + u, holding + 1)
+        })
+}
+
+/// What the head says while This project only is on (EP-60a): the project shown and the open
+/// messages it hides, from [`hidden_messages`].
+fn one_words(selected: Option<&str>, (hidden, urgent, holding): (usize, usize, usize)) -> String {
+    let messages = match hidden {
+        1 => "1 open message".to_owned(),
+        n => format!("{n} open messages"),
+    };
+    let urgent = match urgent {
+        0 => String::new(),
+        n => format!(", {n} urgent"),
+    };
+    let projects = |other: &str| match holding {
+        1 => format!("1 {other}project"),
+        n => format!("{n} {other}projects"),
+    };
+    match (selected, hidden) {
+        (Some(name), 0) => format!("Shown: {name} alone; no other project has an open message."),
+        (Some(name), _) => format!(
+            "Shown: {name} alone, hiding {messages} in {}{urgent}.",
+            projects("other ")
+        ),
+        (None, 0) => "This project only is on, and no project is selected.".to_owned(),
+        (None, _) => format!(
+            "This project only is on, and no project is selected: it hides {messages} in {}{urgent}.",
+            projects("")
+        ),
     }
 }
 
@@ -722,7 +788,10 @@ pub(crate) fn detail_line(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec
         ui.label(detail_words(row));
         if ui
             .small_button("Open in Inbox")
-            .on_hover_text("The Inbox pane on this project alone: its messages ticked there")
+            .on_hover_text(
+                "The Inbox pane, scrolled to this project's messages, which are ticked there; \
+                 every project's stay shown",
+            )
             .clicked()
         {
             actions.push(Action::OpenInbox(row.name().to_owned()));
@@ -819,7 +888,8 @@ mod tests {
     }
 
     /// The receivers with an open message in the list's order whatever its filters; This project
-    /// only, the selected one alone whatever it holds; Open in Inbox selects it and sets it.
+    /// only, the selected one alone whatever it holds; Open in Inbox selects it and leads the
+    /// pane to it, the switch left off (EP-60a).
     #[test]
     fn the_pane_lists_the_receivers_in_the_lists_order_and_one_alone() {
         let scratch = Scratch::new("inbox-rows");
@@ -836,10 +906,90 @@ mod tests {
         assert!(names(&board, None).is_empty());
         board.view.inbox_one = false;
         board.run(Action::OpenInbox("lantern".to_owned()));
-        assert!(board.view.inbox_one);
+        assert!(!board.view.inbox_one);
+        assert_eq!(board.inbox_lead.as_deref(), Some("lantern"));
         assert_eq!(
             board.view.selected,
             Some(Selection::Project("lantern".to_owned()))
+        );
+    }
+
+    /// Open in Inbox (or an urgent message's Show) scrolls a short pane to the receiver's group
+    /// once and leaves This project only off; while the switch is on, the head says what it
+    /// hides, with Show all; off, a selected project the pane does not list is named (EP-60a).
+    #[test]
+    fn a_lead_scrolls_to_its_receiver_and_the_head_says_what_the_switch_hides() {
+        let scratch = Scratch::new("inbox-lead");
+        let mut board = board(&scratch);
+        let mut screen = Screen::new();
+        let short = |screen: &mut Screen, board: &mut Board| {
+            screen.pass(Vec::new(), |ui| {
+                ui.allocate_ui(egui::vec2(520.0, 120.0), |ui| board.inbox_pane(ui));
+            })
+        };
+        let output = short(&mut screen, &mut board);
+        let top = testing::text_at(&output, "harbor")
+            .expect("harbor at the top")
+            .y;
+        assert!(
+            testing::text_at(&output, "lantern").is_none(),
+            "lantern below"
+        );
+        board.run(Action::OpenInbox("lantern".to_owned()));
+        let mut output = short(&mut screen, &mut board);
+        assert_eq!(board.inbox_lead, None, "taken once");
+        for _ in 0..30 {
+            output = short(&mut screen, &mut board);
+        }
+        let at = testing::text_at(&output, "lantern").expect("lantern scrolled into sight");
+        assert!(
+            (at.y - top).abs() < 4.0,
+            "lantern's group at the pane's top: {} against {top}",
+            at.y
+        );
+        assert!(!board.view.inbox_one, "every project stays shown");
+
+        let select = |board: &mut Board, name: &str| {
+            board.view.selected = Some(Selection::Project(name.to_owned()));
+        };
+        let mut drawn = |board: &mut Board| screen.pass(Vec::new(), |ui| board.inbox_pane(ui));
+        // Off: orchard, which holds no open message, is named while it is selected.
+        select(&mut board, "orchard");
+        assert!(shows(
+            &drawn(&mut board),
+            "orchard, selected in the list, has no open message: This project only shows it \
+             alone, with Compose… and every message it ticked."
+        ));
+        // On: what it hides, the urgent one counted; Show all turns it off.
+        board.view.inbox_one = true;
+        select(&mut board, "lantern");
+        assert!(shows(
+            &drawn(&mut board),
+            "Shown: lantern alone, hiding 1 open message in 1 other project."
+        ));
+        select(&mut board, "orchard");
+        let output = drawn(&mut board);
+        assert!(shows(
+            &output,
+            "Shown: orchard alone, hiding 2 open messages in 2 other projects, 1 urgent."
+        ));
+        let at = testing::text_at(&output, "Show all").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| board.inbox_pane(ui));
+        }
+        assert!(!board.view.inbox_one);
+        assert_eq!(
+            one_words(None, (3, 0, 2)),
+            "This project only is on, and no project is selected: it hides 3 open messages in 2 \
+             projects."
+        );
+        assert_eq!(
+            one_words(Some("harbor"), (0, 0, 0)),
+            "Shown: harbor alone; no other project has an open message."
         );
     }
 
@@ -1209,12 +1359,12 @@ mod tests {
         assert!(active(&tree).contains(&Pane::Projects), "the list stays");
         // Every project's mail: the new message may be in any of them (the review's finding).
         assert!(!board.view.inbox_one);
-        // Open in Inbox brings the pane forward too, on its project alone.
+        // Open in Inbox brings the pane forward too, led to its project, every project shown.
         let mut tree = default_layout();
         board.run(Action::OpenInbox("lantern".to_owned()));
         board.run_actions(&mut tree);
         assert!(active(&tree).contains(&Pane::Inbox));
-        assert!(board.view.inbox_one);
+        assert!(!board.view.inbox_one);
     }
 
     /// The pane as drawn: both receivers and the mail handed on; This project only with nothing
@@ -1236,7 +1386,10 @@ mod tests {
         assert!(shows(&output, "Select a project in the list"));
         board.view.selected = Some(Selection::Project("harbor".to_owned()));
         let output = screen.pass(Vec::new(), |ui| board.inbox_pane(ui));
-        assert!(shows(&output, "Shown: harbor alone."));
+        assert!(shows(
+            &output,
+            "Shown: harbor alone, hiding 1 open message in 1 other project, 1 urgent."
+        ));
         assert!(shows(&output, "Every ticked message: 1"));
         assert!(testing::text_at(&output, "lantern").is_none());
     }

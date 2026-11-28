@@ -97,11 +97,15 @@ pub struct View {
     pub sessions: SessionFilter,
     /// The cards view in place of the rows (D-25; EP-26a).
     pub cards: bool,
-    /// The Owner tasks pane shows the selected project alone (EP-50).
+    /// The Owner tasks pane shows the selected project alone (EP-50). Never saved, so each start
+    /// shows every project, and a view an older build saved with it on reads with it off (D-25
+    /// addendum of 2026-11-26; EP-60a).
+    #[serde(skip)]
     pub tasks_one: bool,
     /// The Owner tasks pane shows the tasks the tool ticked in the last week (EP-50).
     pub tasks_ticked: bool,
-    /// The Inbox pane shows the selected project alone (EP-51).
+    /// The Inbox pane shows the selected project alone (EP-51); never saved, as `tasks_one`.
+    #[serde(skip)]
     pub inbox_one: bool,
     /// The Inbox pane shows the messages ticked in the last week, by their dispositions' dates
     /// (EP-51).
@@ -203,11 +207,12 @@ pub enum Action {
     Select(Selection),
     /// Selects and brings the Detail pane forward (Enter, a double click).
     Open(Selection),
-    /// Selects the project and brings the Owner tasks pane forward on it alone (the Detail
-    /// pane's line, EP-50).
+    /// Selects the project and brings the Owner tasks pane forward, scrolled to the project's
+    /// group, its This project only switch left as it is (the Detail pane's line, EP-50; EP-60a).
     OpenTasks(String),
-    /// Selects the project and brings the Inbox pane forward on it alone (the Detail pane's
-    /// line, an urgent message's Show; EP-51).
+    /// Selects the project and brings the Inbox pane forward, scrolled to the project's group,
+    /// its switch left as it is (the Detail pane's line, an urgent message's Show; EP-51,
+    /// EP-60a).
     OpenInbox(String),
     /// Brings the Autopilot pane forward (the Sessions pane's All tab's line, EP-52).
     OpenAutopilot,
@@ -601,6 +606,11 @@ pub struct Board {
     error: Option<String>,
     /// The selection moved by a key: the list scrolls it into view once.
     pub scroll_to_selected: bool,
+    /// The project Open in Owner tasks led to: the pane scrolls its group to the top at its next
+    /// drawing, once (EP-60a).
+    pub(crate) tasks_lead: Option<String>,
+    /// The project Open in Inbox or an urgent message's Show led to, as `tasks_lead` (EP-60a).
+    pub(crate) inbox_lead: Option<String>,
     /// A pane to bring to the front after the frame.
     bring: Option<Pane>,
     settle_until: Option<Instant>,
@@ -680,6 +690,8 @@ impl Board {
             notice: None,
             error: crashed,
             scroll_to_selected: false,
+            tasks_lead: None,
+            inbox_lead: None,
             bring: None,
             settle_until: None,
         }
@@ -1657,7 +1669,7 @@ impl Board {
                 self.show();
                 self.run(Action::OpenAutopilot);
             }
-            // An urgent message: the Inbox pane on its project alone (EP-51).
+            // An urgent message: the Inbox pane scrolled to its project (EP-51, EP-60a).
             Target::Inbox(name) => {
                 self.show();
                 self.run(Action::OpenInbox(name));
@@ -1775,14 +1787,16 @@ impl Board {
                 self.view.selected = Some(selection);
                 self.bring = Some(Pane::Detail);
             }
+            // A lead leaves This project only as it is: every project stays shown, the pane
+            // scrolled to this one's group (the owner's choice after IN-22; EP-60a).
             Action::OpenTasks(name) => {
-                self.view.selected = Some(Selection::Project(name));
-                self.view.tasks_one = true;
+                self.view.selected = Some(Selection::Project(name.clone()));
+                self.tasks_lead = Some(name);
                 self.bring = Some(Pane::OwnerTasks);
             }
             Action::OpenInbox(name) => {
-                self.view.selected = Some(Selection::Project(name));
-                self.view.inbox_one = true;
+                self.view.selected = Some(Selection::Project(name.clone()));
+                self.inbox_lead = Some(name);
                 self.bring = Some(Pane::Inbox);
             }
             Action::OpenAutopilot => self.bring = Some(Pane::Autopilot),
@@ -3722,6 +3736,41 @@ mod tests {
         storage.set_string(VIEW_KEY, saved.replace(",cards:true", ""));
         let older: View = stored(Some(&storage), VIEW_KEY).unwrap();
         assert!(!older.cards);
+    }
+
+    /// The panes' This project only switches are not kept across restarts (EP-60a, IN-22): a
+    /// view is saved without them, and one an older build saved with them on reads with both
+    /// off, the other fields as saved.
+    #[test]
+    fn the_this_project_only_switches_are_not_kept_across_restarts() {
+        let mut storage = MemoryStorage::default();
+        let on = View {
+            tasks_one: true,
+            tasks_ticked: true,
+            inbox_one: true,
+            cards: true,
+            ..View::default()
+        };
+        eframe::set_value(&mut storage, VIEW_KEY, &on);
+        let saved = storage.get_string(VIEW_KEY).unwrap();
+        assert!(!saved.contains("tasks_one"), "{saved}");
+        assert!(!saved.contains("inbox_one"), "{saved}");
+        let restored: View = stored(Some(&storage), VIEW_KEY).unwrap();
+        assert!(!restored.tasks_one && !restored.inbox_one);
+        assert!(restored.tasks_ticked && restored.cards, "the rest as saved");
+        // What a build before EP-60a wrote: both switches on.
+        let older = saved
+            .replace("tasks_ticked:true", "tasks_one:true,tasks_ticked:true")
+            .replace("inbox_ticked:false", "inbox_one:true,inbox_ticked:false");
+        assert!(
+            older.contains("tasks_one:true") && older.contains("inbox_one:true"),
+            "{older}"
+        );
+        storage.set_string(VIEW_KEY, older);
+        let older: View = stored(Some(&storage), VIEW_KEY).unwrap();
+        assert!(!older.tasks_one, "read as off");
+        assert!(!older.inbox_one, "read as off");
+        assert!(older.tasks_ticked && older.cards, "the rest as saved");
     }
 
     /// Expand all adds the projects the list shows and leaves a filtered-out one alone; Collapse

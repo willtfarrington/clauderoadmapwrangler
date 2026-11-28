@@ -27,3 +27,26 @@ interview"). An interview named without those words, such as a project's own int
 does not count. The chain log says "the chain ends after EP-n: EP-m is a planning interview, the
 owner's to run", and a chain plan stops at such a row as it stops at a re-plan. A title that
 names both reads as a re-plan.
+
+## EP-60a — The panes' "This project only" switch not kept; the template's placeholder note (2026-11-27)
+
+**This project only in the Owner tasks and Inbox panes** ("The window", Owner tasks and Inbox).
+The switch is no longer kept across restarts: each start shows every project, whatever it was
+when the window closed. **Open in Owner tasks** and **Open in Inbox**, on the Detail pane's
+lines, no longer turn it on: they select the project and bring the pane forward scrolled to the
+project's group, every project still shown, and an urgent message's Show does the same in the
+Inbox pane. A selected project with nothing open is not in the pane's list, and a line under the
+summary says so, for example "<project>, selected in the list, has no open owner task: This
+project only shows it alone." While the switch is on, a line under the summary says plainly what
+the pane shows and how many open tasks (or messages, with how many of them urgent) of other
+projects it hides, in amber while it hides any, for example "Shown: <project> alone, hiding 2
+open owner tasks in 1 other project.", with **Show all**, which turns the switch off.
+
+**The completion note's placeholder** ("Formalise and migrate", the brief template; the briefs as
+"The autopilot and its gate" and the Detail pane's History read them). A completion note whose
+label still reads `YYYY-MM-DD`, the brief template's placeholder, is no note: a brief that copied
+the template and kept its closing placeholder reads as open, in `crw roadmap`, in the window and
+at the autopilot's gate, until its real note is written, and the History's model, effort and
+duration come from the real note. The brief template that `crw formalise` writes now gives the
+note as an instruction in a comment, to be written at the close; the templates already in your
+projects are left as they are.

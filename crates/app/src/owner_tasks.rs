@@ -2,10 +2,12 @@
 //! grouped by project in the list's order (its groups and sort key; its filters left aside, so a
 //! filter never hides what waits), each ticked there as the Detail pane ticked it. A gate is an
 //! amber chip when it holds the project's next brief (the autopilot's rule, `prompt::due`), a
-//! weak one when it names a later brief. Two toggles, saved with the view: the selected project
-//! alone, and the tasks the tool ticked in the last week, as the ledger's `tick` events date
-//! them, each with Untick. At each project's foot its older forms, folded shut, read-only and
-//! counted nowhere (D-10 addendum of 2026-11-22). The Detail pane keeps one line that leads here.
+//! weak one when it names a later brief. Two toggles: the selected project alone, never saved and
+//! said plainly while on, with what it hides and Show all (EP-60a); and the tasks the tool ticked
+//! in the last week, as the ledger's `tick` events date them, each with Untick, saved with the
+//! view. At each project's foot its older forms, folded shut, read-only and counted nowhere (D-10
+//! addendum of 2026-11-22). The Detail pane keeps one line that leads here, scrolling the pane to
+//! the project's group.
 
 use std::collections::{BTreeSet, HashMap};
 use std::path::Path;
@@ -122,10 +124,15 @@ impl Board {
             self.ticks
                 .refresh(ledger.as_deref(), Instant::now(), Utc::now() - WEEK);
         }
+        // Open in Owner tasks' project, taken at this drawing: its group scrolled to the top.
+        let lead = self.tasks_lead.take();
         let mut actions = Vec::new();
         ui.horizontal_wrapped(|ui| {
             ui.checkbox(&mut self.view.tasks_one, "This project only")
-                .on_hover_text("Show the project selected in the list alone");
+                .on_hover_text(
+                    "Show the project selected in the list alone; not kept, so each start shows \
+                     every project",
+                );
             ui.checkbox(&mut self.view.tasks_ticked, "Ticked in the last week")
                 .on_hover_text(
                     "Show the tasks the tool ticked in the last seven days (from this pane, the \
@@ -145,11 +152,23 @@ impl Board {
             .iter()
             .filter(|row| row.open_items() > 0)
             .count();
-        let mut words = summary(self.open_tasks(), projects);
-        if let (true, Some(name)) = (self.view.tasks_one, selected.as_deref()) {
-            words.push_str(&format!(" Shown: {name} alone."));
+        ui.label(RichText::new(summary(self.open_tasks(), projects)).weak());
+        // The switch said plainly while it is on, with what it hides (the owner's choice after
+        // IN-22; EP-60a); off, a selected project the pane does not list is named.
+        let mut show_all = false;
+        if self.view.tasks_one {
+            let (hidden, holding) = hidden_tasks(&self.portfolio.projects, selected.as_deref());
+            let words = one_words(selected.as_deref(), hidden, holding);
+            show_all = switch_line(ui, &words, hidden > 0);
+        } else if let Some(name) = unlisted(selected.as_deref(), &rows) {
+            ui.label(
+                RichText::new(format!(
+                    "{name}, selected in the list, has no open owner task: This project only \
+                     shows it alone."
+                ))
+                .weak(),
+            );
         }
-        ui.label(RichText::new(words).weak());
         ui.separator();
         let ticks = self.view.tasks_ticked.then_some(&self.ticks);
         egui::ScrollArea::vertical()
@@ -170,10 +189,16 @@ impl Board {
                     return;
                 }
                 for row in &rows {
+                    if is_lead(lead.as_deref(), row) {
+                        ui.scroll_to_cursor(Some(egui::Align::TOP));
+                    }
                     project_block(ui, row, ticks, &mut actions);
                 }
             });
         self.actions.extend(actions);
+        if show_all {
+            self.view.tasks_one = false;
+        }
     }
 
     /// The projects the pane shows, in the list's order: those with an open task, an open older
@@ -222,6 +247,76 @@ fn summary(open: usize, projects: usize) -> String {
         (n, 1) => format!("{n} open owner tasks in 1 project."),
         (n, p) => format!("{n} open owner tasks in {p} projects."),
     }
+}
+
+/// The open owner tasks of the projects other than `selected` (of every project when none is),
+/// and how many projects hold them: what This project only hides, counted as the tab counts.
+fn hidden_tasks(projects: &[ProjectRow], selected: Option<&str>) -> (usize, usize) {
+    projects
+        .iter()
+        .filter(|row| selected.is_none_or(|name| !row.name().eq_ignore_ascii_case(name)))
+        .map(ProjectRow::open_items)
+        .filter(|&open| open > 0)
+        .fold((0, 0), |(open, holding), n| (open + n, holding + 1))
+}
+
+/// What the head says while This project only is on (EP-60a): the project shown and the open
+/// tasks it hides, `hidden` of them in `holding` projects.
+fn one_words(selected: Option<&str>, hidden: usize, holding: usize) -> String {
+    let tasks = match hidden {
+        1 => "1 open owner task".to_owned(),
+        n => format!("{n} open owner tasks"),
+    };
+    let projects = |other: &str| match holding {
+        1 => format!("1 {other}project"),
+        n => format!("{n} {other}projects"),
+    };
+    match (selected, hidden) {
+        (Some(name), 0) => {
+            format!("Shown: {name} alone; no other project has an open owner task.")
+        }
+        (Some(name), _) => format!(
+            "Shown: {name} alone, hiding {tasks} in {}.",
+            projects("other ")
+        ),
+        (None, 0) => "This project only is on, and no project is selected.".to_owned(),
+        (None, _) => format!(
+            "This project only is on, and no project is selected: it hides {tasks} in {}.",
+            projects("")
+        ),
+    }
+}
+
+/// The line This project only adds under a pane's summary while it is on (EP-60a): `words`, in
+/// the window's amber while the switch hides something, then Show all, which turns it off; `true`
+/// when Show all was pressed. The Inbox pane's too.
+pub(crate) fn switch_line(ui: &mut egui::Ui, words: &str, hides: bool) -> bool {
+    let mut show_all = false;
+    ui.horizontal_wrapped(|ui| {
+        let text = RichText::new(words);
+        ui.label(if hides {
+            text.color(style::amber(ui))
+        } else {
+            text
+        });
+        show_all = ui
+            .small_button("Show all")
+            .on_hover_text("Turn This project only off, so that every project shows")
+            .clicked();
+    });
+    show_all
+}
+
+/// The project selected in the list when the pane does not list it among `rows`: named under the
+/// summary while the switch is off, so that a lead to it, or a look for it, finds why it is not
+/// there (EP-60a). The Inbox pane's too.
+pub(crate) fn unlisted<'a>(selected: Option<&'a str>, rows: &[&ProjectRow]) -> Option<&'a str> {
+    selected.filter(|name| !rows.iter().any(|row| row.name().eq_ignore_ascii_case(name)))
+}
+
+/// Whether `row` is the project a lead names (EP-60a).
+pub(crate) fn is_lead(lead: Option<&str>, row: &ProjectRow) -> bool {
+    lead.is_some_and(|name| row.name().eq_ignore_ascii_case(name))
 }
 
 /// Whether the project has anything for the pane: an open task, open older forms where it keeps
@@ -567,7 +662,10 @@ pub(crate) fn detail_line(ui: &mut egui::Ui, row: &ProjectRow, actions: &mut Vec
         ui.label(words);
         if ui
             .small_button("Open in Owner tasks")
-            .on_hover_text("The Owner tasks pane on this project alone: its tasks ticked there")
+            .on_hover_text(
+                "The Owner tasks pane, scrolled to this project's tasks, which are ticked there; \
+                 every project's stay shown",
+            )
             .clicked()
         {
             actions.push(Action::OpenTasks(row.name().to_owned()));
@@ -894,7 +992,8 @@ mod tests {
 
     /// The pane's projects: those with an open task and those without a task file whose older
     /// forms are open, in the list's order whatever its filters; This project only, the selected
-    /// one alone; Open in Owner tasks selects the project and sets it.
+    /// one alone; Open in Owner tasks selects the project and leads the pane to it, the switch
+    /// left off (EP-60a).
     #[test]
     fn the_pane_lists_the_projects_in_the_lists_order_and_one_alone() {
         let scratch = Scratch::new("tasks-rows");
@@ -918,13 +1017,123 @@ mod tests {
         board.view.tasks_one = true;
         assert_eq!(names(&board, Some("lantern")), ["lantern"]);
         assert!(names(&board, None).is_empty());
-        // The Detail pane's button: the project selected, the pane on it alone.
+        // The Detail pane's button: the project selected and led to, every project still shown.
         board.view.tasks_one = false;
         board.run(Action::OpenTasks("orchard".to_owned()));
-        assert!(board.view.tasks_one);
+        assert!(!board.view.tasks_one);
+        assert_eq!(board.tasks_lead.as_deref(), Some("orchard"));
         assert_eq!(
             board.view.selected,
             Some(Selection::Project("orchard".to_owned()))
+        );
+    }
+
+    /// Open in Owner tasks scrolls a short pane to the project's group once, at the pane's next
+    /// drawing, and leaves This project only off (EP-60a, IN-22).
+    #[test]
+    fn a_lead_scrolls_the_pane_to_its_project_and_leaves_the_switch_off() {
+        let scratch = Scratch::new("tasks-lead");
+        let mut board = board(&scratch);
+        let mut screen = Screen::new();
+        let short = |screen: &mut Screen, board: &mut Board| {
+            screen.pass(Vec::new(), |ui| {
+                ui.allocate_ui(egui::vec2(520.0, 120.0), |ui| board.owner_tasks_pane(ui));
+            })
+        };
+        // harbor's tasks fill the short pane; compass's group is out of sight below them.
+        let output = short(&mut screen, &mut board);
+        let top = testing::text_at(&output, "harbor")
+            .expect("harbor at the top")
+            .y;
+        assert!(
+            testing::text_at(&output, "compass").is_none(),
+            "compass below"
+        );
+        board.run(Action::OpenTasks("compass".to_owned()));
+        assert!(!board.view.tasks_one, "every project stays shown");
+        // Taken at the next drawing; the scroll lands over the passes after it.
+        let mut output = short(&mut screen, &mut board);
+        assert_eq!(board.tasks_lead, None, "taken once");
+        for _ in 0..30 {
+            output = short(&mut screen, &mut board);
+        }
+        let at = testing::text_at(&output, "compass").expect("compass scrolled into sight");
+        assert!(
+            (at.y - top).abs() < 4.0,
+            "compass's group at the pane's top: {} against {top}",
+            at.y
+        );
+        assert!(
+            testing::text_at(&output, "harbor").is_none(),
+            "harbor above"
+        );
+    }
+
+    /// While This project only is on, the head says plainly what the pane shows and how many open
+    /// tasks of other projects it hides, with Show all, which turns it off; off, a selected
+    /// project the pane does not list is named (EP-60a, IN-22).
+    #[test]
+    fn while_the_switch_is_on_the_head_says_what_it_hides() {
+        let scratch = Scratch::new("tasks-head");
+        let mut board = board(&scratch);
+        let mut screen = Screen::new();
+        let select = |board: &mut Board, name: Option<&str>| {
+            board.view.selected = name.map(|name| Selection::Project(name.to_owned()));
+        };
+        let mut drawn =
+            |board: &mut Board| screen.pass(Vec::new(), |ui| board.owner_tasks_pane(ui));
+        // Off: the summary; lantern, which holds nothing, is named while it is selected.
+        let output = drawn(&mut board);
+        assert!(shows(&output, "2 open owner tasks in 1 project."));
+        assert!(!shows(&output, "Shown:"));
+        select(&mut board, Some("lantern"));
+        assert!(shows(
+            &drawn(&mut board),
+            "lantern, selected in the list, has no open owner task: This project only shows it \
+             alone."
+        ));
+        select(&mut board, Some("harbor"));
+        assert!(!shows(&drawn(&mut board), "selected in the list"), "listed");
+        // On: what it shows, and what it hides.
+        board.view.tasks_one = true;
+        assert!(shows(
+            &drawn(&mut board),
+            "Shown: harbor alone; no other project has an open owner task."
+        ));
+        select(&mut board, None);
+        assert!(shows(
+            &drawn(&mut board),
+            "This project only is on, and no project is selected: it hides 2 open owner tasks \
+             in 1 project."
+        ));
+        select(&mut board, Some("orchard"));
+        let output = drawn(&mut board);
+        assert!(shows(
+            &output,
+            "Shown: orchard alone, hiding 2 open owner tasks in 1 other project."
+        ));
+        // Show all turns it off.
+        let at = testing::text_at(&output, "Show all").expect("its button");
+        for events in [
+            testing::moved(at),
+            testing::button(at, egui::PointerButton::Primary, true),
+            testing::button(at, egui::PointerButton::Primary, false),
+        ] {
+            screen.pass(events, |ui| board.owner_tasks_pane(ui));
+        }
+        assert!(!board.view.tasks_one);
+        // The words' other counts.
+        assert_eq!(
+            one_words(Some("harbor"), 1, 1),
+            "Shown: harbor alone, hiding 1 open owner task in 1 other project."
+        );
+        assert_eq!(
+            one_words(Some("harbor"), 5, 3),
+            "Shown: harbor alone, hiding 5 open owner tasks in 3 other projects."
+        );
+        assert_eq!(
+            one_words(None, 0, 0),
+            "This project only is on, and no project is selected."
         );
     }
 

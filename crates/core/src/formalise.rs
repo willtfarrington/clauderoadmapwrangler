@@ -80,8 +80,10 @@ One line per task (clauderoadmapwrangler D-10): `- [ ] OT-n (EP-k, date) text`, 
 in Roadmap Wrangler or here.
 ";
 
-/// The brief template (D-12): front matter, the four sections, the residual-risk line and the
-/// completion note's placeholder.
+/// The brief template (D-12): front matter, the four sections, the residual-risk line, and how
+/// the completion note is written at the close, as an instruction in an HTML comment, which the
+/// parser skips whole, so a brief that copies the template is not read as complete (EP-60a,
+/// IN-23; D-9 addendum).
 pub const TEMPLATE: &str = "\
 ---
 ep: N
@@ -114,8 +116,12 @@ session was launched and what it read first.
 - The tests and the checks the project's rules name.
 - **Residual risk.** What the session could not exercise, and why it expects it to hold.
 
-> **Completion note (YYYY-MM-DD; model/effort; duration).** What was built; each owner decision
-> and its outcome; the routine choices; notes for later sessions.
+<!-- At the close, and not before: the brief ends with its completion note, a blockquote that
+opens `> **Completion note (YYYY-MM-DD; model/effort; duration).**` with the real date, model,
+effort and duration in place of those words (a label that still reads YYYY-MM-DD is no note),
+then records what was built, each owner decision and its outcome, the routine choices and notes
+for later sessions. A message for another project follows it as a
+`> **Handed on (to <project>).**` block. Delete this comment. -->
 ";
 
 /// The rule block with its markers, its lines ended by `eol` (none after the end marker).
@@ -860,6 +866,35 @@ mod tests {
         ));
         assert!(problems.is_empty());
         assert_eq!(tasks.len(), 1);
+    }
+
+    /// The template copied whole into a brief is not read as complete (EP-60a, IN-23): its
+    /// completion note is an instruction in a comment the parser skips, so the brief holds no
+    /// labelled block and no handed-on block, and it says how the note is written at the close.
+    #[test]
+    fn the_template_read_as_a_brief_is_open() {
+        use crate::roadmap::brief;
+
+        let copied = brief::parse(TEMPLATE);
+        assert_eq!(copied.completion(), None);
+        assert!(!copied.is_complete());
+        assert!(copied.quotes.is_empty(), "{:?}", copied.quotes);
+        assert_eq!(copied.handed_on().count(), 0);
+        assert_eq!(
+            copied.headings.last().map(|h| h.text.as_str()),
+            Some("Verification / acceptance")
+        );
+        assert!(TEMPLATE.contains("> **Completion note (YYYY-MM-DD; model/effort; duration).**"));
+        assert!(TEMPLATE.contains("At the close, and not before"));
+        assert!(!TEMPLATE.lines().any(|line| line.starts_with('>')));
+        for line in TEMPLATE.lines() {
+            assert!(line.chars().count() <= 100, "{line}");
+        }
+        // Filled in at the close, the note completes it.
+        let closed = brief::parse(&format!(
+            "{TEMPLATE}\n> **Completion note (2026-11-27; claude-opus-5-5/max; 30 min).** Done.\n"
+        ));
+        assert!(closed.is_complete());
     }
 
     #[test]

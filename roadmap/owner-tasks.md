@@ -452,3 +452,13 @@ at completion; the owner ticks in the tool (the Detail pane, from EP-6) or here.
   and nothing else there (the snippet `projects-cards.html` is no longer written; the copy there
   stays, git-ignored). (4) The site's own IN-3 then wires the card in a session there; its commit
   and any push are yours. Tick when the export has carried the card
+- [ ] OT-47 (EP-60a, 2026-11-27) Update the roadmap-wrangler plugin in your own sessions once you
+  have pushed (nothing waits on it). EP-60a changed the plugin's house-style reference: its copy
+  of the brief template now ends with the completion note as an instruction in a comment, and it
+  says that a note whose label still reads `YYYY-MM-DD` is no note. The plugin names no version,
+  so the push is the release. (1) Push this repository. (2) In a terminal, `claude plugin update
+  roadmap-wrangler@clauderoadmapwrangler` (or `/plugin` in a session, the roadmap-wrangler entry,
+  Update). (3) In a new VS Code session, ask it to show the end of the brief template in the
+  plugin's `reference/house-style.md`: it should end with the comment that opens "At the close,
+  and not before". The window's headless runs need nothing: the install refreshes their copy.
+  Tick when the reference reads so

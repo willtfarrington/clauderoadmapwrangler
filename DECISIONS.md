@@ -478,6 +478,24 @@ house style only with a regex fallback.
 > converted at the P3 walk to read well and committed it as the run left it. The other older
 > roadmaps follow when the owner wants them.
 
+> **Addendum (2026-11-27, EP-60a).** A completion note whose label still reads the template's
+> placeholder date, `YYYY-MM-DD` in any case, is no note (IN-23, read in the code by another
+> project's session): the parser gives such a block no kind, so a brief that copied the template
+> and kept its closing `> **Completion note (YYYY-MM-DD; model/effort; duration).**` reads as
+> open, the gate's condition that the brief has a completion note fails as it should, and the
+> Detail pane's History no longer takes the placeholder's "model/effort" and "duration" for a
+> later note's figures. A real note before or after the placeholder is read as before, and a
+> `## Completion note` heading that still reads `YYYY-MM-DD` is no evidence either. The template
+> `crw formalise` writes gives the note as an instruction in an HTML comment, which the parser
+> skips whole: the note written at the close, and not before, with the real date, model, effort
+> and duration, then a `Handed on` block for another project. A changed template re-offers
+> Formalise… nowhere: the formalise step creates `roadmap/_TEMPLATE.md` only where it is missing,
+> and the rule block, the one text it compares byte for byte, is unchanged; the templates already
+> written keep the blockquote, which the parser now passes over. *Alternatives.* The template
+> alone changed, the templates already written still read as complete; any note without a date
+> taken as a placeholder, which the older bare `Completion note.` form would fail; the rule
+> block's sentence reworded too, which would offer Formalise… again in every formalised project.
+
 **D-10 Owner tasks.** Each managed project carries **`roadmap/owner-tasks.md`**: one line per task,
 `- [ ] OT-n (EP-k, date) text`, optionally `before EP-m`. Sessions append at completion; the owner ticks in
 the tool and the tool writes the tick back. The seven existing forms (Risks / open items lists, Parked and
@@ -3078,6 +3096,21 @@ state; graphs only in the detail tile or a separate window.
 > project and scrolls to its group without turning the switch on; while the switch is on, the
 > pane's head says plainly how many items of other projects it hides, with Show all; both panes
 > alike. *Alternatives.* The switch kept as saved but said plainly; the row's session settling it.
+
+> **Addendum (2026-11-27, EP-60a).** The switches as built. The Owner tasks and Inbox panes'
+> This project only switches are not saved with the view, so each start shows every project, and
+> a view an older build saved with either on reads with it off; the Ticked in the last week
+> switches are still saved. Open in Owner tasks and Open in Inbox (and an urgent message's Show)
+> select the project and bring the pane forward with the switch as it is, and leave the pane a
+> lead it takes at its next drawing, scrolling the project's group to its top once. A selected
+> project the pane does not list, since nothing is open in it, is named in a weak line under the
+> summary, with what shows it. While the switch is on, a line under the summary says what the
+> pane shows and how many open tasks (messages, and how many of them urgent) of other projects it
+> hides, counted as the tab counts, in the window's amber while it hides any, with **Show all**,
+> which turns the switch off; with no project selected, it says how many it hides in all.
+> *Alternatives.* The selected project's group always listed, even empty, so that every lead
+> finds one; a lead to a project the pane does not list turning the switch on; the line in the
+> summary's weak text.
 
 **D-26 History and analytics.** **Backfill** per project with Re-import: commits whose messages record an
 EP (the `docs(roadmap): record EP-n commit hash` commits, `(EP-n` suffixes, `EP-n:` prefixes) give

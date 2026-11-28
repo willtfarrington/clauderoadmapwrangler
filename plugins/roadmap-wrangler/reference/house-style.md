@@ -97,7 +97,9 @@ One brief per session, unless the owner asks for more. A session for EP-n first 
   `> **Completion note (2026-11-10; claude-opus-5-5/max; 1 h 20 min).**`: what was built, each
   owner decision and its outcome (a table `| # | Decision | Owner's answer | Outcome |` reads well),
   the routine choices the session made, and notes for later sessions. Older forms (`> **Completion
-  note (date).**`, `## Completion note`, `> **☑ COMPLETE**`) are read as well.
+  note (date).**`, `## Completion note`, `> **☑ COMPLETE**`) are read as well. A note whose label
+  still reads `YYYY-MM-DD`, the template's placeholder, is no note: the brief stays open until the
+  real one is written.
 - A message for another project follows the note as its own block,
   `> **Handed on (to <project>).** …`; the tool delivers it into that project's inbox once the
   brief is committed (D-13). Only for a receiver outside the tool's registry does the session
@@ -344,6 +346,10 @@ session was launched and what it read first.
 - The tests and the checks the project's rules name.
 - **Residual risk.** What the session could not exercise, and why it expects it to hold.
 
-> **Completion note (YYYY-MM-DD; model/effort; duration).** What was built; each owner decision
-> and its outcome; the routine choices; notes for later sessions.
+<!-- At the close, and not before: the brief ends with its completion note, a blockquote that
+opens `> **Completion note (YYYY-MM-DD; model/effort; duration).**` with the real date, model,
+effort and duration in place of those words (a label that still reads YYYY-MM-DD is no note),
+then records what was built, each owner decision and its outcome, the routine choices and notes
+for later sessions. A message for another project follows it as a
+`> **Handed on (to <project>).**` block. Delete this comment. -->
 ```
