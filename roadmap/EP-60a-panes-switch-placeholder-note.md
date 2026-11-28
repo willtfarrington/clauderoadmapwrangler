@@ -141,9 +141,9 @@ it, so a brief that copies one stays open until its real note is written, which 
 needs. The screenshot runs saw the panes over the fake portfolio and a copy of real roadmaps, not
 the owner's own window.
 
-> **Completion note (2026-11-27; claude-opus-5-5/max; about 40 minutes of active work and of
-> wall time, 21:44 to the work commit at about 22:25 and the record commit after it; no question
-> put to the owner).** A visual session started from the window (ledger row `4a7598fa`); both
+> **Completion note (2026-11-27; claude-opus-5-5/max; about 38 minutes of active work and of
+> wall time, 21:44 to the work commit `9c2f31c` at 22:22 and the record commit after it; no
+> question put to the owner).** A visual session started from the window (ledger row `4a7598fa`); both
 > fixes built as the row's note asked, on the owner's choices of EP-59.
 >
 > **Item 1, the panes' switch** (D-25). `View::tasks_one` and `View::inbox_one` are no longer
