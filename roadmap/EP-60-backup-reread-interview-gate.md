@@ -145,9 +145,9 @@ until it restarts into this one (the install at the close asks it to, File > Ins
 otherwise). Until then its gate does not hold the interview's rows, and EP-60a and EP-60b come
 before EP-44 in any case.
 
-> **Completion note (2026-11-27; claude-opus-5-5/max; about 40 minutes of active work and of
-> wall time, 20:56 to the commits at about 21:35; one round of two questions, answered within a
-> few minutes).** A visual session started from the window (ledger row `8479e6a2`), split at
+> **Completion note (2026-11-27; claude-opus-5-5/max; about 36 minutes of active work and of
+> wall time, 20:56 to the work commit `ce4687d` at 21:32 and the record commit after it; one
+> round of two questions, answered within a few minutes).** A visual session started from the window (ledger row `8479e6a2`), split at
 > pickup on the owner's word: items 1 and 3 built here, item 2 moved to EP-60b with IN-24.
 >
 > **Item 1, the backup job read again on its own.** The projects' poll watcher now watches the
