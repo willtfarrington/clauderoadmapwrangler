@@ -376,3 +376,12 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   closed at EP-32 (2026-11-17), so the pictures are due now; placed on the owner's choice in a new
   S row, EP-60b, after EP-60a, with the status bar's notice split from EP-60 at pickup, since that
   row makes screenshot runs anyway; the real-or-mock call is put to the owner there.
+- [ ] IN-25 (from financeserver EP-9, 2026-11-27) Since 2026-11-27 the tailnet's policy is no longer
+  Tailscale's default allow-all: financeserver's `docs/tailscale-policy.hujson`, pasted by the
+  owner, lets only the named devices (today the owner's iPhone) reach LIAMFP8, on TCP 443, 8443,
+  8444 and 9443 and nothing else. Your phone pages (9443, `/m`) and the ntfy service your pushes use
+  (8444) are in it, and the iPhone loaded the phone page after the change. A new device, or a Serve
+  port of yours other than 9443, reaches nothing until that file names it and the owner pastes it:
+  ask financeserver through its inbox. Enable's checks read Serve, not the policy, so a device the
+  policy does not name sees a timeout, not your server's refusal. devenv's memory holds the fact as
+  `tailnet-policy.md`.
