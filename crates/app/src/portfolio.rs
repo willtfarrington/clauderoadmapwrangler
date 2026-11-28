@@ -68,6 +68,16 @@ const PROJECTS_POLL: Duration = if cfg!(test) {
     Duration::from_secs(3)
 };
 
+/// How long the backup job's run log stays unchanged before the job is read again (EP-60): a
+/// run writes its lines over a minute or two, each scan of the watcher seeing a change, so the
+/// read waits for the run's last line rather than following each. Longer than
+/// [`PROJECTS_POLL`], so that two scans' changes fall into one wait.
+const BACKUP_SETTLE: Duration = if cfg!(test) {
+    Duration::from_millis(400)
+} else {
+    Duration::from_secs(10)
+};
+
 /// The portfolio as one read of the files found it, with the git and GitHub readings added as
 /// they come.
 #[derive(Debug, Clone, Default)]
@@ -758,11 +768,14 @@ pub enum Message {
         generation: u64,
         portfolio: Portfolio,
     },
-    /// The backup job, read at the start of a git pass; `reading` is `None` when none is set.
+    /// The backup job, read at the start of a git pass, after Back up now, when its run log
+    /// changed and at the day's turn; `reading` is `None` when none is set. `log` is the run
+    /// log the registry names, which the projects' watcher follows (EP-60).
     Backups {
         generation: u64,
         reading: Option<backup::Reading>,
         projects: HashMap<String, Backup>,
+        log: Option<PathBuf>,
     },
     Git {
         generation: u64,
@@ -903,6 +916,10 @@ pub struct Loader {
     watched: BTreeMap<PathBuf, String>,
     /// The projects a watched path changed in since the window last took them (EP-48).
     changed: Vec<String>,
+    /// The backup job's run log as the projects' watcher watches it (EP-60), and when the job
+    /// is owed a read after the log changed, once [`BACKUP_SETTLE`] has passed without a change.
+    backup_log: Option<PathBuf>,
+    backup_due: Option<Instant>,
     backups: Option<(backup::Reading, HashMap<String, Backup>)>,
     fetched: Online,
     /// A read of the files is under way.
@@ -953,6 +970,8 @@ impl Loader {
             projects_watcher: None,
             watched: BTreeMap::new(),
             changed: Vec::new(),
+            backup_log: None,
+            backup_due: None,
             backups: None,
             fetched: Online::default(),
             reading_files: false,
@@ -1009,6 +1028,15 @@ impl Loader {
                 daily_export(ledger.as_deref());
             }
         });
+    }
+
+    /// The day's turn (EP-41, EP-60): every project's files read again, which keeps the day's
+    /// counts and writes the day's export, and the backup job read again, so that its reading
+    /// is never more than a day old whatever the watcher saw (a log on a drive not mounted when
+    /// it was watched), under the 48 hours after which a unit reads as stale.
+    pub fn read_for_the_day(&mut self) {
+        self.read_files();
+        self.read_backups();
     }
 
     /// Reads one project again on a worker thread (EP-25a): its files as the files pass reads
@@ -1210,6 +1238,9 @@ impl Loader {
                 generation,
                 reading,
                 projects: backups,
+                log: registry
+                    .as_ref()
+                    .and_then(|registry| registry.backup_files().1),
             });
             ctx.request_repaint();
             let repositories: Vec<(String, PathBuf)> = projects
@@ -1246,10 +1277,11 @@ impl Loader {
         });
     }
 
-    /// Reads the backup job again on a worker thread (EP-34's Back up now): its settings, its log
-    /// and each project's unit, as the git pass's start reads them, into the pass that runs or
-    /// last ran; no child.
+    /// Reads the backup job again on a worker thread (EP-34's Back up now; EP-60's change of its
+    /// run log and the day's turn): its settings, its log and each project's unit, as the git
+    /// pass's start reads them, into the pass that runs or last ran; no child.
     pub fn read_backups(&mut self) {
+        self.backup_due = None;
         let generation = self.git.load(Atomic::SeqCst);
         let (store, tx, ctx) = (self.store.clone(), self.tx.clone(), self.ctx.clone());
         thread::spawn(move || {
@@ -1270,9 +1302,29 @@ impl Loader {
                 generation,
                 reading,
                 projects,
+                log: registry
+                    .as_ref()
+                    .and_then(|registry| registry.backup_files().1),
             });
             ctx.request_repaint();
         });
+    }
+
+    /// Starts the backup job's read once its run log has settled after a change (EP-60), and
+    /// says how long until then, for the pass's repaint.
+    pub fn read_backups_due(&mut self) -> Option<Duration> {
+        let left = self.backup_due?.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            self.read_backups();
+            return None;
+        }
+        Some(left)
+    }
+
+    /// Whether the backup job is owed a read after its run log changed (EP-60).
+    #[cfg(test)]
+    pub fn backups_owed(&self) -> bool {
+        self.backup_due.is_some()
     }
 
     /// Imports `project`'s history again from its log, whatever `HEAD` says (EP-25's
@@ -1517,9 +1569,18 @@ impl Loader {
                         }
                     }
                 }
-                // A watched path changed (EP-48): its project, each once until taken.
+                // A watched path changed (EP-48): its project, each once until taken; the backup
+                // job's run log (EP-60): the job owed a read once the log settles, each change
+                // putting it off, so that a run's lines are read once after its last.
                 Message::Changed { paths } => {
                     for path in paths {
+                        if self
+                            .backup_log
+                            .as_ref()
+                            .is_some_and(|log| path.starts_with(log))
+                        {
+                            self.backup_due = Some(Instant::now() + BACKUP_SETTLE);
+                        }
                         if let Some(name) = self.watched_project(&path)
                             && !self.changed.iter().any(|known| known == name)
                         {
@@ -1531,8 +1592,10 @@ impl Loader {
                     generation,
                     reading,
                     projects,
+                    log,
                 } if generation == self.git.load(Atomic::SeqCst) => {
                     self.backups = reading.map(|reading| (reading, projects));
+                    self.watch_backup_log(log);
                     changed = true;
                 }
                 Message::Git {
@@ -1682,33 +1745,8 @@ impl Loader {
                     .map(move |path| (path, name.to_owned()))
             })
             .collect();
-        if wanted == self.watched {
+        if wanted == self.watched || self.poll_watcher().is_none() {
             return;
-        }
-        if self.projects_watcher.is_none() {
-            let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
-            let started = notify::PollWatcher::new(
-                move |event: notify::Result<notify::Event>| {
-                    if let Ok(event) = event
-                        && changes_files(&event.kind)
-                        && !event.paths.is_empty()
-                    {
-                        let _ = tx.send(Message::Changed { paths: event.paths });
-                        ctx.request_repaint();
-                    }
-                },
-                notify::Config::default().with_poll_interval(PROJECTS_POLL),
-            );
-            match started {
-                Ok(watcher) => self.projects_watcher = Some(watcher),
-                Err(e) => {
-                    log::line(
-                        "watch",
-                        &format!("the projects' roadmaps and HEADs are not watched: {e}"),
-                    );
-                    return;
-                }
-            }
         }
         let Some(watcher) = self.projects_watcher.as_mut() else {
             return;
@@ -1735,6 +1773,69 @@ impl Loader {
             }
         }
         self.watched = watched;
+    }
+
+    /// The projects' poll watcher (EP-48), started at its first use, which watches the backup
+    /// job's run log too (EP-60); `None` when it could not start, which the rolling log says.
+    fn poll_watcher(&mut self) -> Option<&mut notify::PollWatcher> {
+        if self.projects_watcher.is_none() {
+            let (tx, ctx) = (self.tx.clone(), self.ctx.clone());
+            let started = notify::PollWatcher::new(
+                move |event: notify::Result<notify::Event>| {
+                    if let Ok(event) = event
+                        && changes_files(&event.kind)
+                        && !event.paths.is_empty()
+                    {
+                        let _ = tx.send(Message::Changed { paths: event.paths });
+                        ctx.request_repaint();
+                    }
+                },
+                notify::Config::default().with_poll_interval(PROJECTS_POLL),
+            );
+            match started {
+                Ok(watcher) => self.projects_watcher = Some(watcher),
+                Err(e) => {
+                    log::line(
+                        "watch",
+                        &format!(
+                            "the projects' roadmaps and HEADs and the backup job's run log are \
+                             not watched: {e}"
+                        ),
+                    );
+                    return None;
+                }
+            }
+        }
+        self.projects_watcher.as_mut()
+    }
+
+    /// Watches the backup job's run log with the projects' poll watcher (EP-60), the path as the
+    /// latest read of the job named it: a new one watched, an old one let go. A watched log that
+    /// goes for a while (its drive unmounted) stays watched, since the poll carries on and says
+    /// when it is back. A new log that is not there yet is tried again at the job's next read,
+    /// since notify's poll watcher adds no watch for a missing path and says nothing back; the
+    /// day's turn reads the job whatever the watcher sees.
+    fn watch_backup_log(&mut self, named: Option<PathBuf>) {
+        if named == self.backup_log {
+            return;
+        }
+        let old = self.backup_log.take();
+        let Some(watcher) = self.poll_watcher() else {
+            return;
+        };
+        if let Some(old) = old {
+            let _ = watcher.unwatch(&old);
+        }
+        let Some(path) = named.filter(|path| path.is_file()) else {
+            return;
+        };
+        match watcher.watch(&path, RecursiveMode::NonRecursive) {
+            Ok(()) => self.backup_log = Some(path),
+            Err(e) => log::line(
+                "watch",
+                &format!("the backup job's run log is not watched: {e}"),
+            ),
+        }
     }
 
     /// The project whose watched path holds `path` (EP-48): a file in its `roadmap` folder, the
@@ -2725,6 +2826,150 @@ pub(crate) mod tests {
         assert_eq!(
             changed_within(&mut loader, &mut portfolio, Duration::from_secs(10)),
             ["alpha"]
+        );
+    }
+
+    /// The backup job's log line that checked `alpha`'s unit `hours` ago, as the job writes it.
+    fn unchanged_line(hours: i64) -> String {
+        let at = (Utc::now() - TimeDelta::hours(hours))
+            .to_rfc3339_opts(chrono::SecondsFormat::Secs, false);
+        format!("{{\"event\":\"unchanged\",\"unit\":\"WORK\\\\alpha\",\"ts\":\"{at}\"}}\n")
+    }
+
+    /// A scratch backup job over one project, `alpha` (EP-60): its settings with a set making a
+    /// unit per folder of the data root, a target folder, and a run log whose one line checked
+    /// the unit `hours` ago, the log's file time set back, as a real day-old log's is, so that
+    /// the watcher's whole-second poll sees the next write. Returns the store and the log.
+    fn backup_store(scratch: &Scratch, hours: i64) -> (Store, PathBuf) {
+        let root = scratch.0.join("home").join("WORK");
+        let folder = root.join("alpha");
+        fs::create_dir_all(&folder).unwrap();
+        let target = scratch.0.join("target");
+        fs::create_dir_all(&target).unwrap();
+        let job = scratch.0.join("job.psd1");
+        fs::write(
+            &job,
+            format!(
+                "@{{\n    Target = '{}'\n    Sets = @(\n        @{{ Name = 'WORK'; Each = 'WORK' }}\n    \
+                 )\n}}\n",
+                target.display()
+            ),
+        )
+        .unwrap();
+        let log = scratch.0.join("log.jsonl");
+        fs::write(&log, unchanged_line(hours)).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&log)
+            .unwrap()
+            .set_modified(std::time::SystemTime::now() - Duration::from_secs(10))
+            .unwrap();
+        let registry = scratch.0.join("registry.toml");
+        fs::write(
+            &registry,
+            format!(
+                "format = 1\n\n[settings]\ndata_root = {:?}\nbackup_settings = {:?}\n\
+                 backup_log = {:?}\n\n[[project]]\nname = \"alpha\"\npath = \"alpha\"\n\
+                 state = \"active\"\n",
+                root.display(),
+                job.display(),
+                log.display()
+            ),
+        )
+        .unwrap();
+        let store = Store::new(
+            registry,
+            scratch.0.join("backups"),
+            Defaults {
+                repository: folder,
+                data_root: root,
+            },
+        );
+        (store, log)
+    }
+
+    /// The backup job read again on its own (EP-60), so a window up past the job's daily runs
+    /// weighs each run rather than the one its start read: the projects' watcher follows the
+    /// job's run log, and a newer line owes the job a read, which waits for the log to settle,
+    /// then lands: the unit's last check moves, its badge goes from stale to fresh and the tray's
+    /// mark goes. The day's turn reads the job whatever the watcher saw.
+    #[test]
+    fn a_change_of_the_backup_log_reads_the_job_again_once_it_settles() {
+        let scratch = Scratch::new("portfolio-backup-log");
+        let (store, log) = backup_store(&scratch, 50);
+        let mut loader = Loader::new(Arc::new(store), None, false, egui::Context::default());
+        let mut portfolio = Portfolio::default();
+        let checked = |portfolio: &Portfolio| {
+            portfolio
+                .project("alpha")
+                .and_then(|row| row.badges.backup.as_ref())
+                .and_then(|backup| backup.checked)
+        };
+        let state = |portfolio: &Portfolio| {
+            portfolio
+                .project("alpha")
+                .and_then(|row| row.badges.backup.as_ref())
+                .map(|backup| backup.state(Utc::now()))
+        };
+        let marked = |portfolio: &Portfolio| {
+            crate::toasts::marks(portfolio, Utc::now())
+                .iter()
+                .any(|mark| mark.project.as_deref() == Some("alpha") && mark.what == "stale")
+        };
+        let append = |line: &str| {
+            let mut file = fs::OpenOptions::new().append(true).open(&log).unwrap();
+            std::io::Write::write_all(&mut file, line.as_bytes()).unwrap();
+        };
+        loader.read_files();
+        loader.read_git();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while (loader.reading_files || checked(&portfolio).is_none()) && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        let first = checked(&portfolio).expect("the git pass's start read the job");
+        assert_eq!(state(&portfolio), Some(backup::State::Stale));
+        assert!(marked(&portfolio), "the tray marks the stale backup");
+        assert_eq!(loader.backup_log.as_deref(), Some(log.as_path()));
+        assert!(!loader.backups_owed());
+
+        // The job runs: a line checks the unit an hour ago.
+        append(&unchanged_line(1));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !loader.backups_owed() && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(loader.backups_owed(), "the watcher saw the log change");
+        let wait = loader
+            .read_backups_due()
+            .expect("the read waits for the log to settle");
+        assert!(wait <= BACKUP_SETTLE, "{wait:?}");
+        assert_eq!(checked(&portfolio), Some(first), "not read at once");
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while checked(&portfolio) == Some(first) && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            loader.read_backups_due();
+            thread::sleep(Duration::from_millis(20));
+        }
+        let second = checked(&portfolio).unwrap();
+        assert!(second > first, "{second} after {first}");
+        assert_eq!(state(&portfolio), Some(backup::State::Fresh));
+        assert!(!marked(&portfolio), "the tray's mark goes");
+        assert!(!loader.backups_owed());
+
+        // The day's turn reads the job itself: a newer line lands with no settled read asked.
+        append(&unchanged_line(0));
+        loader.read_for_the_day();
+        assert!(!loader.backups_owed());
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while checked(&portfolio) == Some(second) && Instant::now() < deadline {
+            loader.receive(&mut portfolio);
+            thread::sleep(Duration::from_millis(20));
+        }
+        assert!(
+            checked(&portfolio).unwrap() > second,
+            "the day's read landed"
         );
     }
 

@@ -984,6 +984,11 @@ impl Board {
         if let Some(next) = self.loader.read_owed() {
             ctx.request_repaint_after(next);
         }
+        // The backup job's run log changed (EP-60): the job read again once its lines settle,
+        // so that a window up for days weighs each day's run, not the one its start read.
+        if let Some(next) = self.loader.read_backups_due() {
+            ctx.request_repaint_after(next);
+        }
         self.launch_reread();
         // The autopilot weighs the runs that ended against the meter's figures (D-22; EP-19).
         self.autopilot_pass();
@@ -1046,14 +1051,16 @@ impl Board {
             self.loader.read_online(false);
         }
         // The local day turned with the window up (EP-41): every project's files read again,
-        // which keeps the day's counts and writes the day's export; the pass within
-        // `ONLINE_WAKE` of midnight, or the first after the machine wakes, takes it.
+        // which keeps the day's counts and writes the day's export, and the backup job read
+        // again (EP-60); the pass within `ONLINE_WAKE` of midnight, or the first after the
+        // machine wakes, takes it.
         if self.loader.day_turned() && !self.loader.reading_files {
             crw_core::log::line(
                 "notice",
-                "the day turned: every project's files read again for the day's counts and export",
+                "the day turned: every project's files read again for the day's counts and \
+                 export, and the backup job",
             );
-            self.loader.read_files();
+            self.loader.read_for_the_day();
         }
         ctx.request_repaint_after(ONLINE_WAKE);
         if let Some(at) = self.settle_until {

@@ -248,6 +248,8 @@ pub enum Refusal {
         tasks: Vec<String>,
     },
     Replan(EpId),
+    /// The next brief is a planning interview, the owner's to run as a re-plan is (EP-60).
+    Interview(EpId),
     Size {
         next: EpId,
         size: Option<Size>,
@@ -316,6 +318,9 @@ impl Refusal {
                 tasks.join(", ")
             ),
             Refusal::Replan(next) => format!("{next} is a re-plan, the owner's to run"),
+            Refusal::Interview(next) => {
+                format!("{next} is a planning interview, the owner's to run")
+            }
             Refusal::Size {
                 next,
                 size: Some(size),
@@ -457,6 +462,46 @@ pub fn is_replan(title: &str) -> bool {
     })
 }
 
+/// Words just before a planning interview's name that make it a mention of another session's
+/// (`found at the P3 planning interview`, `fixes from the planning interview`) rather than the
+/// brief's own. Articles are not among them, as they are for a re-plan: a planning session's own
+/// title names it with one (`The v2 planning interview, session 1 of 3`, `…: a planning interview
+/// through the plan skill`).
+const INTERVIEW_MENTIONS: [&str; 7] = ["at", "from", "after", "since", "before", "during", "until"];
+
+/// Whether a brief's title names a planning interview, which the owner runs as a re-plan (D-22
+/// addendum of 2026-11-27): `planning interview`, `owner interview` or `owner's interview`,
+/// `interview with the owner`, `planning session` or `planning round`, each in the plural too. It
+/// fails safe as [`is_replan`] does, since a wrong yes only ends a chain: the name counts wherever
+/// it stands, at the head, after a colon or inside a list, but for a mention of another session's,
+/// a preposition among the three words before it (`Found at the P3 planning interview: …`). An
+/// interview with none of those words is a project's own subject (`Interview mode v1`), never
+/// caught.
+pub fn is_interview(title: &str) -> bool {
+    let words: Vec<String> = title
+        .split_whitespace()
+        .map(|word| {
+            word.trim_matches(|c: char| !c.is_alphanumeric())
+                .replace('’', "'")
+                .to_lowercase()
+        })
+        .filter(|word| !word.is_empty())
+        .collect();
+    let word = |at: usize| words.get(at).map_or("", String::as_str);
+    let interview = |at: usize| matches!(word(at), "interview" | "interviews" | "interview's");
+    let owner = |at: usize| matches!(word(at), "owner" | "owners" | "owner's");
+    let session = |at: usize| matches!(word(at), "session" | "sessions" | "round" | "rounds");
+    (0..words.len()).any(|at| {
+        let named = (word(at) == "planning" && (interview(at + 1) || session(at + 1)))
+            || (owner(at) && interview(at + 1))
+            || (interview(at) && word(at + 1) == "with" && word(at + 2) == "the" && owner(at + 3));
+        named
+            && !words[at.saturating_sub(3)..at]
+                .iter()
+                .any(|before| INTERVIEW_MENTIONS.contains(&before.as_str()))
+    })
+}
+
 /// The gate (D-22): every condition that fails, in the order the log names them; none when the
 /// next brief may start.
 pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
@@ -492,6 +537,8 @@ pub fn gate(facts: &Facts, now: DateTime<Utc>) -> Vec<Refusal> {
             }
             if is_replan(&next.title) {
                 no.push(Refusal::Replan(next.id));
+            } else if is_interview(&next.title) {
+                no.push(Refusal::Interview(next.id));
             }
             match next.size {
                 Some(size) if size <= facts.max_size => {}
@@ -958,7 +1005,7 @@ impl Plan {
 /// The plan of a chain after `after` (EP-19a): the next unchecked rows in table order, up to the
 /// project's `daily`, each with the rules' resolution over its row (`levels` and `usage` as
 /// [`read`] takes them); the list stops at a row the gate would refuse on its own account (a
-/// re-plan, a size over `max_size`, no size), named with the reason.
+/// re-plan, a planning interview, a size over `max_size`, no size), named with the reason.
 pub fn plan(
     registry: &Registry,
     project: &Project,
@@ -994,6 +1041,8 @@ pub fn plan(
         }
         let refused = if is_replan(&row.brief.title) {
             Some(Refusal::Replan(row.id))
+        } else if is_interview(&row.brief.title) {
+            Some(Refusal::Interview(row.id))
         } else {
             match row.size {
                 Some(size) if size <= max => None,
@@ -1397,6 +1446,28 @@ mod tests {
             ),
             (
                 Box::new(move |f: &mut Facts| f.next = next("EP-5", "Re-plan P1", Some(Size::S))),
+                Refusal::Replan(ep("EP-5")),
+            ),
+            (
+                // A planning interview, the owner's to run as a re-plan is (EP-60).
+                Box::new(move |f: &mut Facts| {
+                    f.next = next(
+                        "EP-5",
+                        "The v2 planning interview, session 1 of 3",
+                        Some(Size::M),
+                    )
+                }),
+                Refusal::Interview(ep("EP-5")),
+            ),
+            (
+                // A title naming both refuses once, as a re-plan.
+                Box::new(move |f: &mut Facts| {
+                    f.next = next(
+                        "EP-5",
+                        "Re-plan P0 as the v1 planning interview",
+                        Some(Size::M),
+                    )
+                }),
                 Refusal::Replan(ep("EP-5")),
             ),
             (
@@ -2011,6 +2082,39 @@ mod tests {
         );
     }
 
+    /// The plan stops at a planning interview as at a re-plan (EP-60), in P7's shape: a row that
+    /// names the interview in passing, a fix row, then the interview's first session.
+    #[test]
+    fn the_plan_stops_at_a_planning_interview() {
+        let registry: Registry = toml::from_str(
+            "format = 1\n\n[[project]]\nname = \"alpha\"\npath = \"alpha\"\nstate = \"active\"\n\
+             autopilot = { enabled = true, daily = 4 }\n",
+        )
+        .unwrap();
+        let snapshot = snapshot::Snapshot {
+            tree: Some(crate::roadmap::table::parse(
+                "## Phase P7 — v2\n\n| # | Brief | Size | Depends on | Core | Done |\n\
+                 |---|---|---|---|---|---|\n\
+                 | EP-1 | The walk's fixes; the gate holding the v2 interview's sessions | S | — \
+                 | core | ☐ |\n\
+                 | EP-2 | The fixes the interview's sessions wait for | S | EP-1 | core | ☐ |\n\
+                 | EP-3 | The v2 planning interview, session 1 of 3 | M | EP-2 | core | ☐ |\n\
+                 | EP-4 | The v2 planning interview, session 2 of 3 | M | EP-3 | core | ☐ |\n",
+            )),
+            ..snapshot::Snapshot::default()
+        };
+        let plan = plan_of(&registry, &snapshot);
+        let ids: Vec<EpId> = plan.briefs.iter().map(|planned| planned.ep).collect();
+        assert_eq!(ids, vec![ep("EP-2")]);
+        assert_eq!(
+            plan.stop,
+            Some(Stop {
+                ep: ep("EP-3"),
+                why: "EP-3 is a planning interview, the owner's to run".to_owned()
+            })
+        );
+    }
+
     /// A plan made again after a keep (EP-19c): the owner's Chain boxes and choices carry over by
     /// EP id; a row they left alone shows the new resolution.
     #[test]
@@ -2164,6 +2268,71 @@ mod tests {
         ] {
             assert!(!is_replan(title), "{title}");
         }
+    }
+
+    /// A planning interview (EP-60), in synthetic titles of the forms the portfolio writes: the
+    /// name at the head, after a colon, in a session of several, an owner interview, the plan
+    /// skill's interview named in a link; and the interviews named in passing, a project's own
+    /// interviews and plain planning, which no chain should end at.
+    #[test]
+    fn a_planning_interview_is_told_from_one_named_in_passing() {
+        for title in [
+            "The v2 planning interview, session 1 of 3, through the `plan` skill: the verified \
+             survey, the research pass, the domain map written first (D-1, D-30)",
+            "The v2 planning interview, session 2 of 3: the rounds over v2's phases (D-30)",
+            "The v2 planning interview, session 3 of 3: the record written: v2's decisions from \
+             D-31, its phases (D-30)",
+            "Plan the second site: a planning interview through `/roadmap-wrangler:plan`, its \
+             decisions and the next phase's rows",
+            "[Planning interview, survey, roadmap and decision log](EP-0-planning-interview.md) \
+             (D-1 … D-12)",
+            "[The v1 planning interview: survey, research pass, domain map](EP-0-x.md)",
+            "Planning interview: 12 rounds, 40 questions; D-1 … D-9; phases P1 … P3",
+            "Layout charter: owner interview on what lives where (D-4 … D-7)",
+            "The owner's interview on scope",
+            "Scope: an interview with the owner, then the roadmap",
+            "Planning session 2: the rounds",
+            "**Planning rounds** over the phases",
+            "Fixes, then the v2 planning interview",
+            "The planning interview’s second session",
+            // A re-cut naming the interview as an item is caught too, a wrong yes failing safe:
+            // a re-cut is the owner's as a re-plan is.
+            "Re-cut P6: the window's surfaces, the manuals; the v2 planning interview moves to P7",
+        ] {
+            assert!(is_interview(title), "{title}");
+        }
+        for title in [
+            // This roadmap's rows that name the interview in passing (EP-60's own, EP-61's).
+            "The P6 walk's fixes: the backup job read again; the gate holding the v2 interview's \
+             sessions for the owner, as it holds a re-plan (D-24, D-25, D-22)",
+            "Re-plan P7: the walk, the retro, addenda, v2's first phase confirmed as the \
+             interview wrote it (D-4, D-10)",
+            "Found at the P3 planning interview: a fix for the window",
+            "Fixes from the planning interview",
+            "Notes after the v2 planning interview",
+            "The walk's fixes before the planning interview",
+            // A project whose subject is an interview.
+            "Interview mode v1",
+            "Interview modes",
+            "User interviews: the survey's questions",
+            "The owners table and its interview notes",
+            // Planning that is not an interview.
+            "Planning the export's schema",
+            "Plans and planning",
+            "A planning-session template",
+            "",
+        ] {
+            assert!(!is_interview(title), "{title}");
+        }
+        assert_eq!(
+            Refusal::Interview(ep("EP-44")).words(),
+            "EP-44 is a planning interview, the owner's to run"
+        );
+        let ended = refused_words(Some(ep("EP-60")), &[Refusal::Interview(ep("EP-44"))]);
+        assert!(
+            ended.starts_with("the chain ends after EP-60: EP-44 is a planning interview"),
+            "{ended}"
+        );
     }
 
     #[test]

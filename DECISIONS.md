@@ -2368,6 +2368,26 @@ committing and recording hashes; one model and effort per project; usage thresho
 > so. *Alternatives.* The interview's rows
 > unticked in a chain plan by hand; a registry key per row naming it the owner's.
 
+> **Addendum (2026-11-27, EP-60).** **A planning interview is the owner's to run**, as built
+> (`autopilot::is_interview`, `Refusal::Interview`). A title names one when it holds "planning
+> interview", "owner interview" or "owner's interview", "interview with the owner", "planning
+> session" or "planning round" (each in the plural too), wherever it stands: at its head, after
+> a colon, in a session of several, in a list. It fails safe as `is_replan` does, since a wrong
+> yes only ends a chain, so a re-cut that names the interview as an item reads as one; only a
+> mention of another session's interview is left out, a preposition among the three words before
+> the name ("found at the P3 planning interview", "fixes from the planning interview": at, from,
+> after, since, before, during, until). Articles do not mark a mention here, as they do for a
+> re-plan, since a planning session's own title names it with one. An interview named without
+> those words is a project's own subject and never caught: the portfolio holds two unchecked M
+> rows of that kind in a project with the autopilot on. The gate names "EP-n is a planning
+> interview, the owner's to run" after the re-plan's condition (a title naming both refuses once,
+> as a re-plan), and a chain plan stops at such a row. The portfolio's titles, read at pickup,
+> held one unchecked M row of this kind that `is_replan` missed, in a project with the autopilot
+> on: a chain reaching it would have started a planning interview headless. *Alternatives.* The
+> word "interview" alone (it would end that project's chains at its own interview rows); the
+> name counted in a title's first clause only (a re-cut naming the interview would pass, at the
+> cost of a later clause's planning session); a registry key per row naming it the owner's.
+
 **D-23 Usage meter.** Two sources: the **undocumented** `GET https://api.anthropic.com/api/oauth/usage`
 (weekly, Fable-scoped weekly, five-hour while active, per-surface breakdown), polled every five minutes and
 after each tool-launched session with the access token read from `~/.claude/.credentials.json` at poll time
@@ -2709,6 +2729,21 @@ archive mechanism; editing `index.html`.
 > the job again when its run log changes (the owner's choice). *Alternatives.* (1) The ask left
 > unrecorded; a doc comment on `check_card` naming the writer. (2) Parked in `v2-notes.md`, F5
 > clearing the badges meanwhile; a longer `STALE_AFTER`.
+
+> **Addendum (2026-11-27, EP-60).** **The backup job read again on its own**, as built. The
+> projects' poll watcher (EP-48's, every 3 s, holding no handle between scans) watches the run
+> log the registry's `backup_log` names, its path taken from each read of the job, so a changed
+> setting is followed at the next read and a log not there yet (a drive not mounted, a first run
+> to come) is tried again then. A change owes the job a read once the log has gone 10 s without
+> another (`BACKUP_SETTLE`, longer than a scan), so a run's lines, written over a minute or two,
+> are read once after its last; the read is `read_backups()`, the settings, the log's tail and
+> each unit's newest archive, file reads only, no child. The day's turn reads the job too, beside
+> every project's files (`Loader::read_for_the_day`), so a log the watcher cannot see still
+> leaves the reading at most a day old, under `STALE_AFTER`'s 48 hours, which is unchanged: a
+> unit the job stops checking still reads as stale two days on. *Alternatives.* The log's file
+> time compared on each pass (a second clock beside the watcher's); a read at each scan that saw
+> a change; the day's turn alone, which bounds the reading's age but shows a run only the next
+> day; a longer `STALE_AFTER`.
 
 **D-25 Views.** Docked egui_tiles: a dense project list (name, state, next-EP one-liner with size, badges,
 session status, autopilot toggle, Start), a detail tile (brief notes, owner tasks, inbox, history), a

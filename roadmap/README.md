@@ -142,7 +142,9 @@ planning interview into three M sessions (EP-44, EP-44a, EP-44b), so no L remain
 addendum), and closes with its own re-plan (EP-61, M). The roadmap holds **97 briefs, 27 S · 66
 M · 4 L** (≈ 87.5 session-hours at S 30 min, M 1 h and L 2 h, the basis of the totals above),
 counted afresh from the tables, **7 of them open** once EP-59 is checked: EP-59a and P7's six,
-3 S · 4 M ≈ 4 h 30 min at EP-53's sizes. EP-45's paragraph above gave P6 at its re-cut as 6 S
+3 S · 4 M ≈ 4 h 30 min at EP-53's sizes. *(EP-60, 2026-11-27: EP-60 split at pickup, the owner's
+choice, the status bar's notice moving to a new S row, EP-60b: 98 briefs, 28 S · 66 M · 4 L.)*
+EP-45's paragraph above gave P6 at its re-cut as 6 S
 and 10 M, 6 S · 9 M of them open; its table held 7 S and 9 M, 7 S · 8 M open (≈ 11.5
 session-hours).
 
@@ -3106,8 +3108,9 @@ inbox through the tool, on the owner's word).
 
 | # | Brief | Size | Depends on | Core | Done |
 |---|---|---|---|---|---|
-| EP-60 | The P6 walk's fixes: the backup job read again on its own when its run log changes, so a window up for days shows no false "stale" badge; the status bar's notice laid out in the width the right-hand items leave; the gate holding the v2 interview's sessions for the owner, as it holds a re-plan (D-24, D-25, D-22) | S | EP-59 | core | ☐ |
+| EP-60 | [The P6 walk's fixes, split at pickup: the backup job read again on its own when its run log changes and at the day's turn, so a window up for days shows no false "stale" badge; the gate holding the v2 interview's sessions for the owner, as it holds a re-plan](EP-60-backup-reread-interview-gate.md) (D-24, D-22) | S | EP-59 | core | ☐ |
 | EP-60a | Two fixes from the inbox: the Owner tasks and Inbox panes' "This project only" switch no longer kept across restarts and said plainly while on (IN-22); a brief still carrying the template's placeholder completion note no longer read as complete, the template's placeholder worded as an instruction (IN-23) (D-25, D-9) | S | EP-59 | core | ☐ |
+| EP-60b | The status bar's notice laid out in the width the right-hand items leave, cut with an ellipsis and whole on hover (split from EP-60); the site's two pictures for prime from the fake portfolio, with their captions and alt text (IN-24) (D-25, D-3) | S | EP-60 | core | ☐ |
 | EP-44 | The v2 planning interview, session 1 of 3, through the `plan` skill: the verified survey of the tree and of Claude Code's documented surface, the research pass, the domain map written first, a first round on the direction's order (D-1, D-30) | M | EP-60 | core | ☐ |
 | EP-44a | The v2 planning interview, session 2 of 3: the rounds over v2's phases and decisions, a few per session, a further session proposed as a row if they need one (D-30) | M | EP-44 | core | ☐ |
 | EP-44b | The v2 planning interview, session 3 of 3: the record written: v2's decisions from D-31, its phases with the first phase's brief notes, the session rules where they change, the parked notes (D-30) | M | EP-44a | core | ☐ |
@@ -3125,7 +3128,11 @@ the interview in three M sessions, each the owner's to start in VS Code: the sur
 domain map, the rounds, the record; a session whose rounds will not fit proposes a further one
 as a row rather than running long (the `plan` skill's step 5; D-4 addendum). EP-60a follows
 EP-60 with the two fixes the inbox brought during the re-plan (IN-22, IN-23), and P7 closes with
-its own re-plan (EP-61), whose walk takes the routes carried from P6's.
+its own re-plan (EP-61), whose walk takes the routes carried from P6's. *(EP-60, 2026-11-27, the
+owner's choices.)* EP-60 was split at pickup as its note allowed: the status bar's notice, whose
+two screenshot runs were most of the row, moved to a new S row, EP-60b, after EP-60a, and IN-24's
+two pictures for the site joined it, since this project's v1 closed at EP-32 and that row makes
+pictures anyway.
 
 Standing decisions for phase P7: those of P6, and the D-4, D-10, D-22, D-25 and D-30 addenda of
 EP-59 (the sizes kept; the routes carried by name to P7's re-plan; the gate holding a planning
@@ -3134,7 +3141,8 @@ interview in three sessions).
 
 **Brief notes.**
 
-- **EP-60.** Added at EP-59 (2026-11-26), the walk's fixes, the owner's choices. (1) **The backup
+- **EP-60.** *(EP-60, 2026-11-27: split at pickup, the owner's choice: (2) moved to EP-60b with
+  IN-24's pictures; this row keeps (1) and (3).)* Added at EP-59 (2026-11-26), the walk's fixes, the owner's choices. (1) **The backup
   badges' false "stale"** (EP-59's field check). The window reads the backup job
   (`read_backup_job`, `crates/app/src/portfolio.rs`) only at the git pass's start (`read_git`:
   at its own start, `board.rs`; on F5, `Action::Refresh`; after a revert, `revert.rs`) and by
@@ -3191,6 +3199,28 @@ interview in three sessions).
   changed template makes a formalised project's row offer Formalise… again (`House::wants`) is
   checked and said. Tests over synthetic briefs (a placeholder note, a real one after it, a real
   one alone). A D-9 addendum for (2), `docs/manual-changes.md`'s section for both.
+- **EP-60b.** Added at EP-60 (2026-11-27), split from EP-60 at pickup, the owner's choices. (1)
+  **The status bar's notice** (EP-60's note, item 2; EP-52's parked line): `status_bar`
+  (`board.rs`) lays out its left-hand lines first (the portfolio's problem, the error or the
+  notice, the watchers' and GitHub's problems, the signals' warning), the notice cut by characters
+  (`NOTICE_CHARS`, 160, through `one_line`), then the right-hand items in a right-to-left layout
+  over what is left (the reading words, the usage strip, the home note, the newer-build chip), so
+  in a narrow window a long notice runs under the chips and "Up to date". Laid out the other way:
+  the right-hand items first, then the left-hand lines in the width they leave, cut with an
+  ellipsis and whole on hover (egui's `Label::truncate` shows the whole text on hover when it
+  cuts), the notice kept whole on its one line rather than cut at 160 characters (the rolling log
+  has it whole already). A screenshot run at 1100 × 900 with a long notice and the right-hand
+  items (`restart`, `usage`, `newer`), and one over a copy of the real portfolio (rule 5); a D-25
+  addendum and `docs/manual-changes.md`'s section. (2) **The site's two pictures** (IN-24, from
+  the owner via prime): two landscape PNGs of at least 2698 × 1429 px at 1.888:1 (prime's
+  1280 × 678 thumbnails), two distinct views a reader would want, each with a caption of a few
+  words and a one-sentence alt text. The real-or-mock call is the owner's, asked at pickup: this
+  project's pictures show the fake portfolio (rule 3), so the app's own screenshot mode over the
+  synthetic projects is the likely answer, never the real window or a private project's name.
+  The files stay on this machine, untracked, in a folder the session names (under the
+  git-ignored `private/`, say), never pushed, and go to prime in a `> **Handed on (to prime).**`
+  block with their paths, captions and alt text; the owner decides there whether they go on the
+  site (for now, public cards only).
 - **EP-44.** *(EP-59, 2026-11-26: cut into three M sessions, the owner's choice: this row is the
   first, EP-44a and EP-44b the rest; its inputs below stand, with P6's outcome added at their
   end.)* *(EP-45, 2026-11-22: moved to P7, after EP-59, which cuts it to the size rule; its

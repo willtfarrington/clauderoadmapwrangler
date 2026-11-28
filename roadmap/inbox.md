@@ -362,3 +362,17 @@ and tick its box. From EP-20 the tool delivers the other projects' `Handed on (t
   the parser skips a completion note whose label still reads `YYYY-MM-DD` (a placeholder, not a
   note), and the template `crw formalise` writes (`crates/core/src/formalise.rs`) gives the
   placeholder as an instruction rather than as a blockquote the parser reads.
+- [x] IN-24 (from the owner, 2026-11-27) Screenshots for the site (from prime): when the row that
+  completes your v1, or your roadmap's equivalent (the phase or milestone it calls the first
+  complete version), is done, make two screenshots on hupsim's precedent: n=2, landscape PNG,
+  2698x1429 px or larger at 1.888:1 (so prime's 1280x678 thumbnails pair like hupsim's), two
+  distinct views a reader would want, each with a few-word caption and a one-sentence alt text. Show
+  the real thing if nothing on screen has a provenance, licence or privacy issue; otherwise a mock
+  or smoke build on synthetic data, never patient, credentialed or personal records or a private
+  project's name. Keep the files on this machine, untracked in a folder you name, never pushed, and
+  hand on to prime with paths, captions and alt text: the owner decides there whether they go on the
+  site (for now, public cards only). Park this in your v1-closing row's brief notes; the
+  real-or-mock call goes to the owner then. **Triaged at EP-60 (2026-11-27):** this project's v1
+  closed at EP-32 (2026-11-17), so the pictures are due now; placed on the owner's choice in a new
+  S row, EP-60b, after EP-60a, with the status bar's notice split from EP-60 at pickup, since that
+  row makes screenshot runs anyway; the real-or-mock call is put to the owner there.
